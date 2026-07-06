@@ -2,21 +2,25 @@
 
 -- ========== MT5 Worker 注册表 ==========
 -- 每台 Windows VM 上的 MT5 bridge 注册一行; 加 worker = 插一行, 不改代码
--- roles: download(下载历史数据) | backtest(模拟回测) | live(实盘下单)
+-- roles: download(下载数据) | demo(跑模拟策略) | live(跑实盘策略), demo与live不能同机
 -- 测试期一台机器可同时持有多个角色, 拆分时改注册即可
 CREATE TABLE mt5_hosts (
     id             SERIAL PRIMARY KEY,
     name           VARCHAR(64)  NOT NULL UNIQUE,
     host           VARCHAR(255) NOT NULL,
-    port           INTEGER      NOT NULL DEFAULT 9090,
+    port           INTEGER      NOT NULL DEFAULT 8020,
     roles          TEXT[]       NOT NULL DEFAULT '{}',
     mt5_login      BIGINT,
     mt5_server     VARCHAR(128),
     account_type   VARCHAR(8)   NOT NULL DEFAULT 'DEMO'
                    CHECK (account_type IN ('DEMO', 'REAL')),
     enabled        BOOLEAN      NOT NULL DEFAULT TRUE,
+    status         VARCHAR(8)   NOT NULL DEFAULT 'OFFLINE'
+                   CHECK (status IN ('ONLINE', 'OFFLINE')),
+    online_at      TIMESTAMPTZ,             -- 最近一次上线时间
+    offline_at     TIMESTAMPTZ,             -- 最近一次下线时间
     last_heartbeat TIMESTAMPTZ,
-    created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),  -- 注册时间
     updated_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
     UNIQUE (host, port)
 );
@@ -27,6 +31,18 @@ CREATE INDEX idx_mt5_hosts_roles ON mt5_hosts USING GIN (roles);
 CREATE TRIGGER trg_mt5_hosts_updated_at
     BEFORE UPDATE ON mt5_hosts
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ========== Worker 事件历史 (完整追踪主机生命周期) ==========
+-- REGISTERED / ONLINE / OFFLINE / ENABLED / DISABLED / ROLES_CHANGED / ACCOUNT_SET
+CREATE TABLE mt5_host_events (
+    id         SERIAL PRIMARY KEY,
+    host_id    INTEGER     NOT NULL REFERENCES mt5_hosts(id) ON DELETE CASCADE,
+    event      VARCHAR(16) NOT NULL,
+    detail     JSONB       NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_host_events ON mt5_host_events (host_id, created_at DESC);
 
 -- ========== 策略表（策略实例） ==========
 -- 一行 = 模板 + 参数 + 品种 + 周期 的一个实例, 独立走准入漏斗

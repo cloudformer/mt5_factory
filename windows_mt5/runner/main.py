@@ -9,6 +9,7 @@
 import json
 import logging
 import os
+import socket
 import sys
 import time
 from pathlib import Path
@@ -22,9 +23,12 @@ from dotenv import load_dotenv
 
 from strategy_core import make_strategy
 
-load_dotenv(Path(__file__).resolve().parents[1] / "worker.env")
+# 统一配置: 与 Linux docker compose 共用 env/.dev.env (整仓 clone 到 Windows)
+load_dotenv(Path(__file__).resolve().parents[2] / "env" / ".dev.env")
 
-APP_URL = os.getenv("APP_URL", "").rstrip("/")
+# api 地址由共享配置拼出: http://<Linux VM IP>:<API_PORT>
+DOCKER_COMPOSE_HOST = os.getenv("DOCKER_COMPOSE_HOST", "").strip()
+API_URL = f"http://{DOCKER_COMPOSE_HOST}:{os.getenv('API_PORT', '8010')}"
 RUN_STATUS = os.getenv("RUN_STATUS", "DEMO")
 VOLUME = float(os.getenv("VOLUME", "0.01"))
 POLL_SECONDS = 10
@@ -51,10 +55,33 @@ def mt5_connect() -> bool:
     return mt5.initialize()  # 附着到已登录终端
 
 
-def fetch_strategies() -> list:
-    """从 app 拉取本 worker 应运行的策略实例"""
-    r = requests.get(f"{APP_URL}/strategies/status",
-                     params={"status": RUN_STATUS, "limit": 500}, timeout=10)
+def detect_run_status() -> str:
+    """本机角色以 web 上的指派为准 (mt5_hosts.roles): live→ACTIVE, demo→DEMO;
+    找不到本机注册记录时退回 env 的 RUN_STATUS"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect((DOCKER_COMPOSE_HOST, 1))
+        my_ip = s.getsockname()[0]
+        s.close()
+        r = requests.get(f"{API_URL}/hosts", timeout=10)
+        for h in r.json()["hosts"]:
+            if h["host"] == my_ip and h["enabled"]:
+                if "live" in h["roles"]:
+                    return "ACTIVE"
+                if "demo" in h["roles"]:
+                    return "DEMO"
+                return ""  # 已注册但未指派 demo/live: 不跑策略
+    except Exception as e:
+        logger.warning("role detect failed (%s), fallback to env RUN_STATUS", e)
+    return RUN_STATUS
+
+
+def fetch_strategies(run_status: str) -> list:
+    """从 api 拉取本 worker 应运行的策略实例"""
+    if not run_status:
+        return []
+    r = requests.get(f"{API_URL}/strategies/status",
+                     params={"status": run_status, "limit": 500}, timeout=10)
     r.raise_for_status()
     instances = []
     for s in r.json()["strategies"]:
@@ -72,7 +99,7 @@ def fetch_strategies() -> list:
             })
         except Exception as e:
             logger.error("build strategy %s failed: %s", s.get("name"), e)
-    logger.info("loaded %d strategies (status=%s)", len(instances), RUN_STATUS)
+    logger.info("loaded %d strategies (status=%s)", len(instances), run_status)
     return instances
 
 
@@ -135,8 +162,8 @@ def process(inst: dict, last_bar: dict) -> None:
 
 
 def main():
-    if not APP_URL:
-        logger.error("APP_URL not set in worker.env")
+    if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
+        logger.error("env/.dev.env 的 DOCKER_COMPOSE_HOST 必须填 Linux VM 的局域网 IP (当前: %r)", DOCKER_COMPOSE_HOST)
         sys.exit(1)
     while not mt5_connect():
         logger.error("MT5 connect failed: %s, retry in 30s", mt5.last_error())
@@ -147,7 +174,7 @@ def main():
     while True:
         if time.time() - last_refresh > REFRESH_SECONDS:
             try:
-                instances = fetch_strategies()
+                instances = fetch_strategies(detect_run_status())
                 last_refresh = time.time()
             except Exception as e:
                 logger.error("fetch strategies failed: %s", e)

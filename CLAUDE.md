@@ -2,14 +2,14 @@
 
 ## 目标架构
 
-- **Linux VM** 跑 docker compose：`postgres`（唯一数据源）+ `app`（业务 API，8000）+ `web`（Flask 前端，8080，只调 app API 不碰业务/数据库）
+- **Linux VM** 跑 docker compose：`postgres`（唯一数据源）+ `api`（业务 API，8010）+ `web`（Flask 前端，8000，只调 api 不碰业务/数据库）
 - **Windows VM × 1..N** 跑 MT5 终端 + bridge，是无状态 worker：
   - 从干净 Windows 到就绪必须全脚本化（`windows_mt5/`），克隆即扩容
   - 加 worker = 在 `mt5_hosts` 表注册（host/port/roles），不改代码不重启
-  - 角色：`download`（下载历史数据）/ `backtest`（模拟）/ `live`（实盘），一台可兼多角色，随时可拆
+  - 角色：`download`（下载数据）/ `demo`（模拟）/ `live`（实盘），demo 与 live 不能同机，一台可兼多角色，随时可拆
 - **数据流单向**：Windows 只和 MT5 交互，数据全部落库；回测/模拟只读库，不直接拉 MT5
 - **全 Python 执行方案**（2026-07-05 确认，不用 MQL5/EA）：策略代码只有一份（`strategy_core` 共享包），回测和实盘跑同一个策略类，只换适配器：
-  - 回测：Linux app 的回测引擎，数据源 = DB 回放，执行器 = 模拟撮合
+  - 回测：Linux api 的回测引擎，数据源 = DB 回放，执行器 = 模拟撮合
   - 实时/实盘：Windows VM 上的 runner（与 MT5 同机），数据源 = MT5 实时，执行器 = order_send
   - 验证三级：DB 快速回测 → Windows demo 账户实时测试 → 实盘，换配置不换代码
   - 成交回写数据库，与回测结果同表可比

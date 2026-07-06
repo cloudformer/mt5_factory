@@ -11,7 +11,12 @@
     <select name="timeframe">
       {% for tf in timeframes %}<option {% if tf == 'M15' %}selected{% endif %}>{{ tf }}</option>{% endfor %}
     </select>
-    <button>生成 (模板 × 参数网格 × 品种)</button>
+    <select name="mode">
+      <option value="grid">网格 (固定组合)</option>
+      <option value="random">随机 (可反复生成)</option>
+    </select>
+    数量 <input name="count" value="50" size="4" title="随机模式下每个品种生成的数量">
+    <button>生成</button>
   </form>
 </section>
 

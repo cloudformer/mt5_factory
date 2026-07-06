@@ -1,5 +1,6 @@
 """strategy_core: 回测与实时执行共用的策略包"""
 import itertools
+import random
 
 from .base import Signal, Strategy
 from .templates import TEMPLATES
@@ -24,3 +25,16 @@ def grid_combos(template: str) -> list[dict]:
         if cls.valid_params(params):
             combos.append(params)
     return combos
+
+
+def random_combo(template: str, rng: random.Random) -> dict | None:
+    """在 RANDOM_SPACE 范围内随机采样一组参数 (按 step 取整对齐)"""
+    cls = TEMPLATES[template]
+    for _ in range(50):  # 最多尝试50次找到有效组合
+        params = {}
+        for key, (lo, hi, step) in cls.RANDOM_SPACE.items():
+            value = lo + rng.randint(0, int(round((hi - lo) / step))) * step
+            params[key] = round(value, 4) if isinstance(step, float) else int(value)
+        if cls.valid_params(params):
+            return params
+    return None

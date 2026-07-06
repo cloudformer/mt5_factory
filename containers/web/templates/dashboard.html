@@ -2,76 +2,67 @@
 {% block content %}
 
 <section>
-  <h2>Workers</h2>
+  <h2>服务状态</h2>
   <table>
-    <tr><th>ID</th><th>名称</th><th>地址</th><th>角色</th><th>账户</th><th>状态</th><th>最后心跳</th><th>操作</th></tr>
+    <tr><th>服务</th><th>地址</th><th>状态</th></tr>
+    <tr>
+      <td>web</td><td>本页面</td>
+      <td><span class="badge ok">正常</span></td>
+    </tr>
+    <tr>
+      <td>api</td><td>{{ health and '已连接' or '-' }}</td>
+      <td>{% if health %}<span class="badge ok">{{ health.status }}</span>
+          {% else %}<span class="badge error">不可达</span>{% endif %}</td>
+    </tr>
+    <tr>
+      <td>postgres</td>
+      <td class="mono">{{ health.db.url if health else '-' }}</td>
+      <td>{% if health and health.db.status == 200 %}<span class="badge ok">正常</span>
+          {% else %}<span class="badge error">异常</span>{% endif %}</td>
+    </tr>
     {% for h in hosts %}
     <tr>
-      <td>{{ h.id }}</td>
-      <td>{{ h.name }}</td>
-      <td>{{ h.host }}:{{ h.port }}</td>
-      <td>{{ h.roles | join(', ') }}</td>
-      <td>{{ h.account_type }}</td>
+      <td>worker: {{ h.name }}</td>
+      <td>{{ h.host }}:{{ h.port }} ({{ h.roles | join(', ') }})</td>
       <td>
         {% if not h.enabled %}<span class="badge">停用</span>
-        {% elif h.online %}<span class="badge ok">在线</span>
+        {% elif h.status == 'ONLINE' %}<span class="badge ok">在线</span>
         {% else %}<span class="badge error">离线</span>{% endif %}
-      </td>
-      <td>{{ (h.last_heartbeat or '')[:19] }}</td>
-      <td>
-        <form method="post" action="{{ url_for('dashboard.toggle_worker', host_id=h.id) }}" class="inline">
-          <button name="enabled" value="{{ 'false' if h.enabled else 'true' }}" class="small">
-            {{ '停用' if h.enabled else '启用' }}</button>
-        </form>
+        <span class="muted">{{ (h.last_heartbeat or '')[:19] }}</span>
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="8" class="muted">暂无 worker — 用下方表单注册</td></tr>
+    <tr><td>worker</td><td>-</td>
+        <td><span class="badge warn">未注册</span> <a href="{{ url_for('workers.index') }}">去注册</a></td></tr>
     {% endfor %}
   </table>
-
-  <h3>注册 worker</h3>
-  <form method="post" action="{{ url_for('dashboard.add_worker') }}" class="inline">
-    <input name="name" placeholder="名称 如 win-1" size="10" required>
-    <input name="host" placeholder="IP 如 192.168.1.50" size="14" required>
-    <input name="port" value="9090" size="5">
-    {% for r in all_roles %}
-    <label><input type="checkbox" name="roles" value="{{ r }}" {% if r == 'download' %}checked{% endif %}> {{ r }}</label>
-    {% endfor %}
-    <select name="account_type"><option>DEMO</option><option>REAL</option></select>
-    <button>注册</button>
-  </form>
-
-  <h3>下发 MT5 账户 (免去 Windows 上手动配置)</h3>
-  <form method="post" id="connect-form" class="inline"
-        onsubmit="this.action='/workers/'+this.host_id.value+'/connect'">
-    <select name="host_id">
-      {% for h in hosts %}<option value="{{ h.id }}">{{ h.name }} ({{ h.host }})</option>{% endfor %}
-    </select>
-    <input name="login" placeholder="MT5 账号" size="10" required>
-    <input name="password" type="password" placeholder="密码" size="12" required>
-    <input name="server" placeholder="服务器 如 MetaQuotes-Demo" size="18" required>
-    <button {% if not hosts %}disabled{% endif %}>登录</button>
-  </form>
 </section>
 
 <section>
-  <h2>下载设置</h2>
-  <form method="post" action="{{ url_for('dashboard.save_settings') }}" class="inline">
-    品种 <input name="symbols" value="{{ config.get('symbols', []) | join(',') }}" size="60">
-    起始日期 <input name="data_start" value="{{ config.get('data_start', '2015-01-01') }}" size="10">
-    <button>保存</button>
-  </form>
+  <h2>任务状态</h2>
+  <table>
+    <tr><th>任务</th><th>状态</th></tr>
+    <tr>
+      <td>数据同步</td>
+      <td>{% if sync.running %}<span class="badge ok">进行中</span>
+            {% for w, p in (sync.current or {}).items() %}{{ w }}: {{ p }}　{% endfor %}
+            <span class="muted">已写入 {{ "{:,}".format(sync.bars_written) }} 根</span>
+          {% else %}<span class="muted">空闲</span>{% endif %}
+          {% for e in sync.errors %}<span class="badge error">{{ e }}</span>{% endfor %}</td>
+    </tr>
+    <tr>
+      <td>回测</td>
+      <td>{% if backtest.running %}<span class="badge ok">进行中</span>
+            {{ backtest.done }}/{{ backtest.total }} — {{ backtest.current }}
+          {% else %}<span class="muted">空闲</span>
+            {% if backtest.total %}(上次 {{ backtest.done }}/{{ backtest.total }},
+            {{ backtest.errors | length }} 个错误){% endif %}{% endif %}</td>
+    </tr>
+  </table>
 </section>
 
 <section>
-  <h2>数据覆盖 (M1)</h2>
-  <form method="post" action="{{ url_for('dashboard.trigger_sync') }}" class="inline">
-    <button {% if sync.running %}disabled{% endif %}>触发同步</button>
-    {% if sync.running %}<span class="badge ok">同步中: {{ sync.current }}</span>{% endif %}
-    {% if sync.bars_written %}<span class="muted">本次已写入 {{ "{:,}".format(sync.bars_written) }} 根</span>{% endif %}
-    {% for e in sync.errors %}<span class="badge error">{{ e }}</span>{% endfor %}
-  </form>
+  <h2>数据概况 (M1)</h2>
   <table>
     <tr><th>品种</th><th>起</th><th>止</th><th>K线数</th></tr>
     {% for c in coverage %}
@@ -82,19 +73,9 @@
       <td>{{ "{:,}".format(c.bars) }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="4" class="muted">暂无数据 — 注册 worker 后点"触发同步"</td></tr>
+    <tr><td colspan="4" class="muted">暂无数据 — <a href="{{ url_for('datasync.index') }}">去下载</a></td></tr>
     {% endfor %}
   </table>
-</section>
-
-<section>
-  <h2>回测进度</h2>
-  {% if backtest.running %}
-    <p><span class="badge ok">运行中</span> {{ backtest.done }}/{{ backtest.total }} — {{ backtest.current }}</p>
-  {% else %}
-    <p class="muted">空闲{% if backtest.total %} (上次: {{ backtest.done }}/{{ backtest.total }},
-      {{ backtest.errors | length }} 个错误){% endif %}</p>
-  {% endif %}
 </section>
 
 {% endblock %}

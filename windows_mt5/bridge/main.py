@@ -1,13 +1,14 @@
-"""MT5 Bridge - Windows worker HTTP API (端口固定 9090)
+"""MT5 Bridge - Windows worker HTTP API (端口 = env 的 MT5_PORT, 默认 8020)
 
 哑执行器: 只负责 MT5 <-> HTTP 的转换, 不含业务逻辑。
 MT5 账户三种来源(优先级由高到低):
-  1. app 远程下发: POST /connect
-  2. worker.env 手动配置 MT5_LOGIN/PASSWORD/SERVER
+  1. api 远程下发: POST /connect
+  2. env/.dev.env 手动配置 MT5_LOGIN/PASSWORD/SERVER
   3. 都没有: 附着到本机已登录的 MT5 终端
 """
 import logging
 import os
+import socket
 import threading
 import time
 from datetime import datetime, timezone
@@ -15,15 +16,19 @@ from pathlib import Path
 from typing import Optional
 
 import MetaTrader5 as mt5
+import requests
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel
 
-load_dotenv(Path(__file__).resolve().parent.parent / "worker.env")
+# 统一配置: 与 Linux docker compose 共用 env/.dev.env (整仓 clone 到 Windows)
+load_dotenv(Path(__file__).resolve().parents[2] / "env" / ".dev.env")
 
-BRIDGE_PORT = 9090  # 固定端口, 防火墙/注册表都按它来
+BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 与 api 注册 worker 的端口同源
 BRIDGE_API_KEY = os.getenv("BRIDGE_API_KEY", "")
+DOCKER_COMPOSE_HOST = os.getenv("DOCKER_COMPOSE_HOST", "").strip()
+API_PORT = os.getenv("API_PORT", "8010")
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -85,6 +90,31 @@ def _reconnect_loop():
             _connect()
 
 
+def _announce_loop():
+    """自动注册: 周期性向 api 自报家门, Workers 页面无需手动添加。
+    新机器以 download 角色入册, demo/live 由人在 web 上指派。"""
+    if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
+        logger.warning("DOCKER_COMPOSE_HOST 未配置, 跳过自动注册 (可在 web Workers 页手动注册)")
+        return
+    api_base = f"http://{DOCKER_COMPOSE_HOST}:{API_PORT}"
+    while True:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect((DOCKER_COMPOSE_HOST, 1))
+            my_ip = s.getsockname()[0]
+            s.close()
+            r = requests.post(f"{api_base}/hosts/announce", timeout=10, json={
+                "name": f"win-{my_ip.replace('.', '-')}",
+                "host": my_ip,
+                "port": BRIDGE_PORT,
+            })
+            if r.status_code != 200:
+                logger.warning("announce rejected: %s %s", r.status_code, r.text[:100])
+        except Exception as e:
+            logger.warning("announce failed (api 未就绪?): %s", e)
+        time.sleep(60)
+
+
 def _require_key(x_api_key: Optional[str]):
     if BRIDGE_API_KEY and x_api_key != BRIDGE_API_KEY:
         raise HTTPException(status_code=401, detail="invalid api key")
@@ -102,6 +132,7 @@ app = FastAPI(title="MT5 Bridge", version="2.0.0")
 def startup():
     _connect()  # 失败不退出: 重连守护接管, /health 如实上报
     threading.Thread(target=_reconnect_loop, daemon=True).start()
+    threading.Thread(target=_announce_loop, daemon=True).start()
 
 
 @app.get("/health")

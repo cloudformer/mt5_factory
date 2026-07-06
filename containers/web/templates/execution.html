@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section>
+  <h2>{{ cfg.title }}主机</h2>
+  <table>
+    <tr><th>名称</th><th>地址</th><th>账户</th><th>状态</th><th>操作</th></tr>
+    {% for h in assigned %}
+    <tr>
+      <td>{{ h.name }}</td>
+      <td>{{ h.host }}:{{ h.port }}</td>
+      <td>{{ h.account_type }}</td>
+      <td>
+        {% if not h.enabled %}<span class="badge">停用</span>
+        {% elif h.status == 'ONLINE' %}<span class="badge ok">在线</span>
+        {% else %}<span class="badge error">离线</span>{% endif %}
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('execution.unassign', mode=mode, host_id=h.id) }}" class="inline">
+          <button class="small">取消指派</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">还没有指派{{ cfg.title }}主机</td></tr>
+    {% endfor %}
+  </table>
+
+  <h3>指派主机 (worker 上的 runner 会在 60 秒内自动切换角色)</h3>
+  <form method="post" action="{{ url_for('execution.assign', mode=mode) }}" class="inline">
+    <select name="host_id">
+      {% for h in assignable %}<option value="{{ h.id }}">{{ h.name }} ({{ h.host }}, 当前: {{ h.roles | join('/') or '无角色' }})</option>{% endfor %}
+    </select>
+    <button {% if not assignable %}disabled{% endif %}>指派为 {{ cfg.role }}</button>
+    {% if mode == 'live' %}<span class="badge warn">实盘: 确认该主机 MT5 登录的是真实账户</span>{% endif %}
+  </form>
+</section>
+
+<section>
+  <h2>{{ cfg.title }}策略 ({{ strategies | length }})</h2>
+  <table>
+    <tr><th>ID</th><th>名称</th><th>品种</th><th>周期</th><th>参数</th><th>magic</th><th>操作</th></tr>
+    {% for s in strategies %}
+    <tr>
+      <td>{{ s.id }}</td>
+      <td>{{ s.name }}</td>
+      <td>{{ s.symbol }}</td>
+      <td>{{ s.timeframe }}</td>
+      <td class="mono">{{ s.params }}</td>
+      <td>{{ s.magic_number or '' }}</td>
+      <td>
+        <form method="post" action="{{ url_for('strategies.set_status', strategy_id=s.id) }}" class="inline">
+          {% if mode == 'demo' %}<button name="status" value="ACTIVE" class="small">→实盘</button>{% endif %}
+          <button name="status" value="ARCHIVED" class="small danger">淘汰</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="muted">
+      没有 {{ cfg.status }} 状态的策略 —
+      {% if mode == 'demo' %}去 <a href="{{ url_for('backtests.index') }}">回测页</a> 把优胜策略提升到 DEMO
+      {% else %}去 <a href="{{ url_for('execution.demo') }}">Demo 页</a> 把验证过的策略 →实盘{% endif %}
+    </td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section>
+  <h2>下载设置</h2>
+  <form method="post" action="{{ url_for('datasync.settings') }}" class="inline">
+    品种 <input name="symbols" value="{{ config.get('symbols', []) | join(',') }}" size="60">
+    起始日期 <input name="data_start" value="{{ config.get('data_start', '2015-01-01') }}" size="10">
+    <button>保存</button>
+  </form>
+</section>
+
+<section>
+  <h2>同步</h2>
+  <form method="post" action="{{ url_for('datasync.run') }}" class="inline">
+    <button {% if sync.running or not hosts %}disabled{% endif %}>触发同步</button>
+    {% if not hosts %}
+      <span class="badge warn">没有可用的下载 worker</span>
+      <a href="{{ url_for('workers.index') }}">去注册</a>
+    {% else %}
+      <span class="muted">下载主机: {{ hosts[0].name }} ({{ hosts[0].host }})</span>
+    {% endif %}
+    {% if sync.running %}<span class="badge ok">同步中: {{ sync.current }}</span>
+      <span class="muted">已写入 {{ "{:,}".format(sync.bars_written) }} 根</span>{% endif %}
+  </form>
+  {% for e in sync.errors %}<div class="flash error">{{ e }}</div>{% endfor %}
+</section>
+
+<section>
+  <h2>数据覆盖 (M1)</h2>
+  <table>
+    <tr><th>品种</th><th>起</th><th>止</th><th>K线数</th></tr>
+    {% for c in coverage %}
+    <tr>
+      <td>{{ c.symbol }}</td>
+      <td>{{ (c.first_bar or '')[:19] }}</td>
+      <td>{{ (c.last_bar or '')[:19] }}</td>
+      <td>{{ "{:,}".format(c.bars) }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">暂无数据 — 注册 worker 后点"触发同步"</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+{% endblock %}

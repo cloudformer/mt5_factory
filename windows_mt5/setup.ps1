@@ -6,7 +6,12 @@ param([switch]$InstallMT5)
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$port = 9090  # bridge 固定端口
+$envFile = Join-Path (Split-Path -Parent $root) "env\.dev.env"   # 与 Linux 共用的统一配置
+$port = 8020
+if (Test-Path $envFile) {
+    $m = Select-String -Path $envFile -Pattern '^MT5_PORT=(\d+)'
+    if ($m) { $port = [int]$m.Matches.Groups[1].Value }
+}
 
 Write-Host "=== [1/6] Python ===" -ForegroundColor Cyan
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
@@ -31,9 +36,12 @@ if ($InstallMT5) {
 }
 
 Write-Host "=== [4/6] 配置文件 ===" -ForegroundColor Cyan
-if (-not (Test-Path "$root\worker.env")) {
-    Copy-Item "$root\worker.env.example" "$root\worker.env"
-    Write-Host "!! 已生成 worker.env, 只需填 APP_URL (MT5账户可留空由app下发) !!" -ForegroundColor Yellow
+if (-not (Test-Path $envFile)) {
+    Copy-Item "$envFile.example" $envFile
+    Write-Host "!! 已从模板生成 env\.dev.env — 建议直接用 Linux 上配置好的同一份文件覆盖 !!" -ForegroundColor Yellow
+    Write-Host "!! 至少要填 DOCKER_COMPOSE_HOST (Linux VM 的 IP) 和 BRIDGE_API_KEY !!" -ForegroundColor Yellow
+} else {
+    Write-Host "使用 $envFile"
 }
 
 Write-Host "=== [5/6] 防火墙 ===" -ForegroundColor Cyan

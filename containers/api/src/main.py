@@ -12,11 +12,17 @@ from pydantic import BaseModel
 
 from src import strategies, sync
 
+# 配置只在一处: 必须由 docker-compose.yml 注入, 代码不留兜底值, 缺了立刻报错
+_missing = [k for k in ("DB_HOST", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB")
+            if not os.getenv(k)]
+if _missing:
+    raise RuntimeError(f"missing env: {', '.join(_missing)} — 应由 docker-compose.yml 注入")
+
 ENV_NAME = os.getenv("ENV_NAME", "dev")
+DB_PORT = os.getenv("DB_PORT", "5432")  # 5432 是 postgres 协议标准端口, 允许默认
 DATABASE_URL = (
-    f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
-    f"@{os.getenv('DB_HOST', 'postgres')}:{os.getenv('DB_PORT', '5432')}"
-    f"/{os.getenv('POSTGRES_DB')}"
+    f"postgresql://{os.environ['POSTGRES_USER']}:{os.environ['POSTGRES_PASSWORD']}"
+    f"@{os.environ['DB_HOST']}:{DB_PORT}/{os.environ['POSTGRES_DB']}"
 )
 
 logging.basicConfig(
@@ -46,6 +52,17 @@ async def lifespan(app: FastAPI):
                 raise
             await asyncio.sleep(3)
 
+    # env 的 MT5_HOSTS 仅作首次引导: 表为空时种入, 之后完全由 web/API 管理 (避免删掉的复活)
+    if await app.state.pool.fetchval("SELECT count(*) FROM mt5_hosts") == 0:
+        mt5_port = int(os.getenv("MT5_PORT", "8020"))
+        for host in [h.strip() for h in os.getenv("MT5_HOSTS", "").split(",") if h.strip()]:
+            name = f"win-{host.replace('.', '-')}"
+            await app.state.pool.execute(
+                "INSERT INTO mt5_hosts (name, host, port, roles)"
+                " VALUES ($1, $2, $3, '{download,demo}')",
+                name, host, mt5_port)
+            logger.info("MT5 worker seeded: %s (%s:%s)", name, host, mt5_port)
+
     heartbeat = asyncio.create_task(sync.heartbeat_loop(app.state.pool))
     yield
     heartbeat.cancel()
@@ -57,9 +74,8 @@ app.include_router(strategies.router)
 
 
 DB_URL_MASKED = (
-    f"postgresql://{os.getenv('POSTGRES_USER')}:***"
-    f"@{os.getenv('DB_HOST', 'postgres')}:{os.getenv('DB_PORT', '5432')}"
-    f"/{os.getenv('POSTGRES_DB')}"
+    f"postgresql://{os.environ['POSTGRES_USER']}:***"
+    f"@{os.environ['DB_HOST']}:{DB_PORT}/{os.environ['POSTGRES_DB']}"
 )
 
 
@@ -69,11 +85,9 @@ async def health(response: Response):
     hosts = []
     try:
         rows = await app.state.pool.fetch(
-            "SELECT name, host, port,"
-            "       COALESCE(last_heartbeat > now() - interval '90 seconds', false) AS online"
-            "  FROM mt5_hosts WHERE enabled ORDER BY id")
+            "SELECT name, host, port, status FROM mt5_hosts WHERE enabled ORDER BY id")
         hosts = [{"name": r["name"], "host": f"{r['host']}:{r['port']}",
-                  "status": "online" if r["online"] else "offline"} for r in rows]
+                  "status": r["status"].lower()} for r in rows]
     except Exception:
         db_status = 500
         response.status_code = 503
@@ -86,23 +100,40 @@ async def health(response: Response):
 
 
 # ========== Worker ==========
-VALID_ROLES = {"download", "backtest", "live"}
+VALID_ROLES = {"download", "demo", "live"}
+
+
+def _validate_roles(roles: list[str]):
+    if not set(roles) <= VALID_ROLES:
+        raise HTTPException(status_code=400, detail=f"roles must be subset of {sorted(VALID_ROLES)}")
+    if {"demo", "live"} <= set(roles):
+        raise HTTPException(status_code=400,
+                            detail="同一台主机不能同时担任 demo 和 live (一个MT5终端只能登录一个账户)")
 
 
 @app.get("/hosts")
 async def list_hosts():
     rows = await app.state.pool.fetch(
-        "SELECT id, name, host, port, roles, account_type, enabled, last_heartbeat,"
-        "       (last_heartbeat > now() - interval '90 seconds') AS online"
+        "SELECT id, name, host, port, roles, account_type, enabled, status,"
+        "       created_at, online_at, offline_at, last_heartbeat"
         "  FROM mt5_hosts ORDER BY id"
     )
     return {"hosts": [dict(r) for r in rows]}
 
 
+@app.get("/hosts/{host_id}/events")
+async def host_events(host_id: int, limit: int = 100):
+    """worker 生命周期历史 (注册/上下线/启停/角色变更/账户下发)"""
+    rows = await app.state.pool.fetch(
+        "SELECT event, detail, created_at FROM mt5_host_events"
+        " WHERE host_id=$1 ORDER BY created_at DESC LIMIT $2", host_id, limit)
+    return {"events": [dict(r) for r in rows]}
+
+
 class HostCreate(BaseModel):
     name: str
     host: str
-    port: int = 9090
+    port: int = 8020
     roles: list[str] = ["download"]
     account_type: str = "DEMO"
 
@@ -110,8 +141,7 @@ class HostCreate(BaseModel):
 @app.post("/hosts")
 async def create_host(req: HostCreate):
     """注册 worker (等价于往 mt5_hosts 插一行)"""
-    if not set(req.roles) <= VALID_ROLES:
-        raise HTTPException(status_code=400, detail=f"roles must be subset of {sorted(VALID_ROLES)}")
+    _validate_roles(req.roles)
     if req.account_type not in ("DEMO", "REAL"):
         raise HTTPException(status_code=400, detail="account_type must be DEMO or REAL")
     try:
@@ -121,6 +151,7 @@ async def create_host(req: HostCreate):
             req.name, req.host, req.port, req.roles, req.account_type)
     except asyncpg.UniqueViolationError:
         raise HTTPException(status_code=409, detail="name or host:port already registered")
+    await sync.log_host_event(app.state.pool, row["id"], "REGISTERED", {"source": "manual"})
     return dict(row)
 
 
@@ -137,14 +168,53 @@ async def update_host(host_id: int, req: HostUpdate):
     fields = {k: v for k, v in req.model_dump().items() if v is not None}
     if not fields:
         raise HTTPException(status_code=400, detail="nothing to update")
-    if "roles" in fields and not set(fields["roles"]) <= VALID_ROLES:
-        raise HTTPException(status_code=400, detail=f"roles must be subset of {sorted(VALID_ROLES)}")
+    if "roles" in fields:
+        _validate_roles(fields["roles"])
+    old = await app.state.pool.fetchrow(
+        "SELECT enabled, roles FROM mt5_hosts WHERE id=$1", host_id)
+    if old is None:
+        raise HTTPException(status_code=404, detail="host not found")
     sets = ", ".join(f"{k} = ${i + 2}" for i, k in enumerate(fields))
     row = await app.state.pool.fetchrow(
         f"UPDATE mt5_hosts SET {sets} WHERE id = $1 RETURNING *", host_id, *fields.values())
+    if "enabled" in fields and fields["enabled"] != old["enabled"]:
+        await sync.log_host_event(app.state.pool, host_id,
+                                  "ENABLED" if fields["enabled"] else "DISABLED")
+    if "roles" in fields and set(fields["roles"]) != set(old["roles"]):
+        await sync.log_host_event(app.state.pool, host_id, "ROLES_CHANGED",
+                                  {"from": list(old["roles"]), "to": fields["roles"]})
+    return dict(row)
+
+
+class AnnounceRequest(BaseModel):
+    name: str
+    host: str
+    port: int = 8020
+
+
+@app.post("/hosts/announce")
+async def announce_host(req: AnnounceRequest):
+    """worker 自动注册: bridge 启动后周期性自报家门。
+    新 worker 以 download 角色入册 (demo/live 必须由人在 web 上指派);
+    已存在则只刷新心跳, 不覆盖人工配置。"""
+    row = await app.state.pool.fetchrow(
+        "INSERT INTO mt5_hosts (name, host, port, roles, last_heartbeat)"
+        " VALUES ($1, $2, $3, '{download}', now())"
+        " ON CONFLICT (host, port) DO UPDATE SET last_heartbeat = now()"
+        " RETURNING id, name, roles, enabled, (xmax = 0) AS inserted",
+        req.name, req.host, req.port)
+    if row["inserted"]:
+        await sync.log_host_event(app.state.pool, row["id"], "REGISTERED", {"source": "announce"})
+    return {k: row[k] for k in ("id", "name", "roles", "enabled")}
+
+
+@app.delete("/hosts/{host_id}")
+async def delete_host(host_id: int):
+    row = await app.state.pool.fetchrow(
+        "DELETE FROM mt5_hosts WHERE id=$1 RETURNING name", host_id)
     if row is None:
         raise HTTPException(status_code=404, detail="host not found")
-    return dict(row)
+    return {"deleted": row["name"]}
 
 
 # ========== 系统配置 (下载品种/起始日期等) ==========
@@ -206,6 +276,8 @@ async def connect_host(host_id: int, req: ConnectRequest):
     await app.state.pool.execute(
         "UPDATE mt5_hosts SET mt5_login=$2, mt5_server=$3 WHERE id=$1",
         host_id, req.login, req.server)
+    await sync.log_host_event(app.state.pool, host_id, "ACCOUNT_SET",
+                              {"login": req.login, "server": req.server})
     return r.json()
 
 

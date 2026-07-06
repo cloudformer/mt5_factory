@@ -8,8 +8,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+import random
+
 from src import backtest
-from strategy_core import TEMPLATES, TF_SECONDS, grid_combos
+from strategy_core import TEMPLATES, TF_SECONDS, grid_combos, random_combo
 
 logger = logging.getLogger("strategies")
 router = APIRouter()
@@ -28,30 +30,57 @@ class GenerateRequest(BaseModel):
     template: str
     symbols: list[str]
     timeframe: str = "M15"
+    mode: str = "grid"    # grid=固定网格(有限,掏空即止) | random=随机采样(近乎无限)
+    count: int = 50       # random 模式下每个品种生成的数量
+
+
+async def _insert_instance(pool, template, symbol, timeframe, params) -> int:
+    name = f"{template}-{symbol}-{timeframe}-" + "-".join(
+        f"{k}{params[k]}" for k in sorted(params))
+    result = await pool.execute(
+        "INSERT INTO strategies (name, template, symbol, timeframe, params)"
+        " VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+        name, template, symbol, timeframe, params)
+    return int(result.split()[-1])
 
 
 @router.post("/strategies/generate")
 async def generate(req: GenerateRequest, request: Request):
-    """模板 × 参数网格 × 品种 → 批量生成 CANDIDATE 实例 (重复组合自动跳过)"""
+    """批量生成 CANDIDATE 实例 (重复组合自动跳过)"""
     if req.template not in TEMPLATES:
         raise HTTPException(status_code=400, detail=f"unknown template, available: {list(TEMPLATES)}")
     if req.timeframe not in TF_SECONDS:
         raise HTTPException(status_code=400, detail=f"invalid timeframe, available: {list(TF_SECONDS)}")
+    if req.mode not in ("grid", "random"):
+        raise HTTPException(status_code=400, detail="mode must be grid or random")
 
     pool = request.app.state.pool
-    created = 0
+    created, total = 0, 0
+    rng = random.Random()
     for symbol in req.symbols:
-        for params in grid_combos(req.template):
-            name = f"{req.template}-{symbol}-{req.timeframe}-" + "-".join(
-                f"{k}{params[k]}" for k in sorted(params))
-            result = await pool.execute(
-                "INSERT INTO strategies (name, template, symbol, timeframe, params)"
-                " VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
-                name, req.template, symbol, req.timeframe, params,
-            )
-            created += int(result.split()[-1])
-    logger.info("generated %d strategies (%s)", created, req.template)
-    return {"created": created, "template": req.template, "symbols": req.symbols}
+        if req.mode == "grid":
+            combos = grid_combos(req.template)
+        else:  # random: 多抽一些以抵消撞重, 直到凑够 count 个新实例
+            combos = None
+        if combos is not None:
+            for params in combos:
+                total += 1
+                created += await _insert_instance(pool, req.template, symbol, req.timeframe, params)
+        else:
+            made = 0
+            for _ in range(req.count * 5):  # 上限防死循环
+                if made >= req.count:
+                    break
+                params = random_combo(req.template, rng)
+                if params is None:
+                    break
+                total += 1
+                n = await _insert_instance(pool, req.template, symbol, req.timeframe, params)
+                created += n
+                made += n
+    logger.info("generated %d strategies (%s, mode=%s)", created, req.template, req.mode)
+    return {"created": created, "skipped": total - created, "mode": req.mode,
+            "template": req.template, "symbols": req.symbols}
 
 
 @router.get("/strategies/status")

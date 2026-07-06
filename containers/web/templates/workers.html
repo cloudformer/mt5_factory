@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section>
+  <h2>Workers</h2>
+  <p class="muted">Windows worker 启动后每 60 秒自动上报, 新机器(含克隆VM)会自动出现在这里(download 角色);
+     demo/live 需人工指派。长期离线的记录可手动删除。</p>
+  <table>
+    <tr><th>ID</th><th>名称</th><th>地址</th><th>角色</th><th>账户</th><th>状态</th>
+        <th>注册时间</th><th>上线时间</th><th>下线时间</th><th>操作</th></tr>
+    {% for h in hosts %}
+    <tr>
+      <td>{{ h.id }}</td>
+      <td>{{ h.name }}</td>
+      <td>{{ h.host }}:{{ h.port }}</td>
+      <td>{{ h.roles | join(', ') }}</td>
+      <td>{{ h.account_type }}</td>
+      <td>
+        {% if not h.enabled %}<span class="badge">停用</span>
+        {% elif h.status == 'ONLINE' %}<span class="badge ok">在线</span>
+        {% else %}<span class="badge error">离线</span>{% endif %}
+      </td>
+      <td>{{ (h.created_at or '')[:19] }}</td>
+      <td>{{ (h.online_at or '')[:19] }}</td>
+      <td>{{ (h.offline_at or '')[:19] }}</td>
+      <td>
+        <form method="post" action="{{ url_for('workers.toggle', host_id=h.id) }}" class="inline">
+          <button name="enabled" value="{{ 'false' if h.enabled else 'true' }}" class="small">
+            {{ '停用' if h.enabled else '启用' }}</button>
+        </form>
+        <form method="post" action="{{ url_for('workers.delete', host_id=h.id) }}" class="inline"
+              onsubmit="return confirm('删除 worker {{ h.name }}?')">
+          <button class="small danger">删除</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="10" class="muted">暂无 worker — 启动 Windows worker 自动上报, 或用下方表单注册</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section>
+  <h2>注册 worker</h2>
+  <form method="post" action="{{ url_for('workers.add') }}" class="inline">
+    <input name="name" placeholder="名称 如 win-1" size="10" required>
+    <input name="host" placeholder="IP 如 192.168.1.50" size="14" required>
+    <input name="port" value="8020" size="5">
+    {% for r in all_roles %}
+    <label><input type="checkbox" name="roles" value="{{ r }}" {% if r == 'download' %}checked{% endif %}> {{ r }}</label>
+    {% endfor %}
+    <select name="account_type"><option>DEMO</option><option>REAL</option></select>
+    <button>注册</button>
+  </form>
+  <p class="muted">角色说明: download=下载数据; demo=跑模拟策略; live=跑实盘策略。
+     demo 和 live 不能是同一台 (一个MT5终端只能登录一个账户); 角色也可以之后在 Demo/实盘 页面指派。</p>
+</section>
+
+<section>
+  <h2>下发 MT5 账户</h2>
+  <form method="post" id="connect-form" class="inline"
+        onsubmit="this.action='/workers/'+this.host_id.value+'/connect'">
+    <select name="host_id">
+      {% for h in hosts %}<option value="{{ h.id }}">{{ h.name }} ({{ h.host }})</option>{% endfor %}
+    </select>
+    <input name="login" placeholder="MT5 账号" size="10" required>
+    <input name="password" type="password" placeholder="密码" size="12" required>
+    <input name="server" placeholder="服务器 如 MetaQuotes-Demo" size="18" required>
+    <button {% if not hosts %}disabled{% endif %}>登录</button>
+  </form>
+  <p class="muted">免去在 Windows 上手动配置; 也可以在 Windows 的 env/.dev.env 里填 MT5_LOGIN/PASSWORD/SERVER。</p>
+</section>
+
+{% endblock %}

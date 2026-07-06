@@ -10,6 +10,11 @@ class Breakout(Strategy):
         "sl_points": [200, 400, 800],
         "rr": [1.5, 2.0, 3.0],
     }
+    RANDOM_SPACE = {
+        "channel": (10, 200, 5),
+        "sl_points": (100, 1500, 50),
+        "rr": (1.2, 4.0, 0.1),
+    }
 
     @property
     def warmup(self) -> int:

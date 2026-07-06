@@ -34,28 +34,28 @@ services:
       retries: 5
       start_period: 10s
 
-  # ========== App（业务服务，按需再拆） ==========
-  app:
+  # ========== API（业务服务，按需再拆） ==========
+  api:
     build:
       context: .
-      dockerfile: containers/app/Dockerfile
-    container_name: mt5_app
+      dockerfile: containers/api/Dockerfile
+    container_name: mt5_api
     restart: unless-stopped
     environment:
       ENV_NAME: ${ENV_NAME}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DB_HOST: postgres
-      DB_PORT: "5432"
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
       BRIDGE_API_KEY: ${BRIDGE_API_KEY:-}
-      SYMBOLS: ${SYMBOLS:-EURUSD,GBPUSD,USDJPY,XAUUSD,AUDUSD,USDCAD,NZDUSD,EURJPY,GBPJPY}
-      DATA_START: ${DATA_START:-2015-01-01}
+      MT5_HOSTS: ${MT5_HOSTS:-}
+      MT5_PORT: ${MT5_PORT:-8020}
     ports:
-      - "8000:8000"
+      - "${API_PORT}:8010"
     volumes:
-      - ./containers/app/src:/app/src:ro       # 开发热更新
+      - ./containers/api/src:/app/src:ro       # 开发热更新
       - ./strategy_core:/app/strategy_core:ro
     depends_on:
       postgres:
@@ -63,13 +63,13 @@ services:
     networks:
       - mt5_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
 
-  # ========== Web 前端 (Flask, 只调 app API) ==========
+  # ========== Web 前端 (Flask, 只调 api) ==========
   web:
     build:
       context: ./containers/web
@@ -77,19 +77,19 @@ services:
     container_name: mt5_web
     restart: unless-stopped
     environment:
-      APP_URL: http://app:8000
+      API_URL: http://api:8010   # 内部接线: 服务名+内部端口, 与本文件的 api 服务定义同源
       SECRET_KEY: ${SECRET_KEY:-mt5web}
     ports:
-      - "8080:8080"
+      - "${WEB_PORT}:8000"
     volumes:
       - ./containers/web:/app:ro   # 开发热更新 (gunicorn --reload)
     depends_on:
-      app:
+      api:
         condition: service_healthy
     networks:
       - mt5_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3

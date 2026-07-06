@@ -26,7 +26,7 @@ psql:
 	docker exec -it mt5_postgres psql -U mt5user -d mt5factory
 
 health:
-	curl -s http://localhost:8000/health
+	curl -s http://localhost:8010/health
 
 clean:  # 停止并删除数据卷(会清空数据库!)
 	$(COMPOSE) down -v

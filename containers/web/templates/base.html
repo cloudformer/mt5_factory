@@ -10,8 +10,12 @@
 <nav>
   <span class="brand">MT5 Factory</span>
   <a href="{{ url_for('dashboard.index') }}">概览</a>
+  <a href="{{ url_for('workers.index') }}">Workers</a>
+  <a href="{{ url_for('datasync.index') }}">下载</a>
   <a href="{{ url_for('strategies.index') }}">策略</a>
   <a href="{{ url_for('backtests.index') }}">回测</a>
+  <a href="{{ url_for('execution.demo') }}">Demo</a>
+  <a href="{{ url_for('execution.live') }}">实盘</a>
 </nav>
 <main>
   {% with messages = get_flashed_messages(with_categories=true) %}

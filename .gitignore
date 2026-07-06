@@ -19,4 +19,3 @@ env/*.env
 .vscode/
 .idea/
 .DS_Store
-windows_mt5/worker.env

@@ -36,3 +36,6 @@ button:hover { background: #1d4ed8; }
 button:disabled { background: #9ca3af; cursor: default; }
 button.small { padding: 2px 8px; font-size: 12px; background: #6b7280; }
 button.small:hover { background: #4b5563; }
+button.danger { background: #b91c1c; }
+button.danger:hover { background: #991b1b; }
+td form.inline { display: inline-flex; margin-right: 4px; }

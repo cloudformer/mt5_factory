@@ -22,7 +22,8 @@ class Strategy(ABC):
     on_bar 输入: 最近 warmup 根已收盘 bar 的 numpy 数组(旧→新)
     on_bar 输出: 开仓信号或 None (仅在空仓时被调用; 离场只靠 SL/TP)
     """
-    PARAM_GRID: dict = {}  # 参数网格, 批量生成用
+    PARAM_GRID: dict = {}    # 网格生成: 固定组合, 有限空间
+    RANDOM_SPACE: dict = {}  # 随机生成: {param: (min, max, step)}, 近乎无限空间
 
     def __init__(self, params: dict, point: float):
         self.params = params

@@ -10,7 +10,7 @@ Windows 主机 (VMware Workstation)
 │   ├── postgres   所有数据的唯一真实来源 (K线按年分区)
 │   └── app        业务服务 (按需再拆)
 └── Windows VM × 1..N: MT5 终端 + bridge
-    角色: download(下载数据) / backtest(模拟) / live(实盘)
+    角色: download(下载) / demo(模拟) / live(实盘), demo与live不能同机
     加 worker = 在 mt5_hosts 表注册, 不改代码
 ```
 
@@ -41,8 +41,8 @@ Windows 主机 (VMware Workstation)
 ```
 strategy_core/      策略包 (回测与实时执行共用同一份代码)
 containers/
-├── app/            业务服务 API (8000): 数据同步 / 策略生成 / 回测
-├── web/            Flask 前端 (8080): 概览 / 策略 / 回测页面, 只调 app API
+├── app/            业务服务 API (8010): 数据同步 / 策略生成 / 回测
+├── web/            Flask 前端 (8000): 概览 / 策略 / 回测页面, 只调 api
 └── postgres/sqls/  数据库初始化 SQL
 env/                环境变量 (不入 git)
 windows_mt5/        Windows worker: 安装脚本 + bridge + runner
@@ -63,7 +63,7 @@ windows_mt5/        Windows worker: 安装脚本 + bridge + runner
 | `make build` | `docker compose --env-file env/.dev.env build` | 重新构建镜像 |
 | — | `docker compose --env-file env/.dev.env up -d --build` | 构建并启动 |
 | `make psql` | `docker exec -it mt5_postgres psql -U mt5user -d mt5factory` | 进数据库 |
-| `make health` | `curl -s http://localhost:8000/health` | app 健康检查 |
+| `make health` | `curl -s http://localhost:8010/health` | app 健康检查 |
 | `make clean` | `docker compose --env-file env/.dev.env down -v` | ⚠️ 停止并删数据 |
 
 其他：
@@ -74,11 +74,11 @@ docker exec mt5_postgres pg_dump -U mt5user mt5factory | gzip > backup.sql.gz
 gunzip -c backup.sql.gz | docker exec -i mt5_postgres psql -U mt5user -d mt5factory
 
 # 重启单个服务 (改了 app 代码后)
-docker restart mt5_app
+docker restart mt5_api
 
 # 入口
-open http://localhost:8080        # web 页面
-open http://localhost:8000/docs   # API 交互文档 (Swagger)
+open http://localhost:8000        # web 页面
+open http://localhost:8010/docs   # API 交互文档 (Swagger)
 ```
 
 ## 第一阶段全流程
@@ -89,30 +89,30 @@ cp env/.dev.env.example env/.dev.env
 make up
 
 # ---- Windows VM: 部署 worker (见 windows_mt5/README.md) ----
-#   .\setup.ps1 -InstallMT5 → 填 worker.env 的 APP_URL → start_bridge/start_runner
+#   .\setup.ps1 -InstallMT5 → 复制 Linux 配置好的 env/.dev.env 过来 → start_bridge/start_runner
 
 # ---- 注册 worker ----
 make psql
 #   INSERT INTO mt5_hosts (name, host, port, roles, account_type)
-#   VALUES ('win-1', '192.168.x.x', 9090, '{download,backtest,live}', 'DEMO');
+#   VALUES ('win-1', '192.168.x.x', 8020, '{download,demo}', 'DEMO');
 
 # ---- 1. 下载数据 ----
-curl -X POST localhost:8000/syncdata
-curl localhost:8000/syncdata/status      # 进度
-curl localhost:8000/syncdata/coverage    # 每品种入库范围
+curl -X POST localhost:8010/syncdata
+curl localhost:8010/syncdata/status      # 进度
+curl localhost:8010/syncdata/coverage    # 每品种入库范围
 
 # ---- 2. 生成策略 ----
-curl -X POST localhost:8000/strategies/generate \
+curl -X POST localhost:8010/strategies/generate \
   -H 'Content-Type: application/json' \
   -d '{"template":"ma_cross","symbols":["EURUSD","XAUUSD"],"timeframe":"M15"}'
 
 # ---- 3. 回测 ----
-curl -X POST localhost:8000/backtest/run -H 'Content-Type: application/json' -d '{}'
-curl localhost:8000/backtest/status
-curl 'localhost:8000/backtest/top?symbol=EURUSD'     # 排名
+curl -X POST localhost:8010/backtest/run -H 'Content-Type: application/json' -d '{}'
+curl localhost:8010/backtest/status
+curl 'localhost:8010/backtest/top?symbol=EURUSD'     # 排名
 
 # ---- 4. 提升到 DEMO, Windows runner 自动开始跑 ----
-curl -X POST localhost:8000/strategies/123/status \
+curl -X POST localhost:8010/strategies/123/status \
   -H 'Content-Type: application/json' -d '{"status":"DEMO"}'
 ```
 

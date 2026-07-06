@@ -11,6 +11,12 @@ class MaCross(Strategy):
         "sl_points": [200, 400, 800],
         "rr": [1.5, 2.0, 3.0],  # tp = sl * rr
     }
+    RANDOM_SPACE = {  # (min, max, step) — 随机生成模式的采样范围
+        "fast": (3, 60, 1),
+        "slow": (20, 400, 5),
+        "sl_points": (100, 1500, 50),
+        "rr": (1.2, 4.0, 0.1),
+    }
 
     @classmethod
     def valid_params(cls, params):

@@ -30,8 +30,13 @@ def generate():
             "template": request.form["template"],
             "symbols": [s.strip().upper() for s in request.form["symbols"].split(",") if s.strip()],
             "timeframe": request.form["timeframe"],
+            "mode": request.form.get("mode", "grid"),
+            "count": request.form.get("count", 50, type=int),
         })
-        flash(f"已生成 {result['created']} 个策略实例", "ok")
+        msg = f"已生成 {result['created']} 个策略实例"
+        if result.get("skipped"):
+            msg += f"（跳过 {result['skipped']} 个已存在的相同组合）"
+        flash(msg, "ok" if result["created"] else "error")
     except (api.ApiError, KeyError) as e:
         flash(f"生成失败: {e}", "error")
     return redirect(url_for("strategies.index", status="CANDIDATE"))
