@@ -31,6 +31,7 @@ DOCKER_COMPOSE_HOST = os.getenv("DOCKER_COMPOSE_HOST", "").strip()
 API_URL = f"http://{DOCKER_COMPOSE_HOST}:{os.getenv('API_PORT', '8010')}"
 RUN_STATUS = os.getenv("RUN_STATUS", "DEMO")
 VOLUME = float(os.getenv("VOLUME", "0.01"))
+STATUS_FILE = Path(__file__).resolve().parents[1] / "runner_status.json"  # bridge 状态页读它
 POLL_SECONDS = 10
 REFRESH_SECONDS = 60
 
@@ -170,11 +171,12 @@ def main():
         time.sleep(30)
     logger.info("runner started (status=%s, volume=%s)", RUN_STATUS, VOLUME)
 
-    instances, last_bar, last_refresh = [], {}, 0.0
+    instances, last_bar, last_refresh, run_status = [], {}, 0.0, ""
     while True:
         if time.time() - last_refresh > REFRESH_SECONDS:
             try:
-                instances = fetch_strategies(detect_run_status())
+                run_status = detect_run_status()
+                instances = fetch_strategies(run_status)
                 last_refresh = time.time()
             except Exception as e:
                 logger.error("fetch strategies failed: %s", e)
@@ -183,6 +185,16 @@ def main():
                 process(inst, last_bar)
             except Exception as e:  # 异常隔离: 单策略失败不拖累其他
                 logger.error("strategy %s error: %s", inst["name"], e)
+        # 心跳落盘, 供 bridge 状态页展示
+        try:
+            STATUS_FILE.write_text(json.dumps({
+                "updated": time.time(),
+                "run_status": run_status or "未指派",
+                "strategies": len(instances),
+                "mt5_connected": mt5.terminal_info() is not None,
+            }))
+        except OSError:
+            pass
         time.sleep(POLL_SECONDS)
 
 

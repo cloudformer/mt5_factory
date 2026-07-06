@@ -1,5 +1,7 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block content %}
+{{ m.page_header('回测', '悲观撮合（点差 / 滑点 / 佣金 / SL 优先），M1 拆解 bar 内走势；结果按净点数排名') }}
 
 <section>
   <h2>批量回测</h2>
@@ -8,7 +10,7 @@
       {% for s in ['CANDIDATE','DEMO','ACTIVE'] %}<option>{{ s }}</option>{% endfor %}
     </select>
     <input name="symbol" size="10" placeholder="品种(可空)">
-    <input name="limit" value="500" size="5">
+    <label>上限 <input name="limit" value="500" size="5"></label>
     <button {% if bt.running %}disabled{% endif %}>启动回测</button>
     {% if bt.running %}
     <span class="badge ok">运行中 {{ bt.done }}/{{ bt.total }}</span> <span class="muted">{{ bt.current }}</span>
@@ -18,37 +20,37 @@
 </section>
 
 <section>
-  <h2>结果排名 (按净点数)</h2>
+  <h2>结果排名</h2>
   <form method="get" class="inline">
     <input name="symbol" value="{{ symbol or '' }}" size="10" placeholder="品种">
-    最少交易数 <input name="min_trades" value="{{ min_trades }}" size="4">
-    <button>筛选</button>
+    <label>最少交易数 <input name="min_trades" value="{{ min_trades }}" size="4"></label>
+    <button class="small">筛选</button>
   </form>
   <table>
     <tr><th>#</th><th>策略</th><th>品种</th><th>周期</th><th>笔数</th><th>胜率</th>
-        <th>净点数</th><th>盈亏比PF</th><th>最大回撤</th><th>状态</th><th>操作</th></tr>
+        <th>净点数</th><th>PF</th><th>最大回撤</th><th>状态</th><th>操作</th></tr>
     {% for r in results %}
     <tr>
-      <td>{{ loop.index }}</td>
+      <td class="muted">{{ loop.index }}</td>
       <td>{{ r.name }}</td>
       <td>{{ r.symbol }}</td>
       <td>{{ r.timeframe }}</td>
       <td>{{ r.metrics.trades }}</td>
       <td>{{ '%.1f' % (r.metrics.win_rate * 100) }}%</td>
       <td class="{% if r.metrics.net_points > 0 %}pos{% else %}neg{% endif %}">{{ r.metrics.net_points }}</td>
-      <td>{{ r.metrics.profit_factor or '-' }}</td>
-      <td>{{ r.metrics.max_dd_points }}</td>
-      <td><span class="badge {{ {'ACTIVE':'ok','DEMO':'warn'}.get(r.status, 'muted') }}">{{ r.status }}</span></td>
+      <td>{{ r.metrics.profit_factor or '—' }}</td>
+      <td class="muted">{{ r.metrics.max_dd_points }}</td>
+      <td>{{ m.strategy_status(r.status) }}</td>
       <td>
         <form method="post" action="{{ url_for('strategies.set_status', strategy_id=r.strategy_id) }}" class="inline">
           {% if r.status == 'CANDIDATE' %}<button name="status" value="DEMO" class="small">→DEMO</button>{% endif %}
           {% if r.status == 'DEMO' %}<button name="status" value="ACTIVE" class="small">→ACTIVE</button>{% endif %}
-          <button name="status" value="ARCHIVED" class="small">淘汰</button>
+          <button name="status" value="ARCHIVED" class="small danger">淘汰</button>
         </form>
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="11" class="muted">暂无结果 — 先生成策略并启动回测</td></tr>
+    {% call m.empty(11) %}暂无结果 — 先到 <a href="{{ url_for('strategies.index') }}">策略</a> 页生成，再启动回测{% endcall %}
     {% endfor %}
   </table>
 </section>

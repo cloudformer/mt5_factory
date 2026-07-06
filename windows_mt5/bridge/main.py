@@ -6,6 +6,7 @@ MT5 账户三种来源(优先级由高到低):
   2. env/.dev.env 手动配置 MT5_LOGIN/PASSWORD/SERVER
   3. 都没有: 附着到本机已登录的 MT5 终端
 """
+import json
 import logging
 import os
 import socket
@@ -20,6 +21,7 @@ import requests
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 # 统一配置: 与 Linux docker compose 共用 env/.dev.env (整仓 clone 到 Windows)
@@ -29,6 +31,7 @@ BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 与 api 注册 worker 的端
 BRIDGE_API_KEY = os.getenv("BRIDGE_API_KEY", "")
 DOCKER_COMPOSE_HOST = os.getenv("DOCKER_COMPOSE_HOST", "").strip()
 API_PORT = os.getenv("API_PORT", "8010")
+RUNNER_STATUS_FILE = Path(__file__).resolve().parents[1] / "runner_status.json"
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -133,6 +136,66 @@ def startup():
     _connect()  # 失败不退出: 重连守护接管, /health 如实上报
     threading.Thread(target=_reconnect_loop, daemon=True).start()
     threading.Thread(target=_announce_loop, daemon=True).start()
+
+
+def _runner_status() -> dict:
+    """读 runner 落盘的心跳; 60 秒没更新即视为没在跑"""
+    try:
+        data = json.loads(RUNNER_STATUS_FILE.read_text())
+        data["alive"] = time.time() - data.get("updated", 0) < 60
+        return data
+    except (OSError, ValueError):
+        return {"alive": False}
+
+
+@app.get("/", response_class=HTMLResponse)
+def status_page():
+    """本机状态页: 浏览器打开 http://<本机>:8020/ 看全部服务"""
+    with _mt5_lock:
+        terminal = mt5.terminal_info() if _connected else None
+        account = mt5.account_info() if _connected else None
+    runner = _runner_status()
+
+    def badge(ok, text_ok, text_bad):
+        style = ("color:#15803d;background:#ecfdf3;border:1px solid #bbf7d0" if ok
+                 else "color:#b91c1c;background:#fef2f2;border:1px solid #fecaca")
+        dot = "background:#15803d" if ok else "background:#b91c1c"
+        return (f'<span style="display:inline-flex;align-items:center;gap:5px;padding:2px 10px;'
+                f'border-radius:999px;font-size:12px;font-weight:550;{style}">'
+                f'<i style="width:6px;height:6px;border-radius:50%;{dot}"></i>'
+                f'{text_ok if ok else text_bad}</span>')
+
+    rows = [
+        ("bridge", badge(True, "运行中", ""), f"端口 {BRIDGE_PORT}"),
+        ("MT5 终端", badge(terminal is not None, "已连接", "未连接"),
+         f"交易许可: {'是' if terminal and terminal.trade_allowed else '—'}"),
+        ("MT5 账户", badge(account is not None,
+                          f"{account.login} @ {account.server}" if account else "", "未登录"),
+         f"余额 {account.balance:,.2f} {account.currency}" if account else "可在 web Workers 页下发账户"),
+        ("runner", badge(runner["alive"], "运行中", "未运行"),
+         f"角色 {runner.get('run_status', '—')} · 策略 {runner.get('strategies', '—')} 个"
+         if runner["alive"] else "检查 start_runner.bat"),
+    ]
+    trs = "".join(
+        f'<tr><td style="padding:11px 14px;border-bottom:1px solid #e5e8ec;font-weight:550">{a}</td>'
+        f'<td style="padding:11px 14px;border-bottom:1px solid #e5e8ec">{b}</td>'
+        f'<td style="padding:11px 14px;border-bottom:1px solid #e5e8ec;color:#6b7280">{c}</td></tr>'
+        for a, b, c in rows)
+    return f"""<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="10">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MT5 Worker</title></head>
+<body style="margin:0;background:#f6f7f9;font:14px/1.6 -apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;color:#1a202c">
+<div style="max-width:680px;margin:48px auto;padding:0 20px">
+  <div style="font-weight:650;font-size:15px;margin-bottom:14px">
+    <span style="color:#2563eb">◆</span> MT5 Worker
+    <span style="color:#9ca3af;font-weight:400;font-size:12px;margin-left:8px">10 秒自动刷新</span>
+  </div>
+  <div style="background:#fff;border:1px solid #e5e8ec;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04);overflow:hidden">
+    <table style="border-collapse:collapse;width:100%">{trs}</table>
+  </div>
+  <p style="color:#9ca3af;font-size:12px">JSON: <a href="/health" style="color:#2563eb">/health</a></p>
+</div></body></html>"""
 
 
 @app.get("/health")

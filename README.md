@@ -84,9 +84,9 @@ open http://localhost:8010/docs   # API 交互文档 (Swagger)
 ## 第一阶段全流程
 
 ```bash
-# ---- Linux/Mac: 起服务 ----
-cp env/.dev.env.example env/.dev.env
-make up
+# ---- Linux: 一键配置 (新VM一次) ----
+./scripts/setup_linux.sh   # docker + env 自动生成 (本机IP / 随机密钥 / 随机密码)
+make up                    # 启动 + 自动冒烟测试
 
 # ---- Windows VM: 部署 worker (见 windows_mt5/README.md) ----
 #   .\setup.ps1 -InstallMT5 → 复制 Linux 配置好的 env/.dev.env 过来 → start_bridge/start_runner

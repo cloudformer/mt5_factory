@@ -1,79 +1,106 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block content %}
+{{ m.page_header('概览', '系统状态总览 — 操作请到对应页面') }}
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">服务</div>
+    <div class="stat-value">
+      {% if health and health.db.status == 200 %}<span class="pos">正常</span>
+      {% else %}<span class="neg">异常</span>{% endif %}
+    </div>
+    <div class="stat-sub">web · api · postgres</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Workers 在线</div>
+    <div class="stat-value">{{ hosts | selectattr('status', 'equalto', 'ONLINE') | list | length }}<span class="stat-dim">/{{ hosts | length }}</span></div>
+    <div class="stat-sub">{{ hosts | selectattr('enabled') | list | length }} 台启用</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">数据品种</div>
+    <div class="stat-value">{{ coverage | length }}</div>
+    <div class="stat-sub">{{ "{:,}".format(coverage | sum(attribute='bars')) }} 根 M1</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">任务</div>
+    <div class="stat-value">
+      {% if sync.running %}<span class="badge ok">同步中</span>
+      {% elif backtest.running %}<span class="badge ok">回测中</span>
+      {% else %}<span class="muted">空闲</span>{% endif %}
+    </div>
+    <div class="stat-sub">
+      {% if backtest.running %}{{ backtest.done }}/{{ backtest.total }}{% elif sync.running %}{{ "{:,}".format(sync.bars_written) }} 根已写入{% else %}—{% endif %}
+    </div>
+  </div>
+</div>
 
 <section>
-  <h2>服务状态</h2>
+  <h2>服务</h2>
   <table>
-    <tr><th>服务</th><th>地址</th><th>状态</th></tr>
+    <tr><th>服务</th><th>状态</th><th>详情</th></tr>
     <tr>
-      <td>web</td><td>本页面</td>
-      <td><span class="badge ok">正常</span></td>
-    </tr>
-    <tr>
-      <td>api</td><td>{{ health and '已连接' or '-' }}</td>
+      <td>api</td>
       <td>{% if health %}<span class="badge ok">{{ health.status }}</span>
           {% else %}<span class="badge error">不可达</span>{% endif %}</td>
+      <td class="muted">业务接口 · 8010</td>
     </tr>
     <tr>
       <td>postgres</td>
-      <td class="mono">{{ health.db.url if health else '-' }}</td>
       <td>{% if health and health.db.status == 200 %}<span class="badge ok">正常</span>
           {% else %}<span class="badge error">异常</span>{% endif %}</td>
+      <td class="mono">{{ health.db.url if health else '—' }}</td>
     </tr>
     {% for h in hosts %}
     <tr>
-      <td>worker: {{ h.name }}</td>
-      <td>{{ h.host }}:{{ h.port }} ({{ h.roles | join(', ') }})</td>
-      <td>
-        {% if not h.enabled %}<span class="badge">停用</span>
-        {% elif h.status == 'ONLINE' %}<span class="badge ok">在线</span>
-        {% else %}<span class="badge error">离线</span>{% endif %}
-        <span class="muted">{{ (h.last_heartbeat or '')[:19] }}</span>
-      </td>
+      <td>worker · {{ h.name }}</td>
+      <td>{{ m.worker_status(h) }}</td>
+      <td class="muted">{{ h.host }}:{{ h.port }} · {{ h.roles | join(' / ') }} · 心跳 {{ m.ts(h.last_heartbeat) or '—' }}</td>
     </tr>
     {% else %}
-    <tr><td>worker</td><td>-</td>
-        <td><span class="badge warn">未注册</span> <a href="{{ url_for('workers.index') }}">去注册</a></td></tr>
+    {% call m.empty(3) %}暂无 worker — 启动 Windows worker 自动上报，或到 <a href="{{ url_for('workers.index') }}">Workers</a> 注册{% endcall %}
     {% endfor %}
   </table>
 </section>
 
 <section>
-  <h2>任务状态</h2>
+  <h2>任务</h2>
   <table>
-    <tr><th>任务</th><th>状态</th></tr>
+    <tr><th>任务</th><th>状态</th><th>详情</th></tr>
     <tr>
       <td>数据同步</td>
-      <td>{% if sync.running %}<span class="badge ok">进行中</span>
-            {% for w, p in (sync.current or {}).items() %}{{ w }}: {{ p }}　{% endfor %}
-            <span class="muted">已写入 {{ "{:,}".format(sync.bars_written) }} 根</span>
-          {% else %}<span class="muted">空闲</span>{% endif %}
-          {% for e in sync.errors %}<span class="badge error">{{ e }}</span>{% endfor %}</td>
+      <td>{% if sync.running %}<span class="badge ok">进行中</span>{% else %}<span class="muted">空闲</span>{% endif %}</td>
+      <td class="muted">
+        {% for w, p in (sync.current or {}).items() %}{{ w }}: {{ p }}　{% endfor %}
+        {% if sync.bars_written %}已写入 {{ "{:,}".format(sync.bars_written) }} 根{% endif %}
+        {% for e in sync.errors %}<span class="badge error">{{ e }}</span>{% endfor %}
+      </td>
     </tr>
     <tr>
       <td>回测</td>
-      <td>{% if backtest.running %}<span class="badge ok">进行中</span>
-            {{ backtest.done }}/{{ backtest.total }} — {{ backtest.current }}
-          {% else %}<span class="muted">空闲</span>
-            {% if backtest.total %}(上次 {{ backtest.done }}/{{ backtest.total }},
-            {{ backtest.errors | length }} 个错误){% endif %}{% endif %}</td>
+      <td>{% if backtest.running %}<span class="badge ok">进行中</span>{% else %}<span class="muted">空闲</span>{% endif %}</td>
+      <td class="muted">
+        {% if backtest.running %}{{ backtest.done }}/{{ backtest.total }} — {{ backtest.current }}
+        {% elif backtest.total %}上次 {{ backtest.done }}/{{ backtest.total }}，{{ backtest.errors | length }} 个错误
+        {% else %}—{% endif %}
+      </td>
     </tr>
   </table>
 </section>
 
 <section>
-  <h2>数据概况 (M1)</h2>
+  <h2>数据覆盖 (M1)</h2>
   <table>
     <tr><th>品种</th><th>起</th><th>止</th><th>K线数</th></tr>
     {% for c in coverage %}
     <tr>
       <td>{{ c.symbol }}</td>
-      <td>{{ (c.first_bar or '')[:19] }}</td>
-      <td>{{ (c.last_bar or '')[:19] }}</td>
+      <td class="muted">{{ m.ts(c.first_bar) }}</td>
+      <td class="muted">{{ m.ts(c.last_bar) }}</td>
       <td>{{ "{:,}".format(c.bars) }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="4" class="muted">暂无数据 — <a href="{{ url_for('datasync.index') }}">去下载</a></td></tr>
+    {% call m.empty(4) %}暂无数据 — 到 <a href="{{ url_for('datasync.index') }}">下载</a> 页触发同步{% endcall %}
     {% endfor %}
   </table>
 </section>

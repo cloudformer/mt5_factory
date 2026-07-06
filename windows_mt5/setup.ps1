@@ -1,10 +1,18 @@
-# MT5 Factory - Windows worker 一键初始化
+# MT5 Factory - Windows worker 一键初始化 + 启动 (每台新VM跑一次, 克隆VM无需再跑)
 # 用法(管理员 PowerShell):
-#   .\setup.ps1               # Python + 依赖 + 防火墙 + 开机自启(bridge/runner)
-#   .\setup.ps1 -InstallMT5   # 额外静默安装 MT5 终端
+#   powershell -ExecutionPolicy Bypass -File .\setup.ps1               # 已装MT5
+#   powershell -ExecutionPolicy Bypass -File .\setup.ps1 -InstallMT5   # 静默安装MT5
 param([switch]$InstallMT5)
 
 $ErrorActionPreference = "Stop"
+trap {
+    Write-Host ""
+    Write-Host "!! 初始化失败于: $($_.InvocationInfo.ScriptLineNumber) 行" -ForegroundColor Red
+    Write-Host "!! 错误: $_" -ForegroundColor Red
+    Write-Host "!! 修复后重跑本脚本即可 (所有步骤可安全重复执行)" -ForegroundColor Red
+    exit 1
+}
+
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $envFile = Join-Path (Split-Path -Parent $root) "env\.dev.env"   # 与 Linux 共用的统一配置
 $port = 8020
@@ -13,7 +21,7 @@ if (Test-Path $envFile) {
     if ($m) { $port = [int]$m.Matches.Groups[1].Value }
 }
 
-Write-Host "=== [1/6] Python ===" -ForegroundColor Cyan
+Write-Host "=== [1/7] Python ===" -ForegroundColor Cyan
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     winget install --id Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
@@ -21,36 +29,45 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
 }
 python --version
 
-Write-Host "=== [2/6] Python 依赖 ===" -ForegroundColor Cyan
+Write-Host "=== [2/7] Python 依赖 ===" -ForegroundColor Cyan
 python -m pip install --upgrade pip --quiet
 python -m pip install -r "$root\requirements.txt" --quiet
 
-Write-Host "=== [3/6] MT5 终端 ===" -ForegroundColor Cyan
+Write-Host "=== [3/7] MT5 终端 ===" -ForegroundColor Cyan
 if ($InstallMT5) {
     $installer = "$env:TEMP\mt5setup.exe"
     Invoke-WebRequest "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile $installer
     Start-Process $installer -ArgumentList "/auto" -Wait
     Write-Host "MT5 已安装"
 } else {
-    Write-Host "跳过 (需要时: .\setup.ps1 -InstallMT5)"
+    Write-Host "跳过 (需要时: setup.ps1 -InstallMT5)"
 }
 
-Write-Host "=== [4/6] 配置文件 ===" -ForegroundColor Cyan
+Write-Host "=== [4/7] 配置文件 ===" -ForegroundColor Cyan
 if (-not (Test-Path $envFile)) {
     Copy-Item "$envFile.example" $envFile
-    Write-Host "!! 已从模板生成 env\.dev.env — 建议直接用 Linux 上配置好的同一份文件覆盖 !!" -ForegroundColor Yellow
-    Write-Host "!! 至少要填 DOCKER_COMPOSE_HOST (Linux VM 的 IP) 和 BRIDGE_API_KEY !!" -ForegroundColor Yellow
-} else {
-    Write-Host "使用 $envFile"
+    Write-Host "env\.dev.env 不存在, 已从模板生成 (建议之后用 Linux 上配置好的同一份覆盖)" -ForegroundColor Yellow
 }
+# 缺关键配置时当场问答补齐, 自动写回 env, 不中断流程
+if (Select-String -Path $envFile -Pattern '^DOCKER_COMPOSE_HOST=(127\.|$)') {
+    $ip = Read-Host "DOCKER_COMPOSE_HOST 未配置 — 请输入 Linux VM (docker compose) 的 IP"
+    if (-not $ip) { Write-Host "!! 必须提供 Linux VM 的 IP" -ForegroundColor Red; exit 1 }
+    (Get-Content $envFile) -replace '^DOCKER_COMPOSE_HOST=.*', "DOCKER_COMPOSE_HOST=$ip" |
+        Set-Content $envFile -Encoding UTF8
+    Write-Host "已写入 DOCKER_COMPOSE_HOST=$ip"
+}
+if (Select-String -Path $envFile -Pattern '^BRIDGE_API_KEY=(change_me|$)') {
+    Write-Host "提示: BRIDGE_API_KEY 还是默认值 — 需与 Linux 侧一致才能通过鉴权" -ForegroundColor Yellow
+}
+Write-Host "使用 $envFile"
 
-Write-Host "=== [5/6] 防火墙 ===" -ForegroundColor Cyan
+Write-Host "=== [5/7] 防火墙 ===" -ForegroundColor Cyan
 if (-not (Get-NetFirewallRule -DisplayName "MT5 Bridge" -ErrorAction SilentlyContinue)) {
     New-NetFirewallRule -DisplayName "MT5 Bridge" -Direction Inbound -LocalPort $port -Protocol TCP -Action Allow | Out-Null
 }
 Write-Host "入站端口 $port 已放行"
 
-Write-Host "=== [6/6] 开机自启 (计划任务) ===" -ForegroundColor Cyan
+Write-Host "=== [6/7] 开机自启 (计划任务) ===" -ForegroundColor Cyan
 $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit (New-TimeSpan -Days 3650)
 foreach ($task in @(
@@ -63,6 +80,28 @@ foreach ($task in @(
     Write-Host "计划任务 $($task.Name) 已注册"
 }
 
+Write-Host "=== [7/7] 启动并自检 ===" -ForegroundColor Cyan
+Start-ScheduledTask -TaskName "MT5Bridge"
+Start-ScheduledTask -TaskName "MT5Runner"
+Write-Host "等待 bridge 就绪 (自动拉起 MT5 终端)..."
+$health = $null
+foreach ($i in 1..18) {
+    Start-Sleep -Seconds 5
+    try {
+        $health = Invoke-RestMethod "http://localhost:$port/health" -TimeoutSec 3
+        break
+    } catch { }
+}
+if ($null -eq $health) {
+    Write-Host "!! bridge 90秒内未响应 — 手动运行 start_bridge.bat 查看报错" -ForegroundColor Red
+    exit 1
+}
+if ($health.status -eq "healthy") {
+    Write-Host "bridge: healthy | MT5 已连接 账户=$($health.login) @ $($health.server)" -ForegroundColor Green
+} else {
+    Write-Host "bridge: 已运行, 但 MT5 未登录账户" -ForegroundColor Yellow
+    Write-Host "  → 在 env\.dev.env 填 MT5_LOGIN/PASSWORD/SERVER 后重跑, 或到 web Workers 页下发账户" -ForegroundColor Yellow
+}
 Write-Host ""
-Write-Host "完成! 启动: .\start_bridge.bat 和 .\start_runner.bat (或注销重登自动拉起)" -ForegroundColor Green
-Write-Host "验证: curl http://localhost:$port/health" -ForegroundColor Green
+Write-Host "完成! 本机将自动出现在 web Workers 页面 (约1分钟内)" -ForegroundColor Green
+Write-Host "开机自启已配置, 之后无需任何手动操作" -ForegroundColor Green
