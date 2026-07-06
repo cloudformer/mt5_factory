@@ -52,6 +52,10 @@
 - `mt5_hosts`：worker 注册表　`strategies`：策略**实例**表（模板 + 参数 + 品种 + 周期 = 一个实例，独立走漏斗，独立 magic number；模板本身品种无关，在 strategy_core 里）
 - 改表结构：更新 `containers/postgres/sqls/` + 提供迁移 SQL
 
+## 文档地图
+
+- `README.md` 运维与全流程　- `DEVELOPMENT.md` 开发手册(加策略/API/页面/表)　- `windows_mt5/README.md` worker 部署
+
 ## 常用命令
 
 ```bash

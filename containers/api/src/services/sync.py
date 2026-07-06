@@ -1,4 +1,4 @@
-"""数据同步: 从 Windows worker (bridge) 下载 M1 K线到 historical_bars + worker 心跳"""
+"""数据同步与心跳 — services 层: 下载M1(多worker并行分摊)、心跳状态机、host事件"""
 import asyncio
 import logging
 import os

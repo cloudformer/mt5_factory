@@ -41,11 +41,14 @@ Windows 主机 (VMware Workstation)
 ```
 strategy_core/      策略包 (回测与实时执行共用同一份代码)
 containers/
-├── app/            业务服务 API (8010): 数据同步 / 策略生成 / 回测
-├── web/            Flask 前端 (8000): 概览 / 策略 / 回测页面, 只调 api
-└── postgres/sqls/  数据库初始化 SQL
-env/                环境变量 (不入 git)
-windows_mt5/        Windows worker: 安装脚本 + bridge + runner
+├── api/src/        业务后端 (8010): routes/ 接口层 + services/ 逻辑层
+├── web/            Flask 前端 (8000): views/ + templates/, 只调 api
+└── postgres/sqls/  建表 + 种子数据
+env/                统一环境配置 (Linux/Windows 共用, 不入 git)
+windows_mt5/        Windows worker: bridge + runner + setup/update/restart.ps1
+scripts/            setup_linux.sh (Ubuntu一键配置) + smoke.sh (冒烟测试)
+
+开发指南见 DEVELOPMENT.md (加策略/加API/加页面/改表 都有对应做法)
 ```
 
 ## 常用命令
@@ -85,7 +88,7 @@ open http://localhost:8010/docs   # API 交互文档 (Swagger)
 
 ```bash
 # ---- Linux: 一键配置 (新VM一次) ----
-./scripts/setup_linux.sh   # docker + env 自动生成 (本机IP / 随机密钥 / 随机密码)
+./scripts/setup_linux.sh   # docker + env 交互式配置 (每项建议值, 你确认后才写入)
 make up                    # 启动 + 自动冒烟测试
 
 # ---- Windows VM: 部署 worker (见 windows_mt5/README.md) ----
