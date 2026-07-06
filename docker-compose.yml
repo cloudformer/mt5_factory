@@ -1,0 +1,100 @@
+# MT5 Factory - Docker Compose
+# 运行在 Linux VM（或 Mac 本地开发）: app + pgsql
+# Windows VM 上的 MT5 worker 见 windows_mt5/，通过 mt5_hosts 表注册进系统
+
+services:
+  # ========== PostgreSQL（所有数据的唯一真实来源） ==========
+  postgres:
+    image: postgres:16-alpine
+    container_name: mt5_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+      TZ: UTC
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./containers/postgres/data:/var/lib/postgresql/data   # 数据在 repo 内 (gitignore)
+      - ./containers/postgres/sqls:/docker-entrypoint-initdb.d:ro
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+    networks:
+      - mt5_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ========== App（业务服务，按需再拆） ==========
+  app:
+    build:
+      context: .
+      dockerfile: containers/app/Dockerfile
+    container_name: mt5_app
+    restart: unless-stopped
+    environment:
+      ENV_NAME: ${ENV_NAME}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      BRIDGE_API_KEY: ${BRIDGE_API_KEY:-}
+      SYMBOLS: ${SYMBOLS:-EURUSD,GBPUSD,USDJPY,XAUUSD,AUDUSD,USDCAD,NZDUSD,EURJPY,GBPJPY}
+      DATA_START: ${DATA_START:-2015-01-01}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./containers/app/src:/app/src:ro       # 开发热更新
+      - ./strategy_core:/app/strategy_core:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mt5_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ========== Web 前端 (Flask, 只调 app API) ==========
+  web:
+    build:
+      context: ./containers/web
+      dockerfile: Dockerfile
+    container_name: mt5_web
+    restart: unless-stopped
+    environment:
+      APP_URL: http://app:8000
+      SECRET_KEY: ${SECRET_KEY:-mt5web}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./containers/web:/app:ro   # 开发热更新 (gunicorn --reload)
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - mt5_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  mt5_network:
+    driver: bridge

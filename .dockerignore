@@ -1,0 +1,8 @@
+.git
+.claude
+env/
+windows_mt5/
+containers/postgres/
+__pycache__/
+*.pyc
+*.md

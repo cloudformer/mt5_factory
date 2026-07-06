@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section>
+  <h2>生成策略</h2>
+  <form method="post" action="{{ url_for('strategies.generate') }}" class="inline">
+    <select name="template">
+      {% for name in templates %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+    </select>
+    <input name="symbols" value="EURUSD,GBPUSD,USDJPY,XAUUSD" size="36" placeholder="品种, 逗号分隔">
+    <select name="timeframe">
+      {% for tf in timeframes %}<option {% if tf == 'M15' %}selected{% endif %}>{{ tf }}</option>{% endfor %}
+    </select>
+    <button>生成 (模板 × 参数网格 × 品种)</button>
+  </form>
+</section>
+
+<section>
+  <h2>策略列表</h2>
+  <form method="get" class="inline">
+    <select name="status">
+      <option value="">全部状态</option>
+      {% for s in ['CANDIDATE','DEMO','ACTIVE','ARCHIVED'] %}
+      <option {% if status == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <input name="symbol" value="{{ symbol or '' }}" size="10" placeholder="品种">
+    <button>筛选</button>
+  </form>
+  <table>
+    <tr><th>ID</th><th>名称</th><th>品种</th><th>周期</th><th>参数</th><th>状态</th><th>magic</th><th>操作</th></tr>
+    {% for s in strategies %}
+    <tr>
+      <td>{{ s.id }}</td>
+      <td>{{ s.name }}</td>
+      <td>{{ s.symbol }}</td>
+      <td>{{ s.timeframe }}</td>
+      <td class="mono">{{ s.params }}</td>
+      <td><span class="badge {{ {'ACTIVE':'ok','DEMO':'warn','ARCHIVED':''}.get(s.status, 'muted') }}">{{ s.status }}</span></td>
+      <td>{{ s.magic_number or '' }}</td>
+      <td>
+        <form method="post" action="{{ url_for('strategies.set_status', strategy_id=s.id) }}" class="inline">
+          {% for target in ['DEMO','ACTIVE','ARCHIVED'] if target != s.status %}
+          <button name="status" value="{{ target }}" class="small">→{{ target }}</button>
+          {% endfor %}
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="muted">没有匹配的策略 — 用上方表单生成</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+{% endblock %}

@@ -1,0 +1,125 @@
+"""数据同步: 从 Windows worker (bridge) 下载 M1 K线到 historical_bars + worker 心跳"""
+import asyncio
+import logging
+import os
+from datetime import datetime, timedelta, timezone
+
+import asyncpg
+import httpx
+
+logger = logging.getLogger("sync")
+
+BRIDGE_API_KEY = os.getenv("BRIDGE_API_KEY", "")
+CHUNK_DAYS = 30  # M1 每次拉 30 天 ≈ 4.3万根, 低于 bridge 单次上限
+
+# 全局同步状态 (单进程内存即可, 不用太复杂)
+state = {"running": False, "current": None, "symbols": [],
+         "bars_written": 0, "done": [], "errors": []}
+
+
+async def load_sync_config(pool: asyncpg.Pool) -> tuple[list, datetime]:
+    """品种清单和起始日期来自 config 表 (web/API 可改)"""
+    cfg = {r["key"]: r["value"] for r in await pool.fetch("SELECT key, value FROM config")}
+    symbols = cfg.get("symbols") or []
+    data_start = datetime.fromisoformat(str(cfg.get("data_start") or "2015-01-01")).replace(
+        tzinfo=timezone.utc)
+    return symbols, data_start
+
+
+async def _pick_download_host(pool: asyncpg.Pool):
+    return await pool.fetchrow(
+        "SELECT host, port FROM mt5_hosts WHERE enabled AND 'download' = ANY(roles) ORDER BY id LIMIT 1"
+    )
+
+
+async def _insert_bars(conn: asyncpg.Connection, symbol: str, bars: list) -> int:
+    records = [
+        (symbol, "M1", datetime.fromtimestamp(b["time"], tz=timezone.utc),
+         b["open"], b["high"], b["low"], b["close"],
+         b["tick_volume"], b["spread"], b["real_volume"])
+        for b in bars
+    ]
+    async with conn.transaction():
+        await conn.execute("CREATE TEMP TABLE _stage (LIKE historical_bars) ON COMMIT DROP")
+        await conn.copy_records_to_table("_stage", records=records)
+        result = await conn.execute(
+            "INSERT INTO historical_bars SELECT * FROM _stage ON CONFLICT DO NOTHING"
+        )
+    return int(result.split()[-1])  # "INSERT 0 N" -> N
+
+
+async def _sync_symbol(pool: asyncpg.Pool, client: httpx.AsyncClient, base: str,
+                       symbol: str, data_start: datetime):
+    # 断点续传: 从库里最后一根 bar 继续
+    last = await pool.fetchval(
+        "SELECT max(time) FROM historical_bars WHERE symbol=$1 AND timeframe='M1'", symbol
+    )
+    cursor = last or data_start
+    now = datetime.now(timezone.utc)
+
+    while cursor < now:
+        chunk_end = min(cursor + timedelta(days=CHUNK_DAYS), now)
+        state["current"] = f"{symbol} {cursor:%Y-%m-%d}"
+        resp = await client.get(f"{base}/rates", params={
+            "symbol": symbol, "timeframe": "M1",
+            "from_ts": int(cursor.timestamp()), "to_ts": int(chunk_end.timestamp()),
+        })
+        resp.raise_for_status()
+        bars = resp.json()["bars"]
+        if bars:
+            async with pool.acquire() as conn:
+                written = await _insert_bars(conn, symbol, bars)
+            state["bars_written"] += written
+        cursor = chunk_end
+    logger.info("%s synced", symbol)
+
+
+async def run_full_sync(pool: asyncpg.Pool):
+    """全量/增量同步所有配置品种 (后台任务)"""
+    host = await _pick_download_host(pool)
+    if host is None:
+        state["errors"].append("no enabled mt5_host with role 'download'")
+        state["running"] = False
+        return
+
+    symbols, data_start = await load_sync_config(pool)
+    if not symbols:
+        state["errors"].append("config.symbols is empty")
+        state["running"] = False
+        return
+
+    base = f"http://{host['host']}:{host['port']}"
+    headers = {"X-API-Key": BRIDGE_API_KEY} if BRIDGE_API_KEY else {}
+    state.update(current=None, symbols=symbols, bars_written=0, done=[], errors=[])
+
+    async with httpx.AsyncClient(headers=headers, timeout=120) as client:
+        for symbol in symbols:
+            try:
+                await _sync_symbol(pool, client, base, symbol, data_start)
+                state["done"].append(symbol)
+            except Exception as e:
+                logger.error("sync %s failed: %s", symbol, e)
+                state["errors"].append(f"{symbol}: {e}")
+    state["running"] = False
+    state["current"] = None
+    logger.info("full sync finished: %s bars, errors=%s", state["bars_written"], state["errors"])
+
+
+async def heartbeat_loop(pool: asyncpg.Pool):
+    """每 30s 轮询所有启用 worker 的 /health, 更新 last_heartbeat"""
+    async with httpx.AsyncClient(timeout=5) as client:
+        while True:
+            try:
+                hosts = await pool.fetch("SELECT id, host, port FROM mt5_hosts WHERE enabled")
+                for h in hosts:
+                    try:
+                        r = await client.get(f"http://{h['host']}:{h['port']}/health")
+                        if r.status_code == 200 and r.json().get("status") == "healthy":
+                            await pool.execute(
+                                "UPDATE mt5_hosts SET last_heartbeat=now() WHERE id=$1", h["id"]
+                            )
+                    except httpx.HTTPError:
+                        pass  # 离线属正常, last_heartbeat 停留在旧值即可
+            except Exception as e:
+                logger.warning("heartbeat loop error: %s", e)
+            await asyncio.sleep(30)
