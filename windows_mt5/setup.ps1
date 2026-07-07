@@ -78,10 +78,10 @@ if (-not $python) {
     }
 
 
-    # Ë¢ï¿½Â»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    # Ë¢ÐÂ»·¾³±äÁ¿
     Refresh-Path
 
-    # ï¿½È´ï¿½ï¿½ï¿½×°ï¿½ï¿½É²ï¿½ï¿½ï¿½ï¿½Â¼ï¿½ï¿½
+    # µÈ´ý°²×°Íê³É²¢ÖØÐÂ¼ì²â
     $retry = 0
     while (-not (Get-Command python -ErrorAction SilentlyContinue) -and $retry -lt 30) {
         Start-Sleep -Seconds 2
