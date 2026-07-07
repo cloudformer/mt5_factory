@@ -1,5 +1,5 @@
 @echo off
-rem MT5 Bridge (看门狗: 崩溃 10s 自动重启)
+rem MT5 Bridge (watchdog loop: restarts 10s after a crash)
 cd /d %~dp0
 :loop
 echo [%date% %time%] starting bridge...

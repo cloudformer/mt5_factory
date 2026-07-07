@@ -1,5 +1,5 @@
 @echo off
-rem 实时执行 Runner (看门狗: 崩溃 10s 自动重启)
+rem Trading Runner (watchdog loop: restarts 10s after a crash)
 cd /d %~dp0
 :loop
 echo [%date% %time%] starting runner...
