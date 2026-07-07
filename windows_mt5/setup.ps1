@@ -1,8 +1,9 @@
 # MT5 Factory - Windows worker setup + start (run once per new VM; cloned VMs skip this)
 # Recommended entry: double-click setup.bat (auto-elevate + bypass policy + keep window open)
 # Manual usage (admin PowerShell):
-#   powershell -ExecutionPolicy Bypass -File .\setup.ps1 [-InstallMT5]
-param([switch]$InstallMT5)
+#   powershell -ExecutionPolicy Bypass -File .\setup.ps1 [-SkipMT5]
+# Everything (Python, deps, MT5 terminal) is installed by default; already-present pieces are detected and skipped.
+param([switch]$SkipMT5)
 
 $ErrorActionPreference = "Stop"
 
@@ -18,6 +19,12 @@ trap {
     Write-Host "!! Error: $_" -ForegroundColor Red
     Write-Host "!! Fix the issue and re-run this script (all steps are safe to repeat)" -ForegroundColor Red
     Pause-Exit 1
+}
+
+# $ErrorActionPreference only catches PowerShell errors - native exes (python/git/pip) return
+# a nonzero exit code without throwing, so failures there would silently pass. Check explicitly.
+function Assert-LastExitCode($what) {
+    if ($LASTEXITCODE -ne 0) { throw "$what failed (exit code $LASTEXITCODE)" }
 }
 
 # Admin check (required by firewall rule / scheduled tasks)
@@ -78,10 +85,10 @@ if (-not $python) {
     }
 
 
-    # 刷新环境变量
+    # refresh PATH after install
     Refresh-Path
 
-    # 等待安装完成并重新检测
+    # wait for the installer to finish updating the registry
     $retry = 0
     while (-not (Get-Command python -ErrorAction SilentlyContinue) -and $retry -lt 30) {
         Start-Sleep -Seconds 2
@@ -101,16 +108,41 @@ python -m pip --version
 
 Write-Host "=== [2/7] Python dependencies ===" -ForegroundColor Cyan
 python -m pip install --upgrade pip --quiet
+Assert-LastExitCode "pip upgrade"
 python -m pip install -r "$root\requirements.txt" --quiet
+Assert-LastExitCode "pip install -r requirements.txt"
 
 Write-Host "=== [3/7] MT5 terminal ===" -ForegroundColor Cyan
-if ($InstallMT5) {
-    $installer = "$env:TEMP\mt5setup.exe"
-    Invoke-WebRequest "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile $installer
-    Start-Process $installer -ArgumentList "/auto" -Wait
-    Write-Host "MT5 installed"
+
+function Find-MT5Terminal {
+    $found = @()
+    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if ($base -and (Test-Path $base)) {
+            $found += Get-ChildItem -Path $base -Filter terminal64.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue
+        }
+    }
+    if (Test-Path "$env:APPDATA\MetaQuotes\Terminal") {
+        $found += Get-ChildItem -Path "$env:APPDATA\MetaQuotes\Terminal" -Filter terminal64.exe -Recurse -Depth 1 -ErrorAction SilentlyContinue
+    }
+    return $found | Select-Object -First 1
+}
+
+if ($SkipMT5) {
+    Write-Host "Skipped (-SkipMT5)"
 } else {
-    Write-Host "Skipped (run: setup.bat -InstallMT5 if needed)"
+    $existing = Find-MT5Terminal
+    if ($existing) {
+        Write-Host "Already installed: $($existing.FullName)"
+    } else {
+        Write-Host "Not found, installing..." -ForegroundColor Yellow
+        $installer = "$env:TEMP\mt5setup.exe"
+        Invoke-WebRequest "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile $installer
+        $proc = Start-Process $installer -ArgumentList "/auto" -Wait -PassThru
+        if ($proc.ExitCode -ne 0 -or -not (Find-MT5Terminal)) {
+            throw "MT5 installer exited with code $($proc.ExitCode) and terminal64.exe still not found"
+        }
+        Write-Host "MT5 installed"
+    }
 }
 
 Write-Host "=== [4/7] Config file ===" -ForegroundColor Cyan

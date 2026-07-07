@@ -200,14 +200,28 @@ def status_page():
 
 @app.get("/health")
 def health():
-    """心跳端点(无鉴权): app 轮询更新 mt5_hosts.last_heartbeat"""
-    if not _connected:
-        return {"status": "degraded", "mt5_connected": False}
+    """心跳端点(无鉴权): app 只轮询这一个端点, 本机 bridge/MT5/runner 状态 + 服务/端口汇总
+    在这里一次性收集齐, 不需要 app 再单独探测每个服务(runner 没有对外端口, 只能本机汇总)"""
+    runner = _runner_status()
     with _mt5_lock:
-        terminal = mt5.terminal_info()
-        account = mt5.account_info()
-    if terminal is None or account is None:
-        return {"status": "degraded", "mt5_connected": False}
+        terminal = mt5.terminal_info() if _connected else None
+        account = mt5.account_info() if _connected else None
+    mt5_up = terminal is not None and account is not None
+
+    services = {
+        "bridge": {"up": True, "port": BRIDGE_PORT},
+        "mt5_terminal": {"up": mt5_up, "port": None},
+        "runner": {"up": runner["alive"], "port": None},
+    }
+    summary = {
+        "services_total": len(services),
+        "services_up": sum(1 for s in services.values() if s["up"]),
+        "ports": {name: s["port"] for name, s in services.items() if s["port"]},
+    }
+
+    if not mt5_up:
+        return {"status": "degraded", "mt5_connected": False, "runner": runner,
+                "services": services, "summary": summary}
     return {
         "status": "healthy",
         "mt5_connected": True,
@@ -215,6 +229,9 @@ def health():
         "login": account.login,
         "server": account.server,
         "currency": account.currency,
+        "runner": runner,
+        "services": services,
+        "summary": summary,
     }
 
 
