@@ -37,20 +37,67 @@ if (Test-Path $envFile) {
 }
 
 Write-Host "=== [1/7] Python ===" -ForegroundColor Cyan
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        winget install --id Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements
-    } else {
-        # No winget (Windows Server / older Win10): install directly from python.org
-        Write-Host "winget not available, installing Python from python.org..." -ForegroundColor Yellow
-        $pyExe = "$env:TEMP\python-installer.exe"
-        Invoke-WebRequest "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe" -OutFile $pyExe
-        Start-Process $pyExe -ArgumentList "/quiet", "InstallAllUsers=1", "PrependPath=1" -Wait
-    }
+
+function Refresh-Path {
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
                 [Environment]::GetEnvironmentVariable("Path", "User")
 }
+
+Refresh-Path
+
+$python = Get-Command python -ErrorAction SilentlyContinue
+
+if (-not $python) {
+
+    Write-Host "Python not found, installing Python 3.12..." -ForegroundColor Yellow
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+
+        winget install `
+            --id Python.Python.3.12 `
+            -e `
+            --accept-source-agreements `
+            --accept-package-agreements
+
+    }
+    else {
+
+        Write-Host "winget unavailable, downloading Python installer..." -ForegroundColor Yellow
+
+        $pyInstaller = "$env:TEMP\python-installer.exe"
+
+        Invoke-WebRequest `
+            "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe" `
+            -OutFile $pyInstaller
+
+        Start-Process `
+            $pyInstaller `
+            -ArgumentList `
+            "/quiet InstallAllUsers=1 PrependPath=1" `
+            -Wait
+    }
+
+
+    # 刷新环境变量
+    Refresh-Path
+
+    # 等待安装完成并重新检测
+    $retry = 0
+    while (-not (Get-Command python -ErrorAction SilentlyContinue) -and $retry -lt 30) {
+        Start-Sleep -Seconds 2
+        Refresh-Path
+        $retry++
+    }
+}
+
+
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    throw "Python installation failed. python.exe not found in PATH."
+}
+
+
 python --version
+python -m pip --version
 
 Write-Host "=== [2/7] Python dependencies ===" -ForegroundColor Cyan
 python -m pip install --upgrade pip --quiet
