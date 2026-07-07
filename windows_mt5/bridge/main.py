@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import socket
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -64,12 +65,38 @@ def _env_creds() -> Optional[dict]:
             "server": os.getenv("MT5_SERVER", "")}
 
 
+def _terminal_running() -> bool:
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq terminal64.exe"],
+                             capture_output=True, text=True, timeout=10)
+        return "terminal64.exe" in out.stdout
+    except OSError:
+        return False
+
+
 def _connect() -> bool:
     global _connected
     creds = _creds or _env_creds()
     kwargs = dict(creds) if creds else {}
     if MT5_PATH:
         kwargs["path"] = MT5_PATH
+        # 终端不在时用 Popen 显式拉起(等价于用户双击, 实测这样起的终端能连),
+        # 不交给 initialize 隐式拉起(实测隐式拉起的终端 IPC 附着不上);
+        # 拉起后等进程出现 + 冷启动缓冲, 再握手
+        if not _terminal_running():
+            logger.info("MT5 terminal not running, launching %s", MT5_PATH)
+            try:
+                subprocess.Popen([MT5_PATH], cwd=str(Path(MT5_PATH).parent))
+            except OSError as e:
+                logger.error("launch terminal failed: %s", e)
+                return False
+            deadline = time.time() + 60
+            while time.time() < deadline and not _terminal_running():
+                time.sleep(3)
+            time.sleep(15)
+    # initialize 挂起期间持有 GIL, 整个进程(含 /health)都会冻结 -
+    # 默认 60s 超时太长, 15s 快败, 交给重连循环再试
+    kwargs["timeout"] = 15_000
     with _mt5_lock:
         mt5.shutdown()
         ok = mt5.initialize(**kwargs)

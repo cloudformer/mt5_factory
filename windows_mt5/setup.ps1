@@ -204,14 +204,20 @@ Write-Host "Inbound port $port allowed"
 Write-Host "=== [7/8] Auto-start (scheduled tasks) ===" -ForegroundColor Cyan
 $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit (New-TimeSpan -Days 3650)
+# RunLevel 必须显式 Limited: 本脚本以管理员运行, 注册出的任务若以提升权限跑 python,
+# 与普通权限的 MT5 终端 IPC 权限不一致, mt5.initialize() 必然 (-10005, 'IPC timeout')。
+# Limited + Interactive = 和用户双击 bat 完全等价的运行环境 (实测双击可连)。
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
+    -LogonType Interactive -RunLevel Limited
 foreach ($task in @(
     @{Name = "MT5Bridge"; Bat = "$root\start_bridge.bat"},
     @{Name = "MT5Runner"; Bat = "$root\start_runner.bat"}
 )) {
     $action = New-ScheduledTaskAction -Execute $task.Bat -WorkingDirectory $root
     $trigger = New-ScheduledTaskTrigger -AtLogOn
-    Register-ScheduledTask -TaskName $task.Name -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
-    Write-Host "Scheduled task $($task.Name) registered"
+    Register-ScheduledTask -TaskName $task.Name -Action $action -Trigger $trigger `
+        -Settings $settings -Principal $principal -Force | Out-Null
+    Write-Host "Scheduled task $($task.Name) registered (RunLevel=Limited)"
 }
 
 Write-Host "=== [8/8] Restart + self-check ===" -ForegroundColor Cyan

@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import socket
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -82,12 +83,23 @@ def wait_bridge(max_wait: int = 300) -> None:
     logger.warning("bridge %ds 内未连上 MT5, runner 自行尝试连接", max_wait)
 
 
+def terminal_running() -> bool:
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq terminal64.exe"],
+                             capture_output=True, text=True, timeout=10)
+        return "terminal64.exe" in out.stdout
+    except OSError:
+        return False
+
+
 def mt5_connect() -> bool:
     login = os.getenv("MT5_LOGIN", "").strip()
     kwargs = {"path": MT5_PATH} if MT5_PATH else {}
     if login:
         kwargs.update(login=int(login), password=os.getenv("MT5_PASSWORD", ""),
                       server=os.getenv("MT5_SERVER", ""))
+    # 附着挂起(如终端未就绪)会冻结整个进程, 快败快重试
+    kwargs["timeout"] = 15_000
     return mt5.initialize(**kwargs)  # 无账户时附着到已登录终端
 
 
@@ -198,8 +210,13 @@ def main():
         logger.error("env/.dev.env 的 DOCKER_COMPOSE_HOST 必须填 Linux VM 的局域网 IP (当前: %r)", DOCKER_COMPOSE_HOST)
         sys.exit(1)
     wait_bridge()
-    while not mt5_connect():
-        logger.error("MT5 connect failed: %s, retry in 30s", mt5.last_error())
+    # 终端只由 bridge 一方拉起, runner 永不拉起只附着 (双方同时拉起会双双 IPC timeout)
+    while True:
+        if terminal_running() and mt5_connect():
+            break
+        logger.error("MT5 connect failed (%s), retry in 30s",
+                     mt5.last_error() if terminal_running() else "terminal not running, bridge 会拉起")
+        write_status("等待 MT5", 0)
         time.sleep(30)
     logger.info("runner started (status=%s, volume=%s)", RUN_STATUS, VOLUME)
 
