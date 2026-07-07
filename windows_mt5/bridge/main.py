@@ -139,7 +139,10 @@ app = FastAPI(title="MT5 Bridge", version="2.0.0")
 
 @app.on_event("startup")
 def startup():
-    _connect()  # 失败不退出: 重连守护接管, /health 如实上报
+    # _connect() 必须放后台线程: uvicorn 等 startup 跑完才开始监听端口,
+    # 而 mt5.initialize() 在终端卡弹窗/首启慢时会挂起几十秒甚至更久,
+    # 同步调用会导致 8020 整个起不来, /health 不可达, 心跳误判离线
+    threading.Thread(target=_connect, daemon=True).start()
     threading.Thread(target=_reconnect_loop, daemon=True).start()
     threading.Thread(target=_announce_loop, daemon=True).start()
 

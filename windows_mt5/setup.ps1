@@ -6,6 +6,10 @@
 param([switch]$SkipMT5)
 
 $ErrorActionPreference = "Stop"
+# Old Windows PowerShell defaults to TLS 1.0 - python.org/mql5.com downloads would fail
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# Progress bar slows Invoke-WebRequest downloads by an order of magnitude
+$ProgressPreference = "SilentlyContinue"
 
 function Pause-Exit($code) {
     Write-Host ""
@@ -71,40 +75,28 @@ Refresh-Path
 $python = Get-Command python -ErrorAction SilentlyContinue
 
 if (-not $python) {
-
     Write-Host "Python not found, installing Python 3.12..." -ForegroundColor Yellow
 
+    # Try winget first, but treat its failure as "not installed" and fall through
+    # to the direct installer (winget breaks in odd ways: no msstore agreement,
+    # outdated sources, group policy blocks...)
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-
-        winget install `
-            --id Python.Python.3.12 `
-            -e `
-            --accept-source-agreements `
-            --accept-package-agreements
-
+        winget install --id Python.Python.3.12 -e `
+            --accept-source-agreements --accept-package-agreements
+        Refresh-Path
     }
-    else {
 
-        Write-Host "winget unavailable, downloading Python installer..." -ForegroundColor Yellow
-
+    if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+        Write-Host "Downloading Python installer from python.org..." -ForegroundColor Yellow
         $pyInstaller = "$env:TEMP\python-installer.exe"
-
-        Invoke-WebRequest `
-            "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe" `
+        Invoke-WebRequest "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe" `
             -OutFile $pyInstaller
-
-        Start-Process `
-            $pyInstaller `
-            -ArgumentList `
-            "/quiet InstallAllUsers=1 PrependPath=1" `
-            -Wait
+        $proc = Start-Process $pyInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1" `
+            -Wait -PassThru
+        if ($proc.ExitCode -ne 0) { throw "Python installer exited with code $($proc.ExitCode)" }
     }
 
-
-    # refresh PATH after install
-    Refresh-Path
-
-    # wait for the installer to finish updating the registry
+    # PATH updates land in the registry with a delay - poll until python resolves
     $retry = 0
     while (-not (Get-Command python -ErrorAction SilentlyContinue) -and $retry -lt 30) {
         Start-Sleep -Seconds 2
@@ -113,14 +105,20 @@ if (-not $python) {
     }
 }
 
-
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     throw "Python installation failed. python.exe not found in PATH."
 }
 
+# The MetaTrader5 package only ships 64-bit wheels - a stray 32-bit Python first in
+# PATH would fail at 'pip install' with a baffling "no matching distribution" error
+$bits = python -c "import struct; print(struct.calcsize('P') * 8)"
+if ($bits -ne "64") {
+    throw "python in PATH is $bits-bit at $((Get-Command python).Source) - MetaTrader5 requires 64-bit Python; remove/reorder the 32-bit one"
+}
 
 python --version
 python -m pip --version
+Assert-LastExitCode "python/pip sanity check"
 
 Write-Host "=== [3/8] Python dependencies ===" -ForegroundColor Cyan
 python -m pip install --upgrade pip --quiet
@@ -216,9 +214,20 @@ foreach ($task in @(
     Write-Host "Scheduled task $($task.Name) registered"
 }
 
-Write-Host "=== [8/8] Start + self-check ===" -ForegroundColor Cyan
-Start-ScheduledTask -TaskName "MT5Bridge"
-Start-ScheduledTask -TaskName "MT5Runner"
+Write-Host "=== [8/8] Restart + self-check ===" -ForegroundColor Cyan
+# Always stop-then-start: Start-ScheduledTask on an already-running task is a no-op,
+# so a plain start would leave old processes running with a stale env/code after a re-run
+foreach ($t in "MT5Bridge", "MT5Runner") {
+    Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
+}
+# Dedicated worker VM: stray python processes ARE the old bridge/runner.
+# Redirect inside cmd, not PS: under EAP=Stop, PS 5.1 turns taskkill's stderr
+# ("process not found" - the normal case on first install) into a fatal error.
+cmd /c "taskkill /F /IM python.exe >nul 2>&1"
+Start-Sleep -Seconds 2
+foreach ($t in "MT5Bridge", "MT5Runner") {
+    Start-ScheduledTask -TaskName $t
+}
 Write-Host "Waiting for bridge (it will auto-launch the MT5 terminal)..."
 $health = $null
 foreach ($i in 1..18) {
@@ -232,11 +241,14 @@ if ($null -eq $health) {
     Write-Host "!! bridge did not respond within 90s - run start_bridge.bat manually to see the error" -ForegroundColor Red
     Pause-Exit 1
 }
+$runnerAlive = $health.runner -and $health.runner.alive
+Write-Host ("runner: " + $(if ($runnerAlive) { "running" } else { "not running yet (watchdog restarts it; check start_runner.bat window if it stays down)" }))
 if ($health.status -eq "healthy") {
     Write-Host "bridge: healthy | MT5 connected, account=$($health.login) @ $($health.server)" -ForegroundColor Green
 } else {
-    Write-Host "bridge: running, but MT5 has no account logged in" -ForegroundColor Yellow
-    Write-Host "  -> set MT5_LOGIN/PASSWORD/SERVER in env\.dev.env and re-run, or push account from the web Workers page" -ForegroundColor Yellow
+    Write-Host "bridge: running, but MT5 is not connected/logged in yet" -ForegroundColor Yellow
+    Write-Host "  -> freshly installed MT5? check the terminal window for first-run dialogs (EULA/account wizard) and close them" -ForegroundColor Yellow
+    Write-Host "  -> no account? set MT5_LOGIN/PASSWORD/SERVER in env\.dev.env and re-run, or push one from the web Workers page" -ForegroundColor Yellow
 }
 Write-Host ""
 Write-Host "Done! This machine will appear on the web Workers page within ~1 minute" -ForegroundColor Green

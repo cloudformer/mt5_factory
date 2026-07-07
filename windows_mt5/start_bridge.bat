@@ -6,5 +6,7 @@ cd /d %~dp0
 echo [%date% %time%] starting bridge...
 python bridge\main.py
 echo [%date% %time%] bridge exited (code %errorlevel%), restart in 10s...
-timeout /t 10 /nobreak >nul
+rem ping-sleep instead of timeout: timeout errors out without an interactive
+rem console, turning this watchdog into a tight crash loop
+ping -n 11 127.0.0.1 >nul
 goto loop

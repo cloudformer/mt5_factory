@@ -14,8 +14,10 @@ if (-not (Get-ScheduledTask -TaskName "MT5Bridge" -ErrorAction SilentlyContinue)
 foreach ($t in "MT5Bridge", "MT5Runner") {
     Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
 }
-# Dedicated worker VM: make sure old python processes are gone
-taskkill /F /IM python.exe 2>$null | Out-Null
+# Dedicated worker VM: make sure old python processes are gone.
+# Redirect inside cmd, not PS: under EAP=Stop, PS 5.1 turns taskkill's stderr
+# ("process not found" - normal when nothing was running) into a fatal error.
+cmd /c "taskkill /F /IM python.exe >nul 2>&1"
 Start-Sleep -Seconds 2
 foreach ($t in "MT5Bridge", "MT5Runner") {
     Start-ScheduledTask -TaskName $t
