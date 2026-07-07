@@ -1,4 +1,5 @@
 @echo off
+title MT5 Runner
 rem Trading Runner (watchdog loop: restarts 10s after a crash)
 cd /d %~dp0
 :loop

@@ -7,6 +7,10 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Split-Path -Parent $root
 
 Write-Host "=== Restart services ===" -ForegroundColor Cyan
+if (-not (Get-ScheduledTask -TaskName "MT5Bridge" -ErrorAction SilentlyContinue)) {
+    Write-Host "!! Scheduled tasks not found - run setup.bat first" -ForegroundColor Red
+    exit 1
+}
 foreach ($t in "MT5Bridge", "MT5Runner") {
     Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
 }
