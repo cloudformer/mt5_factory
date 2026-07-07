@@ -57,6 +57,7 @@ _mt5_lock = threading.Lock()
 _connected = False
 _creds: Optional[dict] = None  # /connect 下发的账户, 优先于 env
 _account_cache: Optional[dict] = None  # 最近一次成功读到的账户信息, 供锁被长占时应答
+_fail_streak = 0  # 连续连接失败次数, 满 6 次触发自愈(杀终端重拉)
 
 
 def _env_creds() -> Optional[dict]:
@@ -67,34 +68,44 @@ def _env_creds() -> Optional[dict]:
             "server": os.getenv("MT5_SERVER", "")}
 
 
-def _terminal_running() -> bool:
+def _terminal_count() -> int:
     try:
-        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq terminal64.exe"],
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq terminal64.exe", "/FO", "CSV"],
                              capture_output=True, text=True, timeout=10)
-        return "terminal64.exe" in out.stdout
+        return out.stdout.count("terminal64.exe")
     except OSError:
-        return False
+        return -1  # 查不到进程表(罕见), 与 0 区分
 
 
-def _diag() -> str:
+def _terminal_running() -> bool:
+    return _terminal_count() > 0
+
+
+def _diag(procs: int) -> str:
     """连接失败时自动打环境诊断, 免人工逐项排查"""
     try:
         elevated = bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         elevated = "?"
-    procs = "?"
-    try:
-        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq terminal64.exe", "/FO", "CSV"],
-                             capture_output=True, text=True, timeout=10).stdout
-        procs = out.count("terminal64.exe")
-    except OSError:
-        pass
     return (f"python_elevated={elevated} terminal_procs={procs} "
             f"mt5_pkg={getattr(mt5, '__version__', '?')} python={sys.executable}")
 
 
+def _explain_failure(err: tuple, procs: int, streak: int) -> str:
+    """把 -10005 这类哑巴错误码翻译成明确原因 + 系统即将采取的动作
+    (日志一律英文: Windows 控制台默认 GBK 代码页, 中文会变乱码)"""
+    if procs == 0:
+        return "cause: no terminal64.exe process (launch failed or crashed) -> will relaunch on next retry"
+    if procs > 1:
+        return f"cause: {procs} terminal64.exe processes interfering -> self-heal will kill all and relaunch"
+    if err and err[0] == -10005:
+        return (f"cause: terminal process alive, permissions OK, but it ignores the IPC handshake"
+                f" = this terminal instance is dead inside -> fail {streak}/6, at 6 it gets killed and relaunched")
+    return f"cause: terminal rejected initialization (error code {err[0] if err else '?'})"
+
+
 def _connect() -> bool:
-    global _connected
+    global _connected, _fail_streak
     creds = _creds or _env_creds()
     kwargs = dict(creds) if creds else {}
     if MT5_PATH:
@@ -120,50 +131,53 @@ def _connect() -> bool:
         mt5.shutdown()
         ok = mt5.initialize(**kwargs)
         if ok:
+            _fail_streak = 0  # IPC 已通, 终端是好的 - 没登录账户也不该触发杀终端自愈
             info = mt5.account_info()
             if info is None:
                 _connected = False
-                logger.error("MT5 initialized but no account logged in")
+                logger.error("MT5 IPC OK but no account logged in -> push an account from the "
+                             "web Workers page, or set MT5_LOGIN/PASSWORD/SERVER in env\\.dev.env and restart")
                 return False
             _connected = True
             logger.info("MT5 connected: login=%s server=%s balance=%s",
                         info.login, info.server, info.balance)
         else:
             _connected = False
+            _fail_streak += 1
             err = mt5.last_error()
-            logger.error("MT5 initialize failed: %s | %s", err, _diag())
+            procs = _terminal_count()
+            logger.error("MT5 connect failed %s | %s | %s",
+                         err, _explain_failure(err, procs, _fail_streak), _diag(procs))
     return _connected
 
 
 def _reconnect_loop():
-    global _connected
-    fails = 0
+    global _connected, _fail_streak
     while True:
         time.sleep(30)
         with _mt5_lock:
             alive = _connected and mt5.terminal_info() is not None
         if alive:
-            fails = 0
             continue
         _connected = False
-        # 自愈: 连续多次附着不上, 说明这个终端实例已坏(实测存在附着不上的僵尸实例),
+        # 自愈: 连续多次附着不上 = 终端实例已僵死(实测存在这种僵尸实例),
         # 杀掉重拉 - _connect 发现终端不在会用 Popen 重新拉起一个干净的
-        if fails >= 6 and MT5_PATH:
-            logger.warning("6 次连不上, 重启 MT5 终端自愈")
+        if _fail_streak >= 6 and MT5_PATH:
+            logger.warning("self-heal: %d connect failures in a row, killing the dead terminal and relaunching",
+                           _fail_streak)
             subprocess.run(["taskkill", "/F", "/IM", "terminal64.exe"],
                            capture_output=True, timeout=15)
             time.sleep(5)
-            fails = 0
-        logger.warning("MT5 disconnected, reconnecting...")
-        if not _connect():
-            fails += 1
+            _fail_streak = 0
+        logger.warning("MT5 not connected, retrying...")
+        _connect()
 
 
 def _announce_loop():
     """自动注册: 周期性向 api 自报家门, Workers 页面无需手动添加。
     新机器以 download 角色入册, demo/live 由人在 web 上指派。"""
     if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
-        logger.warning("DOCKER_COMPOSE_HOST 未配置, 跳过自动注册 (可在 web Workers 页手动注册)")
+        logger.warning("DOCKER_COMPOSE_HOST not set, skip auto-register (register manually on the web Workers page)")
         return
     api_base = f"http://{DOCKER_COMPOSE_HOST}:{API_PORT}"
     while True:
@@ -180,7 +194,7 @@ def _announce_loop():
             if r.status_code != 200:
                 logger.warning("announce rejected: %s %s", r.status_code, r.text[:100])
         except Exception as e:
-            logger.warning("announce failed (api 未就绪?): %s", e)
+            logger.warning("announce failed (api not up yet?): %s", e)
         time.sleep(60)
 
 

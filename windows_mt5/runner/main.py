@@ -66,30 +66,27 @@ def write_status(run_status: str, strategies: int) -> None:
         pass
 
 
-def wait_bridge(max_wait: int = 300) -> None:
-    """等同机 bridge 先连上 MT5 再附着: bridge 和 runner 同时 initialize 会竞争拉起
-    终端, 双双 IPC timeout(实测) - 终端只由 bridge 一方拉起, runner 附着现成的。
-    bridge 不在或一直连不上时超时放行, 退回自行 initialize(下面的重试循环兜底)"""
-    deadline = time.time() + max_wait
-    while time.time() < deadline:
+def wait_bridge() -> None:
+    """等同机 bridge 连上 MT5 后才附着, 等多久都等, 绝不自行 initialize:
+    终端的拉起/连接/自愈全部由 bridge 一家负责, runner 多一个进程去碰终端
+    只会制造并发握手干扰(实测两进程同时 initialize 双双 IPC timeout)。
+    bridge 没连上期间 runner 本来就无事可做(不该交易), 等待就是正确行为。"""
+    logger.info("runner is up (NOT stuck), waiting for local bridge to connect MT5 before attaching...")
+    waited = 0
+    while True:
         try:
             h = requests.get(f"http://127.0.0.1:{BRIDGE_PORT}/health", timeout=5).json()
             if h.get("mt5_connected"):
+                logger.info("bridge reports MT5 connected, runner attaching now")
                 return
+            why = "bridge is up but MT5 not connected yet (bridge owns connect/self-heal, see bridge window)"
         except (requests.RequestException, ValueError):
-            pass
+            why = "bridge not responding (starting/restarting?)"
         write_status("等待 MT5", 0)
         time.sleep(10)
-    logger.warning("bridge %ds 内未连上 MT5, runner 自行尝试连接", max_wait)
-
-
-def terminal_running() -> bool:
-    try:
-        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq terminal64.exe"],
-                             capture_output=True, text=True, timeout=10)
-        return "terminal64.exe" in out.stdout
-    except OSError:
-        return False
+        waited += 10
+        if waited % 60 == 0:
+            logger.info("still waiting: %s (%ds elapsed)", why, waited)
 
 
 def mt5_connect() -> bool:
@@ -207,17 +204,15 @@ def process(inst: dict, last_bar: dict) -> None:
 
 def main():
     if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
-        logger.error("env/.dev.env 的 DOCKER_COMPOSE_HOST 必须填 Linux VM 的局域网 IP (当前: %r)", DOCKER_COMPOSE_HOST)
+        logger.error("DOCKER_COMPOSE_HOST in env/.dev.env must be the Linux VM LAN IP (current: %r)", DOCKER_COMPOSE_HOST)
         sys.exit(1)
-    wait_bridge()
-    # 终端只由 bridge 一方拉起, runner 永不拉起只附着 (双方同时拉起会双双 IPC timeout)
     while True:
-        if terminal_running() and mt5_connect():
+        wait_bridge()  # 返回即 bridge 已确认 MT5 可用
+        if mt5_connect():
             break
-        logger.error("MT5 connect failed (%s), retry in 30s",
-                     mt5.last_error() if terminal_running() else "terminal not running, bridge 会拉起")
-        write_status("等待 MT5", 0)
-        time.sleep(30)
+        logger.error("MT5 attach failed %s | bridge side is fine, treating as transient, back to waiting",
+                     mt5.last_error())
+        time.sleep(10)
     logger.info("runner started (status=%s, volume=%s)", RUN_STATUS, VOLUME)
 
     instances, last_bar, last_refresh, run_status = [], {}, 0.0, ""
