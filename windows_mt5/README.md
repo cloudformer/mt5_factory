@@ -8,9 +8,8 @@ Windows VM 上的两个进程（同机、互不依赖）：
 
 ```powershell
 # 1. 整个 repo 复制/clone 到 VM; 把 Linux 上配置好的 env/.dev.env 复制到 repo 的 env/ 下
-# 2. 管理员 PowerShell — 就这一条 (装环境+防火墙+自启任务+启动+自检):
-cd mt5_factory\windows_mt5
-powershell -ExecutionPolicy Bypass -File .\setup.ps1 -InstallMT5   # 已装MT5则省略参数
+# 2. 双击 windows_mt5\setup.bat 即可 (自动提权+绕过执行策略+窗口保持打开)
+#    需要顺带安装 MT5 终端时, 在 cmd 里: setup.bat -InstallMT5
 ```
 
 setup.ps1 结束时自检并输出结果：绿色 = 就绪（自动出现在 web Workers 页）；

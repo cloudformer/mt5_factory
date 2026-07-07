@@ -1,16 +1,31 @@
 # MT5 Factory - Windows worker 一键初始化 + 启动 (每台新VM跑一次, 克隆VM无需再跑)
-# 用法(管理员 PowerShell):
-#   powershell -ExecutionPolicy Bypass -File .\setup.ps1               # 已装MT5
-#   powershell -ExecutionPolicy Bypass -File .\setup.ps1 -InstallMT5   # 静默安装MT5
+# 推荐入口: 双击 setup.bat (自动提权+绕过执行策略+窗口保持)
+# 手动用法(管理员 PowerShell):
+#   powershell -ExecutionPolicy Bypass -File .\setup.ps1 [-InstallMT5]
 param([switch]$InstallMT5)
 
 $ErrorActionPreference = "Stop"
+
+function Pause-Exit($code) {
+    Write-Host ""
+    Read-Host "按回车关闭窗口"
+    exit $code
+}
+
 trap {
     Write-Host ""
     Write-Host "!! 初始化失败于: $($_.InvocationInfo.ScriptLineNumber) 行" -ForegroundColor Red
     Write-Host "!! 错误: $_" -ForegroundColor Red
     Write-Host "!! 修复后重跑本脚本即可 (所有步骤可安全重复执行)" -ForegroundColor Red
-    exit 1
+    Pause-Exit 1
+}
+
+# 管理员检查 (防火墙/计划任务需要)
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+           ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "!! 需要管理员权限 — 请双击 setup.bat (会自动提权), 或用管理员 PowerShell 运行" -ForegroundColor Red
+    Pause-Exit 1
 }
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -23,7 +38,15 @@ if (Test-Path $envFile) {
 
 Write-Host "=== [1/7] Python ===" -ForegroundColor Cyan
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    winget install --id Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        winget install --id Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements
+    } else {
+        # winget 不存在 (Windows Server / 老版 Win10): 直接从 python.org 下载静默安装
+        Write-Host "winget 不可用, 从 python.org 直接安装 Python..." -ForegroundColor Yellow
+        $pyExe = "$env:TEMP\python-installer.exe"
+        Invoke-WebRequest "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe" -OutFile $pyExe
+        Start-Process $pyExe -ArgumentList "/quiet", "InstallAllUsers=1", "PrependPath=1" -Wait
+    }
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
                 [Environment]::GetEnvironmentVariable("Path", "User")
 }
@@ -94,7 +117,7 @@ foreach ($i in 1..18) {
 }
 if ($null -eq $health) {
     Write-Host "!! bridge 90秒内未响应 — 手动运行 start_bridge.bat 查看报错" -ForegroundColor Red
-    exit 1
+    Pause-Exit 1
 }
 if ($health.status -eq "healthy") {
     Write-Host "bridge: healthy | MT5 已连接 账户=$($health.login) @ $($health.server)" -ForegroundColor Green
@@ -105,3 +128,4 @@ if ($health.status -eq "healthy") {
 Write-Host ""
 Write-Host "完成! 本机将自动出现在 web Workers 页面 (约1分钟内)" -ForegroundColor Green
 Write-Host "开机自启已配置, 之后无需任何手动操作" -ForegroundColor Green
+Pause-Exit 0

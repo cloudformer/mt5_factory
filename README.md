@@ -92,7 +92,7 @@ open http://localhost:8010/docs   # API 交互文档 (Swagger)
 make up                    # 启动 + 自动冒烟测试
 
 # ---- Windows VM: 部署 worker (见 windows_mt5/README.md) ----
-#   .\setup.ps1 -InstallMT5 → 复制 Linux 配置好的 env/.dev.env 过来 → start_bridge/start_runner
+#   复制 Linux 配置好的 env/.dev.env 过来 → 双击 setup.bat (自动提权, 全程自动)
 
 # ---- 注册 worker ----
 make psql
