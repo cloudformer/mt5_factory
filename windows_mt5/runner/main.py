@@ -31,6 +31,9 @@ DOCKER_COMPOSE_HOST = os.getenv("DOCKER_COMPOSE_HOST", "").strip()
 API_URL = f"http://{DOCKER_COMPOSE_HOST}:{os.getenv('API_PORT', '8010')}"
 RUN_STATUS = os.getenv("RUN_STATUS", "DEMO")
 VOLUME = float(os.getenv("VOLUME", "0.01"))
+# mt5.initialize() 不给 path 时的自动定位常失效 (报 "MetaTrader 5 x64 not found" 但其实已装),
+# setup.ps1 探测到终端后会自动写入这个变量
+MT5_PATH = os.getenv("MT5_PATH", "").strip()
 STATUS_FILE = Path(__file__).resolve().parents[1] / "runner_status.json"  # bridge 状态页读它
 POLL_SECONDS = 10
 REFRESH_SECONDS = 60
@@ -50,10 +53,11 @@ TF_MT5 = {
 
 def mt5_connect() -> bool:
     login = os.getenv("MT5_LOGIN", "").strip()
+    kwargs = {"path": MT5_PATH} if MT5_PATH else {}
     if login:
-        return mt5.initialize(login=int(login), password=os.getenv("MT5_PASSWORD", ""),
-                              server=os.getenv("MT5_SERVER", ""))
-    return mt5.initialize()  # 附着到已登录终端
+        kwargs.update(login=int(login), password=os.getenv("MT5_PASSWORD", ""),
+                      server=os.getenv("MT5_SERVER", ""))
+    return mt5.initialize(**kwargs)  # 无账户时附着到已登录终端
 
 
 def detect_run_status() -> str:

@@ -31,6 +31,9 @@ BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 与 api 注册 worker 的端
 BRIDGE_API_KEY = os.getenv("BRIDGE_API_KEY", "")
 DOCKER_COMPOSE_HOST = os.getenv("DOCKER_COMPOSE_HOST", "").strip()
 API_PORT = os.getenv("API_PORT", "8010")
+# mt5.initialize() 不给 path 时的自动定位常失效 (报 "MetaTrader 5 x64 not found" 但其实已装),
+# setup.ps1 探测到终端后会自动写入这个变量
+MT5_PATH = os.getenv("MT5_PATH", "").strip()
 RUNNER_STATUS_FILE = Path(__file__).resolve().parents[1] / "runner_status.json"
 
 logging.basicConfig(
@@ -63,9 +66,12 @@ def _env_creds() -> Optional[dict]:
 def _connect() -> bool:
     global _connected
     creds = _creds or _env_creds()
+    kwargs = dict(creds) if creds else {}
+    if MT5_PATH:
+        kwargs["path"] = MT5_PATH
     with _mt5_lock:
         mt5.shutdown()
-        ok = mt5.initialize(**creds) if creds else mt5.initialize()
+        ok = mt5.initialize(**kwargs)
         if ok:
             info = mt5.account_info()
             if info is None:

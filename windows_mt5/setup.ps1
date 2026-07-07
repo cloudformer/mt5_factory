@@ -143,20 +143,24 @@ function Find-MT5Terminal {
     return $found | Select-Object -First 1
 }
 
+$mt5Path = $null
 if ($SkipMT5) {
     Write-Host "Skipped (-SkipMT5)"
 } else {
     $existing = Find-MT5Terminal
     if ($existing) {
         Write-Host "Already installed: $($existing.FullName)"
+        $mt5Path = $existing.FullName
     } else {
         Write-Host "Not found, installing..." -ForegroundColor Yellow
         $installer = "$env:TEMP\mt5setup.exe"
         Invoke-WebRequest "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile $installer
         $proc = Start-Process $installer -ArgumentList "/auto" -Wait -PassThru
-        if ($proc.ExitCode -ne 0 -or -not (Find-MT5Terminal)) {
+        $installed = Find-MT5Terminal
+        if ($proc.ExitCode -ne 0 -or -not $installed) {
             throw "MT5 installer exited with code $($proc.ExitCode) and terminal64.exe still not found"
         }
+        $mt5Path = $installed.FullName
         Write-Host "MT5 installed"
     }
 }
@@ -165,6 +169,19 @@ Write-Host "=== [5/8] Config file ===" -ForegroundColor Cyan
 if (-not (Test-Path $envFile)) {
     Copy-Item "$envFile.example" $envFile
     Write-Host "env\.dev.env created from template (better: copy the configured one from the Linux side)" -ForegroundColor Yellow
+}
+if ($mt5Path) {
+    # mt5.initialize() auto-detection is unreliable (esp. after a silent /auto install) and
+    # fails with "IPC initialize failed, MetaTrader 5 x64 not found" even though it IS installed -
+    # pin the path we just found/installed so bridge/runner pass it explicitly.
+    $envLines = Get-Content $envFile -Encoding UTF8
+    if ($envLines -match '^MT5_PATH=\s*$') {
+        $envLines -replace '^MT5_PATH=.*', "MT5_PATH=$mt5Path" | Set-Content $envFile -Encoding UTF8
+        Write-Host "Saved MT5_PATH=$mt5Path"
+    } elseif (-not ($envLines -match '^MT5_PATH=')) {
+        Add-Content $envFile -Encoding UTF8 -Value "MT5_PATH=$mt5Path"
+        Write-Host "Saved MT5_PATH=$mt5Path"
+    }
 }
 # Interactive fill for missing critical values (written to env only after you confirm)
 if (Select-String -Path $envFile -Pattern '^DOCKER_COMPOSE_HOST=(127\.|$)') {
