@@ -6,11 +6,13 @@ MT5 账户三种来源(优先级由高到低):
   2. env/.dev.env 手动配置 MT5_LOGIN/PASSWORD/SERVER
   3. 都没有: 附着到本机已登录的 MT5 终端
 """
+import ctypes
 import json
 import logging
 import os
 import socket
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -74,6 +76,23 @@ def _terminal_running() -> bool:
         return False
 
 
+def _diag() -> str:
+    """连接失败时自动打环境诊断, 免人工逐项排查"""
+    try:
+        elevated = bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        elevated = "?"
+    procs = "?"
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq terminal64.exe", "/FO", "CSV"],
+                             capture_output=True, text=True, timeout=10).stdout
+        procs = out.count("terminal64.exe")
+    except OSError:
+        pass
+    return (f"python_elevated={elevated} terminal_procs={procs} "
+            f"mt5_pkg={getattr(mt5, '__version__', '?')} python={sys.executable}")
+
+
 def _connect() -> bool:
     global _connected
     creds = _creds or _env_creds()
@@ -112,24 +131,32 @@ def _connect() -> bool:
         else:
             _connected = False
             err = mt5.last_error()
-            logger.error("MT5 initialize failed: %s", err)
-            if err and err[0] == -10005:
-                logger.error("IPC timeout 排查: 1) 终端和 python 权限要一致 (手动开终端时别用'管理员身份运行') "
-                             "2) 任务管理器里确认只有一个 terminal64.exe (多开互相干扰, 全部关掉让 bridge 自动拉起) "
-                             "3) 刚装的终端可能正在下载更新, 等 1-2 分钟会自动重连")
+            logger.error("MT5 initialize failed: %s | %s", err, _diag())
     return _connected
 
 
 def _reconnect_loop():
     global _connected
+    fails = 0
     while True:
         time.sleep(30)
         with _mt5_lock:
             alive = _connected and mt5.terminal_info() is not None
-        if not alive:
-            _connected = False
-            logger.warning("MT5 disconnected, reconnecting...")
-            _connect()
+        if alive:
+            fails = 0
+            continue
+        _connected = False
+        # 自愈: 连续多次附着不上, 说明这个终端实例已坏(实测存在附着不上的僵尸实例),
+        # 杀掉重拉 - _connect 发现终端不在会用 Popen 重新拉起一个干净的
+        if fails >= 6 and MT5_PATH:
+            logger.warning("6 次连不上, 重启 MT5 终端自愈")
+            subprocess.run(["taskkill", "/F", "/IM", "terminal64.exe"],
+                           capture_output=True, timeout=15)
+            time.sleep(5)
+            fails = 0
+        logger.warning("MT5 disconnected, reconnecting...")
+        if not _connect():
+            fails += 1
 
 
 def _announce_loop():

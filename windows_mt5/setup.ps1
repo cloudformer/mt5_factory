@@ -201,38 +201,40 @@ if (-not (Get-NetFirewallRule -DisplayName "MT5 Bridge" -ErrorAction SilentlyCon
 }
 Write-Host "Inbound port $port allowed"
 
-Write-Host "=== [7/8] Auto-start (scheduled tasks) ===" -ForegroundColor Cyan
-$settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
-    -ExecutionTimeLimit (New-TimeSpan -Days 3650)
-# RunLevel 必须显式 Limited: 本脚本以管理员运行, 注册出的任务若以提升权限跑 python,
-# 与普通权限的 MT5 终端 IPC 权限不一致, mt5.initialize() 必然 (-10005, 'IPC timeout')。
-# Limited + Interactive = 和用户双击 bat 完全等价的运行环境 (实测双击可连)。
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
-    -LogonType Interactive -RunLevel Limited
-foreach ($task in @(
+Write-Host "=== [7/8] Auto-start (startup shortcuts) ===" -ForegroundColor Cyan
+# 自启用"启动文件夹快捷方式"而非计划任务: 登录自启 = 和用户双击 bat 完全同一种启动方式。
+# 计划任务环境里 python 对 MT5 终端的 IPC 附着实测始终 (-10005, 'IPC timeout'),
+# 双击路径实测可连; 崩溃自愈由 bat 内的看门狗循环负责, 不依赖计划任务的重启策略。
+foreach ($t in "MT5Bridge", "MT5Runner") {   # 清掉旧方案的计划任务, 避免双重启动
+    if (Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue) {
+        Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName $t -Confirm:$false
+        Write-Host "Removed old scheduled task $t"
+    }
+}
+$startup = [Environment]::GetFolderPath("Startup")
+$shell = New-Object -ComObject WScript.Shell
+foreach ($item in @(
     @{Name = "MT5Bridge"; Bat = "$root\start_bridge.bat"},
     @{Name = "MT5Runner"; Bat = "$root\start_runner.bat"}
 )) {
-    $action = New-ScheduledTaskAction -Execute $task.Bat -WorkingDirectory $root
-    $trigger = New-ScheduledTaskTrigger -AtLogOn
-    Register-ScheduledTask -TaskName $task.Name -Action $action -Trigger $trigger `
-        -Settings $settings -Principal $principal -Force | Out-Null
-    Write-Host "Scheduled task $($task.Name) registered (RunLevel=Limited)"
+    $lnk = $shell.CreateShortcut("$startup\$($item.Name).lnk")
+    $lnk.TargetPath = $item.Bat
+    $lnk.WorkingDirectory = $root
+    $lnk.Save()
+    Write-Host "Startup shortcut $($item.Name) created"
 }
 
 Write-Host "=== [8/8] Restart + self-check ===" -ForegroundColor Cyan
-# Always stop-then-start: Start-ScheduledTask on an already-running task is a no-op,
-# so a plain start would leave old processes running with a stale env/code after a re-run
-foreach ($t in "MT5Bridge", "MT5Runner") {
-    Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
-}
 # Dedicated worker VM: stray python processes ARE the old bridge/runner.
 # Redirect inside cmd, not PS: under EAP=Stop, PS 5.1 turns taskkill's stderr
 # ("process not found" - the normal case on first install) into a fatal error.
 cmd /c "taskkill /F /IM python.exe >nul 2>&1"
 Start-Sleep -Seconds 2
-foreach ($t in "MT5Bridge", "MT5Runner") {
-    Start-ScheduledTask -TaskName $t
+# 必须经 explorer 启动: 本脚本是管理员权限, 直接 Start-Process 会把提升权限传给子进程,
+# 提升的 python 连不上普通权限的 MT5 终端; 经 explorer = 普通权限, 与双击/开机自启完全一致
+foreach ($bat in "start_bridge.bat", "start_runner.bat") {
+    explorer.exe "$root\$bat"
 }
 Write-Host "Waiting for bridge (it will auto-launch the MT5 terminal)..."
 $health = $null

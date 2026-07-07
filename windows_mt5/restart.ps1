@@ -7,20 +7,15 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Split-Path -Parent $root
 
 Write-Host "=== Restart services ===" -ForegroundColor Cyan
-if (-not (Get-ScheduledTask -TaskName "MT5Bridge" -ErrorAction SilentlyContinue)) {
-    Write-Host "!! Scheduled tasks not found - run setup.bat first" -ForegroundColor Red
-    exit 1
-}
-foreach ($t in "MT5Bridge", "MT5Runner") {
-    Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
-}
 # Dedicated worker VM: make sure old python processes are gone.
 # Redirect inside cmd, not PS: under EAP=Stop, PS 5.1 turns taskkill's stderr
 # ("process not found" - normal when nothing was running) into a fatal error.
 cmd /c "taskkill /F /IM python.exe >nul 2>&1"
 Start-Sleep -Seconds 2
-foreach ($t in "MT5Bridge", "MT5Runner") {
-    Start-ScheduledTask -TaskName $t
+# 必须经 explorer 启动: 若本脚本在管理员窗口运行, 直接 Start-Process 会把提升权限传给
+# 子进程, 提升的 python 连不上普通权限的 MT5 终端; 经 explorer = 普通权限, 与双击一致
+foreach ($bat in "start_bridge.bat", "start_runner.bat") {
+    explorer.exe "$root\$bat"
 }
 
 Write-Host "=== Self-check ===" -ForegroundColor Cyan

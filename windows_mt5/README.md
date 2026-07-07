@@ -64,4 +64,4 @@ VALUES ('win-worker-1', '192.168.x.x', 8020, TRUE, 'demo', 'DEMO');
 - 每 10s 轮询：只取**已收盘** bar（`copy_rates_from_pos` 位置 1 起），同一收盘 bar 只处理一次
 - 下单前查 MT5 真实持仓（magic 归属），**无状态**，重启零恢复成本
 - 无 SL/TP 的信号直接拒绝；单策略异常隔离，不拖累其他策略
-- 崩溃由 start_runner.bat 看门狗 10s 拉起，计划任务开机自启
+- 崩溃由 start_runner.bat 看门狗 10s 拉起，启动文件夹快捷方式登录自启（等价双击；计划任务环境实测 MT5 IPC 附着不上，勿改回）
