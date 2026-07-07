@@ -34,6 +34,7 @@ VOLUME = float(os.getenv("VOLUME", "0.01"))
 # mt5.initialize() 不给 path 时的自动定位常失效 (报 "MetaTrader 5 x64 not found" 但其实已装),
 # setup.ps1 探测到终端后会自动写入这个变量
 MT5_PATH = os.getenv("MT5_PATH", "").strip()
+BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 同机 bridge, 开机时等它先连上 MT5
 STATUS_FILE = Path(__file__).resolve().parents[1] / "runner_status.json"  # bridge 状态页读它
 POLL_SECONDS = 10
 REFRESH_SECONDS = 60
@@ -49,6 +50,36 @@ TF_MT5 = {
     "M30": mt5.TIMEFRAME_M30, "H1": mt5.TIMEFRAME_H1, "H4": mt5.TIMEFRAME_H4,
     "D1": mt5.TIMEFRAME_D1,
 }
+
+
+def write_status(run_status: str, strategies: int) -> None:
+    """心跳落盘, 供 bridge 状态页展示"""
+    try:
+        STATUS_FILE.write_text(json.dumps({
+            "updated": time.time(),
+            "run_status": run_status,
+            "strategies": strategies,
+            "mt5_connected": mt5.terminal_info() is not None,
+        }))
+    except OSError:
+        pass
+
+
+def wait_bridge(max_wait: int = 300) -> None:
+    """等同机 bridge 先连上 MT5 再附着: bridge 和 runner 同时 initialize 会竞争拉起
+    终端, 双双 IPC timeout(实测) - 终端只由 bridge 一方拉起, runner 附着现成的。
+    bridge 不在或一直连不上时超时放行, 退回自行 initialize(下面的重试循环兜底)"""
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        try:
+            h = requests.get(f"http://127.0.0.1:{BRIDGE_PORT}/health", timeout=5).json()
+            if h.get("mt5_connected"):
+                return
+        except (requests.RequestException, ValueError):
+            pass
+        write_status("等待 MT5", 0)
+        time.sleep(10)
+    logger.warning("bridge %ds 内未连上 MT5, runner 自行尝试连接", max_wait)
 
 
 def mt5_connect() -> bool:
@@ -166,6 +197,7 @@ def main():
     if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
         logger.error("env/.dev.env 的 DOCKER_COMPOSE_HOST 必须填 Linux VM 的局域网 IP (当前: %r)", DOCKER_COMPOSE_HOST)
         sys.exit(1)
+    wait_bridge()
     while not mt5_connect():
         logger.error("MT5 connect failed: %s, retry in 30s", mt5.last_error())
         time.sleep(30)
@@ -185,16 +217,7 @@ def main():
                 process(inst, last_bar)
             except Exception as e:  # 异常隔离: 单策略失败不拖累其他
                 logger.error("strategy %s error: %s", inst["name"], e)
-        # 心跳落盘, 供 bridge 状态页展示
-        try:
-            STATUS_FILE.write_text(json.dumps({
-                "updated": time.time(),
-                "run_status": run_status or "未指派",
-                "strategies": len(instances),
-                "mt5_connected": mt5.terminal_info() is not None,
-            }))
-        except OSError:
-            pass
+        write_status(run_status or "未指派", len(instances))
         time.sleep(POLL_SECONDS)
 
 

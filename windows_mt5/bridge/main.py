@@ -53,6 +53,7 @@ MAX_BARS_PER_REQUEST = 100_000
 _mt5_lock = threading.Lock()
 _connected = False
 _creds: Optional[dict] = None  # /connect 下发的账户, 优先于 env
+_account_cache: Optional[dict] = None  # 最近一次成功读到的账户信息, 供锁被长占时应答
 
 
 def _env_creds() -> Optional[dict]:
@@ -83,7 +84,12 @@ def _connect() -> bool:
                         info.login, info.server, info.balance)
         else:
             _connected = False
-            logger.error("MT5 initialize failed: %s", mt5.last_error())
+            err = mt5.last_error()
+            logger.error("MT5 initialize failed: %s", err)
+            if err and err[0] == -10005:
+                logger.error("IPC timeout 排查: 1) 终端和 python 权限要一致 (手动开终端时别用'管理员身份运行') "
+                             "2) 任务管理器里确认只有一个 terminal64.exe (多开互相干扰, 全部关掉让 bridge 自动拉起) "
+                             "3) 刚装的终端可能正在下载更新, 等 1-2 分钟会自动重连")
     return _connected
 
 
@@ -157,12 +163,30 @@ def _runner_status() -> dict:
         return {"alive": False}
 
 
+def _mt5_snapshot() -> tuple:
+    """(mt5是否在线, 账户信息dict或None) - 限时抢锁。
+    initialize 挂起(IPC timeout 要 60s)或大批量拉 bars 时锁被长占, /health 若死等锁,
+    app 心跳就超时误判 OFFLINE - 拿不到锁立即用缓存应答, 状态端点绝不阻塞"""
+    global _account_cache
+    if _mt5_lock.acquire(timeout=2):
+        try:
+            term = mt5.terminal_info() if _connected else None
+            info = mt5.account_info() if _connected else None
+            if term and info:
+                _account_cache = {"login": info.login, "server": info.server,
+                                  "currency": info.currency, "balance": info.balance,
+                                  "trade_allowed": bool(term.trade_allowed)}
+                return True, _account_cache
+            return False, None
+        finally:
+            _mt5_lock.release()
+    return _connected, _account_cache if _connected else None
+
+
 @app.get("/", response_class=HTMLResponse)
 def status_page():
     """本机状态页: 浏览器打开 http://<本机>:8020/ 看全部服务"""
-    with _mt5_lock:
-        terminal = mt5.terminal_info() if _connected else None
-        account = mt5.account_info() if _connected else None
+    mt5_up, account = _mt5_snapshot()
     runner = _runner_status()
 
     def badge(ok, text_ok, text_bad):
@@ -176,11 +200,11 @@ def status_page():
 
     rows = [
         ("bridge", badge(True, "运行中", ""), f"端口 {BRIDGE_PORT}"),
-        ("MT5 终端", badge(terminal is not None, "已连接", "未连接"),
-         f"交易许可: {'是' if terminal and terminal.trade_allowed else '—'}"),
+        ("MT5 终端", badge(mt5_up, "已连接", "未连接"),
+         f"交易许可: {'是' if account and account['trade_allowed'] else '—'}"),
         ("MT5 账户", badge(account is not None,
-                          f"{account.login} @ {account.server}" if account else "", "未登录"),
-         f"余额 {account.balance:,.2f} {account.currency}" if account else "可在 web Workers 页下发账户"),
+                          f"{account['login']} @ {account['server']}" if account else "", "未登录"),
+         f"余额 {account['balance']:,.2f} {account['currency']}" if account else "可在 web Workers 页下发账户"),
         ("runner", badge(runner["alive"], "运行中", "未运行"),
          f"角色 {runner.get('run_status', '—')} · 策略 {runner.get('strategies', '—')} 个"
          if runner["alive"] else "检查 start_runner.bat"),
@@ -212,10 +236,8 @@ def health():
     """心跳端点(无鉴权): app 只轮询这一个端点, 本机 bridge/MT5/runner 状态 + 服务/端口汇总
     在这里一次性收集齐, 不需要 app 再单独探测每个服务(runner 没有对外端口, 只能本机汇总)"""
     runner = _runner_status()
-    with _mt5_lock:
-        terminal = mt5.terminal_info() if _connected else None
-        account = mt5.account_info() if _connected else None
-    mt5_up = terminal is not None and account is not None
+    up, account = _mt5_snapshot()
+    mt5_up = up and account is not None
 
     services = {
         "bridge": {"up": True, "port": BRIDGE_PORT},
@@ -234,10 +256,10 @@ def health():
     return {
         "status": "healthy",
         "mt5_connected": True,
-        "trade_allowed": terminal.trade_allowed,
-        "login": account.login,
-        "server": account.server,
-        "currency": account.currency,
+        "trade_allowed": account["trade_allowed"],
+        "login": account["login"],
+        "server": account["server"],
+        "currency": account["currency"],
         "runner": runner,
         "services": services,
         "summary": summary,
