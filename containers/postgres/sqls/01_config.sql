@@ -2,14 +2,16 @@
 
 -- ========== MT5 Worker 注册表 ==========
 -- 每台 Windows VM 上的 MT5 bridge 注册一行; 加 worker = 插一行, 不改代码
--- roles: download(下载数据) | demo(跑模拟策略) | live(跑实盘策略), demo与live不能同机
--- 测试期一台机器可同时持有多个角色, 拆分时改注册即可
+-- 职能两字段 (约束靠结构):
+--   download: 是否承担数据下载 (可多台并行)
+--   runner:   跑什么策略 demo|live|NULL(不跑) — 单字段天然保证 demo/live 互斥
 CREATE TABLE mt5_hosts (
     id             SERIAL PRIMARY KEY,
     name           VARCHAR(64)  NOT NULL UNIQUE,
     host           VARCHAR(255) NOT NULL,
     port           INTEGER      NOT NULL DEFAULT 8020,
-    roles          TEXT[]       NOT NULL DEFAULT '{}',
+    download       BOOLEAN      NOT NULL DEFAULT TRUE,
+    runner         VARCHAR(8)   CHECK (runner IN ('demo', 'live')),  -- NULL=不跑策略
     mt5_login      BIGINT,
     mt5_server     VARCHAR(128),
     account_type   VARCHAR(8)   NOT NULL DEFAULT 'DEMO'
@@ -26,7 +28,6 @@ CREATE TABLE mt5_hosts (
 );
 
 CREATE INDEX idx_mt5_hosts_enabled ON mt5_hosts (enabled);
-CREATE INDEX idx_mt5_hosts_roles ON mt5_hosts USING GIN (roles);
 
 CREATE TRIGGER trg_mt5_hosts_updated_at
     BEFORE UPDATE ON mt5_hosts
@@ -83,7 +84,32 @@ CREATE TRIGGER trg_config_updated_at
 
 INSERT INTO config (key, value) VALUES
     ('symbols',    '["EURUSD","GBPUSD","USDJPY","XAUUSD","AUDUSD","USDCAD","NZDUSD","EURJPY","GBPJPY"]'),
-    ('data_start', '"2015-01-01"');
+    ('data_start', '"2015-01-01"'),
+    ('ai_generator_url', '""'),   -- AI 参数生成器地址(可选), 如 http://host:9000
+    ('backtest_costs', '{"slippage_points": 3, "commission_points": 7, "spread_points": null}');
+
+-- ========== MQ5 转化流水线 ==========
+-- 外部 MQ5 策略纳入系统的跟踪: 提交源码 → 评估 → 翻译成 strategy_core 模板
+-- status: PENDING(待评估) | ASSESSED(已评估) | TRANSLATED(已翻译, template字段指向模板) | REJECTED(不纳入)
+CREATE TABLE mq5_imports (
+    id         SERIAL PRIMARY KEY,
+    name       VARCHAR(128) NOT NULL,
+    source     TEXT         NOT NULL,           -- .mq5 源码
+    params_set TEXT,                            -- .set 参数(可选)
+    status     VARCHAR(16)  NOT NULL DEFAULT 'PENDING'
+               CHECK (status IN ('PENDING', 'ASSESSED', 'TRANSLATED', 'REJECTED')),
+    assessment TEXT,                            -- 评估结论(可直翻/需扩展/不收 + 原因)
+    template   VARCHAR(64),                     -- 翻译后对应的 strategy_core 模板名
+    consistency DOUBLE PRECISION,               -- 一致性验证结果(%)
+    verify_detail JSONB,                        -- 比对明细(双方笔数/匹配数)
+    verified_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE TRIGGER trg_mq5_imports_updated_at
+    BEFORE UPDATE ON mq5_imports
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ========== 品种表 ==========
 -- point 用于回测点数换算; 后续可由 bridge /symbol 数据校准

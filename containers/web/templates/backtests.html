@@ -4,6 +4,17 @@
 {{ m.page_header('回测', '悲观撮合（点差 / 滑点 / 佣金 / SL 优先），M1 拆解 bar 内走势；结果按净点数排名') }}
 
 <section>
+  <h2>默认成本 (系统配置)</h2>
+  <form method="post" action="{{ url_for('backtests.save_costs') }}" class="inline">
+    <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="单边滑点(点)"></label>
+    <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="往返佣金(点数等值)"></label>
+    <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="固定点差(点); 留空=用每根bar记录的真实点差"></label>
+    <button class="small">保存默认</button>
+    <span class="muted">回测撮合的成本假设; 每次结果都随附所用设置, 不同设置的成绩不混淆</span>
+  </form>
+</section>
+
+<section>
   <h2>批量回测</h2>
   <form method="post" action="{{ url_for('backtests.run') }}" class="inline">
     <select name="status">
@@ -11,6 +22,11 @@
     </select>
     <input name="symbol" size="10" placeholder="品种(可空)">
     <label>上限 <input name="limit" value="500" size="5"></label>
+    <input name="strategy_ids" size="16" placeholder="策略ID, 逗号分隔(可空)"
+           title="指定则只回测这些策略, 忽略左侧状态/品种筛选; ID 在策略页查看">
+    <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="本次运行的滑点; 默认取上方系统配置"></label>
+    <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="本次运行的佣金; 默认取上方系统配置"></label>
+    <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="本次运行的点差; 留空=真实点差"></label>
     <button {% if bt.running %}disabled{% endif %}>启动回测</button>
     {% if bt.running %}
     <span class="badge ok">运行中 {{ bt.done }}/{{ bt.total }}</span> <span class="muted">{{ bt.current }}</span>

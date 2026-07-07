@@ -43,8 +43,8 @@ curl http://<windows_ip>:8020/health     # bridge + MT5 状态
 在数据库注册 worker（Linux 侧）：
 
 ```sql
-INSERT INTO mt5_hosts (name, host, port, roles, account_type)
-VALUES ('win-worker-1', '192.168.x.x', 8020, '{download,demo}', 'DEMO');
+INSERT INTO mt5_hosts (name, host, port, download, runner, account_type)
+VALUES ('win-worker-1', '192.168.x.x', 8020, TRUE, 'demo', 'DEMO');
 ```
 
 ## Bridge API（端口 8020 固定）

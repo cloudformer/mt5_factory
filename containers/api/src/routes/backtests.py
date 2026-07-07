@@ -30,6 +30,10 @@ class BacktestRequest(BaseModel):
     from_time: Optional[datetime] = None
     to_time: Optional[datetime] = None
     limit: int = 500
+    # 成本模型: 不传则用 config 表 backtest_costs 的系统默认 (web 可改)
+    slippage_points: Optional[float] = None
+    commission_points: Optional[float] = None
+    spread_points: Optional[float] = None  # null=用bar记录的真实点差
 
 
 @router.post("/backtest/run")
@@ -54,11 +58,22 @@ async def run(req: BacktestRequest, request: Request):
         raise HTTPException(status_code=404, detail="no strategies matched")
 
     bt_state.update(running=True, current=None, done=0, total=len(rows), errors=[])
-    asyncio.create_task(_run_batch(pool, [dict(r) for r in rows], req.from_time, req.to_time))
-    return {"started": True, "total": len(rows)}
+    # 成本: 请求值 > config 系统默认 > 代码默认
+    cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
+    costs = {
+        "slippage_points": req.slippage_points if req.slippage_points is not None
+                           else cfg.get("slippage_points", backtest.DEFAULT_SLIPPAGE_POINTS),
+        "commission_points": req.commission_points if req.commission_points is not None
+                             else cfg.get("commission_points", backtest.DEFAULT_COMMISSION_POINTS),
+        "spread_points": req.spread_points if req.spread_points is not None
+                         else cfg.get("spread_points"),
+    }
+    asyncio.create_task(_run_batch(pool, [dict(r) for r in rows],
+                                   req.from_time, req.to_time, costs))
+    return {"started": True, "total": len(rows), "costs": costs}
 
 
-async def _run_batch(pool, strategies: list, t_from, t_to):
+async def _run_batch(pool, strategies: list, t_from, t_to, costs: dict):
     t_from = t_from or datetime(2015, 1, 1, tzinfo=timezone.utc)
     t_to = t_to or datetime.now(timezone.utc)
     points = {r["symbol"]: r["point"] for r in await pool.fetch("SELECT symbol, point FROM symbols")}
@@ -77,7 +92,7 @@ async def _run_batch(pool, strategies: list, t_from, t_to):
 
             result = await asyncio.to_thread(
                 backtest.run_backtest, m1, s["template"], s["params"],
-                points[s["symbol"]], s["timeframe"])
+                points[s["symbol"]], s["timeframe"], **costs)
             await pool.execute(
                 "INSERT INTO backtests (strategy_id, from_time, to_time, metrics, trades)"
                 " VALUES ($1, $2, $3, $4, $5)",

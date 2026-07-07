@@ -16,12 +16,16 @@ CREATE TABLE historical_bars (
     PRIMARY KEY (symbol, timeframe, time)
 ) PARTITION BY RANGE (time);
 
--- 按年建分区: 2000 - 2036
+-- 42 个分区全覆盖, 任何时间写入都不报错:
+--   pre2000 (最早→2000) + 2000~2039 共40个年度分区 + post2040 (2040→最晚)
+CREATE TABLE historical_bars_pre2000 PARTITION OF historical_bars
+    FOR VALUES FROM (MINVALUE) TO ('2000-01-01');
+
 DO $$
 DECLARE
     y INTEGER;
 BEGIN
-    FOR y IN 2000..2036 LOOP
+    FOR y IN 2000..2039 LOOP
         EXECUTE format(
             'CREATE TABLE historical_bars_%s PARTITION OF historical_bars
              FOR VALUES FROM (%L) TO (%L)',
@@ -29,5 +33,8 @@ BEGIN
         );
     END LOOP;
 END $$;
+
+CREATE TABLE historical_bars_post2040 PARTITION OF historical_bars
+    FOR VALUES FROM ('2040-01-01') TO (MAXVALUE);
 
 SELECT '02_data.sql done' AS status;

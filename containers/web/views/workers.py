@@ -5,8 +5,6 @@ import api_client as api
 
 bp = Blueprint("workers", __name__, url_prefix="/workers")
 
-ALL_ROLES = ["download", "demo", "live"]
-
 
 @bp.get("/")
 def index():
@@ -15,17 +13,19 @@ def index():
         hosts = api.get("/hosts")["hosts"]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-    return render_template("workers.html", hosts=hosts, all_roles=ALL_ROLES)
+    return render_template("workers.html", hosts=hosts)
 
 
 @bp.post("/add")
 def add():
     try:
+        runner = request.form.get("runner") or None
         result = api.post("/hosts", {
             "name": request.form["name"].strip(),
             "host": request.form["host"].strip(),
             "port": request.form.get("port", 8020, type=int),
-            "roles": request.form.getlist("roles"),
+            "download": request.form.get("download") == "on",
+            "runner": runner,
             "account_type": request.form.get("account_type", "DEMO"),
         })
         flash(f"worker {result['name']} 已注册 (id={result['id']})", "ok")

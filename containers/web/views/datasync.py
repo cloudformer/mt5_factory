@@ -14,7 +14,7 @@ def index():
         data["sync"] = api.get("/syncdata/status")
         data["config"] = api.get("/config")["config"]
         data["hosts"] = [h for h in api.get("/hosts")["hosts"]
-                         if h["enabled"] and "download" in h["roles"]]
+                         if h["enabled"] and h["download"]]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("datasync.html", **data)

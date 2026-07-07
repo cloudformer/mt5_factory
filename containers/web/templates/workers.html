@@ -6,14 +6,14 @@
 <section>
   <h2>已注册 worker</h2>
   <table>
-    <tr><th>ID</th><th>名称</th><th>地址</th><th>角色</th><th>账户</th><th>状态</th>
+    <tr><th>ID</th><th>名称</th><th>地址</th><th>职能</th><th>账户</th><th>状态</th>
         <th>注册时间</th><th>上线时间</th><th>下线时间</th><th>操作</th></tr>
     {% for h in hosts %}
     <tr>
       <td>{{ h.id }}</td>
       <td>{{ h.name }}</td>
       <td>{{ h.host }}:{{ h.port }}</td>
-      <td>{{ h.roles | join(' / ') }}</td>
+      <td>{{ m.worker_duty(h) }}</td>
       <td>{{ h.account_type }}</td>
       <td>{{ m.worker_status(h) }}</td>
       <td class="muted">{{ m.ts(h.created_at) }}</td>
@@ -42,13 +42,14 @@
     <input name="name" placeholder="名称 如 win-1" size="10" required>
     <input name="host" placeholder="IP 如 192.168.1.50" size="14" required>
     <input name="port" value="8020" size="5">
-    {% for r in all_roles %}
-    <label><input type="checkbox" name="roles" value="{{ r }}" {% if r == 'download' %}checked{% endif %}> {{ r }}</label>
-    {% endfor %}
+    <label><input type="checkbox" name="download" checked> download</label>
+    <select name="runner">
+      <option value="">不跑策略</option><option value="demo">demo</option><option value="live">live</option>
+    </select>
     <select name="account_type"><option>DEMO</option><option>REAL</option></select>
     <button>注册</button>
   </form>
-  <p class="muted">角色：download 下载数据 · demo 跑模拟 · live 跑实盘（demo 与 live 不能同机）；角色也可在 Demo / 实盘页指派。</p>
+  <p class="muted">职能：download=参与数据下载（可多台并行）；runner=跑什么策略（demo/live 单选，结构上不可能同机双跑）；也可在 Demo / 实盘页指派。</p>
 </section>
 
 <section>

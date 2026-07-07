@@ -176,3 +176,13 @@ button.danger { background: #fff; color: var(--err-fg); border: 1px solid var(--
 button.danger:hover { background: var(--err-bg); border-color: #f87171; }
 
 td form.inline { display: inline-flex; margin-right: 4px; }
+select.small { padding: 3px 6px; font-size: 12px; color: var(--muted); }
+select.small:hover { color: var(--text); }
+
+/* 列宽拖柄 */
+.col-resizer {
+  position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+  cursor: col-resize; z-index: 1;
+}
+.col-resizer:hover { background: rgba(37, 99, 235, .25); border-radius: 2px; }
+td { overflow: hidden; text-overflow: ellipsis; }

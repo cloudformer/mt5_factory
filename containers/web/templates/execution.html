@@ -27,7 +27,7 @@
   <h3>指派主机</h3>
   <form method="post" action="{{ url_for('execution.assign', mode=mode) }}" class="inline">
     <select name="host_id">
-      {% for h in assignable %}<option value="{{ h.id }}">{{ h.name }} ({{ h.host }}, 当前: {{ h.roles | join('/') or '无角色' }})</option>{% endfor %}
+      {% for h in assignable %}<option value="{{ h.id }}">{{ h.name }} ({{ h.host }}, 当前: {{ m.worker_duty(h) }})</option>{% endfor %}
     </select>
     <button {% if not assignable %}disabled{% endif %}>指派为 {{ cfg.role }}</button>
     {% if mode == 'live' %}<span class="badge warn">实盘：确认该主机 MT5 登录的是真实账户</span>{% endif %}

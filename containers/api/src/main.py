@@ -67,8 +67,8 @@ async def lifespan(app: FastAPI):
         mt5_port = int(os.getenv("MT5_PORT", "8020"))
         for host in [h.strip() for h in os.getenv("MT5_HOSTS", "").split(",") if h.strip()]:
             await app.state.pool.execute(
-                "INSERT INTO mt5_hosts (name, host, port, roles)"
-                " VALUES ($1, $2, $3, '{download,demo}')",
+                "INSERT INTO mt5_hosts (name, host, port, download, runner)"
+                " VALUES ($1, $2, $3, TRUE, 'demo')",
                 f"win-{host.replace('.', '-')}", host, mt5_port)
             logger.info("MT5 worker seeded: %s:%s", host, mt5_port)
 

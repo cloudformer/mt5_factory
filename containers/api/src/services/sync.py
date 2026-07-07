@@ -30,7 +30,7 @@ async def _download_hosts(pool: asyncpg.Pool):
     """所有可用的下载 worker — 多台并行下载, 品种轮询分摊"""
     return await pool.fetch(
         "SELECT name, host, port FROM mt5_hosts"
-        " WHERE enabled AND 'download' = ANY(roles) ORDER BY id"
+        " WHERE enabled AND download ORDER BY id"
     )
 
 

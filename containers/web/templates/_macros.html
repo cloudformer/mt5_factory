@@ -12,6 +12,11 @@
   <span class="badge {{ {'ACTIVE': 'ok', 'DEMO': 'warn', 'CANDIDATE': ''}.get(s, '') }}">{{ s }}</span>
 {%- endmacro %}
 
+{# worker 职能: download布尔 + runner(demo/live/无) #}
+{% macro worker_duty(h) -%}
+  {%- if h.download %}download{% endif %}{% if h.download and h.runner %} · {% endif %}{% if h.runner %}{{ h.runner }}{% endif %}{% if not h.download and not h.runner %}—{% endif -%}
+{%- endmacro %}
+
 {# 时间戳: 截断到秒, 去掉 T #}
 {% macro ts(v) -%}{{ ((v or '')[:19]) | replace('T', ' ') }}{%- endmacro %}
 

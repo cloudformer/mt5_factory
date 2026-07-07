@@ -72,6 +72,17 @@ mt5_factory/
 `services/backtest.py` 的 `_metrics()` 加字段即可——metrics 是 JSONB，表结构不用动；
 想在排名页显示就在 `backtests.html` 加一列。
 
+### 纳入朋友的 MQ5 (翻译流程)
+1. 拿到 .mq5 源码(不是.ex5) + .set 参数 → 评估: bar级+固定SL/TP可直翻; 移动止损类需先扩展runner; tick级/马丁不收
+2. 翻译成 strategy_core 模板 (指标用 numpy 重写), 朋友的参数作为默认组合
+3. 交叉验证: MT5 Strategy Tester 跑原版 vs 我们 DB 回测跑翻译版, 同品种同时段信号对齐才算过
+4. 系统内验证: web 策略页提交源码跟踪状态; TRANSLATED 后用 POST /strategies/mq5/{id}/verify
+   (粘贴 Tester Deals 记录) 出一致率% — ≥90% 保留, <70% 打回
+5. commit; 之后可对其参数做邻域搜索(网格/随机)
+
+已验证的 MQ5 导入同时是**回测引擎的标定样本**(外部权威参照): 引擎/数据链路每次大改后,
+重跑它们的一致性验证做回归 — 一致率下降 = 引擎改坏了。
+
 ## 开发循环
 
 ```bash

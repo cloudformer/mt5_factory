@@ -5,7 +5,7 @@
 - **Linux VM** 跑 docker compose：`postgres`（唯一数据源）+ `api`（业务 API，8010）+ `web`（Flask 前端，8000，只调 api 不碰业务/数据库）
 - **Windows VM × 1..N** 跑 MT5 终端 + bridge，是无状态 worker：
   - 从干净 Windows 到就绪必须全脚本化（`windows_mt5/`），克隆即扩容
-  - 加 worker = 在 `mt5_hosts` 表注册（host/port/roles），不改代码不重启
+  - 加 worker = 在 `mt5_hosts` 表注册（host/port + download/runner 职能），不改代码不重启
   - 角色：`download`（下载数据）/ `demo`（模拟）/ `live`（实盘），demo 与 live 不能同机，一台可兼多角色，随时可拆
 - **数据流单向**：Windows 只和 MT5 交互，数据全部落库；回测/模拟只读库，不直接拉 MT5
 - **全 Python 执行方案**（2026-07-05 确认，不用 MQL5/EA）：策略代码只有一份（`strategy_core` 共享包），回测和实盘跑同一个策略类，只换适配器：
@@ -71,4 +71,6 @@ make up / down / logs / ps / psql / health
 | 3 | 策略在数据库回测，给出结果 | 已实现（合成数据验证通过），待真实数据验证 |
 | 4 | 策略加载到 Windows 运行 | 已实现（runner），待 Windows VM 验证 |
 
-第二阶段再考虑：监控面板、成交对账自动化、实盘准入流程强化。
+第二阶段再考虑：监控面板、成交对账自动化、实盘准入流程强化、
+jobs 表 + worker 容器（任务并行化，`--scale worker=N`）、
+AI generator 服务（生成模板代码/翻译 MQ5，产出必须过门禁：语法→冒烟回测→历史回测达标→人工 git 审查；参数进 DB，代码永远进 git）。

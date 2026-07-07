@@ -57,7 +57,7 @@ def mt5_connect() -> bool:
 
 
 def detect_run_status() -> str:
-    """本机角色以 web 上的指派为准 (mt5_hosts.roles): live→ACTIVE, demo→DEMO;
+    """本机职能以 web 上的指派为准 (mt5_hosts.runner): live→ACTIVE, demo→DEMO, NULL→不跑;
     找不到本机注册记录时退回 env 的 RUN_STATUS"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -67,11 +67,7 @@ def detect_run_status() -> str:
         r = requests.get(f"{API_URL}/hosts", timeout=10)
         for h in r.json()["hosts"]:
             if h["host"] == my_ip and h["enabled"]:
-                if "live" in h["roles"]:
-                    return "ACTIVE"
-                if "demo" in h["roles"]:
-                    return "DEMO"
-                return ""  # 已注册但未指派 demo/live: 不跑策略
+                return {"live": "ACTIVE", "demo": "DEMO"}.get(h["runner"], "")
     except Exception as e:
         logger.warning("role detect failed (%s), fallback to env RUN_STATUS", e)
     return RUN_STATUS

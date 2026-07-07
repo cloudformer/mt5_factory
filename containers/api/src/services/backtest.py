@@ -16,7 +16,14 @@ from strategy_core import TF_SECONDS, make_strategy
 
 logger = logging.getLogger("backtest")
 
-COSTS = {"slippage_points": 3, "commission_points": 7}  # 单边滑点 / 往返佣金
+# 成本模型默认值 (可被回测请求参数覆盖)
+DEFAULT_SLIPPAGE_POINTS = 3.0     # 单边滑点
+DEFAULT_COMMISSION_POINTS = 7.0   # 往返佣金(点数等值)
+
+
+def _spread_at(m1, j, point, spread_points):
+    """当根点差(价格单位): 指定 spread_points 则固定点差, 否则用 bar 记录的真实点差"""
+    return (spread_points if spread_points is not None else m1["spread"][j]) * point
 
 
 async def load_m1(pool, symbol: str, t_from: datetime, t_to: datetime):
@@ -63,10 +70,9 @@ def aggregate(m1: dict, tf_seconds: int) -> dict:
     }
 
 
-def _walk_exit(pos, j_from, j_to, m1, point):
+def _walk_exit(pos, j_from, j_to, m1, point, spread_points):
     """M1 逐根检查 SL/TP。悲观: 先查SL后查TP; 跳空按开盘价。返回 (exit_price, j, reason) 或 None"""
     o, h, l = m1["open"], m1["high"], m1["low"]
-    sp = m1["spread"]
     for j in range(j_from, j_to):
         if pos["dir"] == "BUY":  # 以 bid 离场, bar本身就是bid价
             if o[j] <= pos["sl"]:
@@ -78,26 +84,35 @@ def _walk_exit(pos, j_from, j_to, m1, point):
             if h[j] >= pos["tp"]:
                 return pos["tp"], j, "tp"
         else:  # SELL 以 ask 离场, ask ≈ bid + 当根点差
-            ask_o = o[j] + sp[j] * point
-            if ask_o >= pos["sl"]:
-                return float(ask_o), j, "sl_gap"
-            if h[j] + sp[j] * point >= pos["sl"]:
+            sp = _spread_at(m1, j, point, spread_points)
+            if o[j] + sp >= pos["sl"]:
+                return float(o[j] + sp), j, "sl_gap"
+            if h[j] + sp >= pos["sl"]:
                 return pos["sl"], j, "sl"
-            if ask_o <= pos["tp"]:
-                return float(ask_o), j, "tp_gap"
-            if l[j] + sp[j] * point <= pos["tp"]:
+            if o[j] + sp <= pos["tp"]:
+                return float(o[j] + sp), j, "tp_gap"
+            if l[j] + sp <= pos["tp"]:
                 return pos["tp"], j, "tp"
     return None
 
 
-def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe: str) -> dict:
-    """单个策略实例回测, 返回 {metrics, trades}"""
+def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe: str,
+                 slippage_points: float = DEFAULT_SLIPPAGE_POINTS,
+                 commission_points: float = DEFAULT_COMMISSION_POINTS,
+                 spread_points: float | None = None) -> dict:
+    """单个策略实例回测, 返回 {metrics, trades}
+
+    成本模型参数:
+    - slippage_points:   单边滑点(点), 进场时向不利方向偏移
+    - commission_points: 往返佣金(点数等值), 每笔盈亏中扣除
+    - spread_points:     固定点差(点); None=用每根bar记录的真实点差(默认, 推荐)
+    """
     strat = make_strategy(template, params, point)
     tf = aggregate(m1, TF_SECONDS[timeframe])
     w = strat.warmup
     n = len(tf["time"])
-    slip = COSTS["slippage_points"] * point
-    commission = COSTS["commission_points"]
+    slip = slippage_points * point
+    commission = commission_points
 
     pos = None
     trades = []
@@ -113,13 +128,13 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
                 continue
             j = j_from
             if sig.direction == "BUY":  # 买在 ask + 滑点
-                entry = float(m1["open"][j] + m1["spread"][j] * point + slip)
+                entry = float(m1["open"][j] + _spread_at(m1, j, point, spread_points) + slip)
             else:  # 卖在 bid - 滑点
                 entry = float(m1["open"][j] - slip)
             pos = {"dir": sig.direction, "entry": entry, "sl": sig.sl, "tp": sig.tp,
                    "entry_time": int(m1["time"][j])}
 
-        hit = _walk_exit(pos, j_from, j_to, m1, point)
+        hit = _walk_exit(pos, j_from, j_to, m1, point, spread_points)
         if hit:
             exit_price, j, reason = hit
             sign = 1 if pos["dir"] == "BUY" else -1
@@ -131,7 +146,13 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
             })
             pos = None
 
-    return {"metrics": _metrics(trades), "trades": trades}
+    metrics = _metrics(trades)
+    metrics["settings"] = {  # 成本模型随结果存档, 不同设置的成绩不混淆
+        "slippage_points": slippage_points,
+        "commission_points": commission_points,
+        "spread_points": spread_points if spread_points is not None else "recorded",
+    }
+    return {"metrics": metrics, "trades": trades}
 
 
 def _metrics(trades: list) -> dict:

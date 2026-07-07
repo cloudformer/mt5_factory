@@ -15,7 +15,7 @@ from src.services import sync
 
 router = APIRouter()
 
-CONFIG_KEYS = {"symbols", "data_start"}
+CONFIG_KEYS = {"symbols", "data_start", "ai_generator_url", "backtest_costs"}
 
 
 # ---------- 数据同步 ----------
@@ -67,6 +67,15 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
             date.fromisoformat(str(req.value))
         except ValueError:
             raise HTTPException(status_code=400, detail="data_start must be YYYY-MM-DD")
+    if key == "backtest_costs":
+        if not isinstance(req.value, dict):
+            raise HTTPException(status_code=400, detail="backtest_costs must be an object")
+        for k in ("slippage_points", "commission_points"):
+            if not isinstance(req.value.get(k), (int, float)):
+                raise HTTPException(status_code=400, detail=f"backtest_costs.{k} must be a number")
+        sp = req.value.get("spread_points")
+        if sp is not None and not isinstance(sp, (int, float)):
+            raise HTTPException(status_code=400, detail="spread_points must be number or null")
     await request.app.state.pool.execute(
         "INSERT INTO config (key, value) VALUES ($1, $2)"
         " ON CONFLICT (key) DO UPDATE SET value = $2", key, req.value)
