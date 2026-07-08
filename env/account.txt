@@ -1,0 +1,24 @@
+Name     : Name     : 
+Type     : Forex Hedged USD
+Server   : MetaQuotes-Demo
+Login    : 10011650727
+Password : Ci-yI3Ba
+Investor : Ws-eKx7g
+
+
+============================================================
+VERDICT (copy this whole block)
+============================================================
+python      : 3.12.10  64-bit  (need 64)
+MetaTrader5 : 5.0.5735
+admin       : False  (should be False)
+initialize  : True
+last_error  : (1, 'Success')
+account     : {'login': 10011650727, 'trade_mode': 0, 'leverage': 100, 'limit_orders': 200, 'margin_so_mode': 0, 'trade_allowed': True, 'trade_expert': True, 'margin_mode': 2, 'currency_digits': 2, 'fifo_close': False, 'balance': 100000.0, 'credit': 0.0, 'profit': 0.0, 'equity': 100000.0, 'margin': 0.0, 'margin_free': 100000.0, 'margin_level': 0.0, 'margin_so_call': 50.0, 'margin_so_so': 30.0, 'margin_initial': 0.0, 'margin_maintenance': 0.0, 'assets': 0.0, 'liabilities': 0.0, 'commission_blocked': 0.0, 'name': 'Fj Fj', 'server': 'MetaQuotes-Demo', 'currency': 'USD', 'company': 'MetaQuotes Ltd.'}
+------------------------------------------------------------
+=> OK - core works. This machine CAN do it; problem is our orchestration.
+         -> Tell Claude: simplify bridge (attach-only, no auto-launch/self-heal).
+         account=10011650727 @ MetaQuotes-Demo  balance=100000.0 USD
+============================================================
+
+请按任意键继续. . .
