@@ -28,7 +28,7 @@ def _validate_runner(runner: str | None):
 async def list_hosts(request: Request):
     rows = await request.app.state.pool.fetch(
         "SELECT id, name, host, port, download, runner, account_type, enabled, status,"
-        "       created_at, online_at, offline_at, last_heartbeat"
+        "       created_at, online_at, offline_at, last_heartbeat, last_health"
         "  FROM mt5_hosts ORDER BY id")
     return {"hosts": [dict(r) for r in rows]}
 

@@ -22,6 +22,7 @@ CREATE TABLE mt5_hosts (
     online_at      TIMESTAMPTZ,             -- 最近一次上线时间
     offline_at     TIMESTAMPTZ,             -- 最近一次下线时间
     last_heartbeat TIMESTAMPTZ,
+    last_health    JSONB,                   -- 最近一次 /health 完整响应 (web 展示用)
     created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),  -- 注册时间
     updated_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
     UNIQUE (host, port)

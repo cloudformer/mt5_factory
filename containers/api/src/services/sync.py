@@ -137,24 +137,30 @@ async def heartbeat_loop(pool: asyncpg.Pool):
                 hosts = await pool.fetch(
                     "SELECT id, name, host, port, status FROM mt5_hosts WHERE enabled")
                 for h in hosts:
-                    alive = False
+                    alive, health = False, None
                     try:
                         r = await client.get(f"http://{h['host']}:{h['port']}/health")
-                        alive = r.status_code == 200 and r.json().get("status") == "healthy"
-                    except httpx.HTTPError:
-                        alive = False
+                        if r.status_code == 200:
+                            health = r.json()               # 完整 /health JSON, 存库供 web 展示
+                            alive = health.get("status") == "healthy"
+                    except (httpx.HTTPError, ValueError):
+                        alive, health = False, None
 
                     if alive:
                         if h["status"] == "OFFLINE":  # 离线→上线
                             await pool.execute(
                                 "UPDATE mt5_hosts SET status='ONLINE', online_at=now(),"
-                                " last_heartbeat=now() WHERE id=$1", h["id"])
+                                " last_heartbeat=now(), last_health=$2 WHERE id=$1", h["id"], health)
                             await log_host_event(pool, h["id"], "ONLINE")
                             logger.info("worker %s ONLINE", h["name"])
                         else:
                             await pool.execute(
-                                "UPDATE mt5_hosts SET last_heartbeat=now() WHERE id=$1", h["id"])
+                                "UPDATE mt5_hosts SET last_heartbeat=now(), last_health=$2"
+                                " WHERE id=$1", h["id"], health)
                     else:  # 探测失败: 超过90s宽限才判下线
+                        if health is not None:  # 响应了但 degraded: 存 JSON, 状态另判
+                            await pool.execute(
+                                "UPDATE mt5_hosts SET last_health=$2 WHERE id=$1", h["id"], health)
                         row = await pool.fetchrow(
                             "UPDATE mt5_hosts SET status='OFFLINE', offline_at=now()"
                             " WHERE id=$1 AND status='ONLINE'"

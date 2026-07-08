@@ -1,3 +1,11 @@
+/* 点 JSON 按钮: 展开/收起对应的详情行 (data-json-toggle="行id") */
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-json-toggle]");
+  if (!btn) return;
+  const row = document.getElementById(btn.getAttribute("data-json-toggle"));
+  if (row) row.hidden = !row.hidden;
+});
+
 /* 状态下拉框 AJAX 原地更新: 改状态不刷新页面, 只更新当前行 */
 document.addEventListener("change", async (e) => {
   const sel = e.target.closest("select[data-status-select]");
