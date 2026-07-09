@@ -17,6 +17,26 @@
   {%- if h.download %}download{% endif %}{% if h.download and h.runner %} · {% endif %}{% if h.runner %}{{ h.runner }}{% endif %}{% if not h.download and not h.runner %}—{% endif -%}
 {%- endmacro %}
 
+{# worker 健康详情表: 从 last_health 渲染成和 8020 状态页一样的 4 行表 #}
+{% macro health_detail(h) -%}
+{% set hb = h.last_health or {} %}
+{% set rn = hb.runner or {} %}
+<table class="subtable">
+  <tr><td>bridge</td>
+      <td><span class="badge ok">运行中</span></td>
+      <td class="muted">端口 {{ h.port }}</td></tr>
+  <tr><td>MT5 终端</td>
+      <td><span class="badge {{ 'ok' if hb.mt5_connected else 'error' }}">{{ '已连接' if hb.mt5_connected else '未连接' }}</span></td>
+      <td class="muted">交易许可: {{ '是' if hb.trade_allowed else '—' }}</td></tr>
+  <tr><td>MT5 账户</td>
+      <td><span class="badge {{ 'ok' if hb.login else '' }}">{{ (hb.login ~ ' @ ' ~ hb.server) if hb.login else '未登录' }}</span></td>
+      <td class="muted">{{ hb.currency or '' }}</td></tr>
+  <tr><td>runner</td>
+      <td><span class="badge {{ 'ok' if rn.alive else '' }}">{{ '运行中' if rn.alive else '未运行' }}</span></td>
+      <td class="muted">角色 {{ rn.run_status or '—' }} · 策略 {{ rn.strategies if rn.strategies is not none else '—' }} 个</td></tr>
+</table>
+{%- endmacro %}
+
 {# 时间戳: 截断到秒, 去掉 T #}
 {% macro ts(v) -%}{{ ((v or '')[:19]) | replace('T', ' ') }}{%- endmacro %}
 

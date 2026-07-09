@@ -6,24 +6,17 @@
 <section>
   <h2>已注册 worker</h2>
   <table>
-    <tr><th>ID</th><th>名称</th><th>地址</th><th>职能</th><th>账户</th><th>状态</th>
-        <th>健康 (MT5/交易/runner)</th><th>最后心跳</th><th>操作</th></tr>
+    <tr><th>ID</th><th>名称</th><th>地址</th><th>职能</th><th>账户</th><th>状态 (点开看详情)</th><th>最后心跳</th><th>操作</th></tr>
     {% for h in hosts %}
-    {% set hb = h.last_health or {} %}
     <tr>
       <td>{{ h.id }}</td>
       <td>{{ h.name }}</td>
       <td>{{ h.host }}:{{ h.port }}</td>
       <td>{{ m.worker_duty(h) }}</td>
       <td>{{ h.account_type }}</td>
-      <td>{{ m.worker_status(h) }}</td>
       <td>
-        {% if h.last_health %}
-          <span class="badge {{ 'ok' if hb.mt5_connected else 'error' }}">MT5</span>
-          <span class="badge {{ 'ok' if hb.trade_allowed else '' }}">交易</span>
-          <span class="badge {{ 'ok' if hb.runner and hb.runner.alive else '' }}">runner</span>
-          <button class="small" data-json-toggle="health-{{ h.id }}">JSON</button>
-        {% else %}<span class="muted">无数据</span>{% endif %}
+        <button class="status-btn" data-json-toggle="health-{{ h.id }}">
+          {{ m.worker_status(h) }} <span class="caret">▾</span></button>
       </td>
       <td class="muted">{{ m.ts(h.last_heartbeat) }}</td>
       <td>
@@ -37,13 +30,14 @@
         </form>
       </td>
     </tr>
-    {% if h.last_health %}
-    <tr id="health-{{ h.id }}" class="json-row" hidden>
-      <td colspan="9"><pre class="json">{{ hb | tojson(indent=2) }}</pre></td>
+    <tr id="health-{{ h.id }}" class="detail-row" hidden>
+      <td colspan="8">
+        {% if h.last_health %}{{ m.health_detail(h) }}
+        {% else %}<span class="muted">尚无健康数据（等待首次心跳，约 30 秒）</span>{% endif %}
+      </td>
     </tr>
-    {% endif %}
     {% else %}
-    {% call m.empty(9) %}暂无 worker — 启动 Windows worker 自动上报，或用下方表单注册{% endcall %}
+    {% call m.empty(8) %}暂无 worker — 启动 Windows worker 自动上报，或用下方表单注册{% endcall %}
     {% endfor %}
   </table>
 </section>

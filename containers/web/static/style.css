@@ -179,14 +179,21 @@ td form.inline { display: inline-flex; margin-right: 4px; }
 select.small { padding: 3px 6px; font-size: 12px; color: var(--muted); }
 select.small:hover { color: var(--text); }
 
-/* 健康详情 JSON 展开行 */
-.json-row td { background: #0f172a; padding: 0; }
-pre.json {
-  margin: 0; padding: 14px 18px;
-  font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace;
-  color: #cbd5e1; background: #0f172a;
-  overflow-x: auto; white-space: pre;
+/* 状态按钮 (点开看详情) */
+.status-btn {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px; font: inherit;
 }
+.status-btn .caret { color: var(--muted); font-size: 10px; }
+.status-btn:hover .caret { color: var(--accent); }
+
+/* worker 健康详情展开行 */
+.detail-row td { background: #fafbfc; padding: 12px 18px; }
+table.subtable { width: auto; min-width: 420px; margin: 0; border: 1px solid var(--border);
+                 border-radius: 8px; overflow: hidden; background: #fff; }
+table.subtable td { border-bottom: 1px solid var(--border); padding: 8px 14px; }
+table.subtable tr:last-child td { border-bottom: 0; }
+table.subtable td:first-child { font-weight: 600; width: 90px; }
 
 /* 列宽拖柄 */
 .col-resizer {
