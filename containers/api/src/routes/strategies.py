@@ -244,17 +244,17 @@ async def mq5_verify(import_id: int, req: Mq5Verify, request: Request):
 
 
 class StatusRequest(BaseModel):
-    status: str  # CANDIDATE | DEMO | ACTIVE | ARCHIVED
+    status: str  # CANDIDATE | DEMO | LIVE | ARCHIVED
 
 
 @router.post("/strategies/{strategy_id}/status")
 async def set_status(strategy_id: int, req: StatusRequest, request: Request):
-    """准入漏斗状态流转; 进入 DEMO/ACTIVE 时自动分配 magic_number (100000+id)"""
-    if req.status not in ("CANDIDATE", "DEMO", "ACTIVE", "ARCHIVED"):
+    """准入漏斗状态流转(任意状态可互转, LIVE 也能撤回); 进入 DEMO/LIVE 时自动分配 magic_number"""
+    if req.status not in ("CANDIDATE", "DEMO", "LIVE", "ARCHIVED"):
         raise HTTPException(status_code=400, detail="invalid status")
     row = await request.app.state.pool.fetchrow(
         "UPDATE strategies SET status=$2::text,"
-        " magic_number = CASE WHEN $2::text IN ('DEMO','ACTIVE')"
+        " magic_number = CASE WHEN $2::text IN ('DEMO','LIVE')"
         "   THEN COALESCE(magic_number, 100000 + id) ELSE magic_number END"
         " WHERE id=$1 RETURNING id, name, status, magic_number",
         strategy_id, req.status)

@@ -1,4 +1,4 @@
-"""实时执行 Runner (attach-only rewrite) - 与 MT5 同机, 加载 DEMO/ACTIVE 策略执行。
+"""实时执行 Runner (attach-only rewrite) - 与 MT5 同机, 加载 DEMO/LIVE 策略执行。
 
 关键变化 (相比旧版):
 - 连接委托给 mt5_conn (与 bridge 共用的冻结核心), 不再自己 initialize/等 bridge。
@@ -68,7 +68,7 @@ def write_status(run_status: str, strategies: int) -> None:
 
 
 def detect_run_status() -> str:
-    """本机职能以 web 指派为准 (mt5_hosts.runner): live->ACTIVE, demo->DEMO, NULL->不跑"""
+    """本机职能以 web 指派为准 (mt5_hosts.runner): live->LIVE, demo->DEMO, NULL->不跑"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect((DOCKER_COMPOSE_HOST, 1))
@@ -77,7 +77,7 @@ def detect_run_status() -> str:
         r = requests.get(f"{API_URL}/hosts", timeout=10)
         for h in r.json()["hosts"]:
             if h["host"] == my_ip and h["enabled"]:
-                return {"live": "ACTIVE", "demo": "DEMO"}.get(h["runner"], "")
+                return {"live": "LIVE", "demo": "DEMO"}.get(h["runner"], "")
     except Exception as e:
         logger.warning("role detect failed: %s", e)
     return ""

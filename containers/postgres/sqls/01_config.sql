@@ -48,7 +48,7 @@ CREATE INDEX idx_host_events ON mt5_host_events (host_id, created_at DESC);
 
 -- ========== 策略表（策略实例） ==========
 -- 一行 = 模板 + 参数 + 品种 + 周期 的一个实例, 独立走准入漏斗
--- 状态机: CANDIDATE(生成) → DEMO(回测通过,假钱实测) → ACTIVE(实盘) / ARCHIVED(任一关淘汰)
+-- 状态机: CANDIDATE(生成) → DEMO(模拟盘验证) → LIVE(真钱实盘) / ARCHIVED(淘汰); 任意状态可互转
 CREATE TABLE strategies (
     id           SERIAL PRIMARY KEY,
     name         VARCHAR(128) NOT NULL UNIQUE,
@@ -58,7 +58,7 @@ CREATE TABLE strategies (
     params       JSONB        NOT NULL DEFAULT '{}',
     magic_number INTEGER      UNIQUE,             -- 实盘/demo 订单归因, 进入 DEMO 时分配
     status       VARCHAR(16)  NOT NULL DEFAULT 'CANDIDATE'
-                 CHECK (status IN ('CANDIDATE', 'DEMO', 'ACTIVE', 'ARCHIVED')),
+                 CHECK (status IN ('CANDIDATE', 'DEMO', 'LIVE', 'ARCHIVED')),
     description  TEXT,
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),

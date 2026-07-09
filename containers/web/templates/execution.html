@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header(cfg.title, ('模拟阶段：demo 账户实时验证，与回测结果对账' if mode == 'demo' else '实盘阶段：真实资金，全网只允许一台 live 主机')) }}
+{{ m.page_header(cfg.title, ('Demo：模拟账户实时验证，与回测结果对账' if mode == 'demo' else 'Live：真实资金，全网只允许一台 live 主机')) }}
 
 <section>
   <h2>{{ cfg.title }}主机</h2>
@@ -30,9 +30,9 @@
       {% for h in assignable %}<option value="{{ h.id }}">{{ h.name }} ({{ h.host }}, 当前: {{ m.worker_duty(h) }})</option>{% endfor %}
     </select>
     <button {% if not assignable %}disabled{% endif %}>指派为 {{ cfg.role }}</button>
-    {% if mode == 'live' %}<span class="badge warn">实盘：确认该主机 MT5 登录的是真实账户</span>{% endif %}
+    {% if mode == 'live' %}<span class="badge warn">Live：确认该主机 MT5 登录的是真实账户</span>{% endif %}
   </form>
-  <p class="muted">worker 上的 runner 每 60 秒检查一次自己的角色，指派后一分钟内自动切换。</p>
+  <p class="muted">worker 上的 runner 每 60 秒检查一次自己的角色，指派后一分钟内自动切换。已有职能的主机必须先『取消指派』才能改投另一边。</p>
 </section>
 
 <section>
@@ -46,19 +46,14 @@
       <td>{{ s.symbol }}</td>
       <td>{{ s.timeframe }}</td>
       <td class="mono">{{ s.params }}</td>
-      <td class="muted">{{ s.magic_number or '—' }}</td>
-      <td>
-        <form method="post" action="{{ url_for('strategies.set_status', strategy_id=s.id) }}" class="inline">
-          {% if mode == 'demo' %}<button name="status" value="ACTIVE" class="small">→实盘</button>{% endif %}
-          <button name="status" value="ARCHIVED" class="small danger">淘汰</button>
-        </form>
-      </td>
+      <td class="muted cell-magic">{{ s.magic_number or '—' }}</td>
+      <td>{{ m.strategy_actions(s) }}</td>
     </tr>
     {% else %}
     {% call m.empty(7) %}
       没有 {{ cfg.status }} 状态的策略 —
       {% if mode == 'demo' %}去 <a href="{{ url_for('backtests.index') }}">回测</a> 页把优胜策略提升到 DEMO
-      {% else %}去 <a href="{{ url_for('execution.demo') }}">Demo</a> 页把验证过的策略 →实盘{% endif %}
+      {% else %}去 <a href="{{ url_for('execution.demo') }}">Demo</a> 页把验证过的策略转为 LIVE{% endif %}
     {% endcall %}
     {% endfor %}
   </table>

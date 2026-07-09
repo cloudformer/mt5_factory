@@ -17,7 +17,7 @@
   <a href="{{ url_for('strategies.index') }}" {% if ep.startswith('strategies.') %}class="active"{% endif %}>策略</a>
   <a href="{{ url_for('backtests.index') }}" {% if ep.startswith('backtests.') %}class="active"{% endif %}>回测</a>
   <a href="{{ url_for('execution.demo') }}" {% if ep == 'execution.demo' %}class="active"{% endif %}>Demo</a>
-  <a href="{{ url_for('execution.live') }}" {% if ep == 'execution.live' %}class="active"{% endif %}>实盘</a>
+  <a href="{{ url_for('execution.live') }}" {% if ep == 'execution.live' %}class="active"{% endif %}>Live</a>
 </nav>
 <main>
   {% with messages = get_flashed_messages(with_categories=true) %}

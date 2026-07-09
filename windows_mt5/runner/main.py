@@ -1,4 +1,4 @@
-"""实时执行 Runner - 与 MT5 同机运行, 加载 DEMO/ACTIVE 策略实盘执行
+"""实时执行 Runner - 与 MT5 同机运行, 加载 DEMO/LIVE 策略实盘执行
 
 纪律(CLAUDE.md):
 - 只在已收盘 bar 上决策 (copy_rates_from_pos 从位置1取, 跳过未走完的 bar)
@@ -101,7 +101,7 @@ def mt5_connect() -> bool:
 
 
 def detect_run_status() -> str:
-    """本机职能以 web 上的指派为准 (mt5_hosts.runner): live→ACTIVE, demo→DEMO, NULL→不跑;
+    """本机职能以 web 上的指派为准 (mt5_hosts.runner): live→LIVE, demo→DEMO, NULL→不跑;
     找不到本机注册记录时退回 env 的 RUN_STATUS"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -111,7 +111,7 @@ def detect_run_status() -> str:
         r = requests.get(f"{API_URL}/hosts", timeout=10)
         for h in r.json()["hosts"]:
             if h["host"] == my_ip and h["enabled"]:
-                return {"live": "ACTIVE", "demo": "DEMO"}.get(h["runner"], "")
+                return {"live": "LIVE", "demo": "DEMO"}.get(h["runner"], "")
     except Exception as e:
         logger.warning("role detect failed (%s), fallback to env RUN_STATUS", e)
     return RUN_STATUS

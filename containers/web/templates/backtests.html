@@ -18,7 +18,7 @@
   <h2>批量回测</h2>
   <form method="post" action="{{ url_for('backtests.run') }}" class="inline">
     <select name="status">
-      {% for s in ['CANDIDATE','DEMO','ACTIVE'] %}<option>{{ s }}</option>{% endfor %}
+      {% for s in ['CANDIDATE','DEMO','LIVE'] %}<option>{{ s }}</option>{% endfor %}
     </select>
     <input name="symbol" size="10" placeholder="品种(可空)">
     <label>上限 <input name="limit" value="500" size="5"></label>
@@ -56,14 +56,8 @@
       <td class="{% if r.metrics.net_points > 0 %}pos{% else %}neg{% endif %}">{{ r.metrics.net_points }}</td>
       <td>{{ r.metrics.profit_factor or '—' }}</td>
       <td class="muted">{{ r.metrics.max_dd_points }}</td>
-      <td>{{ m.strategy_status(r.status) }}</td>
-      <td>
-        <form method="post" action="{{ url_for('strategies.set_status', strategy_id=r.strategy_id) }}" class="inline">
-          {% if r.status == 'CANDIDATE' %}<button name="status" value="DEMO" class="small">→DEMO</button>{% endif %}
-          {% if r.status == 'DEMO' %}<button name="status" value="ACTIVE" class="small">→ACTIVE</button>{% endif %}
-          <button name="status" value="ARCHIVED" class="small danger">淘汰</button>
-        </form>
-      </td>
+      <td class="cell-status">{{ m.strategy_status(r.status) }}</td>
+      <td>{{ m.strategy_actions({'id': r.strategy_id, 'status': r.status}) }}</td>
     </tr>
     {% else %}
     {% call m.empty(11) %}暂无结果 — 先到 <a href="{{ url_for('strategies.index') }}">策略</a> 页生成，再启动回测{% endcall %}

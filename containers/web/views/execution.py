@@ -6,8 +6,8 @@ import api_client as api
 bp = Blueprint("execution", __name__)
 
 MODES = {
-    "demo": {"role": "demo", "status": "DEMO", "title": "Demo 模拟"},
-    "live": {"role": "live", "status": "ACTIVE", "title": "实时交易"},
+    "demo": {"role": "demo", "status": "DEMO", "title": "Demo"},
+    "live": {"role": "live", "status": "LIVE", "title": "Live"},
 }
 
 
@@ -20,7 +20,8 @@ def _render(mode: str):
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     assigned = [h for h in hosts if h["runner"] == cfg["role"]]
-    assignable = [h for h in hosts if h["runner"] != cfg["role"]]
+    # 只有"无职能"的主机可被指派; 已是 demo/live 的必须先取消指派 (api 侧也强制)
+    assignable = [h for h in hosts if not h["runner"] and h["enabled"]]
     return render_template("execution.html", mode=mode, cfg=cfg, assigned=assigned,
                            assignable=assignable, strategies=strategies)
 

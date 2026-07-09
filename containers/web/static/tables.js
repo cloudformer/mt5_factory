@@ -23,16 +23,25 @@ document.addEventListener("change", async (e) => {
 
     const row = form.closest("tr");
     const badge = row.querySelector(".cell-status .badge");
-    badge.textContent = data.status;
-    badge.className = "badge " + ({ ACTIVE: "ok", DEMO: "warn" }[data.status] || "");
-    if (data.magic_number) row.querySelector(".cell-magic").textContent = data.magic_number;
-    sel.innerHTML = '<option value="">状态 →</option>' +
-      ["CANDIDATE", "DEMO", "ACTIVE", "ARCHIVED"]
-        .filter((s) => s !== data.status)
-        .map((s) => `<option value="${s}">${s}</option>`).join("");
-    row.style.transition = "background .8s";
-    row.style.background = "#ecfdf3";           // 成功闪一下绿色
-    setTimeout(() => (row.style.background = ""), 800);
+    if (badge) {
+      // 行内有状态列(策略页/回测页): 原地更新
+      badge.textContent = data.status;
+      badge.className = "badge " + ({ LIVE: "ok", DEMO: "warn" }[data.status] || "");
+      const magic = row.querySelector(".cell-magic");
+      if (magic && data.magic_number) magic.textContent = data.magic_number;
+      sel.innerHTML = '<option value="">状态 →</option>' +
+        ["CANDIDATE", "DEMO", "LIVE", "ARCHIVED"]
+          .filter((s) => s !== data.status)
+          .map((s) => `<option value="${s}">${s}</option>`).join("");
+      row.style.transition = "background .8s";
+      row.style.background = "#ecfdf3";           // 成功闪一下绿色
+      setTimeout(() => (row.style.background = ""), 800);
+    } else {
+      // 无状态列的页面(Demo/Live 页按状态过滤): 改了状态就不属于本页, 淡出移除
+      row.style.transition = "opacity .5s";
+      row.style.opacity = "0";
+      setTimeout(() => row.remove(), 500);
+    }
   } catch (err) {
     alert("状态修改失败: " + err.message);
     sel.value = "";

@@ -9,7 +9,22 @@
 
 {# 策略状态徽章 #}
 {% macro strategy_status(s) -%}
-  <span class="badge {{ {'ACTIVE': 'ok', 'DEMO': 'warn', 'CANDIDATE': ''}.get(s, '') }}">{{ s }}</span>
+  <span class="badge {{ {'LIVE': 'ok', 'DEMO': 'warn', 'CANDIDATE': ''}.get(s, '') }}">{{ s }}</span>
+{%- endmacro %}
+
+{# 策略操作列 (全站统一): 回测 + 状态下拉(可转任意状态, LIVE 也能撤回) #}
+{% macro strategy_actions(s) -%}
+  <form method="post" action="{{ url_for('strategies.run_backtest', strategy_id=s.id) }}" class="inline">
+    <button class="small">回测</button>
+  </form>
+  <form method="post" action="{{ url_for('strategies.set_status', strategy_id=s.id) }}" class="inline">
+    <select name="status" class="small" data-status-select>
+      <option value="">状态 →</option>
+      {% for target in ['CANDIDATE', 'DEMO', 'LIVE', 'ARCHIVED'] if target != s.status %}
+      <option value="{{ target }}">{{ target }}</option>
+      {% endfor %}
+    </select>
+  </form>
 {%- endmacro %}
 
 {# worker 职能: download布尔 + runner(demo/live/无) #}

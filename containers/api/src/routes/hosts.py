@@ -114,6 +114,12 @@ async def update_host(host_id: int, req: HostUpdate, request: Request):
         "SELECT enabled, download, runner FROM mt5_hosts WHERE id=$1", host_id)
     if old is None:
         raise HTTPException(status_code=404, detail="host not found")
+    # 职能互斥: 已指派 demo/live 的主机不能直接改投另一边, 必须先取消指派(runner=null)
+    if ("runner" in fields and fields["runner"] and old["runner"]
+            and fields["runner"] != old["runner"]):
+        raise HTTPException(
+            status_code=400,
+            detail=f"该主机已指派为 {old['runner']}, 必须先取消指派才能改为 {fields['runner']}")
     sets = ", ".join(f"{k} = ${i + 2}" for i, k in enumerate(fields))
     row = await pool.fetchrow(
         f"UPDATE mt5_hosts SET {sets} WHERE id = $1 RETURNING *", host_id, *fields.values())

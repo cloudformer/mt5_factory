@@ -29,7 +29,7 @@
 ## 策略准入漏斗（单向淘汰，逐级变贵）
 
 ```
-批量生成(CANDIDATE) → 关1: DB回测 → 关2: demo实时(DEMO) → 关3: 实盘小仓位(ACTIVE)
+批量生成(CANDIDATE) → 关1: DB回测 → 关2: demo实时(DEMO) → 关3: 实盘小仓位(LIVE)
 任何一关失败 → ARCHIVED（留尸体避免重复生成同类）
 ```
 

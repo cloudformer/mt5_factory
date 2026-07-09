@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('策略', '策略实例 = 模板 + 参数 + 品种 + 周期，独立走准入漏斗：CANDIDATE → DEMO → ACTIVE / ARCHIVED') }}
+{{ m.page_header('策略', '策略实例 = 模板 + 参数 + 品种 + 周期，独立走准入漏斗：CANDIDATE → DEMO → LIVE / ARCHIVED') }}
 
 <section>
   <h2>生成策略</h2>
@@ -62,7 +62,7 @@
   <form method="get" class="inline">
     <select name="status">
       <option value="">全部状态</option>
-      {% for s in ['CANDIDATE','DEMO','ACTIVE','ARCHIVED'] %}
+      {% for s in ['CANDIDATE','DEMO','LIVE','ARCHIVED'] %}
       <option {% if status == s %}selected{% endif %}>{{ s }}</option>
       {% endfor %}
     </select>
@@ -80,19 +80,7 @@
       <td class="mono">{{ s.params }}</td>
       <td class="cell-status">{{ m.strategy_status(s.status) }}</td>
       <td class="muted cell-magic">{{ s.magic_number or '—' }}</td>
-      <td>
-        <form method="post" action="{{ url_for('strategies.run_backtest', strategy_id=s.id) }}" class="inline">
-          <button class="small">回测</button>
-        </form>
-        <form method="post" action="{{ url_for('strategies.set_status', strategy_id=s.id) }}" class="inline">
-          <select name="status" class="small" data-status-select>
-            <option value="">状态 →</option>
-            {% for target in ['CANDIDATE','DEMO','ACTIVE','ARCHIVED'] if target != s.status %}
-            <option value="{{ target }}">{{ target }}</option>
-            {% endfor %}
-          </select>
-        </form>
-      </td>
+      <td>{{ m.strategy_actions(s) }}</td>
     </tr>
     {% else %}
     {% call m.empty(8) %}没有匹配的策略 — 用上方表单生成{% endcall %}

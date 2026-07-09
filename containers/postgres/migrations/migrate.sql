@@ -32,3 +32,9 @@ INSERT INTO config (key, value) VALUES
     ('ai_generator_url', '""'),
     ('backtest_costs', '{"slippage_points":3,"commission_points":7,"spread_points":null}')
 ON CONFLICT (key) DO NOTHING;
+
+-- strategies: 状态命名统一 ACTIVE→LIVE (先松约束再改数据, 幂等)
+ALTER TABLE IF EXISTS strategies DROP CONSTRAINT IF EXISTS strategies_status_check;
+UPDATE strategies SET status='LIVE' WHERE status='ACTIVE';
+ALTER TABLE IF EXISTS strategies ADD CONSTRAINT strategies_status_check
+    CHECK (status IN ('CANDIDATE', 'DEMO', 'LIVE', 'ARCHIVED'));
