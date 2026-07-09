@@ -62,6 +62,7 @@ async def lifespan(app: FastAPI):
                 raise
             await asyncio.sleep(3)
 
+    # schema 迁移不在这里: 由 `make db-migrate` (make up 会自动调用) 对齐, api 只管业务。
     # env 的 MT5_HOSTS 仅作首次引导: 表为空时种入, 之后完全由 web/API 管理
     if await app.state.pool.fetchval("SELECT count(*) FROM mt5_hosts") == 0:
         mt5_port = int(os.getenv("MT5_PORT", "8020"))
