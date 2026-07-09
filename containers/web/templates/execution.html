@@ -75,17 +75,31 @@
 <section>
   <h2>{{ cfg.title }}策略 ({{ strategies | length }})</h2>
   <table>
-    <tr><th>ID</th><th>名称</th><th>品种</th><th>周期</th><th>magic</th>
+    <tr><th>ID</th><th>名称</th><th>品种</th><th>周期</th><th>magic</th><th>运行状态</th>
         <th>持仓</th><th>浮动盈亏</th><th>笔数</th><th>胜率</th><th>已实现盈亏</th><th>操作</th></tr>
     {% for s in strategies %}
     {% set st = stats.get(s.magic_number) %}
+    {% set sk = skipped.get(s.id) %}
     <tr>
       <td>{{ s.id }}</td>
       <td>{{ s.name }}</td>
       <td>{{ s.symbol }}</td>
       <td>{{ s.timeframe }}</td>
       <td class="muted cell-magic">{{ s.magic_number or '—' }}</td>
-      {% if st %}
+      {% if sk %}
+      <td colspan="6">
+        <span class="badge error">无报价 — 未加载</span>
+        <span class="muted">在 MT5 报价窗(Ctrl+M)添加品种 {{ s.symbol }}，runner 一分钟内自动重试</span>
+      </td>
+      {% elif st %}
+      <td>
+        {% if st.position.count %}<span class="badge ok">持仓中</span>
+        {% else %}<span class="badge">等待信号</span>{% endif %}
+        {% if st.quote_stale %}<span class="badge warn" title="该品种最新tick已超过10分钟没动">报价停滞(休市/断流?)</span>{% endif %}
+        {% if st.last_bar_fmt %}<div class="muted" style="font-size:11px"
+             title="最后处理的收盘bar — 时间跟着市场走=正常盯盘, 长时间停住=卡了或休市">
+          bar {{ st.last_bar_fmt }}</div>{% endif %}
+      </td>
       <td>{{ st.position.count or '—' }}{% if st.position.count %} ({{ st.position.volume }}手){% endif %}</td>
       <td class="{{ 'pos' if st.position.profit > 0 else ('neg' if st.position.profit < 0 else 'muted') }}">
         {{ '%+.2f' % st.position.profit if st.position.count else '—' }}</td>
@@ -94,12 +108,12 @@
       <td class="{{ 'pos' if st.closed.profit > 0 else ('neg' if st.closed.profit < 0 else 'muted') }}">
         {{ '%+.2f' % st.closed.profit if st.closed.trades else '—' }}</td>
       {% else %}
-      <td colspan="5" class="muted">等待 worker 回传…</td>
+      <td colspan="6" class="muted">等待 worker 回传…</td>
       {% endif %}
       <td>{{ m.strategy_actions(s) }}</td>
     </tr>
     {% else %}
-    {% call m.empty(11) %}
+    {% call m.empty(12) %}
       没有 {{ cfg.status }} 状态的策略 —
       {% if mode == 'demo' %}去 <a href="{{ url_for('backtests.index') }}">回测</a> 页把优胜策略提升到 DEMO
       {% else %}去 <a href="{{ url_for('execution.demo') }}">Demo</a> 页把验证过的策略转为 LIVE{% endif %}

@@ -55,7 +55,8 @@ TF_MT5 = {
 }
 
 
-def write_status(run_status: str, instances: list) -> None:
+def write_status(run_status: str, instances: list, last_bar: dict | None = None,
+                 skipped: list | None = None) -> None:
     """心跳落盘, 供 bridge 状态页/上报使用。附带账户快照 + 每策略战绩 (conn/stats 采集);
     统计失败不影响交易主循环, 缺失字段前端显示为"—"。"""
     payload = {
@@ -64,9 +65,10 @@ def write_status(run_status: str, instances: list) -> None:
         "strategies": len(instances),
         "mt5_connected": mt5.terminal_info() is not None,
     }
+    payload["skipped"] = skipped or []
     try:
         payload["account"] = stats.account_snapshot()
-        payload["per_strategy"] = stats.per_strategy(instances)
+        payload["per_strategy"] = stats.per_strategy(instances, last_bar)
     except Exception as e:
         logger.warning("stats collect failed: %s", e)
     try:
@@ -91,7 +93,7 @@ def wait_bridge() -> None:
             why = "bridge is up but MT5 not connected yet (bridge owns connect/self-heal, see bridge window)"
         except (requests.RequestException, ValueError):
             why = "bridge not responding (starting/restarting?)"
-        write_status("等待 MT5", [])
+        write_status("等待 MT5", [], skipped=[])
         time.sleep(10)
         waited += 10
         if waited % 60 == 0:
@@ -133,7 +135,7 @@ def fetch_strategies(run_status: str) -> list:
     r = requests.get(f"{API_URL}/strategies/status",
                      params={"status": run_status, "limit": 500}, timeout=10)
     r.raise_for_status()
-    instances = []
+    instances, skipped = [], []
     for s in r.json()["strategies"]:
         try:
             params = s["params"] if isinstance(s["params"], dict) else json.loads(s["params"])
@@ -141,6 +143,8 @@ def fetch_strategies(run_status: str) -> list:
             info = mt5.symbol_info(s["symbol"])
             if info is None:
                 logger.warning("symbol %s unavailable, skip %s", s["symbol"], s["name"])
+                skipped.append({"id": s["id"], "name": s["name"], "symbol": s["symbol"],
+                                "reason": "not_in_market_watch"})
                 continue
             instances.append({
                 "id": s["id"], "name": s["name"], "symbol": s["symbol"],
@@ -149,8 +153,9 @@ def fetch_strategies(run_status: str) -> list:
             })
         except Exception as e:
             logger.error("build strategy %s failed: %s", s.get("name"), e)
-    logger.info("loaded %d strategies (status=%s)", len(instances), run_status)
-    return instances
+    logger.info("loaded %d strategies, skipped %d (status=%s)",
+                len(instances), len(skipped), run_status)
+    return instances, skipped
 
 
 def has_position(symbol: str, magic: int) -> bool:
@@ -224,12 +229,12 @@ def main():
         time.sleep(10)
     logger.info("runner started (status=%s, volume=%s)", RUN_STATUS, VOLUME)
 
-    instances, last_bar, last_refresh, run_status = [], {}, 0.0, ""
+    instances, skipped, last_bar, last_refresh, run_status = [], [], {}, 0.0, ""
     while True:
         if time.time() - last_refresh > REFRESH_SECONDS:
             try:
                 run_status = detect_run_status()
-                instances = fetch_strategies(run_status)
+                instances, skipped = fetch_strategies(run_status)
                 last_refresh = time.time()
             except Exception as e:
                 logger.error("fetch strategies failed: %s", e)
@@ -238,7 +243,7 @@ def main():
                 process(inst, last_bar)
             except Exception as e:  # 异常隔离: 单策略失败不拖累其他
                 logger.error("strategy %s error: %s", inst["name"], e)
-        write_status(run_status or "未指派", instances)
+        write_status(run_status or "未指派", instances, last_bar, skipped)
         time.sleep(POLL_SECONDS)
 
 

@@ -3,6 +3,8 @@
 账户与每策略战绩来自 worker 回传链路: runner 落盘 → bridge /health → api 心跳存 last_health。
 web 只读 api, 不直接连 worker。数据最多滞后一个心跳周期(30s)。
 """
+from datetime import datetime, timezone
+
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 import api_client as api
@@ -16,17 +18,27 @@ MODES = {
 
 
 def _runner_report(hosts: list) -> tuple:
-    """从已指派主机的 last_health 提取 (账户列表, 按magic的策略战绩表)。
-    账户按主机各一份(通常一台); 战绩合并所有主机(magic 全局唯一, 不冲突)。"""
-    accounts, stats_by_magic = [], {}
+    """从已指派主机的 last_health 提取 (账户列表, 按magic的战绩表, 按策略id的跳过表)。
+    skipped: runner 加载时因"品种不在 MT5 报价窗"而跳过的策略 — 必须提示, 否则永远默默等。
+    quote_stale: 品种在报价窗但最新 tick 已停滞(休市或断流), 同样提示。"""
+    accounts, stats_by_magic, skipped_by_id = [], {}, {}
+    now = datetime.now(tz=timezone.utc).timestamp()
     for h in hosts:
         runner = ((h.get("last_health") or {}).get("runner")) or {}
         account = runner.get("account")
         if account:
             accounts.append({"host": h["name"], **account})
         for s in runner.get("per_strategy") or []:
+            if s.get("last_bar"):  # epoch → 可读时间 (bar 时间戳为券商服务器时间)
+                s["last_bar_fmt"] = datetime.fromtimestamp(
+                    s["last_bar"], tz=timezone.utc).strftime("%m-%d %H:%M")
+            # 报价停滞: 最新 tick 距今超过 10 分钟 (bar 时间是券商时间, 与UTC偏差以小时计,
+            # 10分钟阈值下休市/断流都会触发, 提示里两种原因并列)
+            s["quote_stale"] = bool(s.get("quote_ts")) and (now - s["quote_ts"]) > 600
             stats_by_magic[s["magic"]] = s
-    return accounts, stats_by_magic
+        for sk in runner.get("skipped") or []:
+            skipped_by_id[sk["id"]] = sk
+    return accounts, stats_by_magic, skipped_by_id
 
 
 def _render(mode: str):
@@ -40,10 +52,10 @@ def _render(mode: str):
     assigned = [h for h in hosts if h["runner"] == cfg["role"]]
     # 只有"无职能"的主机可被指派; 已是 demo/live 的必须先取消指派 (api 侧也强制)
     assignable = [h for h in hosts if not h["runner"] and h["enabled"]]
-    accounts, stats_by_magic = _runner_report(assigned)
+    accounts, stats_by_magic, skipped_by_id = _runner_report(assigned)
     return render_template("execution.html", mode=mode, cfg=cfg, assigned=assigned,
                            assignable=assignable, strategies=strategies,
-                           accounts=accounts, stats=stats_by_magic)
+                           accounts=accounts, stats=stats_by_magic, skipped=skipped_by_id)
 
 
 @bp.get("/demo/")

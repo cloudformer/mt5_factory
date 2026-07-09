@@ -57,7 +57,8 @@ def _creds():
             "server": os.getenv("MT5_SERVER", "")}
 
 
-def write_status(run_status: str, instances: list) -> None:
+def write_status(run_status: str, instances: list, last_bar: dict | None = None,
+                 skipped: list | None = None) -> None:
     """心跳落盘, 供 bridge 状态页/上报使用。附带账户快照 + 每策略战绩 (conn/stats 采集);
     统计失败不影响交易主循环, 缺失字段前端显示为"—"。"""
     payload = {
@@ -66,9 +67,10 @@ def write_status(run_status: str, instances: list) -> None:
         "strategies": len(instances),
         "mt5_connected": mt5_conn.is_connected(),
     }
+    payload["skipped"] = skipped or []
     try:
         payload["account"] = stats.account_snapshot()
-        payload["per_strategy"] = stats.per_strategy(instances)
+        payload["per_strategy"] = stats.per_strategy(instances, last_bar)
     except Exception as e:
         logger.warning("stats collect failed: %s", e)
     try:
@@ -99,7 +101,7 @@ def fetch_strategies(run_status: str) -> list:
     r = requests.get(f"{API_URL}/strategies/status",
                      params={"status": run_status, "limit": 500}, timeout=10)
     r.raise_for_status()
-    instances = []
+    instances, skipped = [], []
     for s in r.json()["strategies"]:
         try:
             params = s["params"] if isinstance(s["params"], dict) else json.loads(s["params"])
@@ -108,6 +110,8 @@ def fetch_strategies(run_status: str) -> list:
                 info = mt5.symbol_info(s["symbol"])
             if info is None:
                 logger.warning("symbol %s unavailable, skip %s", s["symbol"], s["name"])
+                skipped.append({"id": s["id"], "name": s["name"], "symbol": s["symbol"],
+                                "reason": "not_in_market_watch"})
                 continue
             instances.append({"id": s["id"], "name": s["name"], "symbol": s["symbol"],
                               "timeframe": s["timeframe"],
@@ -115,8 +119,9 @@ def fetch_strategies(run_status: str) -> list:
                               "strategy": make_strategy(s["template"], params, info.point)})
         except Exception as e:
             logger.error("build strategy %s failed: %s", s.get("name"), e)
-    logger.info("loaded %d strategies (status=%s)", len(instances), run_status)
-    return instances
+    logger.info("loaded %d strategies, skipped %d (status=%s)",
+                len(instances), len(skipped), run_status)
+    return instances, skipped
 
 
 def has_position(symbol: str, magic: int) -> bool:
@@ -175,7 +180,7 @@ def main():
         sys.exit(1)
     logger.info("runner up; stays OUT of MT5 until this host is assigned demo/live on the web")
 
-    instances, last_bar, last_refresh, run_status, attached = [], {}, 0.0, "", False
+    instances, skipped, last_bar, last_refresh, run_status, attached = [], [], {}, 0.0, "", False
     while True:
         if time.time() - last_refresh > REFRESH_SECONDS:
             try:
@@ -190,7 +195,7 @@ def main():
                 mt5_conn.drop()
                 attached = False
             instances = []
-            write_status("未指派", [])
+            write_status("未指派", [], skipped=[])
             time.sleep(POLL_SECONDS)
             continue
 
@@ -198,17 +203,17 @@ def main():
             # 被指派了才附着; 自己的连接用于 order_send
             if mt5_conn.attach(_creds()):
                 attached = True
-                instances = fetch_strategies(run_status)
+                instances, skipped = fetch_strategies(run_status)
                 logger.info("attached for %s trading", run_status)
             else:
                 logger.warning("attach failed (terminal open & logged in?): %s", mt5_conn.last_error())
-                write_status("连接中", [])
+                write_status("连接中", [], skipped=[])
                 time.sleep(10)
                 continue
 
         if time.time() - last_refresh < POLL_SECONDS:  # 刚刷新过角色, 顺带刷策略
             try:
-                instances = fetch_strategies(run_status)
+                instances, skipped = fetch_strategies(run_status)
             except Exception as e:
                 logger.error("fetch strategies failed: %s", e)
 
@@ -217,7 +222,7 @@ def main():
                 process(inst, last_bar)
             except Exception as e:  # 异常隔离
                 logger.error("strategy %s error: %s", inst["name"], e)
-        write_status(run_status, instances)
+        write_status(run_status, instances, last_bar, skipped)
         time.sleep(POLL_SECONDS)
 
 

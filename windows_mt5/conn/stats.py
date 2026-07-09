@@ -60,19 +60,24 @@ def _closed_by_magic() -> dict:
     return by_magic
 
 
-def per_strategy(instances: list) -> list:
-    """每策略战绩: [{id, name, magic, position:{count,volume,profit}, closed:{trades,wins,profit}}]
-    instances: runner 已加载的策略实例列表 (含 id/name/symbol/magic)"""
+def per_strategy(instances: list, last_bar: dict | None = None) -> list:
+    """每策略战绩: [{id, name, magic, last_bar, position:{...}, closed:{...}}]
+    instances: runner 已加载的策略实例列表 (含 id/name/symbol/magic)
+    last_bar: {策略id: 最后处理的收盘bar epoch} — bar 在走 = 正常盯盘, 停住 = 卡了"""
     closed = _closed_by_magic()
+    last_bar = last_bar or {}
     out = []
     for inst in instances:
         magic = inst["magic"]
+        si = mt5.symbol_info(inst["symbol"])   # 最新tick时间: 停滞=休市或报价断流
         positions = [p for p in (mt5.positions_get(symbol=inst["symbol"]) or [])
                      if p.magic == magic]
         out.append({
             "id": inst["id"],
             "name": inst["name"],
             "magic": magic,
+            "last_bar": last_bar.get(inst["id"]),
+            "quote_ts": si.time if si else None,
             "position": {
                 "count": len(positions),
                 "volume": round(sum(p.volume for p in positions), 2),
