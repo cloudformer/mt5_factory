@@ -23,7 +23,7 @@ import MetaTrader5 as mt5
 import requests
 from dotenv import load_dotenv
 
-from conn import mt5_conn
+from conn import mt5_conn, stats
 from conn.paths import ENV_FILE, REPO_ROOT
 
 sys.path.insert(0, str(REPO_ROOT))   # strategy_core 在 repo 根
@@ -57,12 +57,22 @@ def _creds():
             "server": os.getenv("MT5_SERVER", "")}
 
 
-def write_status(run_status: str, strategies: int) -> None:
+def write_status(run_status: str, instances: list) -> None:
+    """心跳落盘, 供 bridge 状态页/上报使用。附带账户快照 + 每策略战绩 (conn/stats 采集);
+    统计失败不影响交易主循环, 缺失字段前端显示为"—"。"""
+    payload = {
+        "updated": time.time(),
+        "run_status": run_status,
+        "strategies": len(instances),
+        "mt5_connected": mt5_conn.is_connected(),
+    }
     try:
-        STATUS_FILE.write_text(json.dumps({
-            "updated": time.time(), "run_status": run_status, "strategies": strategies,
-            "mt5_connected": mt5_conn.is_connected(),
-        }))
+        payload["account"] = stats.account_snapshot()
+        payload["per_strategy"] = stats.per_strategy(instances)
+    except Exception as e:
+        logger.warning("stats collect failed: %s", e)
+    try:
+        STATUS_FILE.write_text(json.dumps(payload))
     except OSError:
         pass
 
@@ -180,7 +190,7 @@ def main():
                 mt5_conn.drop()
                 attached = False
             instances = []
-            write_status("未指派", 0)
+            write_status("未指派", [])
             time.sleep(POLL_SECONDS)
             continue
 
@@ -192,7 +202,7 @@ def main():
                 logger.info("attached for %s trading", run_status)
             else:
                 logger.warning("attach failed (terminal open & logged in?): %s", mt5_conn.last_error())
-                write_status("连接中", 0)
+                write_status("连接中", [])
                 time.sleep(10)
                 continue
 
@@ -207,7 +217,7 @@ def main():
                 process(inst, last_bar)
             except Exception as e:  # 异常隔离
                 logger.error("strategy %s error: %s", inst["name"], e)
-        write_status(run_status, len(instances))
+        write_status(run_status, instances)
         time.sleep(POLL_SECONDS)
 
 

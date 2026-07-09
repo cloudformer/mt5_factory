@@ -15,13 +15,15 @@ import sys
 import time
 from pathlib import Path
 
-# strategy_core 在 repo 根目录 (整仓 clone 到 Windows)
+# strategy_core 在 repo 根目录; conn 包在 windows_mt5 (整仓 clone 到 Windows)
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import MetaTrader5 as mt5
 import requests
 from dotenv import load_dotenv
 
+from conn import stats
 from strategy_core import make_strategy
 
 # 统一配置: 与 Linux docker compose 共用 env/.dev.env (整仓 clone 到 Windows)
@@ -53,15 +55,22 @@ TF_MT5 = {
 }
 
 
-def write_status(run_status: str, strategies: int) -> None:
-    """心跳落盘, 供 bridge 状态页展示"""
+def write_status(run_status: str, instances: list) -> None:
+    """心跳落盘, 供 bridge 状态页/上报使用。附带账户快照 + 每策略战绩 (conn/stats 采集);
+    统计失败不影响交易主循环, 缺失字段前端显示为"—"。"""
+    payload = {
+        "updated": time.time(),
+        "run_status": run_status,
+        "strategies": len(instances),
+        "mt5_connected": mt5.terminal_info() is not None,
+    }
     try:
-        STATUS_FILE.write_text(json.dumps({
-            "updated": time.time(),
-            "run_status": run_status,
-            "strategies": strategies,
-            "mt5_connected": mt5.terminal_info() is not None,
-        }))
+        payload["account"] = stats.account_snapshot()
+        payload["per_strategy"] = stats.per_strategy(instances)
+    except Exception as e:
+        logger.warning("stats collect failed: %s", e)
+    try:
+        STATUS_FILE.write_text(json.dumps(payload))
     except OSError:
         pass
 
@@ -82,7 +91,7 @@ def wait_bridge() -> None:
             why = "bridge is up but MT5 not connected yet (bridge owns connect/self-heal, see bridge window)"
         except (requests.RequestException, ValueError):
             why = "bridge not responding (starting/restarting?)"
-        write_status("等待 MT5", 0)
+        write_status("等待 MT5", [])
         time.sleep(10)
         waited += 10
         if waited % 60 == 0:
@@ -229,7 +238,7 @@ def main():
                 process(inst, last_bar)
             except Exception as e:  # 异常隔离: 单策略失败不拖累其他
                 logger.error("strategy %s error: %s", inst["name"], e)
-        write_status(run_status or "未指派", len(instances))
+        write_status(run_status or "未指派", instances)
         time.sleep(POLL_SECONDS)
 
 

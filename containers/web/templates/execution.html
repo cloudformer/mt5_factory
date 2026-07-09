@@ -3,6 +3,43 @@
 {% block content %}
 {{ m.page_header(cfg.title, ('Demo：模拟账户实时验证，与回测结果对账' if mode == 'demo' else 'Live：真实资金，全网只允许一台 live 主机')) }}
 
+{% for a in accounts %}
+{# 账户面板: 数据来自 runner 回传(约30s刷新); 爆仓风险看保证金水平 #}
+{% set lvl = a.margin_level or 0 %}
+{% set risk = 'ok' if (a.margin == 0 or lvl >= 200) else ('warn' if lvl >= 100 else 'error') %}
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">余额 ({{ a.host }})</div>
+    <div class="stat-value">{{ '%.2f' % a.balance }}<span class="stat-dim"> {{ a.currency }}</span></div>
+    <div class="stat-sub">已实现</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">净值</div>
+    <div class="stat-value">{{ '%.2f' % a.equity }}</div>
+    <div class="stat-sub">浮动盈亏 <span class="{{ 'pos' if a.profit >= 0 else 'neg' }}">{{ '%+.2f' % a.profit }}</span></div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">可用保证金</div>
+    <div class="stat-value">{{ '%.2f' % a.margin_free }}</div>
+    <div class="stat-sub">已用 {{ '%.2f' % a.margin }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">保证金水平 (爆仓风险)</div>
+    <div class="stat-value">
+      {% if a.margin == 0 %}<span class="muted">无持仓</span>
+      {% else %}<span class="{{ 'pos' if risk == 'ok' else ('neg' if risk == 'error' else '') }}">{{ '%.0f%%' % lvl }}</span>{% endif %}
+    </div>
+    <div class="stat-sub">
+      {% if risk == 'error' %}<span class="badge error">接近强平 (追保 {{ '%.0f%%' % a.margin_so_call }} / 强平 {{ '%.0f%%' % a.margin_so_so }})</span>
+      {% elif risk == 'warn' %}<span class="badge warn">保证金偏紧</span>
+      {% else %}追保线 {{ '%.0f%%' % a.margin_so_call }} · 强平线 {{ '%.0f%%' % a.margin_so_so }}{% endif %}
+    </div>
+  </div>
+</div>
+{% else %}
+{% if assigned %}<p class="muted">账户数据等待 worker 回传（worker 需更新到最新代码并在跑, 约 30 秒一刷）</p>{% endif %}
+{% endfor %}
+
 <section>
   <h2>{{ cfg.title }}主机</h2>
   <table>
@@ -38,25 +75,38 @@
 <section>
   <h2>{{ cfg.title }}策略 ({{ strategies | length }})</h2>
   <table>
-    <tr><th>ID</th><th>名称</th><th>品种</th><th>周期</th><th>参数</th><th>magic</th><th>操作</th></tr>
+    <tr><th>ID</th><th>名称</th><th>品种</th><th>周期</th><th>magic</th>
+        <th>持仓</th><th>浮动盈亏</th><th>笔数</th><th>胜率</th><th>已实现盈亏</th><th>操作</th></tr>
     {% for s in strategies %}
+    {% set st = stats.get(s.magic_number) %}
     <tr>
       <td>{{ s.id }}</td>
       <td>{{ s.name }}</td>
       <td>{{ s.symbol }}</td>
       <td>{{ s.timeframe }}</td>
-      <td class="mono">{{ s.params }}</td>
       <td class="muted cell-magic">{{ s.magic_number or '—' }}</td>
+      {% if st %}
+      <td>{{ st.position.count or '—' }}{% if st.position.count %} ({{ st.position.volume }}手){% endif %}</td>
+      <td class="{{ 'pos' if st.position.profit > 0 else ('neg' if st.position.profit < 0 else 'muted') }}">
+        {{ '%+.2f' % st.position.profit if st.position.count else '—' }}</td>
+      <td>{{ st.closed.trades }}</td>
+      <td class="muted">{{ '%.0f%%' % (st.closed.wins / st.closed.trades * 100) if st.closed.trades else '—' }}</td>
+      <td class="{{ 'pos' if st.closed.profit > 0 else ('neg' if st.closed.profit < 0 else 'muted') }}">
+        {{ '%+.2f' % st.closed.profit if st.closed.trades else '—' }}</td>
+      {% else %}
+      <td colspan="5" class="muted">等待 worker 回传…</td>
+      {% endif %}
       <td>{{ m.strategy_actions(s) }}</td>
     </tr>
     {% else %}
-    {% call m.empty(7) %}
+    {% call m.empty(11) %}
       没有 {{ cfg.status }} 状态的策略 —
       {% if mode == 'demo' %}去 <a href="{{ url_for('backtests.index') }}">回测</a> 页把优胜策略提升到 DEMO
       {% else %}去 <a href="{{ url_for('execution.demo') }}">Demo</a> 页把验证过的策略转为 LIVE{% endif %}
     {% endcall %}
     {% endfor %}
   </table>
+  <p class="muted">战绩(按 magic 归因)与账户数据来自 worker 回传，约 30 秒一刷；已实现盈亏统计最近 90 天平仓单（含手续费/隔夜利息）。</p>
 </section>
 
 {% endblock %}
