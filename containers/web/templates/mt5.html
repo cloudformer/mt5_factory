@@ -60,19 +60,20 @@
     <button data-table-page="mt5-deals:prev" class="small" type="button">‹ 上一页</button>
     <span class="muted" data-table-pageinfo="mt5-deals"></span>
     <button data-table-page="mt5-deals:next" class="small" type="button">下一页 ›</button>
-    <label>品种 <select data-col-filter="mt5-deals:1" class="small"><option value="">全部</option></select></label>
-    <label>类型 <select data-col-filter="mt5-deals:2" class="small"><option value="">全部</option></select></label>
-    <label>腿 <select data-col-filter="mt5-deals:3" class="small"><option value="">全部</option></select></label>
-    <label>原因 <select data-col-filter="mt5-deals:4" class="small"><option value="">全部</option></select></label>
-    <label>magic <select data-col-filter="mt5-deals:10" class="small"><option value="">全部</option></select></label>
-    <label>归属 <select data-col-filter="mt5-deals:11" class="small"><option value="">全部</option></select></label>
+    <label>品种 <select data-col-filter="mt5-deals:2" class="small"><option value="">全部</option></select></label>
+    <label>类型 <select data-col-filter="mt5-deals:3" class="small"><option value="">全部</option></select></label>
+    <label>腿 <select data-col-filter="mt5-deals:4" class="small"><option value="">全部</option></select></label>
+    <label>原因 <select data-col-filter="mt5-deals:5" class="small"><option value="">全部</option></select></label>
+    <label>magic <select data-col-filter="mt5-deals:11" class="small"><option value="">全部</option></select></label>
+    <label>归属 <select data-col-filter="mt5-deals:12" class="small"><option value="">全部</option></select></label>
     <input data-table-filter="mt5-deals" size="18" placeholder="文本搜索…">
   </form>
   <table id="mt5-deals" data-sortable>
-    <tr><th>时间</th><th>品种</th><th>类型</th><th>腿</th><th>原因</th><th>手数</th><th>价格</th>
+    <tr><th data-nosort>#</th><th>时间</th><th>品种</th><th>类型</th><th>腿</th><th>原因</th><th>手数</th><th>价格</th>
         <th>盈亏</th><th>手续费</th><th>swap</th><th>magic</th><th>归属</th><th data-nosort>仓位ID</th></tr>
     {% for d in data.deals %}
     <tr>
+      <td class="rownum muted"></td>
       <td>{{ d.time_fmt }}</td>
       <td>{{ d.symbol or '—' }}</td>
       <td>{{ {'buy': '买', 'sell': '卖', 'balance': '资金'}.get(d.type, d.type) }}</td>
@@ -88,7 +89,7 @@
       <td class="muted">{{ d.position_id }}</td>
     </tr>
     {% else %}
-    {% call m.empty(13) %}近 {{ data.days }} 天无成交{% endcall %}
+    {% call m.empty(14) %}近 {{ data.days }} 天无成交{% endcall %}
     {% endfor %}
   </table>
   <p class="muted">一笔完整交易 = 开仓腿 + 平仓腿两行（按仓位ID关联），盈亏落在平仓腿上；
