@@ -18,7 +18,16 @@ document.addEventListener("change", async (e) => {
       headers: { "X-Requested-With": "fetch" },
       body: new FormData(form),
     });
-    const data = await resp.json();
+    // 先按文本读: 服务器出错时返回的是 HTML 错误页而非 JSON, 直接解析会得到
+    // 无意义的 "unexpected token '<'"。这里把真实内容摘出来提示。
+    const raw = await resp.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      const hint = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
+      throw new Error(`HTTP ${resp.status} (服务器返回的不是JSON): ${hint || "空响应"}`);
+    }
     if (!resp.ok) throw new Error(data.error || "HTTP " + resp.status);
 
     const row = form.closest("tr");
