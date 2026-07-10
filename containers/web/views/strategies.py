@@ -78,7 +78,7 @@ def set_status(strategy_id: int):
             return result
         flash(f"{result['name']} → {result['status']}"
               + (f" (magic={result['magic_number']})" if result.get("magic_number") else ""), "ok")
-    except api.ApiError as e:
+    except (api.ApiError, KeyError) as e:
         if is_fetch:
             return {"error": str(e)}, 400
         flash(f"状态修改失败: {e}", "error")

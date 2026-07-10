@@ -11,12 +11,14 @@ document.addEventListener("change", async (e) => {
   const sel = e.target.closest("select[data-status-select]");
   if (!sel || !sel.value) return;
   const form = sel.form;
+  // 必须先取表单数据再禁用: disabled 的控件不会进 FormData, 否则服务端收不到 status
+  const body = new FormData(form);
   sel.disabled = true;
   try {
     const resp = await fetch(form.action, {
       method: "POST",
       headers: { "X-Requested-With": "fetch" },
-      body: new FormData(form),
+      body,
     });
     // 先按文本读: 服务器出错时返回的是 HTML 错误页而非 JSON, 直接解析会得到
     // 无意义的 "unexpected token '<'"。这里把真实内容摘出来提示。
