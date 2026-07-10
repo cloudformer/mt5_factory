@@ -109,6 +109,20 @@ th {
 }
 tr:last-child td { border-bottom: 0; }
 tbody tr:hover, table tr:hover td { background: #fafbfc; }
+/* ---------- 表格自适应 ---------- */
+/* 表格超出容器宽度时, 在自己的区块内横向滚动, 永不撑破页面 */
+.table-wrap, section { overflow-x: auto; }
+/* 超长字段(策略名/归属)截断显示, 悬停 title 看全文 */
+td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+/* 窄屏(手机/平板): 紧凑模式 */
+@media (max-width: 900px) {
+  main { padding: 12px 10px 48px; }
+  section { padding: 12px 12px; }
+  nav { flex-wrap: wrap; height: auto; padding: 6px 10px; }
+  th, td { padding: 6px 8px; font-size: 12px; }
+  td.clip { max-width: 130px; }
+  .stat-value { font-size: 18px; }
+}
 /* 可排序表头 (tables.js data-sortable): 悬停提示可点, 箭头指示当前排序列与方向 */
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: #111827; }
@@ -193,11 +207,13 @@ td form.inline { display: inline-flex; margin-right: 4px; }
 select.small { padding: 3px 6px; font-size: 12px; color: var(--muted); }
 select.small:hover { color: var(--text); }
 
-/* 状态按钮 (点开看详情) */
+/* 状态按钮 (点开看详情): 悬浮不改底色(覆盖全局 button:hover 的蓝底), 徽章微微加深即可 */
 .status-btn {
   background: none; border: 0; padding: 0; cursor: pointer;
   display: inline-flex; align-items: center; gap: 4px; font: inherit;
 }
+.status-btn:hover { background: none; }
+.status-btn:hover .badge { filter: brightness(.93); }
 .status-btn .caret { color: var(--muted); font-size: 10px; }
 .status-btn:hover .caret { color: var(--accent); }
 

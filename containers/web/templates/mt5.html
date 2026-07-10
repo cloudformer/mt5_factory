@@ -39,7 +39,7 @@
       <td>{{ p.price_current }}</td>
       <td class="{{ 'pos' if p.profit > 0 else ('neg' if p.profit < 0 else 'muted') }}">{{ '%+.2f' % p.profit }}</td>
       <td class="muted">{{ p.magic }}</td>
-      <td>{{ p.who }}</td>
+      <td class="clip" title="{{ p.who }}">{{ p.who }}</td>
       <td class="muted">{{ p.ticket }}</td>
     </tr>
     {% else %}
@@ -85,7 +85,7 @@
       <td class="muted">{{ d.commission }}</td>
       <td class="muted">{{ d.swap }}</td>
       <td class="muted">{{ d.magic }}</td>
-      <td>{{ d.who }}</td>
+      <td class="clip" title="{{ d.who }}">{{ d.who }}</td>
       <td class="muted">{{ d.position_id }}</td>
     </tr>
     {% else %}

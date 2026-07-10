@@ -100,7 +100,7 @@
     {% set sk = skipped.get(s.id) %}
     <tr>
       <td>{{ s.id }}</td>
-      <td>{{ s.name }}</td>
+      <td class="clip" title="{{ s.name }}">{{ s.name }}</td>
       <td>{{ s.symbol }}</td>
       <td>{{ s.timeframe }}</td>
       <td class="muted cell-magic">{{ s.magic_number or '—' }}</td>

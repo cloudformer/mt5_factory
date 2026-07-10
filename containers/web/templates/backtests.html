@@ -62,7 +62,7 @@
     {% for r in results %}
     <tr>
       <td class="rownum muted"></td>{# 动态序号: 跟随当前筛选/排序, 由 tables.js 填充 #}
-      <td>{{ r.name }}</td>
+      <td class="clip" title="{{ r.name }}">{{ r.name }}</td>
       <td>{{ r.symbol }}</td>
       <td>{{ r.timeframe }}</td>
       <td>{{ r.metrics.trades }}</td>
