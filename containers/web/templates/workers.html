@@ -28,6 +28,7 @@
               onsubmit="return confirm('删除 worker {{ h.name }}?')">
           <button class="small danger">删除</button>
         </form>
+        <a class="btn" href="{{ url_for('mt5.index', host_id=h.id) }}">流水</a>
       </td>
     </tr>
     <tr id="health-{{ h.id }}" class="detail-row" hidden>

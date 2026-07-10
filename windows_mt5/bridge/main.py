@@ -15,7 +15,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -38,6 +38,7 @@ API_PORT = os.getenv("API_PORT", "8010")
 # setup.ps1 探测到终端后会自动写入这个变量
 MT5_PATH = os.getenv("MT5_PATH", "").strip()
 RUNNER_STATUS_FILE = Path(__file__).resolve().parents[1] / "runner_status.json"
+SELFTEST_FILE = Path(__file__).resolve().parents[1] / "selftest_result.json"  # 开机自检结果
 # 终端启动配置: 固化"算法交易"等终端级开关 (克隆/重装的新机免手工点按钮)。
 # 只在 bridge 拉起终端时生效; 手动双击打开的终端用它自己保存的设置。
 TERMINAL_START_INI = Path(__file__).resolve().parent / "terminal_start.ini"
@@ -272,6 +273,19 @@ def status_page():
                 f'<i style="width:6px;height:6px;border-radius:50%;{dot}"></i>'
                 f'{text_ok if ok else text_bad}</span>')
 
+    try:  # 开机自检结果 (selftest.py 写盘)
+        st = json.loads(SELFTEST_FILE.read_text())
+    except (OSError, ValueError):
+        st = None
+    if st:
+        fails = [c["name"] for c in st["checks"] if c["status"] == "FAIL"]
+        n_pass = sum(1 for c in st["checks"] if c["status"] == "PASS")
+        st_badge = badge(st["ok"], f"OK {n_pass}/{len(st['checks'])}",
+                         "FAIL: " + ", ".join(fails))
+        st_note = datetime.fromtimestamp(st["updated"]).strftime("%m-%d %H:%M") + " · 重跑: selftest.bat"
+    else:
+        st_badge, st_note = badge(False, "", "未运行"), "双击 selftest.bat 或重启机器"
+
     rows = [
         ("bridge", badge(True, "运行中", ""), f"端口 {BRIDGE_PORT}"),
         ("MT5 终端", badge(mt5_up, "已连接", "未连接"),
@@ -282,6 +296,7 @@ def status_page():
         ("runner", badge(runner["alive"], "运行中", "未运行"),
          f"角色 {runner.get('run_status', '—')} · 策略 {runner.get('strategies', '—')} 个"
          if runner["alive"] else "检查 start_runner.bat"),
+        ("开机自检", st_badge, st_note),
     ]
     trs = "".join(
         f'<tr><td style="padding:11px 14px;border-bottom:1px solid #e5e8ec;font-weight:550">{a}</td>'
@@ -301,7 +316,19 @@ def status_page():
   <div style="background:#fff;border:1px solid #e5e8ec;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04);overflow:hidden">
     <table style="border-collapse:collapse;width:100%">{trs}</table>
   </div>
-  <p style="color:#9ca3af;font-size:12px">JSON: <a href="/health" style="color:#2563eb">/health</a></p>
+  <p style="color:#9ca3af;font-size:12px">JSON: <a href="/health" style="color:#2563eb">/health</a>
+   · 调试: <a href="/trades?fmt=html" style="color:#2563eb">交易流水</a>
+   <a href="/recon" style="color:#2563eb">交易对账</a>
+   <button onclick="ordertest()" style="font-size:12px;cursor:pointer">下单测试 (仅demo)</button></p>
+<script>
+async function ordertest() {{
+  if (!confirm("在 DEMO 账户开一笔最小单并立即平掉 (成本一个点差)?")) return;
+  try {{
+    const r = await fetch("/ordertest", {{method: "POST"}});
+    alert(JSON.stringify(await r.json(), null, 2));
+  }} catch (e) {{ alert("请求失败: " + e); }}
+}}
+</script>
 </div></body></html>"""
 
 
@@ -436,6 +463,228 @@ def rates(
         for r in data
     ]
     return {"symbol": symbol, "timeframe": timeframe.upper(), "count": len(bars), "bars": bars}
+
+
+_DEAL_TYPE = {0: "buy", 1: "sell", 2: "balance"}
+_DEAL_ENTRY = {0: "in", 1: "out", 2: "inout", 3: "out_by"}
+_DEAL_REASON = {0: "manual", 1: "mobile", 2: "web", 3: "expert", 4: "sl", 5: "tp", 6: "so"}
+
+
+def _trades_data(days: int) -> dict:
+    now = datetime.now(timezone.utc)
+    with _mt5_lock:  # +1天缓冲: 历史过滤按券商服务器时间
+        positions = mt5.positions_get() or []
+        deals = mt5.history_deals_get(now - timedelta(days=days), now + timedelta(days=1)) or []
+    return {
+        "days": days,
+        "positions": [{
+            "ticket": p.ticket, "time": p.time, "symbol": p.symbol,
+            "type": _DEAL_TYPE.get(p.type, str(p.type)), "volume": p.volume,
+            "price_open": p.price_open, "sl": p.sl, "tp": p.tp,
+            "price_current": p.price_current, "profit": p.profit, "swap": p.swap,
+            "magic": p.magic, "comment": p.comment,
+        } for p in positions],
+        "deals": [{
+            "ticket": d.ticket, "position_id": d.position_id, "time": d.time,
+            "symbol": d.symbol, "type": _DEAL_TYPE.get(d.type, str(d.type)),
+            "entry": _DEAL_ENTRY.get(d.entry, str(d.entry)),
+            "reason": _DEAL_REASON.get(d.reason, str(d.reason)),
+            "volume": d.volume, "price": d.price, "profit": d.profit,
+            "commission": d.commission, "swap": d.swap,
+            "magic": d.magic, "comment": d.comment,
+        } for d in sorted(deals, key=lambda d: -d.time)],
+    }
+
+
+@app.get("/trades")
+def trades(days: int = 30, fmt: str = "json",
+           x_api_key: Optional[str] = Header(default=None)):
+    """交易流水(只读): 当前持仓 + 历史成交明细, 原样透传 MT5。
+    json 给 api/web /mt5 页用(带鉴权); fmt=html 本机浏览器直接看(与状态页同级, 免鉴权即免登录)。
+    时间是 epoch 秒(券商服务器时钟); deals 按时间倒序。"""
+    if fmt != "html":
+        _require_key(x_api_key)
+    _require_connected()
+    data = _trades_data(days)
+    if fmt != "html":
+        return data
+
+    def ts(t):
+        return datetime.fromtimestamp(t).strftime("%m-%d %H:%M:%S")
+
+    pos_rows = "".join(
+        f"<tr><td>{p['ticket']}</td><td>{ts(p['time'])}</td><td>{p['symbol']}</td>"
+        f"<td>{p['type']}</td><td>{p['volume']}</td><td>{p['price_open']}</td>"
+        f"<td>{p['sl']}</td><td>{p['tp']}</td><td>{p['price_current']}</td>"
+        f"<td style='text-align:right'>{p['profit']:+.2f}</td><td>{p['magic']}</td>"
+        f"<td>{_magic_note(p['magic'])}</td></tr>" for p in data["positions"]) \
+        or "<tr><td colspan=12>无持仓</td></tr>"
+    deal_rows = "".join(
+        f"<tr><td>{ts(d['time'])}</td><td>{d['ticket']}</td><td>{d['position_id']}</td>"
+        f"<td>{d['symbol'] or '—'}</td><td>{d['type']}</td><td>{d['entry']}</td>"
+        f"<td>{d['reason']}</td><td>{d['volume']}</td><td>{d['price']}</td>"
+        f"<td style='text-align:right'>{d['profit']:+.2f}</td><td>{d['commission']}</td>"
+        f"<td>{d['swap']}</td><td>{d['magic']}</td><td>{_magic_note(d['magic'])}</td></tr>"
+        for d in data["deals"]) or "<tr><td colspan=14>无成交</td></tr>"
+    return HTMLResponse(f"""<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<title>交易流水</title><style>td,th{{border:1px solid #d7dbe0;padding:4px 10px;font:12px/1.5 sans-serif;white-space:nowrap}}
+th{{background:#f1f5f9}}body{{font:14px/1.6 sans-serif;margin:32px;color:#1a202c}}table{{border-collapse:collapse;margin:8px 0 20px}}</style></head><body>
+<h2>交易流水 (近 {days} 天, MT5 原样) <a href="/" style="font-size:12px">← 状态页</a>
+ <a href="/recon" style="font-size:12px">对账</a></h2>
+<p style="color:#6b7280;font-size:12px">时间为券商服务器时间; entry: in=开仓腿 out=平仓腿; reason: sl/tp=止损止盈触发 expert=程序下单 manual=手动</p>
+<h3>当前持仓 ({len(data['positions'])})</h3>
+<table><tr><th>ticket</th><th>开仓时间</th><th>品种</th><th>方向</th><th>手数</th><th>开仓价</th>
+<th>SL</th><th>TP</th><th>现价</th><th>浮动</th><th>magic</th><th>归属</th></tr>{pos_rows}</table>
+<h3>历史成交 ({len(data['deals'])})</h3>
+<table><tr><th>时间</th><th>ticket</th><th>仓位ID</th><th>品种</th><th>类型</th><th>腿</th><th>原因</th>
+<th>手数</th><th>价格</th><th>盈亏</th><th>手续费</th><th>swap</th><th>magic</th><th>归属</th></tr>{deal_rows}</table>
+</body></html>""")
+
+
+# ---------- 调试端点 (浏览器直接用, 无需登录 Windows; test/*.bat 保留作 bridge 挂掉时的兜底) ----------
+SMOKE_MAGIC = 999999  # 冒烟测试专用 magic, 永不与策略(100000+id)冲突, web 战绩不统计它
+
+
+def _magic_note(magic: int) -> str:
+    if magic == 0:
+        return "手动/非策略"
+    if magic == SMOKE_MAGIC:
+        return "下单测试"
+    if 100_000 <= magic < 200_000:
+        return f"策略 #{magic - 100_000}"
+    return "?"
+
+
+@app.get("/recon")
+def recon(days: int = 90, fmt: str = "html"):
+    """交易对账(只读): 近 N 天成交按 magic 分组, 与 web Demo/Live 页战绩逐行对应。
+    web笔数 = out 列; web已实现盈亏 = pnl 列 (profit+手续费+隔夜利息, 与 conn/stats 同口径)。
+    RAW COUNTS 解释 MT5 历史标签三种视图各显示多少行 — 对不上数字先看这里。"""
+    _require_connected()
+    now = datetime.now(timezone.utc)
+    with _mt5_lock:  # +1天缓冲: 历史过滤按券商服务器时间, 与 UTC 偏差以小时计
+        deals = mt5.history_deals_get(now - timedelta(days=days), now + timedelta(days=1)) or []
+        orders = mt5.history_orders_get(now - timedelta(days=days), now + timedelta(days=1)) or []
+        positions = mt5.positions_get() or []
+
+    by_magic, balance_rows = {}, 0
+    for d in deals:
+        if d.type == mt5.DEAL_TYPE_BALANCE:
+            balance_rows += 1
+            continue
+        s = by_magic.setdefault(d.magic, {"in": 0, "out": 0, "wins": 0, "pnl": 0.0})
+        if d.entry == mt5.DEAL_ENTRY_IN:
+            s["in"] += 1
+        elif d.entry == mt5.DEAL_ENTRY_OUT:  # 平仓腿: 盈亏落在这条上 (与 web 同口径)
+            s["out"] += 1
+            pnl = d.profit + d.commission + d.swap
+            s["pnl"] += pnl
+            if pnl > 0:
+                s["wins"] += 1
+    closed = [{"magic": m, **{k: round(v, 2) if k == "pnl" else v for k, v in s.items()},
+               "note": _magic_note(m)} for m, s in sorted(by_magic.items())]
+    open_pos = {}
+    for p in positions:
+        o = open_pos.setdefault(p.magic, {"count": 0, "volume": 0.0, "profit": 0.0})
+        o["count"] += 1
+        o["volume"] = round(o["volume"] + p.volume, 2)
+        o["profit"] = round(o["profit"] + p.profit, 2)
+    data = {
+        "days": days,
+        "closed_by_magic": closed,
+        "strategy_totals": {  # web 页面各列加总必须等于这两个数
+            "closed": sum(s["out"] for m, s in by_magic.items() if 100_000 <= m < 200_000),
+            "realized": round(sum(s["pnl"] for m, s in by_magic.items()
+                                  if 100_000 <= m < 200_000), 2),
+        },
+        "open_positions": [{"magic": m, **o, "note": _magic_note(m)}
+                           for m, o in sorted(open_pos.items())],
+        "raw_counts": {
+            "positions_view": sum(s["out"] for s in by_magic.values()),
+            "orders_view": len(orders),
+            "deals_view": len(deals),
+            "balance_rows": balance_rows,
+            "open_now": len(positions),
+        },
+    }
+    if fmt == "json":
+        return data
+    rows = "".join(
+        f"<tr><td>{c['magic']}</td><td>{c['in']}</td><td>{c['out']}</td><td>{c['wins']}</td>"
+        f"<td style='text-align:right'>{c['pnl']:+.2f}</td><td>{c['note']}</td></tr>" for c in closed)
+    op = "".join(
+        f"<tr><td>{o['magic']}</td><td>{o['count']} 仓</td><td>{o['volume']} 手</td>"
+        f"<td style='text-align:right'>{o['profit']:+.2f}</td><td>{o['note']}</td></tr>"
+        for o in data["open_positions"]) or "<tr><td colspan=5>无持仓</td></tr>"
+    rc = data["raw_counts"]
+    t = data["strategy_totals"]
+    css = "border-collapse:collapse;margin:8px 0 20px"
+    return HTMLResponse(f"""<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<title>交易对账</title><style>td,th{{border:1px solid #d7dbe0;padding:5px 12px;font:13px/1.5 sans-serif}}
+th{{background:#f1f5f9}}body{{font:14px/1.6 sans-serif;margin:32px;color:#1a202c}}</style></head><body>
+<h2>交易对账 (近 {days} 天, 只读) <a href="/recon?fmt=json" style="font-size:12px">JSON</a>
+ <a href="/" style="font-size:12px">← 状态页</a></h2>
+<h3>已平仓 (按 magic — 与 web 页面"笔数/已实现盈亏"逐行对应)</h3>
+<table style="{css}"><tr><th>magic</th><th>开仓腿</th><th>平仓腿=web笔数</th><th>胜场</th><th>盈亏=web已实现</th><th>归属</th></tr>{rows}</table>
+<b>策略合计: {t['closed']} 笔 / {t['realized']:+.2f}</b> — web 页面各列加总必须等于这两个数<br>
+<h3>当前持仓 (web 显示在"持仓/浮动盈亏", 不计入笔数)</h3>
+<table style="{css}"><tr><th>magic</th><th>仓数</th><th>手数</th><th>浮动</th><th>归属</th></tr>{op}</table>
+<h3>MT5 历史标签为什么对不上 — 三种视图行数</h3>
+<ul><li>仓位视图: {rc['positions_view']} 行 (每笔平仓 1 行)</li>
+<li>订单视图: {rc['orders_view']} 行 (每仓开+平 2 行)</li>
+<li>成交视图: {rc['deals_view']} 行 (含 {rc['balance_rows']} 行入金/出金)</li>
+<li>当前持仓 {rc['open_now']} 个在"交易"标签, 永远不在历史里</li></ul>
+</body></html>""")
+
+
+@app.post("/ordertest")
+def ordertest(symbol: str = "XAUUSD"):
+    """下单链路冒烟测试: 与 runner send_order 完全相同的请求结构开一笔最小单并立即平掉。
+    硬保护: 只允许 DEMO 账户 (live 主机上直接拒绝), 成本一个点差。"""
+    _require_connected()
+    with _mt5_lock:
+        acct = mt5.account_info()
+        if acct is None or acct.trade_mode != mt5.ACCOUNT_TRADE_MODE_DEMO:
+            raise HTTPException(status_code=403, detail="仅限 DEMO 账户 — 真实账户拒绝测试下单")
+        term = mt5.terminal_info()
+        mt5.symbol_select(symbol, True)
+        info = mt5.symbol_info(symbol)
+        tick = mt5.symbol_info_tick(symbol) if info else None
+        if info is None or tick is None or tick.ask == 0:
+            raise HTTPException(status_code=400, detail=f"{symbol} 无报价 (品种名不对或休市)")
+        if not term.trade_allowed:
+            raise HTTPException(status_code=400, detail="算法交易开关未开 (工具栏 Algo Trading)")
+        volume = max(info.volume_min, 0.01)
+        dist = max(info.trade_stops_level * 3, 500) * info.point
+        req = {"action": mt5.TRADE_ACTION_DEAL, "symbol": symbol, "volume": volume,
+               "type": mt5.ORDER_TYPE_BUY, "price": tick.ask,
+               "sl": tick.ask - dist, "tp": tick.ask + dist, "deviation": 20,
+               "magic": SMOKE_MAGIC, "comment": "bridge-ordertest",
+               "type_time": mt5.ORDER_TIME_GTC, "type_filling": mt5.ORDER_FILLING_IOC}
+        r = mt5.order_send(req)
+        if r is None or r.retcode != mt5.TRADE_RETCODE_DONE:
+            raise HTTPException(status_code=502, detail={
+                "open": "rejected", "retcode": r.retcode if r else None,
+                "comment": r.comment if r else str(mt5.last_error())})
+        opened = {"ticket": r.order, "price": r.price, "volume": volume}
+        pos = next((p for p in (mt5.positions_get(symbol=symbol) or [])
+                    if p.magic == SMOKE_MAGIC), None)
+        if pos is None:
+            return {"result": "PARTIAL", "open": opened,
+                    "close": "position not found - close it manually in MT5"}
+        tick = mt5.symbol_info_tick(symbol)
+        c = mt5.order_send({"action": mt5.TRADE_ACTION_DEAL, "symbol": symbol,
+                            "volume": pos.volume, "type": mt5.ORDER_TYPE_SELL,
+                            "price": tick.bid, "deviation": 20, "magic": SMOKE_MAGIC,
+                            "position": pos.ticket, "comment": "ordertest-close",
+                            "type_time": mt5.ORDER_TIME_GTC,
+                            "type_filling": mt5.ORDER_FILLING_IOC})
+    if c is None or c.retcode != mt5.TRADE_RETCODE_DONE:
+        return {"result": "PARTIAL", "open": opened,
+                "close": f"failed retcode={c.retcode if c else None} - close manually in MT5"}
+    logger.info("ordertest PASS: open %.5f close %.5f", opened["price"], c.price)
+    return {"result": "PASS", "open": opened, "close": {"price": c.price},
+            "note": "full order path works; cost = one spread"}
 
 
 if __name__ == "__main__":

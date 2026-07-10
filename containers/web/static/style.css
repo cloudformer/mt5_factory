@@ -142,6 +142,14 @@ td.mono {
 .flash.error { background: var(--err-bg); color: var(--err-fg); border-color: var(--err-bd); }
 
 .muted { color: var(--muted); }
+/* 链接按钮: 页面内醒目跳转入口 (如 MT5 原始流水) */
+a.btn {
+  display: inline-block; padding: 4px 12px; margin-left: 8px;
+  border: 1px solid #bfdbfe; border-radius: 6px;
+  font-size: 12px; font-weight: 500; text-decoration: none;
+  color: #2563eb; background: #eff6ff; vertical-align: middle;
+}
+a.btn:hover { background: #dbeafe; }
 .pos { color: var(--ok-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .neg { color: var(--err-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 

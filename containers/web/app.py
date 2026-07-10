@@ -11,6 +11,7 @@ from views.backtests import bp as backtests_bp
 from views.dashboard import bp as dashboard_bp
 from views.datasync import bp as datasync_bp
 from views.execution import bp as execution_bp
+from views.mt5 import bp as mt5_bp
 from views.strategies import bp as strategies_bp
 from views.workers import bp as workers_bp
 
@@ -22,6 +23,7 @@ app.register_blueprint(datasync_bp)
 app.register_blueprint(strategies_bp)
 app.register_blueprint(backtests_bp)
 app.register_blueprint(execution_bp)
+app.register_blueprint(mt5_bp)
 
 
 @app.get("/healthz")

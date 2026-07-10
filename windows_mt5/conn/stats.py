@@ -75,6 +75,7 @@ def per_strategy(instances: list, last_bar: dict | None = None) -> list:
         out.append({
             "id": inst["id"],
             "name": inst["name"],
+            "symbol": inst["symbol"],
             "magic": magic,
             "last_bar": last_bar.get(inst["id"]),
             "quote_ts": si.time if si else None,

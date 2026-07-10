@@ -141,6 +141,26 @@ async def delete_host(host_id: int, request: Request):
     return {"deleted": row["name"]}
 
 
+@router.get("/hosts/{host_id}/trades")
+async def host_trades(host_id: int, request: Request, days: int = 30):
+    """转发 worker 的 MT5 交易流水 (持仓+成交明细, 原样透传, web /mt5 页用)"""
+    row = await request.app.state.pool.fetchrow(
+        "SELECT host, port FROM mt5_hosts WHERE id=$1 AND enabled", host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host not found or disabled")
+    headers = {"X-API-Key": sync.BRIDGE_API_KEY} if sync.BRIDGE_API_KEY else {}
+    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
+        try:
+            r = await client.get(f"http://{row['host']}:{row['port']}/trades",
+                                 params={"days": days})
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"bridge unreachable: {e}")
+    if r.status_code != 200:
+        raise HTTPException(status_code=r.status_code,
+                            detail=r.json().get("detail", "bridge error"))
+    return r.json()
+
+
 class ConnectRequest(BaseModel):
     login: int
     password: str

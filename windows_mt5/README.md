@@ -19,6 +19,11 @@ env 没填 `DOCKER_COMPOSE_HOST` 时会明确提示并停下。
 
 `start_bridge.bat` / `start_runner.bat` 平时不用手动碰（开机自启 + 看门狗），只在排错时手动跑看日志。
 
+**开机自检**（`selftest.bat`，自启第三项）：等 bridge/MT5 就绪后自动测全链路——
+端口 → MT5 账户 → 算法交易开关 → runner → 报价新鲜度 → 下单开平一轮（仅 demo 账户，
+live 自动跳过）→ 对账数据。结果显示在状态页 `http://<本机>:8020/` 的"开机自检"行，
+**无需登录 Windows**；失败时窗口保持打开。手动重跑：双击 `selftest.bat`。
+
 ## 日常运维
 
 ```powershell
@@ -77,6 +82,9 @@ VALUES ('win-worker-1', '192.168.x.x', 8020, TRUE, 'demo', 'DEMO');
 | `GET /account` | X-API-Key | 账户完整信息 |
 | `GET /symbols` `GET /symbol/{s}` | X-API-Key | 品种列表/详情 |
 | `GET /rates?symbol=&timeframe=M1&from_ts=&to_ts=` | X-API-Key | 按时间范围取K线 (epoch秒) |
+| `GET /trades?days=30` | X-API-Key | **交易流水** (只读): 持仓+成交明细原样透传, web /mt5 页数据源; `fmt=html` 本机免鉴权直接看 |
+| `GET /recon?days=90` | 无 | **交易对账页** (只读): 成交按 magic 分组, 与 web 战绩逐行对应; `fmt=json` 出数据 |
+| `POST /ordertest?symbol=XAUUSD` | 无 | **下单冒烟测试**: 最小单开平各一次; 硬保护仅限 DEMO 账户 (状态页有按钮) |
 
 ## Runner 行为（CLAUDE.md 四纪律的落地）
 

@@ -1,0 +1,57 @@
+"""MT5 流水页: 从选中 worker 实时透传持仓 + 历史成交明细 (不落库, 人工核对用)
+
+链路 web → api → bridge → MT5, 看到的就是券商侧原始数据;
+web 端只做两件事: magic → 策略名归因, 枚举值翻译成中文。
+"""
+from datetime import datetime
+
+from flask import Blueprint, flash, render_template, request
+
+import api_client as api
+
+bp = Blueprint("mt5", __name__, url_prefix="/mt5")
+
+ENTRY_CN = {"in": "开", "out": "平", "inout": "反手", "out_by": "对冲平"}
+REASON_CN = {"sl": "止损", "tp": "止盈", "expert": "程序", "manual": "手动",
+             "mobile": "手机", "web": "网页", "so": "强平"}
+SMOKE_MAGIC = 999999
+
+
+def _who(magic: int, magic_map: dict) -> str:
+    if magic == SMOKE_MAGIC:
+        return "下单测试"
+    return magic_map.get(magic) or ("手动/其他" if magic == 0 else f"未知 magic {magic}")
+
+
+@bp.get("/")
+def index():
+    days = request.args.get("days", 30, type=int)
+    hosts, data, magic_map = [], None, {}
+    try:
+        hosts = [h for h in api.get("/hosts")["hosts"] if h["enabled"]]
+    except api.ApiError as e:
+        flash(f"api 不可用: {e}", "error")
+    # 两级选择: demo / live / 其他(未指派, 也可能登着账户)
+    groups = [("demo", [h for h in hosts if h["runner"] == "demo"]),
+              ("live", [h for h in hosts if h["runner"] == "live"]),
+              ("其他", [h for h in hosts if not h["runner"]])]
+    host_id = request.args.get("host_id", type=int) or next(
+        (g[1][0]["id"] for g in groups if g[1]), None)  # 默认第一台 demo 主机
+    if host_id:
+        try:
+            data = api.get(f"/hosts/{host_id}/trades", days=days)
+            strategies = api.get("/strategies/status", limit=500)["strategies"]
+            magic_map = {s["magic_number"]: s["name"]
+                         for s in strategies if s["magic_number"]}
+        except api.ApiError as e:
+            flash(f"流水获取失败: {e}", "error")
+    if data:
+        for p in data["positions"]:
+            p["time_fmt"] = datetime.fromtimestamp(p["time"]).strftime("%m-%d %H:%M:%S")
+            p["who"] = _who(p["magic"], magic_map)
+        for d in data["deals"]:
+            d["time_fmt"] = datetime.fromtimestamp(d["time"]).strftime("%m-%d %H:%M:%S")
+            d["entry_cn"] = ENTRY_CN.get(d["entry"], d["entry"])
+            d["reason_cn"] = REASON_CN.get(d["reason"], d["reason"])
+            d["who"] = "入金/出金" if d["type"] == "balance" else _who(d["magic"], magic_map)
+    return render_template("mt5.html", groups=groups, host_id=host_id, days=days, data=data)

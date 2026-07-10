@@ -2,6 +2,9 @@
 title MT5 Bridge
 rem MT5 Bridge (watchdog loop: restarts 10s after a crash)
 cd /d %~dp0
+rem boot self-test rides along (one-shot, outside the watchdog loop):
+rem waits for services then tests the full chain; result -> status page :8020
+start "MT5 self-test" /min selftest.bat
 :loop
 echo [%date% %time%] starting bridge...
 python bridge\main.py

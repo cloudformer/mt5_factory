@@ -73,7 +73,10 @@
 </section>
 
 <section>
-  <h2>{{ cfg.title }}策略 ({{ strategies | length }})</h2>
+  <h2>{{ cfg.title }}策略 ({{ strategies | length }})
+    <a class="btn" href="{{ url_for('mt5.index', host_id=assigned[0].id) if assigned else url_for('mt5.index') }}"
+       title="从 MT5 实时读取原始持仓与成交明细(不经数据库), 用于核对本页统计">🔍 MT5 原始流水核对</a>
+  </h2>
   <table>
     <tr><th>ID</th><th>名称</th><th>品种</th><th>周期</th><th>magic</th><th>运行状态</th>
         <th>持仓</th><th>浮动盈亏</th><th>笔数</th><th>胜率</th><th>已实现盈亏</th><th>操作</th></tr>

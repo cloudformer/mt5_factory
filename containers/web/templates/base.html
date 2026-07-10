@@ -18,6 +18,7 @@
   <a href="{{ url_for('backtests.index') }}" {% if ep.startswith('backtests.') %}class="active"{% endif %}>回测</a>
   <a href="{{ url_for('execution.demo') }}" {% if ep == 'execution.demo' %}class="active"{% endif %}>Demo</a>
   <a href="{{ url_for('execution.live') }}" {% if ep == 'execution.live' %}class="active"{% endif %}>Live</a>
+  <a href="{{ url_for('mt5.index') }}" {% if ep.startswith('mt5.') %}class="active"{% endif %}>MT5流水</a>
 </nav>
 <main>
   {% with messages = get_flashed_messages(with_categories=true) %}
