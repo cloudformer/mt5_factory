@@ -249,9 +249,18 @@ class StatusRequest(BaseModel):
 
 @router.post("/strategies/{strategy_id}/status")
 async def set_status(strategy_id: int, req: StatusRequest, request: Request):
-    """准入漏斗状态流转(任意状态可互转, LIVE 也能撤回); 进入 DEMO/LIVE 时自动分配 magic_number"""
+    """准入漏斗状态流转(任意状态可互转, LIVE 也能撤回); 进入 DEMO/LIVE 时自动分配 magic_number。
+    进入 DEMO/LIVE 前必须已有对应职能的执行主机, 否则策略转过去只会空等 worker。"""
     if req.status not in ("CANDIDATE", "DEMO", "LIVE", "ARCHIVED"):
         raise HTTPException(status_code=400, detail="invalid status")
+    if req.status in ("DEMO", "LIVE"):
+        role = req.status.lower()
+        n = await request.app.state.pool.fetchval(
+            "SELECT count(*) FROM mt5_hosts WHERE runner=$1 AND enabled", role)
+        if not n:
+            raise HTTPException(
+                status_code=400,
+                detail=f"没有已指派的 {role} 执行主机 — 先到 {req.status.capitalize()} 页指派主机, 再把策略转入 {req.status}")
     row = await request.app.state.pool.fetchrow(
         "UPDATE strategies SET status=$2::text,"
         " magic_number = CASE WHEN $2::text IN ('DEMO','LIVE')"
