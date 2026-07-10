@@ -18,7 +18,8 @@ CREATE TABLE mt5_hosts (
                    CHECK (account_type IN ('DEMO', 'REAL')),
     enabled        BOOLEAN      NOT NULL DEFAULT TRUE,
     status         VARCHAR(8)   NOT NULL DEFAULT 'OFFLINE'
-                   CHECK (status IN ('ONLINE', 'OFFLINE')),
+                   -- DEGRADED = bridge 可达但 MT5 未就绪(未连接/账户未登录), 可远程下发账户
+                   CHECK (status IN ('ONLINE', 'OFFLINE', 'DEGRADED')),
     online_at      TIMESTAMPTZ,             -- 最近一次上线时间
     offline_at     TIMESTAMPTZ,             -- 最近一次下线时间
     last_heartbeat TIMESTAMPTZ,

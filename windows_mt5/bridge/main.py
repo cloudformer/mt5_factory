@@ -38,6 +38,9 @@ API_PORT = os.getenv("API_PORT", "8010")
 # setup.ps1 探测到终端后会自动写入这个变量
 MT5_PATH = os.getenv("MT5_PATH", "").strip()
 RUNNER_STATUS_FILE = Path(__file__).resolve().parents[1] / "runner_status.json"
+# 终端启动配置: 固化"算法交易"等终端级开关 (克隆/重装的新机免手工点按钮)。
+# 只在 bridge 拉起终端时生效; 手动双击打开的终端用它自己保存的设置。
+TERMINAL_START_INI = Path(__file__).resolve().parent / "terminal_start.ini"
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -115,8 +118,11 @@ def _connect() -> bool:
         # 拉起后等进程出现 + 冷启动缓冲, 再握手
         if not _terminal_running():
             logger.info("MT5 terminal not running, launching %s", MT5_PATH)
+            args = [MT5_PATH]
+            if TERMINAL_START_INI.exists():  # 自动开启算法交易等开关
+                args.append(f"/config:{TERMINAL_START_INI}")
             try:
-                subprocess.Popen([MT5_PATH], cwd=str(Path(MT5_PATH).parent))
+                subprocess.Popen(args, cwd=str(Path(MT5_PATH).parent))
             except OSError as e:
                 logger.error("launch terminal failed: %s", e)
                 return False

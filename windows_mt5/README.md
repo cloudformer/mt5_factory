@@ -34,6 +34,11 @@ MT5 账户三种配置方式（任选）：
 2. env/.dev.env 里填 `MT5_LOGIN/PASSWORD/SERVER`（推荐，配合克隆全自动）
 3. web 的 Workers 页"下发 MT5 账户"远程登录
 
+**账户的干净配置流程（推荐走 web，Windows 上零手工）：**
+1. setup.bat 装完后 bridge 自动注册，Workers 页出现本机，状态为 **MT5未就绪**（不是离线——bridge 活着，只是没账户；真离线才显示"离线"）
+2. Workers 页底部"下发 MT5 账户"→ 选中本机 → 填账号/密码/服务器 → 登录
+3. 30 秒内状态变 **在线**。密码不落库（api 只记 login/server），MT5 终端自己记住密码，重启后自动恢复登录，无需再次下发
+
 验证：
 
 ```bash
@@ -46,6 +51,21 @@ curl http://<windows_ip>:8020/health     # bridge + MT5 状态
 INSERT INTO mt5_hosts (name, host, port, download, runner, account_type)
 VALUES ('win-worker-1', '192.168.x.x', 8020, TRUE, 'demo', 'DEMO');
 ```
+
+## 注意事项：算法交易开关 / 市场报价
+
+### 算法交易开关（Algo Trading）
+
+- **这是 runner 能否下单的总开关**。关着时策略照常盯盘算信号，但每笔 `order_send` 都被拒（retcode 10027 "AutoTrading disabled by client"），表现为策略永远"等待信号"却从不成交——最坑的沉默故障
+- **已固化进配置**：bridge 拉起终端时带 `/config:bridge\terminal_start.ini`（`[Experts] AllowLiveTrading=1`）自动开启，克隆/重装的新机不用手工点。⚠️ 手动双击打开的终端不读这个文件，得自己点工具栏 **Algo Trading** 按钮（变绿）
+- 确认方法（任一）：web Workers 页状态详情"交易许可: 是"；本机 `http://localhost:8020/` 状态页；跑 `test\order_check.bat` 冒烟测试（在 demo 账户开一笔最小单立即平掉，验证整条下单链路，只花一个点差；拒绝在真实账户运行）
+
+### 市场报价（Market Watch）
+
+- 策略品种必须在券商的报价列表里。bridge/runner 会自动 `symbol_select` 添加进报价窗，**一般无需手工操作**
+- Demo/Live 页出现 **"无报价 — 未加载"** = 这家券商没有这个品种名。不同券商命名不同（XAUUSD / GOLD / XAUUSD.m 都存在），在终端报价窗（Ctrl+M）搜真实名称；策略品种名与券商不符时，策略会被 runner 跳过并在页面提示，修正后一分钟内自动重试
+- **"报价停滞(休市/断流?)"** 徽章：周末/假日休市属正常；交易时段出现 = 数据断流，看 bridge 窗口日志
+- 纪律提醒（CLAUDE.md）：回测数据必须从**实际交易的同一家券商服务器**下载，否则信号层对不齐
 
 ## Bridge API（端口 8020 固定）
 

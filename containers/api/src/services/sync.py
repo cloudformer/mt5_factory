@@ -129,41 +129,38 @@ async def log_host_event(pool: asyncpg.Pool, host_id: int, event: str, detail: d
 
 
 async def heartbeat_loop(pool: asyncpg.Pool):
-    """每 30s 轮询启用 worker 的 /health, 维护 ONLINE/OFFLINE 状态机 + 事件记录。
-    下线判定带 90s 宽限, 避免单次超时抖动。"""
+    """每 30s 轮询启用 worker 的 /health, 维护三态状态机 + 事件记录:
+      ONLINE   = /health healthy (bridge + MT5 + 账户全就绪)
+      DEGRADED = bridge 可达但 MT5 未就绪 (未连接/账户未登录) — 可远程下发账户, 不是离线
+      OFFLINE  = bridge 不可达超过 90s 宽限 (避免单次超时抖动)"""
     async with httpx.AsyncClient(timeout=5) as client:
         while True:
             try:
                 hosts = await pool.fetch(
                     "SELECT id, name, host, port, status FROM mt5_hosts WHERE enabled")
                 for h in hosts:
-                    alive, health = False, None
+                    health = None
                     try:
                         r = await client.get(f"http://{h['host']}:{h['port']}/health")
                         if r.status_code == 200:
                             health = r.json()               # 完整 /health JSON, 存库供 web 展示
-                            alive = health.get("status") == "healthy"
                     except (httpx.HTTPError, ValueError):
-                        alive, health = False, None
+                        health = None
 
-                    if alive:
-                        if h["status"] == "OFFLINE":  # 离线→上线
-                            await pool.execute(
-                                "UPDATE mt5_hosts SET status='ONLINE', online_at=now(),"
-                                " last_heartbeat=now(), last_health=$2 WHERE id=$1", h["id"], health)
-                            await log_host_event(pool, h["id"], "ONLINE")
-                            logger.info("worker %s ONLINE", h["name"])
-                        else:
-                            await pool.execute(
-                                "UPDATE mt5_hosts SET last_heartbeat=now(), last_health=$2"
-                                " WHERE id=$1", h["id"], health)
+                    if health is not None:  # bridge 可达
+                        new = "ONLINE" if health.get("status") == "healthy" else "DEGRADED"
+                        await pool.execute(
+                            "UPDATE mt5_hosts SET status=$2, last_heartbeat=now(), last_health=$3,"
+                            " online_at = CASE WHEN $2='ONLINE' AND status <> 'ONLINE'"
+                            "             THEN now() ELSE online_at END"
+                            " WHERE id=$1", h["id"], new, health)
+                        if h["status"] != new:
+                            await log_host_event(pool, h["id"], new)
+                            logger.info("worker %s %s", h["name"], new)
                     else:  # 探测失败: 超过90s宽限才判下线
-                        if health is not None:  # 响应了但 degraded: 存 JSON, 状态另判
-                            await pool.execute(
-                                "UPDATE mt5_hosts SET last_health=$2 WHERE id=$1", h["id"], health)
                         row = await pool.fetchrow(
                             "UPDATE mt5_hosts SET status='OFFLINE', offline_at=now()"
-                            " WHERE id=$1 AND status='ONLINE'"
+                            " WHERE id=$1 AND status <> 'OFFLINE'"
                             "   AND (last_heartbeat IS NULL OR"
                             "        last_heartbeat < now() - interval '90 seconds')"
                             " RETURNING id", h["id"])

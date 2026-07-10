@@ -33,6 +33,11 @@ INSERT INTO config (key, value) VALUES
     ('backtest_costs', '{"slippage_points":3,"commission_points":7,"spread_points":null}')
 ON CONFLICT (key) DO NOTHING;
 
+-- mt5_hosts: 状态机加第三态 DEGRADED (bridge 可达但 MT5 未就绪/账户未登录)
+ALTER TABLE IF EXISTS mt5_hosts DROP CONSTRAINT IF EXISTS mt5_hosts_status_check;
+ALTER TABLE IF EXISTS mt5_hosts ADD CONSTRAINT mt5_hosts_status_check
+    CHECK (status IN ('ONLINE', 'OFFLINE', 'DEGRADED'));
+
 -- strategies: 状态命名统一 ACTIVE→LIVE (先松约束再改数据, 幂等)
 ALTER TABLE IF EXISTS strategies DROP CONSTRAINT IF EXISTS strategies_status_check;
 UPDATE strategies SET status='LIVE' WHERE status='ACTIVE';

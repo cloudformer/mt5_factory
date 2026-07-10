@@ -1,9 +1,11 @@
 {# 公共组件宏 — 所有页面复用, 改样式/逻辑只改这里 #}
 
-{# worker 状态徽章: 停用 / 在线 / 离线 #}
+{# worker 状态徽章: 停用 / 在线 / MT5未就绪(bridge可达) / 离线(bridge不可达) #}
 {% macro worker_status(h) -%}
   {%- if not h.enabled -%}<span class="badge">停用</span>
   {%- elif h.status == 'ONLINE' -%}<span class="badge ok">在线</span>
+  {%- elif h.status == 'DEGRADED' -%}<span class="badge warn"
+      title="worker 本身在线, 但 MT5 未连接或账户未登录 — 点开详情定位; 未登录可直接在 Workers 页『下发 MT5 账户』远程登录">MT5未就绪</span>
   {%- else -%}<span class="badge error">离线</span>{%- endif -%}
 {%- endmacro %}
 
