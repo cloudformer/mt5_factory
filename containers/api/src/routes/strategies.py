@@ -122,17 +122,28 @@ async def generate(req: GenerateRequest, request: Request):
 @router.get("/strategies/status")
 async def list_strategies(request: Request, status: Optional[str] = None,
                           symbol: Optional[str] = None, limit: int = 100):
-    """策略实例列表, 按状态/品种筛选 (Windows runner 拉任务也走这里)"""
-    q = "SELECT id, name, template, symbol, timeframe, params, status, magic_number FROM strategies"
+    """策略实例列表, 按状态/品种筛选 (Windows runner 拉任务也走这里)。
+    随附三方战绩 — web 页并排对比"回测质量 / demo / live 在券商是否一致":
+      backtest: 最新一次回测指标 (backtests 表, 可能为 null)
+      stats:    {"demo": {trades,wins,profit}, "live": {...}} (strategy_stats 表, 心跳快照)"""
+    q = ("SELECT s.id, s.name, s.template, s.symbol, s.timeframe, s.params, s.status,"
+         "       s.magic_number, b.metrics AS backtest, st.stats"
+         "  FROM strategies s"
+         "  LEFT JOIN LATERAL (SELECT metrics FROM backtests"
+         "                      WHERE strategy_id = s.id ORDER BY id DESC LIMIT 1) b ON true"
+         "  LEFT JOIN LATERAL (SELECT jsonb_object_agg(lower(env), jsonb_build_object("
+         "                       'trades', trades, 'wins', wins,"
+         "                       'profit', round(profit::numeric, 2))) AS stats"
+         "                       FROM strategy_stats WHERE strategy_id = s.id) st ON true")
     cond, args = [], []
     if status:
-        args.append(status); cond.append(f"status = ${len(args)}")
+        args.append(status); cond.append(f"s.status = ${len(args)}")
     if symbol:
-        args.append(symbol); cond.append(f"symbol = ${len(args)}")
+        args.append(symbol); cond.append(f"s.symbol = ${len(args)}")
     if cond:
         q += " WHERE " + " AND ".join(cond)
     args.append(limit)
-    q += f" ORDER BY id LIMIT ${len(args)}"
+    q += f" ORDER BY s.id LIMIT ${len(args)}"
     rows = await request.app.state.pool.fetch(q, *args)
     return {"count": len(rows), "strategies": [dict(r) for r in rows]}
 

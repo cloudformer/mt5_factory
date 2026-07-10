@@ -45,6 +45,12 @@
 {% else %}
 {% if assigned %}<p class="muted">账户数据等待 worker 回传（worker 需更新到最新代码并在跑, 约 30 秒一刷）</p>{% endif %}
 {% endfor %}
+{% if accounts %}
+<p class="muted" style="font-size:11px">
+  数据源：余额/净值/保证金由<b>券商服务器</b>计算 → 本机 MT5 终端 → worker 回传（约 30 秒一刷）。
+  本系统不推算这些数字，只透传展示；独立核对入口：<a href="{{ url_for('mt5.index') }}">MT5 原始流水</a>（绕过统计代码直读 MT5）
+</p>
+{% endif %}
 
 <section>
   <h2>{{ cfg.title }}主机</h2>
@@ -84,8 +90,11 @@
        title="从 MT5 实时读取原始持仓与成交明细(不经数据库), 用于核对本页统计">🔍 MT5 原始流水核对</a>
   </h2>
   <table>
-    <tr><th>ID</th><th>名称</th><th>品种</th><th>周期</th><th>magic</th><th>运行状态</th>
-        <th>持仓</th><th>浮动盈亏</th><th>笔数</th><th>胜率</th><th>已实现盈亏</th><th>操作</th></tr>
+    <tr><th>ID</th><th>名称</th><th>品种</th><th>周期</th><th>magic</th>
+        <th title="最新一次回测的成绩 (悲观撮合); 悬停看净点数/PF/回撤">回测 笔(胜/负)</th>
+        <th title="demo 账户实际战绩 (近90天窗口, 心跳快照入库) — 与回测列比 = 回测质量">Demo 实跑</th>
+        <th title="live 账户实际战绩 — 与 Demo 列比 = 券商执行是否一致 (代码两边完全相同)">Live 实跑</th>
+        <th>运行状态</th><th>持仓</th><th>浮动盈亏</th><th>操作</th></tr>
     {% for s in strategies %}
     {% set st = stats.get(s.magic_number) %}
     {% set sk = skipped.get(s.id) %}
@@ -95,8 +104,20 @@
       <td>{{ s.symbol }}</td>
       <td>{{ s.timeframe }}</td>
       <td class="muted cell-magic">{{ s.magic_number or '—' }}</td>
+      <td class="muted">
+        {% if s.backtest %}{% set btw = (s.backtest.trades * s.backtest.win_rate) | round | int %}
+        <span title="净点数 {{ s.backtest.net_points }} · PF {{ s.backtest.profit_factor or '—' }} · 最大回撤 {{ s.backtest.max_dd_points }}">
+          {{ s.backtest.trades }} ({{ btw }}胜/{{ s.backtest.trades - btw }}负)</span>
+        {% else %}—{% endif %}
+      </td>
+      {% for env in ['demo', 'live'] %}
+      {% set d = (s.stats or {}).get(env) %}
+      <td>{% if d and d.trades %}{{ d.trades }} ({{ d.wins }}胜/{{ d.trades - d.wins }}负)
+          <span class="{{ 'pos' if d.profit > 0 else ('neg' if d.profit < 0 else 'muted') }}">{{ '%+.2f' % d.profit }}</span>
+          {% elif d %}0{% else %}—{% endif %}</td>
+      {% endfor %}
       {% if sk %}
-      <td colspan="6">
+      <td colspan="3">
         <span class="badge error">无报价 — 未加载</span>
         <span class="muted">在 MT5 报价窗(Ctrl+M)添加品种 {{ s.symbol }}，runner 一分钟内自动重试</span>
       </td>
@@ -112,12 +133,8 @@
       <td>{{ st.position.count or '—' }}{% if st.position.count %} ({{ st.position.volume }}手){% endif %}</td>
       <td class="{{ 'pos' if st.position.profit > 0 else ('neg' if st.position.profit < 0 else 'muted') }}">
         {{ '%+.2f' % st.position.profit if st.position.count else '—' }}</td>
-      <td>{{ st.closed.trades }}</td>
-      <td class="muted">{{ '%.0f%%' % (st.closed.wins / st.closed.trades * 100) if st.closed.trades else '—' }}</td>
-      <td class="{{ 'pos' if st.closed.profit > 0 else ('neg' if st.closed.profit < 0 else 'muted') }}">
-        {{ '%+.2f' % st.closed.profit if st.closed.trades else '—' }}</td>
       {% else %}
-      <td colspan="6" class="muted">等待 worker 回传…</td>
+      <td colspan="3" class="muted">等待 worker 回传…</td>
       {% endif %}
       <td>{{ m.strategy_actions(s) }}</td>
     </tr>

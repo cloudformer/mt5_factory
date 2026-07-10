@@ -137,7 +137,7 @@ async def heartbeat_loop(pool: asyncpg.Pool):
         while True:
             try:
                 hosts = await pool.fetch(
-                    "SELECT id, name, host, port, status FROM mt5_hosts WHERE enabled")
+                    "SELECT id, name, host, port, status, runner FROM mt5_hosts WHERE enabled")
                 for h in hosts:
                     try:
                         await _beat_one(pool, client, h)
@@ -181,6 +181,20 @@ async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
             except asyncpg.UniqueViolationError:
                 logger.warning("worker %s 登录的 MT5 账户 %s 已被其他启用 worker 占用 — "
                                "违反铁律, 请换账户", h["name"], health["login"])
+        # 每策略战绩快照入库 (strategy_stats): 回测/demo/live 三方对比的数据基础。
+        # 按主机角色写对应环境; 策略晋级后旧环境的最后快照保留 — demo vs live 才有对比对象。
+        # 只存聚合(近90天窗口), 逐笔回写是 P2
+        rn = health.get("runner") or {}
+        if h["runner"] and rn.get("per_strategy"):
+            await pool.executemany(
+                "INSERT INTO strategy_stats (strategy_id, env, trades, wins, profit)"
+                " VALUES ($1, $2, $3, $4, $5)"
+                " ON CONFLICT (strategy_id, env) DO UPDATE SET"
+                "   trades = EXCLUDED.trades, wins = EXCLUDED.wins,"
+                "   profit = EXCLUDED.profit, updated_at = now()",
+                [(s["id"], h["runner"].upper(), s["closed"]["trades"],
+                  s["closed"]["wins"], s["closed"]["profit"])
+                 for s in rn["per_strategy"] if s.get("closed")])
     else:  # 探测失败: 超过90s宽限才判下线
         row = await pool.fetchrow(
             "UPDATE mt5_hosts SET status='OFFLINE', offline_at=now()"
