@@ -160,9 +160,11 @@ async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
 
     if health is not None:  # bridge 可达
         new = "ONLINE" if health.get("status") == "healthy" else "DEGRADED"
+        # $2 加 ::text: 同一参数既赋值 varchar 列又与 text 比较, 不显式转换
+        # Postgres 会报 "inconsistent types deduced for parameter"
         await pool.execute(
-            "UPDATE mt5_hosts SET status=$2, last_heartbeat=now(), last_health=$3,"
-            " online_at = CASE WHEN $2='ONLINE' AND status <> 'ONLINE'"
+            "UPDATE mt5_hosts SET status=$2::text, last_heartbeat=now(), last_health=$3,"
+            " online_at = CASE WHEN $2::text='ONLINE' AND status <> 'ONLINE'"
             "             THEN now() ELSE online_at END"
             " WHERE id=$1", h["id"], new, health)
         if h["status"] != new:

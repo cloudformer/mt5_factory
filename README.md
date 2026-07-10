@@ -43,7 +43,7 @@ strategy_core/      策略包 (回测与实时执行共用同一份代码)
 containers/
 ├── api/src/        业务后端 (8010): routes/ 接口层 + services/ 逻辑层
 ├── web/            Flask 前端 (8000): views/ + templates/, 只调 api
-└── postgres/sqls/  建表 + 种子数据
+└── postgres/schema/ 数据库结构唯一来源 (幂等SQL, api 启动自动执行)
 env/                统一环境配置 (Linux/Windows 共用, 不入 git)
 windows_mt5/        Windows worker: bridge + runner + setup/update/restart.ps1
 scripts/            setup_linux.sh (Ubuntu一键配置) + smoke.sh (冒烟测试)

@@ -10,6 +10,7 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import asyncpg
 from fastapi import FastAPI, Response
@@ -62,7 +63,17 @@ async def lifespan(app: FastAPI):
                 raise
             await asyncio.sleep(3)
 
-    # schema 迁移不在这里: 由 `make db-migrate` (make up 会自动调用) 对齐, api 只管业务。
+    # schema 自动对齐 (唯一机制): containers/postgres/schema/ 按文件名顺序全部执行。
+    # 文件全幂等 — 空库建全量, 老库无害跳过; 失败即启动失败, 绝不带着错的结构运行。
+    schema_dir = Path(__file__).resolve().parent.parent / "schema"
+    async with app.state.pool.acquire() as conn:
+        for f in sorted(schema_dir.glob("*.sql")):
+            try:
+                await conn.execute(f.read_text())
+                logger.info("schema applied: %s", f.name)
+            except Exception as e:
+                raise RuntimeError(f"schema {f.name} failed: {e}") from e
+
     # env 的 MT5_HOSTS 仅作首次引导: 表为空时种入, 之后完全由 web/API 管理
     if await app.state.pool.fetchval("SELECT count(*) FROM mt5_hosts") == 0:
         mt5_port = int(os.getenv("MT5_PORT", "8020"))

@@ -26,7 +26,7 @@ mt5_factory/
 │   ├── templates/                  Jinja2; _macros.html 是公共组件
 │   └── api_client.py               调 api 的薄封装
 │
-├── containers/postgres/sqls/     ★ 建表 + 种子 (首次启动自动执行)
+├── containers/postgres/schema/   ★ 数据库结构唯一来源 (幂等SQL, api 每次启动按序自动执行)
 │
 └── windows_mt5/                  ★ Windows worker
     ├── bridge/main.py              MT5↔HTTP + 自动注册 + 状态页(8020)
@@ -59,12 +59,13 @@ mt5_factory/
 4. 徽章/时间/空态用 `_macros.html` 现成宏，不要重写样式
 
 ### 改表结构
-1. 改 `containers/postgres/sqls/` 里的建表文件（管新装机器）
-2. 对已运行的库手动执行等价 `ALTER TABLE`（数据在 `containers/postgres/data/`，
-   没有重要数据时也可 `make clean && make up` 直接重建）
+1. `containers/postgres/schema/` **追加**一个新的编号幂等 SQL 文件（如 `002_add_bucket.sql`），
+   旧文件永不修改。幂等 = `IF NOT EXISTS` / `CREATE OR REPLACE` / `DROP ... IF EXISTS` / `ON CONFLICT DO NOTHING`
+2. 完事——api 每次启动按文件名顺序自动执行整个目录：空库建全量、老库无害对齐，
+   新装机器和已运行的库走**同一条路径**，没有单独的迁移概念
 
 ### 加一个配置项（web 可改的）
-1. `sqls/01_config.sql` 的 config 表 INSERT 加种子
+1. `postgres/schema/` 新增幂等种子 SQL（`INSERT ... ON CONFLICT DO NOTHING`）
 2. `routes/data.py` 的 `CONFIG_KEYS` 加 key + 校验分支
 3. web 的下载页（或对应页）表单加输入框
 

@@ -3,7 +3,7 @@
 职责: 触发/查询数据同步(逻辑在 services.sync)、数据覆盖统计、
      系统配置读写(下载品种/起始日期, 存 config 表, web 可改)。
 
-扩展点: 新配置项 = CONFIG_KEYS 加 key + 校验分支 + sqls/01_config.sql 加种子。
+扩展点: 新配置项 = CONFIG_KEYS 加 key + 校验分支 + postgres/schema/ 新增幂等种子 SQL。
 """
 import asyncio
 from datetime import date

@@ -50,7 +50,7 @@
   - 默认交易品种：EURUSD, GBPUSD, USDJPY, XAUUSD
   - 默认验证品种：AUDUSD, USDCAD, NZDUSD, EURJPY, GBPJPY
 - `mt5_hosts`：worker 注册表　`strategies`：策略**实例**表（模板 + 参数 + 品种 + 周期 = 一个实例，独立走漏斗，独立 magic number；模板本身品种无关，在 strategy_core 里）
-- 改表结构：更新 `containers/postgres/sqls/` + 提供迁移 SQL
+- 改表结构：`containers/postgres/schema/` **追加**新的编号幂等 SQL 文件（旧文件永不改）。api 每次启动按序自动执行整个目录，空库建全量、老库无害对齐——唯一机制，没有单独的迁移概念
 
 ## 文档地图
 

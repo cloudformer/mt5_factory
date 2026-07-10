@@ -11,7 +11,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY strategy_core/ strategy_core/
 COPY containers/api/src/ src/
+COPY containers/postgres/schema/ schema/
 
 EXPOSE 8010
 
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8010"]
+# --reload: src 是 volume 挂载, 代码变更自动重载 (与 web 的 gunicorn --reload 对齐);
+# 没有它挂载形同虚设 —— make up 不重建未变的容器, 老进程会一直跑旧代码
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8010", "--reload"]

@@ -1,18 +1,11 @@
 ENV_FILE ?= env/.dev.env
 COMPOSE = docker compose --env-file $(ENV_FILE)
 
-.PHONY: up down build logs ps psql health test db-migration clean
+.PHONY: up down build logs ps psql health test clean
 
-up:  # 启动 → 等 healthcheck → 自动迁移schema → 冒烟测试
-	$(COMPOSE) up -d --wait
-	@$(MAKE) db-migration
+up:  # 启动(必要时重建镜像) → 等 healthcheck → 冒烟测试; schema 由 api 启动自动对齐
+	$(COMPOSE) up -d --wait --build
 	@./scripts/smoke.sh
-
-db-migration:  # 应用幂等迁移(对齐已有库的schema); make up 会自动调用, 也可单独手动跑
-	@echo "applying containers/postgres/migrations/migrate.sql ..."
-	@docker exec -i mt5_postgres sh -c 'exec psql -q -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"' \
-		< containers/postgres/migrations/migrate.sql
-	@echo "db-migration done"
 
 test:  # 手动冒烟测试
 	@./scripts/smoke.sh
