@@ -91,21 +91,81 @@ document.addEventListener("DOMContentLoaded", () => {
           const c = numeric ? toNum(va) - toNum(vb) : va.localeCompare(vb, "zh");
           return asc ? c : -c;
         }).forEach((r) => r.parentNode.appendChild(r));
+        if (table.id) applyTableFilters(table);       // 排序后重算"前N条"与筛选
       });
     });
   });
 });
 
-/* 表格搜索过滤: 输入框加 data-table-filter="表id", 按行文本实时过滤(不分大小写) */
-document.addEventListener("input", (e) => {
-  const box = e.target.closest("input[data-table-filter]");
-  if (!box) return;
-  const table = document.getElementById(box.getAttribute("data-table-filter"));
-  if (!table) return;
-  const q = box.value.trim().toLowerCase();
+/* 表格过滤三件套 (组合生效, 全部即时):
+   - 文本搜索:  <input  data-table-filter="表id">        整行模糊匹配
+   - 列下拉筛选: <select data-col-filter="表id:列序号">   选项自动取该列去重值
+   - 条数限制:  <select data-table-limit="表id">         只显示过滤后前 N 行
+   - 计数显示:  <span   data-table-count="表id">         "显示 x / 共 y" */
+function applyTableFilters(table) {
+  const tid = table.id;
+  const q = (document.querySelector(`input[data-table-filter="${tid}"]`)?.value || "")
+    .trim().toLowerCase();
+  const colFilters = [...document.querySelectorAll(`select[data-col-filter^="${tid}:"]`)]
+    .map((s) => [parseInt(s.getAttribute("data-col-filter").split(":")[1], 10), s.value])
+    .filter(([, v]) => v !== "");
+  const limit = parseInt(
+    document.querySelector(`select[data-table-limit="${tid}"]`)?.value || "0", 10);
+  let shown = 0, total = 0;
   [...table.querySelectorAll("tr")].slice(1).forEach((r) => {
     if (r.querySelector("td[colspan]")) return; // 空态行不动
-    r.hidden = q !== "" && !r.textContent.toLowerCase().includes(q);
+    total++;
+    let ok = q === "" || r.textContent.toLowerCase().includes(q);
+    if (ok) {
+      for (const [col, v] of colFilters) {
+        if ((r.children[col]?.textContent || "").trim() !== v) { ok = false; break; }
+      }
+    }
+    if (ok && limit && shown >= limit) ok = false; // 超出条数限制
+    if (ok) shown++;
+    r.hidden = !ok;
+  });
+  const counter = document.querySelector(`span[data-table-count="${tid}"]`);
+  if (counter) counter.textContent = `显示 ${shown} / 共 ${total}`;
+}
+
+function tableOf(el, attr) {
+  const v = el.getAttribute(attr);
+  return document.getElementById(v.includes(":") ? v.split(":")[0] : v);
+}
+
+document.addEventListener("input", (e) => {
+  const box = e.target.closest("input[data-table-filter]");
+  if (box) { const t = tableOf(box, "data-table-filter"); if (t) applyTableFilters(t); }
+});
+document.addEventListener("change", (e) => {
+  const sel = e.target.closest("select[data-col-filter], select[data-table-limit]");
+  if (!sel) return;
+  const t = tableOf(sel, sel.hasAttribute("data-col-filter") ? "data-col-filter" : "data-table-limit");
+  if (t) applyTableFilters(t);
+});
+
+/* 加载时: 列下拉自动收集选项 + 应用默认限制 */
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("select[data-col-filter]").forEach((sel) => {
+    const table = tableOf(sel, "data-col-filter");
+    if (!table) return;
+    const col = parseInt(sel.getAttribute("data-col-filter").split(":")[1], 10);
+    const values = new Set();
+    [...table.querySelectorAll("tr")].slice(1).forEach((r) => {
+      if (r.querySelector("td[colspan]")) return;
+      const v = (r.children[col]?.textContent || "").trim();
+      if (v) values.add(v);
+    });
+    [...values].sort().forEach((v) => {
+      const o = document.createElement("option");
+      o.value = v; o.textContent = v;
+      sel.appendChild(o);
+    });
+  });
+  document.querySelectorAll("select[data-table-limit]").forEach((sel) => {
+    const t = tableOf(sel, "data-table-limit");
+    if (t) applyTableFilters(t);
   });
 });
 

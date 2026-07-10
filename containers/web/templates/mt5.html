@@ -17,7 +17,6 @@
     </select>
     <label>近 <input name="days" value="{{ days }}" size="3"> 天</label>
     <button class="small">查询</button>
-    <input data-table-filter="mt5-deals" size="22" placeholder="搜索成交: 品种/归属/原因…">
     <span class="muted">点表头排序</span>
   </form>
 </section>
@@ -50,7 +49,22 @@
 </section>
 
 <section>
-  <h2>历史成交 ({{ data.deals | length }}, 近 {{ data.days }} 天)</h2>
+  <h2>历史成交 (近 {{ data.days }} 天) <span class="muted" data-table-count="mt5-deals"></span></h2>
+  {# 过滤控件全部前端即时生效 (tables.js), 列下拉的选项自动取自当前数据 #}
+  <form class="inline" onsubmit="return false">
+    <label>显示
+      <select data-table-limit="mt5-deals" class="small">
+        <option>30</option><option selected>50</option><option>100</option>
+      </select> 条
+    </label>
+    <label>品种 <select data-col-filter="mt5-deals:1" class="small"><option value="">全部</option></select></label>
+    <label>类型 <select data-col-filter="mt5-deals:2" class="small"><option value="">全部</option></select></label>
+    <label>腿 <select data-col-filter="mt5-deals:3" class="small"><option value="">全部</option></select></label>
+    <label>原因 <select data-col-filter="mt5-deals:4" class="small"><option value="">全部</option></select></label>
+    <label>magic <select data-col-filter="mt5-deals:10" class="small"><option value="">全部</option></select></label>
+    <label>归属 <select data-col-filter="mt5-deals:11" class="small"><option value="">全部</option></select></label>
+    <input data-table-filter="mt5-deals" size="18" placeholder="文本搜索…">
+  </form>
   <table id="mt5-deals" data-sortable>
     <tr><th>时间</th><th>品种</th><th>类型</th><th>腿</th><th>原因</th><th>手数</th><th>价格</th>
         <th>盈亏</th><th>手续费</th><th>swap</th><th>magic</th><th>归属</th><th data-nosort>仓位ID</th></tr>
