@@ -131,6 +131,11 @@ function applyTableFilters(table) {
   const start = limit ? (page - 1) * limit : 0;
   const visible = new Set(matched.slice(start, limit ? start + limit : matched.length));
   rows.forEach((r) => { r.hidden = !visible.has(r); });
+  // 动态序号: 行内有 td.rownum 的表, 按当前筛选+排序顺序编号 (跨页连续, 第2页从 N+1 起)
+  matched.forEach((r, i) => {
+    const c = r.querySelector("td.rownum");
+    if (c) c.textContent = i + 1;
+  });
 
   const counter = document.querySelector(`span[data-table-count="${tid}"]`);
   if (counter) {
@@ -192,9 +197,12 @@ document.addEventListener("DOMContentLoaded", () => {
       sel.appendChild(o);
     });
   });
-  document.querySelectorAll("select[data-table-limit]").forEach((sel) => {
-    const t = tableOf(sel, "data-table-limit");
-    if (t) applyTableFilters(t);
+  // 初始化: 有序号列或条数限制的表先套用一遍 (填充序号 / 应用默认每页条数)
+  document.querySelectorAll("table[id]").forEach((t) => {
+    if (t.querySelector("td.rownum")
+        || document.querySelector(`select[data-table-limit="${t.id}"]`)) {
+      applyTableFilters(t);
+    }
   });
 });
 

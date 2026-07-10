@@ -61,7 +61,7 @@
         <th>净点数</th><th>PF</th><th>最大回撤</th><th>状态</th><th data-nosort>操作</th></tr>
     {% for r in results %}
     <tr>
-      <td class="muted">{{ loop.index }}</td>
+      <td class="rownum muted"></td>{# 动态序号: 跟随当前筛选/排序, 由 tables.js 填充 #}
       <td>{{ r.name }}</td>
       <td>{{ r.symbol }}</td>
       <td>{{ r.timeframe }}</td>
