@@ -91,17 +91,19 @@ document.addEventListener("DOMContentLoaded", () => {
           const c = numeric ? toNum(va) - toNum(vb) : va.localeCompare(vb, "zh");
           return asc ? c : -c;
         }).forEach((r) => r.parentNode.appendChild(r));
-        if (table.id) applyTableFilters(table);       // 排序后重算"前N条"与筛选
+        if (table.id) { table.dataset.page = "1"; applyTableFilters(table); }  // 排序后回到第1页
       });
     });
   });
 });
 
-/* 表格过滤三件套 (组合生效, 全部即时):
+/* 表格过滤+分页 (组合生效, 全部即时):
    - 文本搜索:  <input  data-table-filter="表id">        整行模糊匹配
    - 列下拉筛选: <select data-col-filter="表id:列序号">   选项自动取该列去重值
-   - 条数限制:  <select data-table-limit="表id">         只显示过滤后前 N 行
-   - 计数显示:  <span   data-table-count="表id">         "显示 x / 共 y" */
+   - 每页条数:  <select data-table-limit="表id">
+   - 翻页按钮:  <button data-table-page="表id:prev|next">
+   - 页码显示:  <span   data-table-pageinfo="表id">      "x / y 页"
+   - 计数显示:  <span   data-table-count="表id">         "本页 x / 匹配 y / 共 z" */
 function applyTableFilters(table) {
   const tid = table.id;
   const q = (document.querySelector(`input[data-table-filter="${tid}"]`)?.value || "")
@@ -111,23 +113,48 @@ function applyTableFilters(table) {
     .filter(([, v]) => v !== "");
   const limit = parseInt(
     document.querySelector(`select[data-table-limit="${tid}"]`)?.value || "0", 10);
-  let shown = 0, total = 0;
-  [...table.querySelectorAll("tr")].slice(1).forEach((r) => {
-    if (r.querySelector("td[colspan]")) return; // 空态行不动
-    total++;
-    let ok = q === "" || r.textContent.toLowerCase().includes(q);
-    if (ok) {
-      for (const [col, v] of colFilters) {
-        if ((r.children[col]?.textContent || "").trim() !== v) { ok = false; break; }
-      }
+
+  const rows = [...table.querySelectorAll("tr")].slice(1)
+    .filter((r) => !r.querySelector("td[colspan]")); // 空态行不动
+  const matched = rows.filter((r) => {
+    if (q !== "" && !r.textContent.toLowerCase().includes(q)) return false;
+    for (const [col, v] of colFilters) {
+      if ((r.children[col]?.textContent || "").trim() !== v) return false;
     }
-    if (ok && limit && shown >= limit) ok = false; // 超出条数限制
-    if (ok) shown++;
-    r.hidden = !ok;
+    return true;
   });
+
+  // 分页窗口: 当前页存在 table.dataset.page, 筛选变化时由调用方重置为 1
+  const pages = limit ? Math.max(1, Math.ceil(matched.length / limit)) : 1;
+  const page = Math.min(Math.max(1, parseInt(table.dataset.page || "1", 10)), pages);
+  table.dataset.page = page;
+  const start = limit ? (page - 1) * limit : 0;
+  const visible = new Set(matched.slice(start, limit ? start + limit : matched.length));
+  rows.forEach((r) => { r.hidden = !visible.has(r); });
+
   const counter = document.querySelector(`span[data-table-count="${tid}"]`);
-  if (counter) counter.textContent = `显示 ${shown} / 共 ${total}`;
+  if (counter) {
+    counter.textContent = `本页 ${visible.size} / 匹配 ${matched.length}`
+      + (matched.length !== rows.length ? ` / 共 ${rows.length}` : "");
+  }
+  const info = document.querySelector(`span[data-table-pageinfo="${tid}"]`);
+  if (info) info.textContent = `${page} / ${pages} 页`;
+  document.querySelectorAll(`button[data-table-page^="${tid}:"]`).forEach((b) => {
+    const dir = b.getAttribute("data-table-page").split(":")[1];
+    b.disabled = dir === "prev" ? page <= 1 : page >= pages;
+  });
 }
+
+/* 翻页 */
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-table-page]");
+  if (!btn) return;
+  const [tid, dir] = btn.getAttribute("data-table-page").split(":");
+  const table = document.getElementById(tid);
+  if (!table) return;
+  table.dataset.page = String(parseInt(table.dataset.page || "1", 10) + (dir === "prev" ? -1 : 1));
+  applyTableFilters(table);
+});
 
 function tableOf(el, attr) {
   const v = el.getAttribute(attr);
@@ -136,13 +163,15 @@ function tableOf(el, attr) {
 
 document.addEventListener("input", (e) => {
   const box = e.target.closest("input[data-table-filter]");
-  if (box) { const t = tableOf(box, "data-table-filter"); if (t) applyTableFilters(t); }
+  if (!box) return;
+  const t = tableOf(box, "data-table-filter");
+  if (t) { t.dataset.page = "1"; applyTableFilters(t); }  // 筛选变了回到第1页
 });
 document.addEventListener("change", (e) => {
   const sel = e.target.closest("select[data-col-filter], select[data-table-limit]");
   if (!sel) return;
   const t = tableOf(sel, sel.hasAttribute("data-col-filter") ? "data-col-filter" : "data-table-limit");
-  if (t) applyTableFilters(t);
+  if (t) { t.dataset.page = "1"; applyTableFilters(t); }
 });
 
 /* 加载时: 列下拉自动收集选项 + 应用默认限制 */

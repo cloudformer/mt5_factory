@@ -52,11 +52,14 @@
   <h2>历史成交 (近 {{ data.days }} 天) <span class="muted" data-table-count="mt5-deals"></span></h2>
   {# 过滤控件全部前端即时生效 (tables.js), 列下拉的选项自动取自当前数据 #}
   <form class="inline" onsubmit="return false">
-    <label>显示
+    <label>每页
       <select data-table-limit="mt5-deals" class="small">
         <option>30</option><option selected>50</option><option>100</option>
       </select> 条
     </label>
+    <button data-table-page="mt5-deals:prev" class="small" type="button">‹ 上一页</button>
+    <span class="muted" data-table-pageinfo="mt5-deals"></span>
+    <button data-table-page="mt5-deals:next" class="small" type="button">下一页 ›</button>
     <label>品种 <select data-col-filter="mt5-deals:1" class="small"><option value="">全部</option></select></label>
     <label>类型 <select data-col-filter="mt5-deals:2" class="small"><option value="">全部</option></select></label>
     <label>腿 <select data-col-filter="mt5-deals:3" class="small"><option value="">全部</option></select></label>
