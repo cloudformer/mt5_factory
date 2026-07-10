@@ -1,0 +1,15 @@
+# ngrok 唯一配置文件: 密钥 / 域名 / 本地端口 / 终端用户认证 全在这里
+# 用法: 复制为 ngrok.yml 后填写真实值 (setup.sh 会自动复制)
+# ⚠ ngrok.yml 含密钥, 已在 .gitignore 里, 永远不会提交
+version: "2"
+
+# dashboard.ngrok.com → Your Authtoken
+authtoken: "填你的authtoken"
+
+tunnels:
+  web:
+    proto: http
+    addr: 8000                                            # 本地 web 端口 (env 的 WEB_PORT)
+    domain: coastland-charbroil-carload.ngrok-free.dev    # 你的 ngrok 固定域名
+    basic_auth:                                           # 终端用户认证 (访问网页弹登录框)
+      - "frank:改成强密码至少8位"                          # 格式 user:password, 可多行多个用户

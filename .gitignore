@@ -20,3 +20,4 @@ env/*.env
 .idea/
 .DS_Store
 windows_mt5/runner_status.json
+ngrok/ngrok.yml
