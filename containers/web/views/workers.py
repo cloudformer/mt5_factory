@@ -1,4 +1,6 @@
 """Workers 页: worker 注册 / 启停 / 删除 / 下发 MT5 账户"""
+from datetime import datetime
+
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 import api_client as api
@@ -13,6 +15,10 @@ def index():
         hosts = api.get("/hosts")["hosts"]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
+    for h in hosts:  # 自检时间戳(epoch)转可读, 模板直接用
+        st = (h.get("last_health") or {}).get("selftest")
+        if st and st.get("updated"):
+            st["updated_fmt"] = datetime.fromtimestamp(st["updated"]).strftime("%m-%d %H:%M")
     return render_template("workers.html", hosts=hosts)
 
 
@@ -52,6 +58,19 @@ def delete(host_id: int):
         flash(f"worker {result['deleted']} 已删除", "ok")
     except api.ApiError as e:
         flash(f"删除失败: {e}", "error")
+    return redirect(url_for("workers.index"))
+
+
+@bp.post("/<int:host_id>/maintain")
+def maintain(host_id: int):
+    """远程更新/重启 worker (逻辑在 worker 侧脚本, 这里只触发)"""
+    action = request.form.get("action")
+    try:
+        api.post(f"/hosts/{host_id}/maintain?action={action}")
+        flash(f"已触发{'更新' if action == 'update' else '重启'} — worker 离线约 1 分钟, "
+              "回来后看详情里版本号与自检确认", "ok")
+    except api.ApiError as e:
+        flash(f"触发失败: {e}", "error")
     return redirect(url_for("workers.index"))
 
 

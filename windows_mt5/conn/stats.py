@@ -43,7 +43,9 @@ def _closed_by_magic() -> dict:
     if now - _history_cache["ts"] < _HISTORY_TTL:
         return _history_cache["by_magic"]
     since = datetime.now(timezone.utc) - timedelta(days=HISTORY_DAYS)
-    deals = mt5.history_deals_get(since, datetime.now(timezone.utc)) or []
+    # 上界必须留缓冲: MT5 历史过滤按券商服务器时间(比UTC快数小时)解释,
+    # 传纯 UTC now 会把"最近几小时"的平仓单截掉 (实测漏单, 与 /trades /recon 同一坑)
+    deals = mt5.history_deals_get(since, datetime.now(timezone.utc) + timedelta(days=1)) or []
     by_magic: dict = {}
     for d in deals:
         if d.entry != mt5.DEAL_ENTRY_OUT:   # 只统计平仓腿(盈亏落在这条上)

@@ -141,6 +141,30 @@ async def delete_host(host_id: int, request: Request):
     return {"deleted": row["name"]}
 
 
+@router.post("/hosts/{host_id}/maintain")
+async def host_maintain(host_id: int, request: Request, action: str):
+    """远程运维: 转发 worker 的 update(拉代码+重启)/restart(只重启)。
+    实际逻辑在 worker 的 update.ps1/restart.ps1 (与双击同一份), 这里只触发+记事件。"""
+    if action not in ("update", "restart"):
+        raise HTTPException(status_code=400, detail="action must be update or restart")
+    pool = request.app.state.pool
+    row = await pool.fetchrow(
+        "SELECT host, port FROM mt5_hosts WHERE id=$1 AND enabled", host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host not found or disabled")
+    headers = {"X-API-Key": sync.BRIDGE_API_KEY} if sync.BRIDGE_API_KEY else {}
+    async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+        try:
+            r = await client.post(f"http://{row['host']}:{row['port']}/{action}")
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"bridge unreachable: {e}")
+    if r.status_code != 200:
+        raise HTTPException(status_code=r.status_code,
+                            detail=r.json().get("detail", "bridge error"))
+    await sync.log_host_event(pool, host_id, "MAINTAIN", {"action": action})
+    return r.json()
+
+
 @router.get("/hosts/{host_id}/trades")
 async def host_trades(host_id: int, request: Request, days: int = 30):
     """转发 worker 的 MT5 交易流水 (持仓+成交明细, 原样透传, web /mt5 页用)"""

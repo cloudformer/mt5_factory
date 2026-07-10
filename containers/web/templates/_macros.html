@@ -34,14 +34,16 @@
   {%- if h.download %}download{% endif %}{% if h.download and h.runner %} · {% endif %}{% if h.runner %}{{ h.runner }}{% endif %}{% if not h.download and not h.runner %}—{% endif -%}
 {%- endmacro %}
 
-{# worker 健康详情表: 从 last_health 渲染成和 8020 状态页一样的 4 行表 #}
+{# worker 健康详情表: 从 last_health 渲染成和 8020 状态页一样的 5 行表。
+   自检行: 检查项只在 worker 的 selftest.py 定义, 结果经 /health→心跳→last_health 一路搬运到这 #}
 {% macro health_detail(h) -%}
 {% set hb = h.last_health or {} %}
 {% set rn = hb.runner or {} %}
+{% set st = hb.selftest %}
 <table class="subtable">
   <tr><td>bridge</td>
       <td><span class="badge ok">运行中</span></td>
-      <td class="muted">端口 {{ h.port }}</td></tr>
+      <td class="muted">端口 {{ h.port }} · 代码版本 {{ hb.version or '—' }}</td></tr>
   <tr><td>MT5 终端</td>
       <td><span class="badge {{ 'ok' if hb.mt5_connected else 'error' }}">{{ '已连接' if hb.mt5_connected else '未连接' }}</span></td>
       <td class="muted">交易许可: {{ '是' if hb.trade_allowed else '—' }}</td></tr>
@@ -51,6 +53,16 @@
   <tr><td>runner</td>
       <td><span class="badge {{ 'ok' if rn.alive else '' }}">{{ '运行中' if rn.alive else '未运行' }}</span></td>
       <td class="muted">角色 {{ rn.run_status or '—' }} · 策略 {{ rn.strategies if rn.strategies is not none else '—' }} 个</td></tr>
+  <tr><td>开机自检</td>
+      <td>{% if st %}
+        <span class="badge {{ 'ok' if st.ok else 'error' }}">{{ 'OK' if st.ok else 'FAIL' }}
+          {{ st.checks | selectattr('status', 'equalto', 'PASS') | list | length }}/{{ st.checks | length }}</span>
+      {% else %}<span class="badge">未运行</span>{% endif %}</td>
+      <td class="muted">{% if st %}{{ st.updated_fmt or '' }}
+        {%- for c in st.checks if c.status == 'FAIL' %} · <span class="neg">{{ c.name }}: {{ c.detail }}</span>{% endfor %}
+        {%- for c in st.checks if c.status in ('SKIP', 'WARN') %} · {{ c.name }}={{ c.status }}{% endfor %}
+        · 重跑: 重启 worker 或 selftest.bat
+      {% else %}worker 更新代码后重启一次即有{% endif %}</td></tr>
 </table>
 {%- endmacro %}
 

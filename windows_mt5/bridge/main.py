@@ -42,6 +42,21 @@ SELFTEST_FILE = Path(__file__).resolve().parents[1] / "selftest_result.json"  # 
 # 终端启动配置: 固化"算法交易"等终端级开关 (克隆/重装的新机免手工点按钮)。
 # 只在 bridge 拉起终端时生效; 手动双击打开的终端用它自己保存的设置。
 TERMINAL_START_INI = Path(__file__).resolve().parent / "terminal_start.ini"
+UPDATE_LOG = Path(__file__).resolve().parents[1] / "update_log.txt"  # 远程更新/重启的输出
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _git_version() -> str:
+    """当前代码版本(git 短哈希) — 远程更新后核对版本号变没变, 就是成功凭证"""
+    try:
+        r = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+                           capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() or "?"
+    except OSError:
+        return "?"
+
+
+VERSION = _git_version()  # 启动时取一次即可: 代码变了必然经过重启
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -238,6 +253,15 @@ def _runner_status() -> dict:
         return {"alive": False}
 
 
+def _selftest() -> Optional[dict]:
+    """读开机自检结果 (selftest.py 写盘) — 检查项只在 selftest.py 一处定义,
+    这里和 /health 只做搬运: 状态页/api心跳/web 全部消费同一份数据"""
+    try:
+        return json.loads(SELFTEST_FILE.read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def _mt5_snapshot() -> tuple:
     """(mt5是否在线, 账户信息dict或None) - 限时抢锁。
     initialize 挂起(IPC timeout 要 60s)或大批量拉 bars 时锁被长占, /health 若死等锁,
@@ -273,10 +297,7 @@ def status_page():
                 f'<i style="width:6px;height:6px;border-radius:50%;{dot}"></i>'
                 f'{text_ok if ok else text_bad}</span>')
 
-    try:  # 开机自检结果 (selftest.py 写盘)
-        st = json.loads(SELFTEST_FILE.read_text())
-    except (OSError, ValueError):
-        st = None
+    st = _selftest()
     if st:
         fails = [c["name"] for c in st["checks"] if c["status"] == "FAIL"]
         n_pass = sum(1 for c in st["checks"] if c["status"] == "PASS")
@@ -311,7 +332,7 @@ def status_page():
 <div style="max-width:680px;margin:48px auto;padding:0 20px">
   <div style="font-weight:650;font-size:15px;margin-bottom:14px">
     <span style="color:#2563eb">◆</span> MT5 Worker
-    <span style="color:#9ca3af;font-weight:400;font-size:12px;margin-left:8px">10 秒自动刷新</span>
+    <span style="color:#9ca3af;font-weight:400;font-size:12px;margin-left:8px">版本 {VERSION} · 10 秒自动刷新</span>
   </div>
   <div style="background:#fff;border:1px solid #e5e8ec;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04);overflow:hidden">
     <table style="border-collapse:collapse;width:100%">{trs}</table>
@@ -353,18 +374,51 @@ def health():
 
     if not mt5_up:
         return {"status": "degraded", "mt5_connected": False, "runner": runner,
+                "selftest": _selftest(), "version": VERSION,
                 "services": services, "summary": summary}
     return {
         "status": "healthy",
+        "version": VERSION,
         "mt5_connected": True,
         "trade_allowed": account["trade_allowed"],
         "login": account["login"],
         "server": account["server"],
         "currency": account["currency"],
         "runner": runner,
+        "selftest": _selftest(),
         "services": services,
         "summary": summary,
     }
+
+
+def _spawn_maintenance(script: str) -> None:
+    """分离进程跑 update.ps1/restart.ps1: 脚本会 taskkill 所有 python(含本 bridge),
+    powershell 不是 python 所以存活, 完成 pull/重启后看门狗+自检自动接管。
+    输出追加到 update_log.txt (版本号没变时来这里查原因)。"""
+    ps1 = Path(__file__).resolve().parents[1] / script
+    cmd = f'powershell -NoProfile -ExecutionPolicy Bypass -File "{ps1}" >> "{UPDATE_LOG}" 2>&1'
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen(["cmd", "/c", cmd], cwd=str(ps1.parent), creationflags=flags,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+@app.post("/update")
+def remote_update(x_api_key: Optional[str] = Header(default=None)):
+    """远程更新: git pull + 依赖 + 重启 + 自检 (逻辑全在 update.ps1, 这里只触发)"""
+    _require_key(x_api_key)
+    logger.info("remote update triggered (version %s)", VERSION)
+    _spawn_maintenance("update.ps1")
+    return {"started": True, "from_version": VERSION,
+            "note": "worker 将离线约1分钟; 回来后核对 version 变化 + 自检 OK"}
+
+
+@app.post("/restart")
+def remote_restart(x_api_key: Optional[str] = Header(default=None)):
+    """远程重启服务 (不更新代码; 逻辑全在 restart.ps1, 这里只触发)"""
+    _require_key(x_api_key)
+    logger.info("remote restart triggered")
+    _spawn_maintenance("restart.ps1")
+    return {"started": True, "note": "worker 将离线约1分钟, 自检自动重跑"}
 
 
 class ConnectRequest(BaseModel):
@@ -541,7 +595,7 @@ th{{background:#f1f5f9}}body{{font:14px/1.6 sans-serif;margin:32px;color:#1a202c
 </body></html>""")
 
 
-# ---------- 调试端点 (浏览器直接用, 无需登录 Windows; test/*.bat 保留作 bridge 挂掉时的兜底) ----------
+# ---------- 调试端点 (浏览器直接用, 无需登录 Windows; diag/*.bat 保留作 bridge 挂掉时的兜底) ----------
 SMOKE_MAGIC = 999999  # 冒烟测试专用 magic, 永不与策略(100000+id)冲突, web 战绩不统计它
 
 

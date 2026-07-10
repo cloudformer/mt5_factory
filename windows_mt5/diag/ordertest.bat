@@ -13,6 +13,6 @@ echo This will BUY the minimum lot and close it at once - costs one spread.
 echo.
 pause
 echo.
-python order_check.py %1
+python ordertest.py %1
 echo.
 pause

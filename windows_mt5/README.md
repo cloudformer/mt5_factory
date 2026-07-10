@@ -2,7 +2,7 @@
 
 Windows VM 上的两个进程（同机、互不依赖）：
 - **bridge**（端口 8020）：MT5↔HTTP 转换，供 Linux api 下载数据、心跳、远程下发账户
-- **runner**：从 api 拉取 DEMO/ACTIVE 策略，收盘 bar 决策，本地直接下单（必带 SL/TP）
+- **runner**：从 api 拉取 DEMO/LIVE 策略，收盘 bar 决策，本地直接下单（必带 SL/TP）
 
 ## 部署（干净 Windows → 就绪，一条命令）
 
@@ -19,12 +19,17 @@ env 没填 `DOCKER_COMPOSE_HOST` 时会明确提示并停下。
 
 `start_bridge.bat` / `start_runner.bat` 平时不用手动碰（开机自启 + 看门狗），只在排错时手动跑看日志。
 
-**开机自检**（`selftest.bat`，自启第三项）：等 bridge/MT5 就绪后自动测全链路——
+**开机自检**（`selftest.bat`，由 start_bridge.bat 启动时自动带起）：等 bridge/MT5 就绪后自动测全链路——
 端口 → MT5 账户 → 算法交易开关 → runner → 报价新鲜度 → 下单开平一轮（仅 demo 账户，
 live 自动跳过）→ 对账数据。结果显示在状态页 `http://<本机>:8020/` 的"开机自检"行，
 **无需登录 Windows**；失败时窗口保持打开。手动重跑：双击 `selftest.bat`。
 
 ## 日常运维
+
+**首选入口在 web Workers 页**：每台 worker 的"更新 / 重启"按钮（经 api 转发到 bridge，
+worker 侧跑的就是下面这两个脚本，不用登录 Windows）。确认生效：详情里"代码版本"变化 + 自检 OK。
+
+本机兜底（bridge 挂了时）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\update.ps1    # 更新: git pull + 依赖 → 重启 + 自检
@@ -63,7 +68,7 @@ VALUES ('win-worker-1', '192.168.x.x', 8020, TRUE, 'demo', 'DEMO');
 
 - **这是 runner 能否下单的总开关**。关着时策略照常盯盘算信号，但每笔 `order_send` 都被拒（retcode 10027 "AutoTrading disabled by client"），表现为策略永远"等待信号"却从不成交——最坑的沉默故障
 - **已固化进配置**：bridge 拉起终端时带 `/config:bridge\terminal_start.ini`（`[Experts] AllowLiveTrading=1`）自动开启，克隆/重装的新机不用手工点。⚠️ 手动双击打开的终端不读这个文件，得自己点工具栏 **Algo Trading** 按钮（变绿）
-- 确认方法（任一）：web Workers 页状态详情"交易许可: 是"；本机 `http://localhost:8020/` 状态页；跑 `test\order_check.bat` 冒烟测试（在 demo 账户开一笔最小单立即平掉，验证整条下单链路，只花一个点差；拒绝在真实账户运行）
+- 确认方法（任一）：web Workers 页状态详情"交易许可: 是"；本机 `http://localhost:8020/` 状态页；跑 `diag\ordertest.bat` 冒烟测试（在 demo 账户开一笔最小单立即平掉，验证整条下单链路，只花一个点差；拒绝在真实账户运行）
 
 ### 市场报价（Market Watch）
 
@@ -85,10 +90,11 @@ VALUES ('win-worker-1', '192.168.x.x', 8020, TRUE, 'demo', 'DEMO');
 | `GET /trades?days=30` | X-API-Key | **交易流水** (只读): 持仓+成交明细原样透传, web /mt5 页数据源; `fmt=html` 本机免鉴权直接看 |
 | `GET /recon?days=90` | 无 | **交易对账页** (只读): 成交按 magic 分组, 与 web 战绩逐行对应; `fmt=json` 出数据 |
 | `POST /ordertest?symbol=XAUUSD` | 无 | **下单冒烟测试**: 最小单开平各一次; 硬保护仅限 DEMO 账户 (状态页有按钮) |
+| `POST /update` `POST /restart` | X-API-Key | **远程更新/重启** (web Workers 页按钮触发): 分离进程跑 update.ps1/restart.ps1, 输出在 update_log.txt; 成功凭证 = /health 的 version 变化 + 自检 OK |
 
 ## Runner 行为（CLAUDE.md 四纪律的落地）
 
-- 每 60s 从 api 刷新策略清单（`RUN_STATUS` 决定跑 DEMO 还是 ACTIVE）
+- 每 60s 从 api 刷新策略清单（web 上的主机指派决定跑 DEMO 还是 LIVE）
 - 每 10s 轮询：只取**已收盘** bar（`copy_rates_from_pos` 位置 1 起），同一收盘 bar 只处理一次
 - 下单前查 MT5 真实持仓（magic 归属），**无状态**，重启零恢复成本
 - 无 SL/TP 的信号直接拒绝；单策略异常隔离，不拖累其他策略

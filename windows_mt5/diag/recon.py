@@ -10,7 +10,7 @@ Also prints raw counts (positions/orders/deals) - the MT5 History tab shows one
 of these depending on its right-click view mode, which is the usual source of
 "the numbers don't match" confusion.
 
-Run via recon_check.bat, or: python recon_check.py [days]
+Run via recon.bat, or: python recon.py [days]
 English-only output: Windows console codepage (GBK) garbles Chinese.
 """
 import sys
@@ -62,7 +62,7 @@ def note(magic: int) -> str:
     if magic == 0:
         return "manual / non-strategy"
     if magic == SMOKE_MAGIC:
-        return "order_check smoke test"
+        return "ordertest smoke test"
     if 100_000 <= magic < 200_000:
         return "strategy id %d" % (magic - 100_000)
     return "?"

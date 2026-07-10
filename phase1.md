@@ -17,7 +17,7 @@
 - [x] 只在已收盘 bar 决策;同一 bar 只处理一次
 - [x] 每笔订单必带服务端 SL/TP,无 SL/TP 拒单(铁律)
 - [x] 每策略独立 magic,同策略同时最多 1 仓
-- [x] 下单链路冒烟测试 `test/order_check.bat` PASS(真实开平各一次)
+- [x] 下单链路冒烟测试 `diag/ordertest.bat` PASS(真实开平各一次)
 - [x] 真实信号成交:#177 已开仓,页面正确显示持仓/浮动盈亏
 - [x] 算法交易开关固化进 `bridge/terminal_start.ini`,克隆机免手工点
 

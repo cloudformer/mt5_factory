@@ -6,7 +6,7 @@ Strategy logic is proven separately by the web page showing advancing bar times;
 this covers the only remaining unverified link: broker-side order_send.
 
 SAFETY: refuses to run on a REAL account - demo only.
-Run via order_check.bat. Prereq: MT5 terminal open + logged in to demo.
+Run via ordertest.bat. Prereq: MT5 terminal open + logged in to demo.
 English-only output: the Windows console codepage (GBK) garbles Chinese.
 """
 import sys
