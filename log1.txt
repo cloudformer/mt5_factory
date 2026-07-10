@@ -1,0 +1,68 @@
+(c) Microsoft Corporation。保留所有权利。
+
+C:\mt5_factory>git pull
+remote: Enumerating objects: 23, done.
+remote: Counting objects: 100% (23/23), done.
+remote: Compressing objects: 100% (2/2), done.
+remote: Total 12 (delta 10), reused 12 (delta 10), pack-reused 0 (from 0)
+Unpacking objects: 100% (12/12), 1.88 KiB | 80.00 KiB/s, done.
+From https://github.com/cloudformer/mt5_factory
+   8d058dc..b04a46f  main       -> origin/main
+Updating 8d058dc..b04a46f
+Fast-forward
+ containers/api/src/services/sync.py     | 62 +++++++++++++++++++--------------
+ containers/web/templates/execution.html |  6 ++++
+ containers/web/views/execution.py       | 17 +++++----
+ 3 files changed, 52 insertions(+), 33 deletions(-)
+
+C:\mt5_factory>
+
+rShell https://aka.ms/pscore6
+
+=== Update code ===
+Already up to date.
+=== Restart services ===
+=== Self-check ===
+bridge: healthy
+Restart done
+PS C:\Windows\system32>
+
+s for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+
+  @app.on_event("startup")
+[32mINFO[0m:     Started server process [[36m10484[0m]
+[32mINFO[0m:     Waiting for application startup.
+[32mINFO[0m:     Application startup complete.
+[32mINFO[0m:     Uvicorn running on [1mhttp://0.0.0.0:8020[0m (Press CTRL+C to quit)
+[32mINFO[0m:     127.0.0.1:60624 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+{"time": "2026-07-10 12:21:40,910", "level": "INFO", "message": "MT5 connected: login=10011650727 server=MetaQuotes-Demo balance=99963.23"}
+[32mINFO[0m:     127.0.0.1:60623 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:60628 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+{"time": "2026-07-10 12:21:41,660", "level": "INFO", "message": "ordertest PASS: open 4102.81000 close 4102.57000"}
+[32mINFO[0m:     127.0.0.1:60629 - "[1mPOST /ordertest HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:60630 - "[1mGET /recon?fmt=json HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:60632 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:60633 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:53556 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:51434 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:57582 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:55952 - "[1mGET /trades?days=30 HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:42516 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:44584 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:39810 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:43596 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:33904 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:33010 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:59184 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+
+
+[2026/07/10 周五 12:21:39.78] starting runner...
+{"time": "2026-07-10 12:21:40,363", "level": "INFO", "message": "runner is up (NOT stuck), waiting for local bridge to connect MT5 before attaching..."}
+{"time": "2026-07-10 12:21:50,920", "level": "INFO", "message": "bridge reports MT5 connected, runner attaching now"}
+{"time": "2026-07-10 12:21:50,920", "level": "INFO", "message": "runner started (status=DEMO, volume=0.01)"}
+{"time": "2026-07-10 12:21:50,936", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (status=DEMO)"}
+{"time": "2026-07-10 12:22:51,030", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (status=DEMO)"}
+{"time": "2026-07-10 12:23:51,132", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (status=DEMO)"}
+{"time": "2026-07-10 12:24:51,256", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (status=DEMO)"}
+{"time": "2026-07-10 12:25:51,329", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (status=DEMO)"}
+{"time": "2026-07-10 12:26:51,396", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (status=DEMO)"}
