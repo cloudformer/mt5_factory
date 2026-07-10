@@ -1,0 +1,12 @@
+>python order_check.py XAUUSD
+============================================================
+ORDER-PATH SMOKE TEST (opens 1 minimal order, closes it at once)
+============================================================
+account     : 10011650727 @ MetaQuotes-Demo (DEMO)  balance=100000.0 USD
+AutoTrading : False  (must be True, toolbar 'Algo Trading' button)
+symbol      : XAUUSD  tick=4116.57  volume_min=0.01  stops_level=0 pts
+
+sending BUY XAUUSD 0.01 lots (sl/tp attached, magic=999999)...
+retcode     : 10027  comment=AutoTrading disabled by client
+
+=> FAIL - order REJECTED -> AutoTrading is DISABLED in the terminal -> click the 'Algo Trading' toolbar button ON, re-run
