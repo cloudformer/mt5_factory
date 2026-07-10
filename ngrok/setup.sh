@@ -5,14 +5,19 @@ set -e
 cd "$(dirname "$0")"
 
 if ! command -v ngrok >/dev/null 2>&1; then
-    echo ">> installing ngrok agent to /usr/local/bin ..."
-    case "$(uname -s)-$(uname -m)" in
-        Linux-x86_64)  URL=https://ngrok-agent.s3.amazonaws.com/ngrok-v3-stable-linux-amd64.tgz ;;
-        Linux-aarch64) URL=https://ngrok-agent.s3.amazonaws.com/ngrok-v3-stable-linux-arm64.tgz ;;
-        Darwin-*)      echo ">> mac 上请用: brew install ngrok"; exit 1 ;;
+    case "$(uname -s)" in
+        Linux)
+            echo ">> installing ngrok agent via official apt repo ..."
+            curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
+                | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+            echo "deb https://ngrok-agent.s3.amazonaws.com buster main" \
+                | sudo tee /etc/apt/sources.list.d/ngrok.list >/dev/null
+            sudo apt-get update -qq
+            sudo apt-get install -y ngrok
+            ;;
+        Darwin) echo ">> mac 上请用: brew install ngrok"; exit 1 ;;
         *) echo "unsupported platform"; exit 1 ;;
     esac
-    curl -sSL "$URL" | sudo tar xz -C /usr/local/bin
 fi
 ngrok version
 
