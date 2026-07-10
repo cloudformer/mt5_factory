@@ -12,7 +12,7 @@ def index():
     min_trades = request.args.get("min_trades", 30, type=int)
     results, bt, costs = [], {}, {}
     try:
-        params = {"min_trades": min_trades, "limit": 50}
+        params = {"min_trades": min_trades, "limit": 200}  # 前端分页展示, 多取一些
         if symbol:
             params["symbol"] = symbol
         results = api.get("/backtest/top", **params)["results"]
