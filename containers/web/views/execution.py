@@ -18,13 +18,17 @@ MODES = {
 
 
 def _runner_report(hosts: list) -> tuple:
-    """从已指派主机的 last_health 提取 (账户列表, 按magic的战绩表, 按策略id的跳过表)。
+    """从已指派主机的 last_health 提取 (账户列表, 按magic的战绩表, 按策略id的跳过表, 过期主机)。
     skipped: runner 加载时因"品种不在 MT5 报价窗"而跳过的策略 — 必须提示, 否则永远默默等。
-    quote_stale: 品种在报价窗但最新 tick 已停滞(休市或断流), 同样提示。"""
-    accounts, stats_by_magic, skipped_by_id = [], {}, {}
+    quote_stale: 品种在报价窗但最新 tick 已停滞(休市或断流), 同样提示。
+    stale: 回传数据超过 3 分钟没更新 — 必须显式警告, 过期数据看起来和实时的一样, 会骗人。"""
+    accounts, stats_by_magic, skipped_by_id, stale = [], {}, {}, []
     now = datetime.now(tz=timezone.utc).timestamp()
     for h in hosts:
         runner = ((h.get("last_health") or {}).get("runner")) or {}
+        updated = runner.get("updated")
+        if updated and now - updated > 180:
+            stale.append({"name": h["name"], "minutes": int((now - updated) / 60)})
         account = runner.get("account")
         if account:
             accounts.append({"host": h["name"], **account})
@@ -38,7 +42,7 @@ def _runner_report(hosts: list) -> tuple:
             stats_by_magic[s["magic"]] = s
         for sk in runner.get("skipped") or []:
             skipped_by_id[sk["id"]] = sk
-    return accounts, stats_by_magic, skipped_by_id
+    return accounts, stats_by_magic, skipped_by_id, stale
 
 
 def _render(mode: str):
@@ -52,10 +56,11 @@ def _render(mode: str):
     assigned = [h for h in hosts if h["runner"] == cfg["role"]]
     # 只有"无职能"的主机可被指派; 已是 demo/live 的必须先取消指派 (api 侧也强制)
     assignable = [h for h in hosts if not h["runner"] and h["enabled"]]
-    accounts, stats_by_magic, skipped_by_id = _runner_report(assigned)
+    accounts, stats_by_magic, skipped_by_id, stale = _runner_report(assigned)
     return render_template("execution.html", mode=mode, cfg=cfg, assigned=assigned,
                            assignable=assignable, strategies=strategies,
-                           accounts=accounts, stats=stats_by_magic, skipped=skipped_by_id)
+                           accounts=accounts, stats=stats_by_magic, skipped=skipped_by_id,
+                           stale=stale)
 
 
 @bp.get("/demo/")

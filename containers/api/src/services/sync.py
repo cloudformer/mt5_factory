@@ -139,34 +139,42 @@ async def heartbeat_loop(pool: asyncpg.Pool):
                 hosts = await pool.fetch(
                     "SELECT id, name, host, port, status FROM mt5_hosts WHERE enabled")
                 for h in hosts:
-                    health = None
                     try:
-                        r = await client.get(f"http://{h['host']}:{h['port']}/health")
-                        if r.status_code == 200:
-                            health = r.json()               # 完整 /health JSON, 存库供 web 展示
-                    except (httpx.HTTPError, ValueError):
-                        health = None
-
-                    if health is not None:  # bridge 可达
-                        new = "ONLINE" if health.get("status") == "healthy" else "DEGRADED"
-                        await pool.execute(
-                            "UPDATE mt5_hosts SET status=$2, last_heartbeat=now(), last_health=$3,"
-                            " online_at = CASE WHEN $2='ONLINE' AND status <> 'ONLINE'"
-                            "             THEN now() ELSE online_at END"
-                            " WHERE id=$1", h["id"], new, health)
-                        if h["status"] != new:
-                            await log_host_event(pool, h["id"], new)
-                            logger.info("worker %s %s", h["name"], new)
-                    else:  # 探测失败: 超过90s宽限才判下线
-                        row = await pool.fetchrow(
-                            "UPDATE mt5_hosts SET status='OFFLINE', offline_at=now()"
-                            " WHERE id=$1 AND status <> 'OFFLINE'"
-                            "   AND (last_heartbeat IS NULL OR"
-                            "        last_heartbeat < now() - interval '90 seconds')"
-                            " RETURNING id", h["id"])
-                        if row:
-                            await log_host_event(pool, h["id"], "OFFLINE")
-                            logger.warning("worker %s OFFLINE", h["name"])
+                        await _beat_one(pool, client, h)
+                    except Exception as e:  # 单台异常隔离: 不能冻结其他主机的状态更新
+                        logger.warning("heartbeat %s error: %s", h["name"], e)
             except Exception as e:
                 logger.warning("heartbeat loop error: %s", e)
             await asyncio.sleep(30)
+
+
+async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
+    """单台主机的一次心跳探测与状态落库"""
+    health = None
+    try:
+        r = await client.get(f"http://{h['host']}:{h['port']}/health")
+        if r.status_code == 200:
+            health = r.json()               # 完整 /health JSON, 存库供 web 展示
+    except (httpx.HTTPError, ValueError):
+        health = None
+
+    if health is not None:  # bridge 可达
+        new = "ONLINE" if health.get("status") == "healthy" else "DEGRADED"
+        await pool.execute(
+            "UPDATE mt5_hosts SET status=$2, last_heartbeat=now(), last_health=$3,"
+            " online_at = CASE WHEN $2='ONLINE' AND status <> 'ONLINE'"
+            "             THEN now() ELSE online_at END"
+            " WHERE id=$1", h["id"], new, health)
+        if h["status"] != new:
+            await log_host_event(pool, h["id"], new)
+            logger.info("worker %s %s", h["name"], new)
+    else:  # 探测失败: 超过90s宽限才判下线
+        row = await pool.fetchrow(
+            "UPDATE mt5_hosts SET status='OFFLINE', offline_at=now()"
+            " WHERE id=$1 AND status <> 'OFFLINE'"
+            "   AND (last_heartbeat IS NULL OR"
+            "        last_heartbeat < now() - interval '90 seconds')"
+            " RETURNING id", h["id"])
+        if row:
+            await log_host_event(pool, h["id"], "OFFLINE")
+            logger.warning("worker %s OFFLINE", h["name"])

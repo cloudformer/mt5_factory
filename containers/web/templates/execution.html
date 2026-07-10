@@ -3,6 +3,12 @@
 {% block content %}
 {{ m.page_header(cfg.title, ('Demo：模拟账户实时验证，与回测结果对账' if mode == 'demo' else 'Live：真实资金，全网只允许一台 live 主机')) }}
 
+{% for s in stale %}
+<div class="flash error">⚠ {{ s.name }} 的回传数据已 <b>{{ s.minutes }} 分钟</b>没有更新 —
+  下方持仓/战绩是过期快照,以 <a href="{{ url_for('mt5.index') }}">MT5 原始流水</a> 为准。
+  排查: worker 状态页 8020 → runner 是否卡住;通常重启 worker 即恢复</div>
+{% endfor %}
+
 {% for a in accounts %}
 {# 账户面板: 数据来自 runner 回传(约30s刷新); 爆仓风险看保证金水平 #}
 {% set lvl = a.margin_level or 0 %}
