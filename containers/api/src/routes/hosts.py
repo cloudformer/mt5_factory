@@ -24,6 +24,20 @@ def _validate_runner(runner: str | None):
         raise HTTPException(status_code=400, detail="runner must be demo, live or null")
 
 
+async def _claim_account(pool, host_id: int, login: int, server: str):
+    """铁律"不同 worker 不得共用 MT5 账户"的唯一实现: 把账户写进列,
+    数据库唯一索引 (schema/002, 仅对 enabled 主机生效) 写失败即撞号 → 409。"""
+    try:
+        await pool.execute(
+            "UPDATE mt5_hosts SET mt5_login=$2, mt5_server=$3 WHERE id=$1",
+            host_id, login, server)
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"MT5 账户 {login}@{server} 已被其他启用的 worker 使用 — "
+                   "铁律: 不同 worker 不得共用账户(同账户双跑会重复下单), 请换账户")
+
+
 @router.get("/hosts")
 async def list_hosts(request: Request):
     rows = await request.app.state.pool.fetch(
@@ -120,9 +134,22 @@ async def update_host(host_id: int, req: HostUpdate, request: Request):
         raise HTTPException(
             status_code=400,
             detail=f"该主机已指派为 {old['runner']}, 必须先取消指派才能改为 {fields['runner']}")
+    # 铁律: 指派交易职能前, 把本机实际登录的账户(心跳回传)写进列 —
+    # 数据库唯一索引撞号即 409 (克隆机自带旧账户的场景在这里被拦下)
+    if "runner" in fields and fields["runner"]:
+        hb = await pool.fetchrow(
+            "SELECT (last_health->>'login')::bigint AS login, last_health->>'server' AS server"
+            "  FROM mt5_hosts WHERE id=$1 AND last_health->>'login' IS NOT NULL", host_id)
+        if hb:
+            await _claim_account(pool, host_id, hb["login"], hb["server"])
     sets = ", ".join(f"{k} = ${i + 2}" for i, k in enumerate(fields))
-    row = await pool.fetchrow(
-        f"UPDATE mt5_hosts SET {sets} WHERE id = $1 RETURNING *", host_id, *fields.values())
+    try:
+        row = await pool.fetchrow(
+            f"UPDATE mt5_hosts SET {sets} WHERE id = $1 RETURNING *", host_id, *fields.values())
+    except asyncpg.UniqueViolationError:
+        # 重新启用主机时唯一索引会重新生效: 它的账户已被别机占用则拒绝启用
+        raise HTTPException(status_code=409,
+                            detail="该主机的 MT5 账户已被其他启用的 worker 使用 — 先换账户再启用")
     if "enabled" in fields and fields["enabled"] != old["enabled"]:
         await sync.log_host_event(pool, host_id, "ENABLED" if fields["enabled"] else "DISABLED")
     for key in ("download", "runner"):
@@ -199,18 +226,24 @@ async def connect_host(host_id: int, req: ConnectRequest, request: Request):
         "SELECT host, port FROM mt5_hosts WHERE id=$1 AND enabled", host_id)
     if row is None:
         raise HTTPException(status_code=404, detail="host not found or disabled")
+    old = await pool.fetchrow(
+        "SELECT mt5_login, mt5_server FROM mt5_hosts WHERE id=$1", host_id)
+    await _claim_account(pool, host_id, req.login, req.server)  # 撞号在这里就被数据库拦下, 不碰 bridge
     headers = {"X-API-Key": sync.BRIDGE_API_KEY} if sync.BRIDGE_API_KEY else {}
-    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
-        try:
-            r = await client.post(
-                f"http://{row['host']}:{row['port']}/connect", json=req.model_dump())
-        except httpx.HTTPError as e:
-            raise HTTPException(status_code=502, detail=f"bridge unreachable: {e}")
-    if r.status_code != 200:
-        raise HTTPException(status_code=r.status_code, detail=r.json().get("detail"))
-    await pool.execute(
-        "UPDATE mt5_hosts SET mt5_login=$2, mt5_server=$3 WHERE id=$1",
-        host_id, req.login, req.server)
+    try:
+        async with httpx.AsyncClient(timeout=30, headers=headers) as client:
+            try:
+                r = await client.post(
+                    f"http://{row['host']}:{row['port']}/connect", json=req.model_dump())
+            except httpx.HTTPError as e:
+                raise HTTPException(status_code=502, detail=f"bridge unreachable: {e}")
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail=r.json().get("detail"))
+    except HTTPException:
+        # 没登上: 退回原账户占位, 不占着一个实际没在用的号
+        await pool.execute("UPDATE mt5_hosts SET mt5_login=$2, mt5_server=$3 WHERE id=$1",
+                           host_id, old["mt5_login"], old["mt5_server"])
+        raise
     await sync.log_host_event(pool, host_id, "ACCOUNT_SET",
                               {"login": req.login, "server": req.server})
     return r.json()

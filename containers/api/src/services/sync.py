@@ -170,6 +170,17 @@ async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
         if h["status"] != new:
             await log_host_event(pool, h["id"], new)
             logger.info("worker %s %s", h["name"], new)
+        # 铁律"不同 worker 不得共用 MT5 账户"由数据库唯一索引执法 (schema/002):
+        # 把实际登录账户同步进列, 写失败 = 撞号 (典型: 克隆机自带旧账户), 只告警不中断
+        if health.get("login"):
+            try:
+                await pool.execute(
+                    "UPDATE mt5_hosts SET mt5_login=$2, mt5_server=$3 WHERE id=$1"
+                    " AND (mt5_login IS DISTINCT FROM $2 OR mt5_server IS DISTINCT FROM $3)",
+                    h["id"], health["login"], health.get("server"))
+            except asyncpg.UniqueViolationError:
+                logger.warning("worker %s 登录的 MT5 账户 %s 已被其他启用 worker 占用 — "
+                               "违反铁律, 请换账户", h["name"], health["login"])
     else:  # 探测失败: 超过90s宽限才判下线
         row = await pool.fetchrow(
             "UPDATE mt5_hosts SET status='OFFLINE', offline_at=now()"
