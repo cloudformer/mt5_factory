@@ -11,6 +11,8 @@ at boot), then exercises the whole chain through real HTTP calls:
   5 quotes        no skipped symbols; ticks fresh (stale = market closed or feed down)
   6 order-test    POST /ordertest round-trip (DEMO account only, auto-SKIP otherwise)
   7 recon         GET /recon totals readable
+  8 cross-check   per-strategy stats (conn/stats.py -> web page) vs /recon (independent
+                  read of MT5) must agree per magic - catches bugs in either path
 
 Result -> selftest_result.json (bridge status page shows it: no Windows login needed).
 Exit 0 = no FAIL. WARN/SKIP do not fail the run. English output (GBK console).
@@ -151,5 +153,40 @@ try:
           % (t["closed"], t["realized"]))
 except (requests.RequestException, ValueError, KeyError) as e:
     check("recon", "FAIL", e)
+
+# 8: cross-check - same numbers via two INDEPENDENT code paths must agree per magic:
+#    conn/stats.py (feeds the web page) vs bridge /recon (reads MT5 directly).
+#    Would have caught the stats timezone bug automatically.
+try:
+    ps = ((get_health() or {}).get("runner") or {}).get("per_strategy") or []
+
+    def _mismatches():
+        by_magic = {c["magic"]: c for c in rec["closed_by_magic"]}
+        bad = []
+        for s in ps:
+            c = by_magic.get(s["magic"], {"out": 0, "pnl": 0.0})
+            if (s["closed"]["trades"] != c["out"]
+                    or abs(s["closed"]["profit"] - c["pnl"]) > 0.011):
+                bad.append("magic %s: stats %d/%.2f vs recon %d/%.2f"
+                           % (s["magic"], s["closed"]["trades"], s["closed"]["profit"],
+                              c["out"], c["pnl"]))
+        return bad
+
+    if not ps:
+        check("cross-check", "SKIP", "no strategies loaded")
+    else:
+        bad = _mismatches()
+        if bad:  # stats has a 60s cache: a trade closing in between skews transiently -
+                 # retry once after the cache expires before declaring failure
+            time.sleep(70)
+            rec = requests.get(f"{BASE}/recon", params={"fmt": "json"}, timeout=60).json()
+            ps = ((get_health() or {}).get("runner") or {}).get("per_strategy") or []
+            bad = _mismatches()
+        if bad:
+            check("cross-check", "FAIL", "code paths disagree: " + "; ".join(bad[:3]))
+        else:
+            check("cross-check", "PASS", "%d strategies: stats == recon" % len(ps))
+except Exception as e:
+    check("cross-check", "SKIP", "recon unavailable: %s" % e)
 
 finish(t0)
