@@ -61,6 +61,54 @@ document.addEventListener("change", async (e) => {
   }
 });
 
+/* 表格排序: 表加 data-sortable 后点表头按该列排序(再点反向); 不排序的列标 data-nosort。
+   数字列(含 %, +, — 空值)按数值排, 其余按文本; 空值(—)固定沉底 */
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("table[data-sortable]").forEach((table) => {
+    const headers = [...table.querySelectorAll("tr:first-child th")];
+    headers.forEach((th, col) => {
+      if (th.hasAttribute("data-nosort")) return;
+      th.classList.add("sortable");
+      th.addEventListener("click", (e) => {
+        if (e.target.closest(".col-resizer")) return; // 拖列宽不触发排序
+        const asc = th.dataset.dir !== "asc";
+        headers.forEach((h) => { delete h.dataset.dir; h.classList.remove("sort-asc", "sort-desc"); });
+        th.dataset.dir = asc ? "asc" : "desc";
+        th.classList.add(asc ? "sort-asc" : "sort-desc");
+
+        // 数据行 = 除表头外的行; 跳过空态行(单格 colspan)
+        const rows = [...table.querySelectorAll("tr")].slice(1)
+          .filter((r) => !r.querySelector("td[colspan]"));
+        const cell = (r) => (r.children[col]?.textContent || "").trim();
+        const toNum = (t) => parseFloat(t.replace(/[%,+\s]/g, ""));
+        const filled = rows.map(cell).filter((v) => v && v !== "—");
+        const numeric = filled.length > 0 && filled.every((v) => !isNaN(toNum(v)));
+
+        rows.sort((a, b) => {
+          const va = cell(a), vb = cell(b);
+          const ea = !va || va === "—", eb = !vb || vb === "—";
+          if (ea || eb) return ea - eb;               // 空值沉底
+          const c = numeric ? toNum(va) - toNum(vb) : va.localeCompare(vb, "zh");
+          return asc ? c : -c;
+        }).forEach((r) => r.parentNode.appendChild(r));
+      });
+    });
+  });
+});
+
+/* 表格搜索过滤: 输入框加 data-table-filter="表id", 按行文本实时过滤(不分大小写) */
+document.addEventListener("input", (e) => {
+  const box = e.target.closest("input[data-table-filter]");
+  if (!box) return;
+  const table = document.getElementById(box.getAttribute("data-table-filter"));
+  if (!table) return;
+  const q = box.value.trim().toLowerCase();
+  [...table.querySelectorAll("tr")].slice(1).forEach((r) => {
+    if (r.querySelector("td[colspan]")) return; // 空态行不动
+    r.hidden = q !== "" && !r.textContent.toLowerCase().includes(q);
+  });
+});
+
 /* 表格列宽拖拽: 所有表头列边缘出现拖柄, 按住拖动调整列宽 */
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("table").forEach((table) => {

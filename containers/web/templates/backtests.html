@@ -41,10 +41,13 @@
     <input name="symbol" value="{{ symbol or '' }}" size="10" placeholder="品种">
     <label>最少交易数 <input name="min_trades" value="{{ min_trades }}" size="4"></label>
     <button class="small">筛选</button>
+    <input data-table-filter="bt-results" size="24" placeholder="搜索: 策略/品种/周期/状态…"
+           title="本页即时过滤, 不重新查询">
+    <span class="muted">点表头排序</span>
   </form>
-  <table>
-    <tr><th>#</th><th>策略</th><th>品种</th><th>周期</th><th>笔数</th><th>胜率</th>
-        <th>净点数</th><th>PF</th><th>最大回撤</th><th>状态</th><th>操作</th></tr>
+  <table id="bt-results" data-sortable>
+    <tr><th data-nosort>#</th><th>策略</th><th>品种</th><th>周期</th><th>笔数</th><th>胜率</th>
+        <th>净点数</th><th>PF</th><th>最大回撤</th><th>状态</th><th data-nosort>操作</th></tr>
     {% for r in results %}
     <tr>
       <td class="muted">{{ loop.index }}</td>
