@@ -66,8 +66,11 @@ async def lifespan(app: FastAPI):
     # schema 自动对齐 (唯一机制): containers/postgres/schema/ 按文件名顺序全部执行。
     # 文件全幂等 — 空库建全量, 老库无害跳过; 失败即启动失败, 绝不带着错的结构运行。
     schema_dir = Path(__file__).resolve().parent.parent / "schema"
+    schema_files = sorted(schema_dir.glob("*.sql"))
+    if not schema_files:  # 挂载丢了必须炸而不是静默跳过 — 否则空库会以"无表"状态运行
+        raise RuntimeError(f"no schema files in {schema_dir} — compose 应挂载 containers/postgres/schema")
     async with app.state.pool.acquire() as conn:
-        for f in sorted(schema_dir.glob("*.sql")):
+        for f in schema_files:
             try:
                 await conn.execute(f.read_text())
                 logger.info("schema applied: %s", f.name)
