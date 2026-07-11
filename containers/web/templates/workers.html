@@ -28,13 +28,9 @@
               onsubmit="return confirm('删除 worker {{ h.name }}?')">
           <button class="small danger">删除</button>
         </form>
-        <form method="post" action="{{ url_for('workers.maintain', host_id=h.id) }}" class="inline"
-              onsubmit="return confirm('更新 {{ h.name }}: git pull + 依赖 + 重启, 离线约1分钟?')">
-          <button name="action" value="update" class="small">更新</button>
-        </form>
-        <form method="post" action="{{ url_for('workers.maintain', host_id=h.id) }}" class="inline"
+        <form method="post" action="{{ url_for('workers.restart', host_id=h.id) }}" class="inline"
               onsubmit="return confirm('重启 {{ h.name }} 的 bridge/runner, 离线约1分钟?')">
-          <button name="action" value="restart" class="small">重启</button>
+          <button class="small" title="做什么: 重启 bridge+runner 并重跑自检(约1分钟)。&#10;什么情况用:&#10;· MT5终端卡死(详情显示未连接)&#10;· 改了 env 配置要生效&#10;· runner 换账户后不下单(句柄失效)&#10;· 想重跑一遍自检&#10;不用于: 更新代码(去Windows双击update.bat)、休市、策略正常等信号&#10;前提: bridge 可达(离线状态点了没用)">重启</button>
         </form>
       </td>
     </tr>

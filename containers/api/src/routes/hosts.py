@@ -168,12 +168,10 @@ async def delete_host(host_id: int, request: Request):
     return {"deleted": row["name"]}
 
 
-@router.post("/hosts/{host_id}/maintain")
-async def host_maintain(host_id: int, request: Request, action: str):
-    """远程运维: 转发 worker 的 update(拉代码+重启)/restart(只重启)。
-    实际逻辑在 worker 的 update.ps1/restart.ps1 (与双击同一份), 这里只触发+记事件。"""
-    if action not in ("update", "restart"):
-        raise HTTPException(status_code=400, detail="action must be update or restart")
+@router.post("/hosts/{host_id}/restart")
+async def host_restart(host_id: int, request: Request):
+    """远程重启 worker 的 bridge/runner (不更新代码 — 更新在 Windows 上手动 update.bat)。
+    转发到 bridge /restart, 那边写标志退出、看门狗接管。"""
     pool = request.app.state.pool
     row = await pool.fetchrow(
         "SELECT host, port FROM mt5_hosts WHERE id=$1 AND enabled", host_id)
@@ -182,13 +180,13 @@ async def host_maintain(host_id: int, request: Request, action: str):
     headers = {"X-API-Key": sync.BRIDGE_API_KEY} if sync.BRIDGE_API_KEY else {}
     async with httpx.AsyncClient(timeout=15, headers=headers) as client:
         try:
-            r = await client.post(f"http://{row['host']}:{row['port']}/{action}")
+            r = await client.post(f"http://{row['host']}:{row['port']}/restart")
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"bridge unreachable: {e}")
     if r.status_code != 200:
         raise HTTPException(status_code=r.status_code,
                             detail=r.json().get("detail", "bridge error"))
-    await sync.log_host_event(pool, host_id, "MAINTAIN", {"action": action})
+    await sync.log_host_event(pool, host_id, "RESTART")
     return r.json()
 
 

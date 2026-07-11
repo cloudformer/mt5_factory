@@ -61,16 +61,14 @@ def delete(host_id: int):
     return redirect(url_for("workers.index"))
 
 
-@bp.post("/<int:host_id>/maintain")
-def maintain(host_id: int):
-    """远程更新/重启 worker (逻辑在 worker 侧脚本, 这里只触发)"""
-    action = request.form.get("action")
+@bp.post("/<int:host_id>/restart")
+def restart(host_id: int):
+    """远程重启 worker 的 bridge/runner (更新代码请在 Windows 上手动 update.bat)"""
     try:
-        api.post(f"/hosts/{host_id}/maintain?action={action}")
-        flash(f"已触发{'更新' if action == 'update' else '重启'} — worker 离线约 1 分钟, "
-              "回来后看详情里版本号与自检确认", "ok")
+        api.post(f"/hosts/{host_id}/restart")
+        flash("已触发重启 — worker 离线约 1 分钟, 回来后看详情自检确认", "ok")
     except api.ApiError as e:
-        flash(f"触发失败: {e}", "error")
+        flash(f"重启失败: {e}", "error")
     return redirect(url_for("workers.index"))
 
 

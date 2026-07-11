@@ -42,7 +42,7 @@ SELFTEST_FILE = Path(__file__).resolve().parents[1] / "selftest_result.json"  # 
 # 终端启动配置: 固化"算法交易"等终端级开关 (克隆/重装的新机免手工点按钮)。
 # 只在 bridge 拉起终端时生效; 手动双击打开的终端用它自己保存的设置。
 TERMINAL_START_INI = Path(__file__).resolve().parent / "terminal_start.ini"
-UPDATE_LOG = Path(__file__).resolve().parents[1] / "update_log.txt"  # 远程更新/重启的输出
+RESTART_FLAG = Path(__file__).resolve().parents[1] / "restart.flag"  # /restart 写它, 看门狗读它
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -392,34 +392,20 @@ def health():
     }
 
 
-def _spawn_maintenance(script: str) -> None:
-    """分离进程跑 update.ps1/restart.ps1: 脚本会 taskkill 所有 python(含本 bridge),
-    powershell 不是 python 所以存活, 完成 pull/重启后看门狗+自检自动接管。
-    输出追加到 update_log.txt (版本号没变时来这里查原因)。"""
-    ps1 = Path(__file__).resolve().parents[1] / script
-    cmd = f'powershell -NoProfile -ExecutionPolicy Bypass -File "{ps1}" >> "{UPDATE_LOG}" 2>&1'
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen(["cmd", "/c", cmd], cwd=str(ps1.parent), creationflags=flags,
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-
-@app.post("/update")
-def remote_update(x_api_key: Optional[str] = Header(default=None)):
-    """远程更新: git pull + 依赖 + 重启 + 自检 (逻辑全在 update.ps1, 这里只触发)"""
-    _require_key(x_api_key)
-    logger.info("remote update triggered (version %s)", VERSION)
-    _spawn_maintenance("update.ps1")
-    return {"started": True, "from_version": VERSION,
-            "note": "worker 将离线约1分钟; 回来后核对 version 变化 + 自检 OK"}
-
-
 @app.post("/restart")
 def remote_restart(x_api_key: Optional[str] = Header(default=None)):
-    """远程重启服务 (不更新代码; 逻辑全在 restart.ps1, 这里只触发)"""
+    """远程重启服务 (不更新代码 — 更新请在 Windows 上手动 update.bat)。
+    机制: 写 restart.flag + 主动退出。start_bridge.bat 看门狗在两次循环之间读到标志,
+    连 runner 一起重启并重跑自检。顺着看门狗而非对抗它, 无进程互杀/抢锁。"""
     _require_key(x_api_key)
-    logger.info("remote restart triggered")
-    _spawn_maintenance("restart.ps1")
-    return {"started": True, "note": "worker 将离线约1分钟, 自检自动重跑"}
+    logger.info("remote restart requested")
+    RESTART_FLAG.write_text("1")
+
+    def _exit():
+        time.sleep(1)   # 让 HTTP 响应先发出去
+        os._exit(0)     # 硬退出 → python main.py 返回, 看门狗接管
+    threading.Thread(target=_exit, daemon=True).start()
+    return {"started": True, "note": "worker 将离线约1分钟, bridge/runner 重启并重跑自检"}
 
 
 class ConnectRequest(BaseModel):

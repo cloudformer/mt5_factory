@@ -5,8 +5,9 @@
   {%- if not h.enabled -%}<span class="badge">停用</span>
   {%- elif h.status == 'ONLINE' -%}<span class="badge ok">在线</span>
   {%- elif h.status == 'DEGRADED' -%}<span class="badge warn"
-      title="worker 本身在线, 但 MT5 未连接或账户未登录 — 点开详情定位; 未登录可直接在 Workers 页『下发 MT5 账户』远程登录">MT5未就绪</span>
-  {%- else -%}<span class="badge error">离线</span>{%- endif -%}
+      title="bridge 在线, 但 MT5 未连接或账户未登录。未登录: 用下方『下发 MT5 账户』; MT5卡死: 点『重启』">MT5未就绪</span>
+  {%- else -%}<span class="badge error"
+      title="bridge 不可达(HTTP 8020 无响应)。排查: 1) Windows 开机且已登录 2) start_bridge.bat 窗口在跑 3) IP {{ h.host }} 可达、无防火墙拦 8020 4) 与本机 env 的 IP 一致。bridge 不通时『重启』按钮也发不进去, 需去 Windows 本机">离线</span>{%- endif -%}
 {%- endmacro %}
 
 {# 策略状态徽章 #}
@@ -41,16 +42,20 @@
 {% set rn = hb.runner or {} %}
 {% set st = hb.selftest %}
 <table class="subtable">
-  <tr><td>bridge</td>
+  <tr title="做什么: worker 的 HTTP 服务(端口8020), 数据下载/心跳/重启/流水都经它。&#10;这行只要能显示就说明 bridge 活着; 它挂了整台 worker 在列表里就是『离线』">
+      <td>bridge</td>
       <td><span class="badge ok">运行中</span></td>
       <td class="muted">端口 {{ h.port }} · 代码版本 {{ hb.version or '—' }}</td></tr>
-  <tr><td>MT5 终端</td>
+  <tr title="做什么: MT5 终端进程与 bridge 的连接。&#10;未连接: 终端没起或卡死 → 点『重启』(会杀僵尸终端重拉)。&#10;交易许可=是: 算法交易开关已开(下单前提)">
+      <td>MT5 终端</td>
       <td><span class="badge {{ 'ok' if hb.mt5_connected else 'error' }}">{{ '已连接' if hb.mt5_connected else '未连接' }}</span></td>
       <td class="muted">交易许可: {{ '是' if hb.trade_allowed else '—' }}</td></tr>
-  <tr><td>MT5 账户</td>
+  <tr title="做什么: 终端当前登录的 MT5 账户。&#10;未登录: 用下方『下发 MT5 账户』远程登录(密码不落库, 终端记住)。&#10;换账户后记得点『重启』让 runner 重连">
+      <td>MT5 账户</td>
       <td><span class="badge {{ 'ok' if hb.login else '' }}">{{ (hb.login ~ ' @ ' ~ hb.server) if hb.login else '未登录' }}</span></td>
       <td class="muted">{{ hb.currency or '' }}</td></tr>
-  <tr><td>runner</td>
+  <tr title="做什么: 交易执行进程, 按本机角色(demo/live)拉策略、盯bar、下单。&#10;未运行: 看门狗会自动拉起; 长期不起点『重启』。&#10;角色为空=未指派, 去 Demo/Live 页指派">
+      <td>runner</td>
       <td><span class="badge {{ 'ok' if rn.alive else '' }}">{{ '运行中' if rn.alive else '未运行' }}</span></td>
       <td class="muted">角色 {{ rn.run_status or '—' }} · 策略 {{ rn.strategies if rn.strategies is not none else '—' }} 个</td></tr>
   <tr><td>开机自检</td>

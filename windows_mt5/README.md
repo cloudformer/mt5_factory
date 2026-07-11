@@ -26,14 +26,19 @@ live 自动跳过）→ 对账数据。结果显示在状态页 `http://<本机>
 
 ## 日常运维
 
-**首选入口在 web Workers 页**：每台 worker 的"更新 / 重启"按钮（经 api 转发到 bridge，
-worker 侧跑的就是下面这两个脚本，不用登录 Windows）。确认生效：详情里"代码版本"变化 + 自检 OK。
+**重启**：web Workers 页每台 worker 的"重启"按钮（远程，不用登录 Windows）。
+适用：MT5 终端卡死 / 改了 env / runner 句柄失效 / 想重跑自检 / 行为异常兜底。
+机制：bridge 写 `restart.flag` 并退出 → `start_bridge.bat` 看门狗读标志、连 runner 一起重启并重跑自检。
 
-本机兜底（bridge 挂了时）：
+**更新代码**：远程不做（运行中的 python 锁文件 + 看门狗抢锁，Windows 上不可靠）。
+在 Windows 上手动双击 `update.bat`（`git pull` + 依赖 → 重启 + 自检；已先停 python 再 pull）。
+Windows 侧代码已基本定型，改动极少，手动足够。
+
+本机兜底（bridge 挂了、页面按钮点不动时）：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\update.ps1    # 更新: git pull + 依赖 → 重启 + 自检
-powershell -ExecutionPolicy Bypass -File .\restart.ps1   # 只重启 (改了 env / MT5卡死时)
+powershell -ExecutionPolicy Bypass -File .\update.ps1    # 更新: 先停python → git pull + 依赖 → 重启 + 自检
+powershell -ExecutionPolicy Bypass -File .\restart.ps1   # 只重启
 ```
 
 **MT5 终端无需手动开启**：bridge 启动时 `mt5.initialize()` 自动拉起终端并登录；
@@ -90,7 +95,7 @@ VALUES ('win-worker-1', '192.168.x.x', 8020, TRUE, 'demo', 'DEMO');
 | `GET /trades?days=30` | X-API-Key | **交易流水** (只读): 持仓+成交明细原样透传, web /mt5 页数据源; `fmt=html` 本机免鉴权直接看 |
 | `GET /recon?days=90` | 无 | **交易对账页** (只读): 成交按 magic 分组, 与 web 战绩逐行对应; `fmt=json` 出数据 |
 | `POST /ordertest?symbol=XAUUSD` | 无 | **下单冒烟测试**: 最小单开平各一次; 硬保护仅限 DEMO 账户 (状态页有按钮) |
-| `POST /update` `POST /restart` | X-API-Key | **远程更新/重启** (web Workers 页按钮触发): 分离进程跑 update.ps1/restart.ps1, 输出在 update_log.txt; 成功凭证 = /health 的 version 变化 + 自检 OK |
+| `POST /restart` | X-API-Key | **远程重启** (web Workers 页按钮): 写 restart.flag 并退出, 看门狗连 runner 一起重启并重跑自检。不含更新代码(手动 update.bat) |
 
 ## Runner 行为（CLAUDE.md 四纪律的落地）
 

@@ -19,5 +19,9 @@ env/*.env
 .vscode/
 .idea/
 .DS_Store
+# worker 运行时状态 (绝不入库: restart.flag 若被提交, 每台 worker 一启动就无限重启)
 windows_mt5/runner_status.json
+windows_mt5/selftest_result.json
+windows_mt5/restart.flag
+windows_mt5/update_log.txt
 ngrok/ngrok.yml
