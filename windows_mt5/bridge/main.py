@@ -198,11 +198,13 @@ def _reconnect_loop():
 
 def _announce_loop():
     """自动注册: 周期性向 api 自报家门, Workers 页面无需手动添加。
-    新机器以 download 角色入册, demo/live 由人在 web 上指派。"""
+    身份 = 计算机名(socket.gethostname()): 稳定、重启/换IP/换账户都不变;
+    IP 只作"当前地址"随心跳刷新。新机器以 download 角色入册, demo/live 由人在 web 上指派。"""
     if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
         logger.warning("DOCKER_COMPOSE_HOST not set, skip auto-register (register manually on the web Workers page)")
         return
     api_base = f"http://{DOCKER_COMPOSE_HOST}:{API_PORT}"
+    hostname = socket.gethostname()  # 计算机名 = worker 身份(注册主键)
     while True:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -210,7 +212,7 @@ def _announce_loop():
             my_ip = s.getsockname()[0]
             s.close()
             r = requests.post(f"{api_base}/hosts/announce", timeout=10, json={
-                "name": f"win-{my_ip.replace('.', '-')}",
+                "name": hostname,
                 "host": my_ip,
                 "port": BRIDGE_PORT,
             })

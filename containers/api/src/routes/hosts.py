@@ -92,13 +92,13 @@ class AnnounceRequest(BaseModel):
 @router.post("/hosts/announce")
 async def announce_host(req: AnnounceRequest, request: Request):
     """worker 自动注册: bridge 启动后周期性自报家门。
-    新 worker 默认只承担下载 (runner 必须由人指派);
-    已存在则只刷新心跳, 不覆盖人工配置。"""
+    身份 = name(计算机名); IP:port 只是当前地址, 每次刷新 —— DHCP/换网都不影响身份。
+    新 worker 默认只承担下载 (runner 必须由人指派); 已存在则刷新地址+心跳, 不覆盖人工配置。"""
     pool = request.app.state.pool
     row = await pool.fetchrow(
         "INSERT INTO mt5_hosts (name, host, port, download, last_heartbeat)"
         " VALUES ($1, $2, $3, TRUE, now())"
-        " ON CONFLICT (host, port) DO UPDATE SET last_heartbeat = now()"
+        " ON CONFLICT (name) DO UPDATE SET host = $2, port = $3, last_heartbeat = now()"
         " RETURNING id, name, download, runner, enabled, (xmax = 0) AS inserted",
         req.name, req.host, req.port)
     if row["inserted"]:

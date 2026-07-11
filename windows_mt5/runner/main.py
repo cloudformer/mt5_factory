@@ -113,15 +113,13 @@ def mt5_connect() -> bool:
 
 def detect_run_status() -> str:
     """本机职能以 web 上的指派为准 (mt5_hosts.runner): live→LIVE, demo→DEMO, NULL→不跑;
+    按计算机名(gethostname)匹配自己那行 — 与 bridge 注册的身份一致, 不受 IP 变化影响。
     找不到本机注册记录时退回 env 的 RUN_STATUS"""
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect((DOCKER_COMPOSE_HOST, 1))
-        my_ip = s.getsockname()[0]
-        s.close()
+        hostname = socket.gethostname()
         r = requests.get(f"{API_URL}/hosts", timeout=10)
         for h in r.json()["hosts"]:
-            if h["host"] == my_ip and h["enabled"]:
+            if h["name"] == hostname and h["enabled"]:
                 return {"live": "LIVE", "demo": "DEMO"}.get(h["runner"], "")
     except Exception as e:
         logger.warning("role detect failed (%s), fallback to env RUN_STATUS", e)
