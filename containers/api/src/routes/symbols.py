@@ -7,6 +7,7 @@
 精度由券商自动带回, 不手填 — 根治"手填 point 靠猜 / 加了券商没有的品种" 这类 bug。
 """
 import logging
+from datetime import date
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -14,6 +15,15 @@ from pydantic import BaseModel
 import httpx
 
 from src.services import sync
+
+
+def _parse_date(s: str) -> date:
+    """'YYYY-MM-DD' → date 对象。asyncpg 的 date 参数只吃 date 对象不吃字符串,
+    必须在这里解析(顺带校验格式, 错的给明确 400 而非 500)"""
+    try:
+        return date.fromisoformat(str(s))
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"起始日期格式应为 YYYY-MM-DD: {s!r}")
 
 logger = logging.getLogger("symbols")
 router = APIRouter()
@@ -78,16 +88,17 @@ async def register_symbol(req: SymbolRegister, request: Request):
     name = req.symbol.strip().upper()
     if not name:
         raise HTTPException(status_code=400, detail="symbol 不能为空")
+    ds = _parse_date(req.data_start)
     info = await _broker_symbol(request.app.state.pool, name)
     row = await request.app.state.pool.fetchrow(
         "INSERT INTO symbols (symbol, digits, point, volume_min, stops_level,"
         "                     role, data_start, download, verified_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7::date, TRUE, now())"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, now())"
         " ON CONFLICT (symbol) DO UPDATE SET"
         "   digits=$2, point=$3, volume_min=$4, stops_level=$5, verified_at=now()"
         " RETURNING *",
         name, info["digits"], info["point"], info.get("volume_min"),
-        info.get("trade_stops_level"), req.role, req.data_start)
+        info.get("trade_stops_level"), req.role, ds)
     logger.info("symbol registered: %s (digits=%s point=%s)", name, info["digits"], info["point"])
     return dict(row)
 
@@ -106,10 +117,12 @@ async def update_symbol(symbol: str, req: SymbolUpdate, request: Request):
         raise HTTPException(status_code=400, detail="nothing to update")
     if "role" in fields and fields["role"] not in ("trade", "validate"):
         raise HTTPException(status_code=400, detail="role must be trade or validate")
+    if "data_start" in fields:  # asyncpg 的 date 参数只吃 date 对象, 字符串会报错
+        fields["data_start"] = _parse_date(fields["data_start"])
     sets, args = [], [symbol.upper()]
     for k, v in fields.items():
         args.append(v)
-        sets.append(f"{k} = ${len(args)}" + ("::date" if k == "data_start" else ""))
+        sets.append(f"{k} = ${len(args)}")
     row = await request.app.state.pool.fetchrow(
         f"UPDATE symbols SET {', '.join(sets)} WHERE symbol = $1 RETURNING *", *args)
     if row is None:
