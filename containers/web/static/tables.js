@@ -206,6 +206,20 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
+/* 系统时间戳本地化: 库里存 UTC, <span class="localtime" data-utc="..."> 转成浏览器本地时区。
+   只作用于系统时间(心跳/创建等); 交易/bar 时间是券商服务器时间, 不带此类, 保持原样 */
+document.addEventListener("DOMContentLoaded", () => {
+  const p = (n) => String(n).padStart(2, "0");
+  document.querySelectorAll(".localtime[data-utc]").forEach((el) => {
+    const raw = el.getAttribute("data-utc");
+    const d = new Date(raw);
+    if (isNaN(d)) return;
+    el.textContent = `${p(d.getMonth() + 1)}-${p(d.getDate())} `
+      + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    el.title = "本地时间(存储为 UTC)";
+  });
+});
+
 /* 表格列宽拖拽: 所有表头列边缘出现拖柄, 按住拖动调整列宽 */
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("table").forEach((table) => {

@@ -55,7 +55,7 @@
     <tr>
       <td>worker · {{ h.name }}</td>
       <td>{{ m.worker_status(h) }}</td>
-      <td class="muted">{{ h.host }}:{{ h.port }} · {{ m.worker_duty(h) }} · 心跳 {{ m.ts(h.last_heartbeat) or '—' }}</td>
+      <td class="muted">{{ h.host }}:{{ h.port }} · {{ m.worker_duty(h) }} · 心跳 {{ m.lts(h.last_heartbeat) }}</td>
     </tr>
     {% else %}
     {% call m.empty(3) %}暂无 worker — 启动 Windows worker 自动上报，或到 <a href="{{ url_for('workers.index') }}">Workers</a> 注册{% endcall %}

@@ -67,7 +67,15 @@
 {%- endmacro %}
 
 {# 时间戳: 截断到秒, 去掉 T #}
+{# 交易/bar 时间戳: 券商服务器时间, 原样显示不转时区 (转了会与 MT5 对不上, 害对账) #}
 {% macro ts(v) -%}{{ ((v or '')[:19]) | replace('T', ' ') }}{%- endmacro %}
+
+{# 系统时间戳(心跳/创建等, 库里存 UTC): 交给 tables.js 转成浏览器本地时区显示。
+   服务端先渲染 UTC 截断值作 fallback(JS 没跑时也不至于空白) #}
+{% macro lts(v) -%}
+  {%- if v -%}<span class="localtime" data-utc="{{ v }}">{{ (v[:19]) | replace('T', ' ') }}</span>
+  {%- else -%}—{%- endif -%}
+{%- endmacro %}
 
 {# 表格空态行 #}
 {% macro empty(colspan) -%}

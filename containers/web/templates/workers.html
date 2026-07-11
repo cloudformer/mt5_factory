@@ -18,7 +18,7 @@
         <button class="status-btn" data-json-toggle="health-{{ h.id }}">
           {{ m.worker_status(h) }} <span class="caret">▾</span></button>
       </td>
-      <td class="muted">{{ m.ts(h.last_heartbeat) }}</td>
+      <td class="muted">{{ m.lts(h.last_heartbeat) }}</td>
       <td>
         <form method="post" action="{{ url_for('workers.toggle', host_id=h.id) }}" class="inline">
           <button name="enabled" value="{{ 'false' if h.enabled else 'true' }}" class="small">

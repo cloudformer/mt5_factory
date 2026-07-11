@@ -48,7 +48,7 @@
           <span class="{% if i.consistency >= 90 %}pos{% elif i.consistency >= 70 %}muted{% else %}neg{% endif %}">{{ '%.1f%%' % i.consistency }}</span>
         {% else %}<span class="muted">未验证</span>{% endif %}
       </td>
-      <td class="muted">{{ m.ts(i.created_at) }}</td>
+      <td class="muted">{{ m.lts(i.created_at) }}</td>
     </tr>
     {% endfor %}
   </table>
