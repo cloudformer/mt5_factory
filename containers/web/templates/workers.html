@@ -28,7 +28,6 @@
               onsubmit="return confirm('删除 worker {{ h.name }}?')">
           <button class="small danger">删除</button>
         </form>
-        <a class="btn" href="{{ url_for('mt5.index', host_id=h.id) }}">流水</a>
         <form method="post" action="{{ url_for('workers.maintain', host_id=h.id) }}" class="inline"
               onsubmit="return confirm('更新 {{ h.name }}: git pull + 依赖 + 重启, 离线约1分钟?')">
           <button name="action" value="update" class="small">更新</button>

@@ -13,12 +13,14 @@ from views.datasync import bp as datasync_bp
 from views.execution import bp as execution_bp
 from views.mt5 import bp as mt5_bp
 from views.strategies import bp as strategies_bp
+from views.symbols import bp as symbols_bp
 from views.workers import bp as workers_bp
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "mt5web-dev")
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(workers_bp)
+app.register_blueprint(symbols_bp)
 app.register_blueprint(datasync_bp)
 app.register_blueprint(strategies_bp)
 app.register_blueprint(backtests_bp)

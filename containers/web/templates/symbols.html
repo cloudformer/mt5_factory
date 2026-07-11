@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('品种', '品种唯一数据源 = symbols 表；登记时向券商校验并自动取精度；下载 / 回测 / 策略生成全部从这里读') }}
+
+<section>
+  <h2>登记品种</h2>
+  <form method="post" action="{{ url_for('symbols.add') }}" class="inline">
+    <label>品种 <input name="symbol" placeholder="如 EURUSD / BTCUSD" size="14" required></label>
+    <label>角色
+      <select name="role"><option value="trade">交易</option><option value="validate">验证</option></select>
+    </label>
+    <label>起始日期 <input name="data_start" value="2015-01-01" size="10"></label>
+    <button>登记</button>
+    <span class="muted">api 会向券商确认该品种存在并自动读取 digits/point，券商没有会明确报错</span>
+  </form>
+</section>
+
+<section>
+  <h2>品种主档 ({{ symbols | length }})</h2>
+  <table id="sym-table" data-sortable>
+    <tr><th data-nosort>#</th><th>品种</th><th>角色</th><th>digits</th><th>point</th><th>最小手</th>
+        <th>下载</th><th>起始日期</th><th>已下载(M1)</th><th>覆盖范围</th><th>校验</th><th data-nosort>操作</th></tr>
+    {% for s in symbols %}
+    <tr>
+      <td class="rownum muted"></td>
+      <td>{{ s.symbol }}</td>
+      <td>{{ '交易' if s.role == 'trade' else '验证' }}</td>
+      <td class="muted">{{ s.digits }}</td>
+      <td class="muted">{{ s.point }}</td>
+      <td class="muted">{{ s.volume_min if s.volume_min is not none else '—' }}</td>
+      <td>
+        <form method="post" action="{{ url_for('symbols.update', symbol=s.symbol) }}" class="inline">
+          <input type="checkbox" name="download" {% if s.download %}checked{% endif %} onchange="this.form.submit()">
+        </form>
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('symbols.update', symbol=s.symbol) }}" class="inline">
+          <input name="data_start" value="{{ s.data_start }}" size="10">
+          <button class="small">改</button>
+        </form>
+      </td>
+      <td>{% if s.bars %}{{ "{:,}".format(s.bars) }}{% else %}<span class="muted">无</span>{% endif %}</td>
+      <td class="muted">{{ m.ts(s.first_bar) }} → {{ m.ts(s.last_bar) }}</td>
+      <td>{% if s.verified_at %}<span class="badge ok" title="券商已确认存在, 精度自动取自券商">已校验</span>
+          {% else %}<span class="badge warn" title="未经券商校验(如从旧配置迁移而来)">未校验</span>{% endif %}</td>
+      <td>
+        <form method="post" action="{{ url_for('symbols.reverify', symbol=s.symbol) }}" class="inline">
+          <button class="small" title="重新向券商校验并刷新精度">校验</button>
+        </form>
+        {% if s.bars %}
+        <form method="post" action="{{ url_for('symbols.purge', symbol=s.symbol) }}" class="inline"
+              onsubmit="return confirm('清空 {{ s.symbol }} 的 {{ '{:,}'.format(s.bars) }} 根历史数据? 不可恢复')">
+          <button class="small danger">清空数据</button>
+        </form>
+        {% else %}
+        <form method="post" action="{{ url_for('symbols.delete', symbol=s.symbol) }}" class="inline"
+              onsubmit="return confirm('删除品种 {{ s.symbol }}?')">
+          <button class="small danger">删除</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    {% call m.empty(12) %}还没有登记品种 — 用上方表单登记(会向券商校验){% endcall %}
+    {% endfor %}
+  </table>
+  <p class="muted">有数据的品种要先『清空数据』才出现『删除』——杜绝删了登记却留着看不到的孤儿数据。
+     去 <a href="{{ url_for('datasync.index') }}">下载</a> 页拉取历史数据。</p>
+</section>
+
+{% if orphans %}
+<section>
+  <h2><span class="badge error">孤儿数据 ({{ orphans | length }})</span></h2>
+  <p class="muted">这些品种在数据库里有历史 K线、却没有品种登记(可能来自改名或直接操作数据库)——
+     系统主动暴露出来,清空即可,不留看不到的藏数据。</p>
+  <table>
+    <tr><th>品种</th><th>K线数</th><th>覆盖范围</th><th>操作</th></tr>
+    {% for o in orphans %}
+    <tr>
+      <td>{{ o.symbol }}</td>
+      <td>{{ "{:,}".format(o.bars) }}</td>
+      <td class="muted">{{ m.ts(o.first_bar) }} → {{ m.ts(o.last_bar) }}</td>
+      <td>
+        <form method="post" action="{{ url_for('symbols.purge', symbol=o.symbol) }}" class="inline"
+              onsubmit="return confirm('清空孤儿数据 {{ o.symbol }} 的 {{ '{:,}'.format(o.bars) }} 根? 不可恢复')">
+          <button class="small danger">清空数据</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+{% endblock %}

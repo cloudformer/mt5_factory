@@ -21,8 +21,11 @@ router = APIRouter()
 
 @router.get("/symbols")
 async def list_symbols(request: Request):
-    """全部已登记品种 + 每品种 M1 数据覆盖 (下载页/策略生成都读这里)"""
-    rows = await request.app.state.pool.fetch(
+    """全部已登记品种 + 每品种 M1 数据覆盖 (下载页/策略生成都读这里)。
+    orphans: historical_bars 里有数据、但 symbols 表没登记的品种 —
+    直接暴露出来防"看不到的藏数据", 页面可一键清空。"""
+    pool = request.app.state.pool
+    rows = await pool.fetch(
         "SELECT s.symbol, s.digits, s.point, s.volume_min, s.stops_level,"
         "       s.download, s.role, s.data_start, s.verified_at,"
         "       c.first_bar, c.last_bar, c.bars"
@@ -31,7 +34,12 @@ async def list_symbols(request: Request):
         "                            count(*) AS bars FROM historical_bars"
         "                      WHERE symbol = s.symbol AND timeframe='M1') c ON true"
         " ORDER BY s.role, s.symbol")
-    return {"symbols": [dict(r) for r in rows]}
+    orphans = await pool.fetch(
+        "SELECT symbol, min(time) AS first_bar, max(time) AS last_bar, count(*) AS bars"
+        "  FROM historical_bars"
+        " WHERE symbol NOT IN (SELECT symbol FROM symbols)"
+        " GROUP BY symbol ORDER BY symbol")
+    return {"symbols": [dict(r) for r in rows], "orphans": [dict(r) for r in orphans]}
 
 
 class SymbolRegister(BaseModel):
@@ -109,11 +117,29 @@ async def update_symbol(symbol: str, req: SymbolUpdate, request: Request):
     return dict(row)
 
 
+@router.delete("/symbols/{symbol}/data")
+async def purge_symbol_data(symbol: str, request: Request):
+    """清空某品种的全部历史 K线 (删登记前必须先做这步; 也用于清理孤儿数据)"""
+    name = symbol.upper()
+    result = await request.app.state.pool.execute(
+        "DELETE FROM historical_bars WHERE symbol=$1", name)
+    deleted = int(result.split()[-1])
+    logger.info("purged %d bars for %s", deleted, name)
+    return {"symbol": name, "deleted_bars": deleted}
+
+
 @router.delete("/symbols/{symbol}")
 async def delete_symbol(symbol: str, request: Request):
-    """删除品种登记 (已下载的 historical_bars 不动, 只是不再出现在清单/回测)"""
+    """删除品种登记。铁律: 有历史数据时拒绝 —— 必须先清空数据, 杜绝无登记的孤儿数据"""
+    name = symbol.upper()
+    bars = await request.app.state.pool.fetchval(
+        "SELECT count(*) FROM historical_bars WHERE symbol=$1", name)
+    if bars:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{name} 还有 {bars:,} 根历史数据 — 先『清空数据』再删除(避免看不到的孤儿数据)")
     row = await request.app.state.pool.fetchrow(
-        "DELETE FROM symbols WHERE symbol=$1 RETURNING symbol", symbol.upper())
+        "DELETE FROM symbols WHERE symbol=$1 RETURNING symbol", name)
     if row is None:
         raise HTTPException(status_code=404, detail="symbol not found")
     return {"deleted": row["symbol"]}
