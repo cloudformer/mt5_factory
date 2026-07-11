@@ -17,13 +17,15 @@ state = {"running": False, "current": {}, "symbols": [],
          "bars_written": 0, "done": [], "errors": []}
 
 
-async def load_sync_config(pool: asyncpg.Pool) -> tuple[list, datetime]:
-    """品种清单和起始日期来自 config 表 (web/API 可改)"""
-    cfg = {r["key"]: r["value"] for r in await pool.fetch("SELECT key, value FROM config")}
-    symbols = cfg.get("symbols") or []
-    data_start = datetime.fromisoformat(str(cfg.get("data_start") or "2015-01-01")).replace(
-        tzinfo=timezone.utc)
-    return symbols, data_start
+async def load_download_symbols(pool: asyncpg.Pool) -> list:
+    """要下载的品种及其独立起始日期 — 唯一来源 symbols 表 (download=TRUE)。
+    返回 [{symbol, data_start(UTC datetime)}]; 每品种自己的起始日期(BTCUSD≠EURUSD)。"""
+    rows = await pool.fetch(
+        "SELECT symbol, data_start FROM symbols WHERE download ORDER BY symbol")
+    return [{"symbol": r["symbol"],
+             "data_start": datetime(r["data_start"].year, r["data_start"].month,
+                                    r["data_start"].day, tzinfo=timezone.utc)}
+            for r in rows]
 
 
 async def _download_hosts(pool: asyncpg.Pool):
@@ -76,45 +78,46 @@ async def _sync_symbol(pool: asyncpg.Pool, client: httpx.AsyncClient, base: str,
     logger.info("%s synced (via %s)", symbol, worker)
 
 
-async def _worker_sync(pool: asyncpg.Pool, client: httpx.AsyncClient,
-                       host, symbols: list, data_start: datetime):
-    """一台 worker 串行下载分给它的品种 (bridge 内部 MT5 调用本就串行)"""
+async def _worker_sync(pool: asyncpg.Pool, client: httpx.AsyncClient, host, items: list):
+    """一台 worker 串行下载分给它的品种 (bridge 内部 MT5 调用本就串行)。
+    items: [{symbol, data_start}] — 每品种用自己的起始日期"""
     base = f"http://{host['host']}:{host['port']}"
-    for symbol in symbols:
+    for it in items:
         try:
-            await _sync_symbol(pool, client, base, symbol, data_start, host["name"])
-            state["done"].append(symbol)
+            await _sync_symbol(pool, client, base, it["symbol"], it["data_start"], host["name"])
+            state["done"].append(it["symbol"])
         except Exception as e:
-            logger.error("sync %s via %s failed: %s", symbol, host["name"], e)
-            state["errors"].append(f"{symbol}@{host['name']}: {e}")
+            logger.error("sync %s via %s failed: %s", it["symbol"], host["name"], e)
+            state["errors"].append(f"{it['symbol']}@{host['name']}: {e}")
     state["current"].pop(host["name"], None)
 
 
 async def run_full_sync(pool: asyncpg.Pool):
-    """全量/增量同步: 品种轮询分摊到所有下载 worker, 并行执行"""
+    """全量/增量同步: 品种轮询分摊到所有下载 worker, 并行执行。品种源 = symbols 表"""
     hosts = await _download_hosts(pool)
     if not hosts:
         state["errors"].append("no enabled mt5_host with role 'download'")
         state["running"] = False
         return
 
-    symbols, data_start = await load_sync_config(pool)
-    if not symbols:
-        state["errors"].append("config.symbols is empty")
+    items = await load_download_symbols(pool)
+    if not items:
+        state["errors"].append("没有开启下载的品种 — 在下载页登记品种(会向券商校验)")
         state["running"] = False
         return
 
     headers = {"X-API-Key": BRIDGE_API_KEY} if BRIDGE_API_KEY else {}
-    state.update(current={}, symbols=symbols, bars_written=0, done=[], errors=[])
-    # 轮询分摊: worker i 负责 symbols[i::n]
-    assignments = [(h, symbols[i::len(hosts)]) for i, h in enumerate(hosts)]
+    state.update(current={}, symbols=[it["symbol"] for it in items],
+                 bars_written=0, done=[], errors=[])
+    # 轮询分摊: worker i 负责 items[i::n]
+    assignments = [(h, items[i::len(hosts)]) for i, h in enumerate(hosts)]
     logger.info("sync across %d workers: %s", len(hosts),
-                {h["name"]: syms for h, syms in assignments})
+                {h["name"]: [it["symbol"] for it in its] for h, its in assignments})
 
     async with httpx.AsyncClient(headers=headers, timeout=120) as client:
         await asyncio.gather(*(
-            _worker_sync(pool, client, h, syms, data_start)
-            for h, syms in assignments if syms
+            _worker_sync(pool, client, h, its)
+            for h, its in assignments if its
         ))
     state["running"] = False
     state["current"] = {}

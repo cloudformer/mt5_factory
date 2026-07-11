@@ -14,7 +14,8 @@ def index():
         data["hosts"] = api.get("/hosts")["hosts"]
         data["sync"] = api.get("/syncdata/status")
         data["backtest"] = api.get("/backtest/status")
-        data["coverage"] = api.get("/syncdata/coverage")["coverage"]
+        # 数据覆盖来自品种主档 (symbols 表随附每品种 M1 覆盖)
+        data["coverage"] = [s for s in api.get("/symbols")["symbols"] if s.get("bars")]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("dashboard.html", **data)

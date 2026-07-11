@@ -1,12 +1,11 @@
 """/syncdata + /config — 历史数据下载与系统配置
 
-职责: 触发/查询数据同步(逻辑在 services.sync)、数据覆盖统计、
-     系统配置读写(下载品种/起始日期, 存 config 表, web 可改)。
+职责: 触发/查询数据同步(逻辑在 services.sync)、数据覆盖统计、系统配置读写。
 
+品种清单/起始日期不在这里 — 品种唯一数据源是 symbols 表(见 routes/symbols.py)。
 扩展点: 新配置项 = CONFIG_KEYS 加 key + 校验分支 + postgres/schema/ 新增幂等种子 SQL。
 """
 import asyncio
-from datetime import date
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -15,7 +14,7 @@ from src.services import sync
 
 router = APIRouter()
 
-CONFIG_KEYS = {"symbols", "data_start", "ai_generator_url", "backtest_costs"}
+CONFIG_KEYS = {"ai_generator_url", "backtest_costs"}
 
 
 # ---------- 数据同步 ----------
@@ -34,13 +33,7 @@ async def sync_status():
     return sync.state
 
 
-@router.get("/syncdata/coverage")
-async def data_coverage(request: Request):
-    """每个品种已入库的数据范围"""
-    rows = await request.app.state.pool.fetch(
-        "SELECT symbol, min(time) AS first_bar, max(time) AS last_bar, count(*) AS bars"
-        "  FROM historical_bars WHERE timeframe='M1' GROUP BY symbol ORDER BY symbol")
-    return {"coverage": [dict(r) for r in rows]}
+# 数据覆盖已并入 GET /symbols (品种主档随附每品种 M1 覆盖), 不再单列端点
 
 
 # ---------- 系统配置 ----------
@@ -58,15 +51,6 @@ class ConfigUpdate(BaseModel):
 async def set_config(key: str, req: ConfigUpdate, request: Request):
     if key not in CONFIG_KEYS:
         raise HTTPException(status_code=400, detail=f"unknown key, allowed: {sorted(CONFIG_KEYS)}")
-    if key == "symbols":
-        if not isinstance(req.value, list) or not all(isinstance(s, str) and s for s in req.value):
-            raise HTTPException(status_code=400, detail="symbols must be a list of strings")
-        req.value = [s.strip().upper() for s in req.value]
-    if key == "data_start":
-        try:
-            date.fromisoformat(str(req.value))
-        except ValueError:
-            raise HTTPException(status_code=400, detail="data_start must be YYYY-MM-DD")
     if key == "backtest_costs":
         if not isinstance(req.value, dict):
             raise HTTPException(status_code=400, detail="backtest_costs must be an object")

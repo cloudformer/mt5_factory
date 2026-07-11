@@ -91,9 +91,18 @@ async def generate(req: GenerateRequest, request: Request):
         raise HTTPException(status_code=400, detail="mode must be grid, random or ai")
 
     pool = request.app.state.pool
+    # 品种唯一数据源: 只能给已登记(经券商校验)的品种生成策略, 根治"给券商没有的品种生成"
+    symbols = [s.strip().upper() for s in req.symbols]
+    known = {r["symbol"] for r in await pool.fetch(
+        "SELECT symbol FROM symbols WHERE symbol = ANY($1::text[])", symbols)}
+    unknown = [s for s in symbols if s not in known]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"品种未登记: {', '.join(unknown)} — 先在下载页登记(会向券商校验)再生成策略")
     created, total = 0, 0
     rng = random.Random()
-    for symbol in req.symbols:
+    for symbol in symbols:
         if req.mode == "grid":
             for params in grid_combos(req.template):
                 total += 1

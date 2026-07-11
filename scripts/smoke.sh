@@ -22,7 +22,7 @@ check GET "$APP/health" 200
 check GET "$APP/hosts" 200
 check GET "$APP/config" 200
 check GET "$APP/syncdata/status" 200
-check GET "$APP/syncdata/coverage" 200
+check GET "$APP/symbols" 200
 check GET "$APP/strategies/templates" 200
 check GET "$APP/strategies/status?limit=1" 200
 check GET "$APP/backtest/status" 200

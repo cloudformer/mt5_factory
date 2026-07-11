@@ -1,14 +1,18 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('数据下载', 'M1 为唯一原始数据，高周期自动聚合；断点续传，多 worker 自动并行分摊') }}
+{{ m.page_header('数据下载', '品种唯一数据源 = symbols 表；登记时向券商校验并自动取精度；M1 为唯一原始数据，高周期自动聚合') }}
 
 <section>
-  <h2>下载设置</h2>
-  <form method="post" action="{{ url_for('datasync.settings') }}" class="inline">
-    <label>品种 <input name="symbols" value="{{ config.get('symbols', []) | join(',') }}" size="60"></label>
-    <label>起始日期 <input name="data_start" value="{{ config.get('data_start', '2015-01-01') }}" size="10"></label>
-    <button>保存</button>
+  <h2>登记品种</h2>
+  <form method="post" action="{{ url_for('datasync.add_symbol') }}" class="inline">
+    <label>品种 <input name="symbol" placeholder="如 EURUSD / BTCUSD" size="14" required></label>
+    <label>角色
+      <select name="role"><option value="trade">交易</option><option value="validate">验证</option></select>
+    </label>
+    <label>起始日期 <input name="data_start" value="2015-01-01" size="10"></label>
+    <button>登记</button>
+    <span class="muted">api 会向券商确认该品种存在并自动读取 digits/point，券商没有会明确报错</span>
   </form>
 </section>
 
@@ -31,20 +35,44 @@
 </section>
 
 <section>
-  <h2>数据覆盖 (M1)</h2>
+  <h2>品种主档 ({{ symbols | length }})</h2>
   <table>
-    <tr><th>品种</th><th>起</th><th>止</th><th>K线数</th></tr>
-    {% for c in coverage %}
+    <tr><th>品种</th><th>角色</th><th>digits</th><th>point</th><th>最小手</th>
+        <th>下载</th><th>起始日期</th><th>已下载(M1)</th><th>覆盖范围</th><th>校验</th><th>操作</th></tr>
+    {% for s in symbols %}
     <tr>
-      <td>{{ c.symbol }}</td>
-      <td class="muted">{{ m.ts(c.first_bar) }}</td>
-      <td class="muted">{{ m.ts(c.last_bar) }}</td>
-      <td>{{ "{:,}".format(c.bars) }}</td>
+      <td>{{ s.symbol }}</td>
+      <td>{{ '交易' if s.role == 'trade' else '验证' }}</td>
+      <td class="muted">{{ s.digits }}</td>
+      <td class="muted">{{ s.point }}</td>
+      <td class="muted">{{ s.volume_min if s.volume_min is not none else '—' }}</td>
+      <td>
+        <form method="post" action="{{ url_for('datasync.update_symbol', symbol=s.symbol) }}" class="inline">
+          <input type="checkbox" name="download" {% if s.download %}checked{% endif %} onchange="this.form.submit()">
+        </form>
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('datasync.update_symbol', symbol=s.symbol) }}" class="inline">
+          <input name="data_start" value="{{ s.data_start }}" size="10">
+          <button class="small">改</button>
+        </form>
+      </td>
+      <td>{% if s.bars %}{{ "{:,}".format(s.bars) }}{% else %}<span class="muted">无</span>{% endif %}</td>
+      <td class="muted">{{ m.ts(s.first_bar) }} → {{ m.ts(s.last_bar) }}</td>
+      <td>{% if s.verified_at %}<span class="badge ok" title="券商已确认存在, 精度自动取自券商">已校验</span>
+          {% else %}<span class="badge warn" title="未经券商校验">未校验</span>{% endif %}</td>
+      <td>
+        <form method="post" action="{{ url_for('datasync.delete_symbol', symbol=s.symbol) }}" class="inline"
+              onsubmit="return confirm('删除品种 {{ s.symbol }}? 已下载的历史数据保留')">
+          <button class="small danger">删除</button>
+        </form>
+      </td>
     </tr>
     {% else %}
-    {% call m.empty(4) %}暂无数据 — 注册 worker 后点"触发同步"{% endcall %}
+    {% call m.empty(11) %}还没有登记品种 — 用上方表单登记(会向券商校验){% endcall %}
     {% endfor %}
   </table>
+  <p class="muted">删除品种只是移出清单，已下载的 historical_bars 不动；改精度需重新『登记』同名品种(会向券商重新校验)。</p>
 </section>
 
 {% endblock %}
