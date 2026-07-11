@@ -95,15 +95,18 @@ h3 {
   color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
 }
 
-/* ---------- 表格 (全站统一: 填满容器, 列放不下则区块内横向滚动, 列宽可拖拽) ---------- */
-/* width:100% 填满; min-width:max-content 保证列永不被挤压 → 装不下时靠 section 的
-   overflow-x:auto 横向滚动。列宽拖拽由 tables.js 统一处理(拖时切 table-layout:fixed) */
-table { width: 100%; min-width: max-content; border-collapse: collapse; margin-top: 4px; }
+/* ---------- 表格 (全站统一: 默认填满容器, 绝不横向滚动; 列宽可拖拽) ---------- */
+/* 专业做法: 表宽锁 100% 填满容器(auto 布局按内容比例分配列宽); 单元格内容过长时"折行",
+   而不是把整表撑宽 → 永不出现横向滚动条。超长标识(策略名)用 .clip 单行省略号(悬停看全文)。
+   列宽拖拽由 tables.js 统一处理(拖时切 table-layout:fixed)。 */
+table { width: 100%; border-collapse: collapse; margin-top: 4px; }
 th, td {
   text-align: left; padding: 9px 12px;
   border-bottom: 1px solid var(--border);
-  white-space: nowrap;
+  overflow-wrap: anywhere;   /* 长 token(如时间戳/长参数名)能断行, 不撑宽表格 */
 }
+th { white-space: nowrap; }  /* 表头短, 保持单行不折 */
+td form.inline { white-space: nowrap; }  /* 操作列按钮不折行 */
 th {
   color: var(--muted); font-weight: 600; font-size: 12px;
   text-transform: uppercase; letter-spacing: .5px;
@@ -115,7 +118,7 @@ tbody tr:hover, table tr:hover td { background: #fafbfc; }
 /* 表格超出容器宽度时, 在自己的区块内横向滚动, 永不撑破页面 */
 .table-wrap, section { overflow-x: auto; }
 /* 超长字段(策略名/归属)截断显示, 悬停 title 看全文 */
-td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 窄屏(手机/平板): 紧凑模式 */
 @media (max-width: 900px) {
   main { padding: 12px 10px 48px; }
