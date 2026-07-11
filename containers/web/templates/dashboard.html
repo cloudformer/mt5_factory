@@ -33,6 +33,16 @@
       {% if backtest.running %}{{ backtest.done }}/{{ backtest.total }}{% elif sync.running %}{{ "{:,}".format(sync.bars_written) }} 根已写入{% else %}—{% endif %}
     </div>
   </div>
+  {% set sto = health.storage if health else none %}
+  <div class="stat">
+    <div class="stat-label">数据库容量</div>
+    <div class="stat-value">{{ sto.db_size if sto and sto.db_size else '—' }}</div>
+    <div class="stat-sub">
+      {% if sto and sto.disk_pct is not none %}
+        磁盘 {{ sto.disk }} <span class="{{ 'neg' if sto.disk_pct >= 85 else ('' if sto.disk_pct >= 70 else 'pos') }}">({{ sto.disk_pct }}%)</span>
+      {% else %}—{% endif %}
+    </div>
+  </div>
 </div>
 
 <section>

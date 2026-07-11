@@ -98,16 +98,46 @@ for router in ROUTERS:
     app.include_router(router)
 
 
+def _human_bytes(n) -> str:
+    if n is None:
+        return "—"
+    v = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if v < 1024 or unit == "TB":
+            return f"{v:.1f} {unit}" if unit != "B" else f"{int(v)} B"
+        v /= 1024
+
+
+async def _storage(pool) -> dict:
+    """DB 容量(pg 函数, RDS/docker 通用) + 应用服务器磁盘用量(best-effort)。
+    全程 try: 取到就带上, 取不到就不带 — 任何一项失败都不影响 /health。
+    磁盘是"api 跑在哪台机器"的盘: 本地 docker 下它就是 DB 数据卷所在盘; RDS 下是应用机的盘。"""
+    out = {}
+    try:
+        out["db_size"] = _human_bytes(await pool.fetchval("SELECT pg_database_size(current_database())"))
+    except Exception as e:
+        logger.warning("db size query failed: %s", e)
+    try:
+        import shutil
+        du = shutil.disk_usage("/app")
+        out["disk"] = f"{_human_bytes(du.used)} / {_human_bytes(du.total)}"
+        out["disk_pct"] = round(du.used / du.total * 100, 1)
+    except Exception as e:
+        logger.warning("disk usage failed: %s", e)
+    return out
+
+
 @app.get("/health")
 async def health(response: Response):
-    """整体健康: api + db(地址/状态) + 全部 worker 在线状态"""
+    """整体健康: api + db(地址/状态/容量) + 磁盘用量 + 全部 worker 在线状态"""
     db_status = 200
-    hosts = []
+    hosts, storage = [], {}
     try:
         rows = await app.state.pool.fetch(
             "SELECT name, host, port, status FROM mt5_hosts WHERE enabled ORDER BY id")
         hosts = [{"name": r["name"], "host": f"{r['host']}:{r['port']}",
                   "status": r["status"].lower()} for r in rows]
+        storage = await _storage(app.state.pool)
     except Exception:
         db_status = 500
         response.status_code = 503
@@ -115,5 +145,6 @@ async def health(response: Response):
         "status": "healthy" if db_status == 200 else "degraded",
         "env": ENV_NAME,
         "db": {"url": DB_URL_MASKED, "status": db_status},
+        "storage": storage,
         "hosts": hosts,
     }
