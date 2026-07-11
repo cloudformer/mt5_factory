@@ -220,12 +220,15 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-/* 表格列宽拖拽: 所有表头列边缘出现拖柄, 按住拖动调整列宽 */
+/* 表格列宽拖拽 (全站统一, 电子表格式: 拖谁只动谁, 别的列不跳):
+   拖动瞬间把所有列宽固定成当前像素 + table-layout:fixed, 之后只改被拖的列和表总宽,
+   表变宽超出容器时靠 section 的 overflow-x 横向滚动。所有 table 自动生效, 无需标记 */
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("table").forEach((table) => {
-    const headers = table.querySelectorAll("tr:first-child th");
-    headers.forEach((th, i) => {
-      if (i === headers.length - 1) return; // 最后一列不加
+    const ths = [...table.querySelectorAll("tr:first-child th")];
+    if (ths.length < 2) return;
+    ths.forEach((th, i) => {
+      if (i === ths.length - 1) return; // 最后一列不加拖柄
       const grip = document.createElement("div");
       grip.className = "col-resizer";
       th.style.position = "relative";
@@ -233,13 +236,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
       grip.addEventListener("mousedown", (e) => {
         e.preventDefault();
-        const startX = e.pageX;
-        const startW = th.offsetWidth;
-        document.body.style.cursor = "col-resize";
-        document.body.style.userSelect = "none";
+        // 冻结当前布局: 各列固定为现有像素宽, 切 fixed 让改动只作用于目标列
+        ths.forEach((h) => { h.style.width = h.offsetWidth + "px"; });
+        table.style.tableLayout = "fixed";
+        table.style.minWidth = "0";                 // 解除 max-content, 改由列宽之和决定
+        table.style.width = table.offsetWidth + "px";
+        const startX = e.pageX, startW = th.offsetWidth, startTable = table.offsetWidth;
 
         const move = (ev) => {
-          th.style.width = Math.max(40, startW + ev.pageX - startX) + "px";
+          const w = Math.max(40, startW + ev.pageX - startX);
+          table.style.width = startTable + (w - startW) + "px";  // 表总宽同步, 别的列不被压
+          th.style.width = w + "px";
         };
         const up = () => {
           document.removeEventListener("mousemove", move);
@@ -247,6 +254,8 @@ document.addEventListener("DOMContentLoaded", () => {
           document.body.style.cursor = "";
           document.body.style.userSelect = "";
         };
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
         document.addEventListener("mousemove", move);
         document.addEventListener("mouseup", up);
       });

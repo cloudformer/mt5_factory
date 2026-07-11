@@ -95,8 +95,10 @@ h3 {
   color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
 }
 
-/* ---------- 表格 ---------- */
-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+/* ---------- 表格 (全站统一: 填满容器, 列放不下则区块内横向滚动, 列宽可拖拽) ---------- */
+/* width:100% 填满; min-width:max-content 保证列永不被挤压 → 装不下时靠 section 的
+   overflow-x:auto 横向滚动。列宽拖拽由 tables.js 统一处理(拖时切 table-layout:fixed) */
+table { width: 100%; min-width: max-content; border-collapse: collapse; margin-top: 4px; }
 th, td {
   text-align: left; padding: 9px 12px;
   border-bottom: 1px solid var(--border);
