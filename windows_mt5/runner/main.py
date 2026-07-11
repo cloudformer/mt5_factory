@@ -138,6 +138,11 @@ def fetch_strategies(run_status: str) -> list:
     instances, skipped = [], []
     for s in r.json()["strategies"]:
         try:
+            if s["timeframe"] not in TF_MT5:  # 脏 timeframe: 加载时就跳过, 不进主循环每轮 KeyError 刷屏
+                logger.warning("unsupported timeframe %s, skip %s", s["timeframe"], s["name"])
+                skipped.append({"id": s["id"], "name": s["name"], "symbol": s["symbol"],
+                                "reason": f"bad_timeframe:{s['timeframe']}"})
+                continue
             params = s["params"] if isinstance(s["params"], dict) else json.loads(s["params"])
             mt5.symbol_select(s["symbol"], True)
             info = mt5.symbol_info(s["symbol"])

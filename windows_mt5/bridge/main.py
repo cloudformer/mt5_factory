@@ -64,10 +64,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bridge")
 
+# 只到 D1: 系统只下载 M1(高周期聚合派生), 策略只做 M1~D1 bar; W1/MN1 无人用故不列
 TIMEFRAMES = {
     "M1": mt5.TIMEFRAME_M1, "M5": mt5.TIMEFRAME_M5, "M15": mt5.TIMEFRAME_M15,
     "M30": mt5.TIMEFRAME_M30, "H1": mt5.TIMEFRAME_H1, "H4": mt5.TIMEFRAME_H4,
-    "D1": mt5.TIMEFRAME_D1, "W1": mt5.TIMEFRAME_W1, "MN1": mt5.TIMEFRAME_MN1,
+    "D1": mt5.TIMEFRAME_D1,
 }
 MAX_BARS_PER_REQUEST = 100_000
 
