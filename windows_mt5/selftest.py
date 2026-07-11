@@ -129,19 +129,23 @@ else:
         check("quotes", "PASS", "%d strategies, all ticks fresh" % len(per_strategy))
 
 # 6: order round-trip (bridge hard-refuses REAL accounts -> SKIP on live hosts)
+# 环境性拒单(休市/无报价)= SKIP 不是 FAIL: 周末休市不该报红, 只有链路本身坏才 FAIL。
+MARKET_CLOSED = {10018, 10019}  # retcode: 市场关闭 / 报价不足
 try:
     r = requests.post(f"{BASE}/ordertest", timeout=60)
     body = r.json()
+    detail = body.get("detail")
+    retcode = detail.get("retcode") if isinstance(detail, dict) else None
     if r.status_code == 200 and body.get("result") == "PASS":
         check("order-test", "PASS", "open+close round-trip ok")
     elif r.status_code == 200:
         check("order-test", "WARN", body)
     elif r.status_code == 403:
         check("order-test", "SKIP", "real account - test order refused by design")
-    elif r.status_code == 400:
-        check("order-test", "SKIP", body.get("detail"))  # no quotes / market closed
+    elif r.status_code == 400 or retcode in MARKET_CLOSED:
+        check("order-test", "SKIP", detail)  # 休市 / 无报价 — 非故障, 开盘后自然能测
     else:
-        check("order-test", "FAIL", body.get("detail"))
+        check("order-test", "FAIL", detail)
 except (requests.RequestException, ValueError) as e:
     check("order-test", "FAIL", e)
 
