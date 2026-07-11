@@ -128,7 +128,7 @@ td.clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-spa
   td.clip { max-width: 130px; }
   .stat-value { font-size: 18px; }
 }
-/* 可排序表头 (tables.js data-sortable): 悬停提示可点, 箭头指示当前排序列与方向 */
+/* 可排序表头 (tables.js 全表自动排序): 悬停提示可点, 箭头指示当前排序列与方向 */
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: #111827; }
 th.sortable::after { content: "⇅"; margin-left: 4px; opacity: .35; font-size: 10px; }

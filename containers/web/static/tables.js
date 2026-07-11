@@ -61,11 +61,12 @@ document.addEventListener("change", async (e) => {
   }
 });
 
-/* 表格排序: 表加 data-sortable 后点表头按该列排序(再点反向); 不排序的列标 data-nosort。
+/* 表格排序 (全站自动, 无需标记): 所有 table 点表头即可排序(再点反向); 个别列不想排标 data-nosort。
    数字列(含 %, +, — 空值)按数值排, 其余按文本; 空值(—)固定沉底 */
 document.addEventListener("DOMContentLoaded", () => {
-  document.querySelectorAll("table[data-sortable]").forEach((table) => {
+  document.querySelectorAll("table").forEach((table) => {
     const headers = [...table.querySelectorAll("tr:first-child th")];
+    if (headers.length < 2) return;  // 单列表(如无表头的小结构)不处理
     headers.forEach((th, col) => {
       if (th.hasAttribute("data-nosort")) return;
       th.classList.add("sortable");

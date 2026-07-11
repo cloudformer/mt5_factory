@@ -82,6 +82,26 @@
   {%- else -%}—{%- endif -%}
 {%- endmacro %}
 
+{# 表格工具条 (全站统一): 每页条数 + 翻页 + 页码 + 搜索 + 计数 + 排序提示。
+   配合 tables.js 的 data-* 生效(排序已全表自动, 无需标记)。列专属下拉筛选放 caller 块。
+   用法: {{ m.table_toolbar('表id', hint='搜索…') }} #}
+{% macro table_toolbar(tid, hint='搜索…', per_page=[30, 50, 100], default=50) -%}
+<form class="inline" onsubmit="return false">
+  <label>每页
+    <select data-table-limit="{{ tid }}" class="small">
+      {% for n in per_page %}<option {% if n == default %}selected{% endif %}>{{ n }}</option>{% endfor %}
+    </select> 条
+  </label>
+  <button data-table-page="{{ tid }}:prev" class="small" type="button">‹ 上一页</button>
+  <span class="muted" data-table-pageinfo="{{ tid }}"></span>
+  <button data-table-page="{{ tid }}:next" class="small" type="button">下一页 ›</button>
+  {{ caller() if caller }}
+  <input data-table-filter="{{ tid }}" size="18" placeholder="{{ hint }}">
+  <span class="muted" data-table-count="{{ tid }}"></span>
+  <span class="muted">· 点表头排序</span>
+</form>
+{%- endmacro %}
+
 {# 表格空态行 #}
 {% macro empty(colspan) -%}
   <tr><td colspan="{{ colspan }}" class="muted empty">{{ caller() }}</td></tr>

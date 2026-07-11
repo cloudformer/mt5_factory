@@ -41,22 +41,10 @@
     <input name="symbol" value="{{ symbol or '' }}" size="10" placeholder="品种">
     <label>最少交易数 <input name="min_trades" value="{{ min_trades }}" size="4"></label>
     <button class="small">筛选</button>
-    <span class="muted">点表头排序</span>
+    <span class="muted">↑ 重新查库; ↓ 本页即时过滤/排序/翻页</span>
   </form>
-  <form class="inline" onsubmit="return false">
-    <label>每页
-      <select data-table-limit="bt-results" class="small">
-        <option>30</option><option selected>50</option><option>100</option>
-      </select> 条
-    </label>
-    <button data-table-page="bt-results:prev" class="small" type="button">‹ 上一页</button>
-    <span class="muted" data-table-pageinfo="bt-results"></span>
-    <button data-table-page="bt-results:next" class="small" type="button">下一页 ›</button>
-    <input data-table-filter="bt-results" size="24" placeholder="搜索: 策略/品种/周期/状态…"
-           title="本页即时过滤, 不重新查询">
-    <span class="muted" data-table-count="bt-results"></span>
-  </form>
-  <table id="bt-results" data-sortable>
+  {{ m.table_toolbar('bt-results', hint='搜索: 策略/品种/周期/状态…') }}
+  <table id="bt-results">
     <tr><th data-nosort>#</th><th>策略</th><th>品种</th><th>周期</th><th>笔数</th><th>胜率</th>
         <th>净点数</th><th>PF</th><th>最大回撤</th><th>状态</th><th data-nosort>操作</th></tr>
     {% for r in results %}
