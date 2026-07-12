@@ -140,13 +140,14 @@
     <tr id="bt-bd-{{ r.strategy_id }}" class="detail-row" hidden>
       <td colspan="14">
         <table class="subtable">
-          <tr><th>品种</th><th>券商</th><th>笔(胜/负)</th><th>净点数</th><th>PF</th><th>最大回撤</th></tr>
+          <tr><th>品种</th><th>券商</th><th>笔(胜/负)</th><th>胜率</th><th>净点数</th><th>PF</th><th>最大回撤</th></tr>
           {% for b in r.breakdown %}
           {% set bw = (b.metrics.trades * b.metrics.win_rate) | round | int if b.metrics.trades else 0 %}
           <tr>
             <td>{{ b.symbol }}{% if b.symbol == r.symbol %} <span class="badge">主</span>{% endif %}</td>
             <td class="muted">{{ b.broker or '—' }}</td>
             <td>{{ b.metrics.trades }} ({{ bw }}胜/{{ b.metrics.trades - bw }}负)</td>
+            <td>{{ '%.1f' % ((b.metrics.win_rate or 0) * 100) }}%</td>
             <td class="{{ 'pos' if b.metrics.net_points > 0 else 'neg' }}">{{ b.metrics.net_points }}</td>
             <td>{{ b.metrics.profit_factor or '—' }}</td>
             <td class="muted">{{ b.metrics.max_dd_points or 0 }}</td>
