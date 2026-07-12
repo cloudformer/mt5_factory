@@ -117,6 +117,9 @@ th {
 }
 tr:last-child td { border-bottom: 0; }
 tbody tr:hover, table tr:hover td { background: #fafbfc; }
+/* 行标记(tables.js 点行切换): 高亮当前查看的行, 宽表横滑时对着看; 盖过 hover 底色 */
+tr.row-marked td, tr.row-marked:hover td { background: #fff7e6; }
+tr.row-marked td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 /* ---------- 表格自适应 ---------- */
 /* 表格超出容器宽度时, 在自己的区块内横向滚动, 永不撑破页面 */
 .table-wrap, section { overflow-x: auto; }

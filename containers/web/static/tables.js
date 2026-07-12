@@ -6,6 +6,21 @@ document.addEventListener("click", (e) => {
   if (row) row.hidden = !row.hidden;
 });
 
+/* 行标记(全站): 点数据行加高亮标记, 再点取消, 点别行移到别行(同表只标一行)。
+   纯视觉, 方便宽表横滑时对着看; 点按钮/链接/表单控件不触发, 详情行不参与 */
+document.addEventListener("click", (e) => {
+  if (e.target.closest("button, a, input, select, label, form")) return;  // 交互元素不误触
+  const tr = e.target.closest("tr");
+  if (!tr || !tr.parentNode.closest("table")) return;
+  if (tr.querySelector("th")) return;              // 表头行不标记
+  if (tr.classList.contains("detail-row")) return; // 详情展开行不标记
+  if (tr.querySelector("td.empty")) return;        // 空态行不标记
+  const table = tr.closest("table");
+  const wasMarked = tr.classList.contains("row-marked");
+  table.querySelectorAll("tr.row-marked").forEach((r) => r.classList.remove("row-marked"));
+  if (!wasMarked) tr.classList.add("row-marked");  // 再点同一行=取消
+});
+
 /* 状态下拉框 AJAX 原地更新: 改状态不刷新页面, 只更新当前行 */
 document.addEventListener("change", async (e) => {
   const sel = e.target.closest("select[data-status-select]");
