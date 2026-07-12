@@ -1,6 +1,6 @@
 """品种页: 品种主档(唯一数据源)的独立维护界面
 
-品种一切信息只在 symbols 表: 登记(向券商校验)、精度、下载开关、每品种起始日期、角色。
+品种一切信息只在 symbols 表: 登记(向券商校验)、精度、下载开关、每品种起始日期。
 下载/回测/策略生成都从这里读。本页是它唯一的管理入口。
 """
 from flask import Blueprint, flash, redirect, render_template, request, url_for
@@ -27,7 +27,6 @@ def add():
     try:
         result = api.post("/symbols", {
             "symbol": request.form["symbol"].strip().upper(),
-            "role": request.form.get("role", "trade"),
             "data_start": request.form.get("data_start", "2015-01-01").strip(),
         })
         flash(f"{result['symbol']} 已登记 (digits={result['digits']}, point={result['point']})", "ok")

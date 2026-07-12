@@ -7,9 +7,6 @@
   <h2>登记品种</h2>
   <form method="post" action="{{ url_for('symbols.add') }}" class="inline">
     <label>品种 <input name="symbol" placeholder="如 EURUSD / BTCUSD" size="14" required></label>
-    <label>角色
-      <select name="role"><option value="trade">交易</option><option value="validate">验证</option></select>
-    </label>
     <label>起始日期 <input name="data_start" value="2015-01-01" size="10"></label>
     <button>登记</button>
     <span class="muted">向券商确认品种存在并自动读取 券商名/digits/point；券商没有会明确报错。精度不手填(手填会与券商不一致)</span>
@@ -18,16 +15,15 @@
 
 <section>
   <h2>品种主档 ({{ symbols | length }})</h2>
-  {{ m.table_toolbar('sym-table', hint='搜索: 品种/券商/角色…') }}
+  {{ m.table_toolbar('sym-table', hint='搜索: 品种/券商…') }}
   <table id="sym-table">
-    <tr><th data-nosort>#</th><th>品种</th><th>券商</th><th>角色</th><th>digits</th><th>point</th><th>最小手</th>
+    <tr><th data-nosort>#</th><th>品种</th><th>券商</th><th>digits</th><th>point</th><th>最小手</th>
         <th>校验</th><th data-nosort>操作</th></tr>
     {% for s in symbols %}
     <tr>
       <td class="rownum muted"></td>
       <td>{{ s.symbol }}</td>
       <td>{{ s.broker or '—' }}</td>
-      <td>{{ '交易' if s.role == 'trade' else '验证' }}</td>
       <td class="muted">{{ s.digits }}</td>
       <td class="muted">{{ s.point }}</td>
       <td class="muted">{{ s.volume_min if s.volume_min is not none else '—' }}</td>
@@ -41,7 +37,7 @@
       </td>
     </tr>
     {% else %}
-    {% call m.empty(9) %}还没有登记品种 — 用上方表单登记(会向券商校验){% endcall %}
+    {% call m.empty(8) %}还没有登记品种 — 用上方表单登记(会向券商校验){% endcall %}
     {% endfor %}
   </table>
   <p class="muted">这里只管"品种定义"(品种/券商/精度)。数据下载、起始日期、校验、清空数据在

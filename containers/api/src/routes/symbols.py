@@ -84,8 +84,6 @@ async def _broker_symbol(pool, name: str) -> tuple[dict, str]:
 @router.post("/symbols")
 async def register_symbol(req: SymbolRegister, request: Request):
     """登记一个品种: 向券商校验存在性 + 自动取真实精度/下单约束后入库"""
-    if req.role not in ("trade", "validate"):
-        raise HTTPException(status_code=400, detail="role must be trade or validate")
     name = req.symbol.strip().upper()
     if not name:
         raise HTTPException(status_code=400, detail="symbol 不能为空")
@@ -93,13 +91,13 @@ async def register_symbol(req: SymbolRegister, request: Request):
     info, broker = await _broker_symbol(request.app.state.pool, name)
     row = await request.app.state.pool.fetchrow(
         "INSERT INTO symbols (symbol, broker, digits, point, volume_min, stops_level,"
-        "                     role, data_start, download, verified_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, now())"
+        "                     data_start, download, verified_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, now())"
         " ON CONFLICT (symbol) DO UPDATE SET"
         "   broker=$2, digits=$3, point=$4, volume_min=$5, stops_level=$6, verified_at=now()"
         " RETURNING *",
         name, broker, info["digits"], info["point"], info.get("volume_min"),
-        info.get("trade_stops_level"), req.role, ds)
+        info.get("trade_stops_level"), ds)
     logger.info("symbol registered: %s @ %s (digits=%s point=%s)",
                 name, broker, info["digits"], info["point"])
     return dict(row)
@@ -108,17 +106,14 @@ async def register_symbol(req: SymbolRegister, request: Request):
 class SymbolUpdate(BaseModel):
     download: bool | None = None
     data_start: str | None = None
-    role: str | None = None
 
 
 @router.patch("/symbols/{symbol}")
 async def update_symbol(symbol: str, req: SymbolUpdate, request: Request):
-    """改品种的下载开关 / 起始日期 / 角色 (精度不可手改, 只能靠 POST 重新校验)"""
+    """改品种的下载开关 / 起始日期 (精度不可手改, 只能靠 POST 重新校验)"""
     fields = req.model_dump(exclude_unset=True)
     if not fields:
         raise HTTPException(status_code=400, detail="nothing to update")
-    if "role" in fields and fields["role"] not in ("trade", "validate"):
-        raise HTTPException(status_code=400, detail="role must be trade or validate")
     if "data_start" in fields:  # asyncpg 的 date 参数只吃 date 对象, 字符串会报错
         fields["data_start"] = _parse_date(fields["data_start"])
     sets, args = [], [symbol.upper()]
