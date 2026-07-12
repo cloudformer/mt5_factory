@@ -223,6 +223,19 @@ td form.inline { display: inline-flex; margin-right: 4px; }
 select.small { padding: 3px 6px; font-size: 12px; color: var(--muted); }
 select.small:hover { color: var(--text); }
 
+/* 回测运行条: 按『筛选 / 成本』分组成行, 对齐, 专业简洁 */
+.runbar { display: flex; flex-direction: column; gap: 10px; }
+.runbar .row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.runbar label { color: var(--text); display: inline-flex; align-items: center; gap: 6px; }
+.runbar label.opt { color: var(--muted); }   /* 次要项(策略ID/上限)弱化 */
+.runbar label.chk { gap: 6px; }
+.runbar .tag {                                 /* 分组标签: 筛选 / 成本 */
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .6px; min-width: 32px;
+}
+.runbar .spacer { flex: 1 1 auto; }            /* 把按钮推到最右 */
+.runbar .go { padding: 8px 22px; }             /* 主操作按钮更醒目 */
+
 /* 状态按钮 (点开看详情): 悬浮不改底色(覆盖全局 button:hover 的蓝底), 徽章微微加深即可 */
 .status-btn {
   background: none; border: 0; padding: 0; cursor: pointer;

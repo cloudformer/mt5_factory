@@ -72,8 +72,7 @@ def save_costs():
 
 @bp.post("/run")
 def run():
-    payload = {"status": request.form.get("status", "CANDIDATE"),
-               "limit": request.form.get("limit", 500, type=int),
+    payload = {"limit": request.form.get("limit", 500, type=int),
                "slippage_points": request.form.get("slippage_points", type=float),
                "commission_points": request.form.get("commission_points", type=float)}
     # 两个筛选: 货币对 / 券商, 空=全部

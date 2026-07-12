@@ -35,38 +35,42 @@
 
 <section>
   <h2>批量回测</h2>
-  <form method="post" action="{{ url_for('backtests.run') }}" class="inline">
-    <select name="status" title="回测哪批策略(按状态)">
-      {% for s in ['CANDIDATE','DEMO','LIVE'] %}<option>{{ s }}</option>{% endfor %}
-    </select>
-    <label>上限 <input name="limit" value="500" size="5"></label>
-    <input name="strategy_ids" size="16" placeholder="策略ID, 逗号分隔(可空)"
-           title="指定则只回测这些策略, 忽略状态筛选; ID 在策略页查看">
-    <label title="货币对筛选: 全部=不限; 选具体货币对=只回测该货币对的策略">货币对
-      <select name="symbol">
-        <option value="">全部</option>
-        {% for s in symbols %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
-      </select></label>
-    <label title="券商筛选: 全部=不限; 选具体券商=只回测该券商的货币对(券商标签是下载数据时落库的, 与 worker 无关)">券商
-      <select name="broker">
-        <option value="">全部</option>
-        {% for b in brokers %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
-      </select></label>
-    <label title="反过拟合(空间维度): 同参数在所有 download 货币对各回测一行, 产出『跨品种健壮性』列 + 每品种明细。运行时间 ×货币对数">
-      <input type="checkbox" name="cross_symbol" value="1"> 跨品种验证</label>
-    <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="本次运行的滑点; 默认取上方系统配置"></label>
-    <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="本次运行的佣金; 默认取上方系统配置"></label>
-    <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="本次运行的点差; 留空=真实点差"></label>
-    <button {% if bt.running %}disabled{% endif %}>启动回测</button>
-    <span id="bt-progress"{% if bt.running %} data-running="1"{% endif %}>
-      {% if bt.running %}
-      <span class="badge ok">运行中 <span class="bt-done">{{ bt.done }}</span>/<span class="bt-total">{{ bt.total }}</span></span>
-      <span class="muted bt-current">{{ bt.current }}</span>
-      {% endif %}
-    </span>
+  <form method="post" action="{{ url_for('backtests.run') }}" class="runbar">
+    <div class="row">
+      <span class="tag">筛选</span>
+      <label>货币对
+        <select name="symbol" title="全部=不限; 选具体货币对=只回测该货币对的策略">
+          <option value="">全部</option>
+          {% for s in symbols %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select></label>
+      <label>券商
+        <select name="broker" title="全部=不限; 选具体券商=只回测该券商的货币对(券商标签下载数据时落库, 与 worker 无关)">
+          <option value="">全部</option>
+          {% for b in brokers %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+        </select></label>
+      <label class="chk" title="反过拟合(空间维度): 同参数在所有 download 货币对各回测一行, 产出『跨品种健壮性』列 + 每品种明细。运行时间 ×货币对数">
+        <input type="checkbox" name="cross_symbol" value="1"> 跨品种验证</label>
+      <label class="opt" title="指定则只回测这些策略; ID 在策略页查看">策略ID
+        <input name="strategy_ids" size="12" placeholder="逗号分隔·可空"></label>
+      <label class="opt">上限 <input name="limit" value="500" size="4"></label>
+    </div>
+    <div class="row">
+      <span class="tag">成本</span>
+      <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="单边滑点(点)"></label>
+      <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="往返佣金(点数等值)"></label>
+      <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="留空=每根 bar 记录的真实点差"></label>
+      <span class="spacer"></span>
+      <span id="bt-progress"{% if bt.running %} data-running="1"{% endif %}>
+        {% if bt.running %}
+        <span class="badge ok">运行中 <span class="bt-done">{{ bt.done }}</span>/<span class="bt-total">{{ bt.total }}</span></span>
+        <span class="muted bt-current">{{ bt.current }}</span>
+        {% endif %}
+      </span>
+      <button class="go" {% if bt.running %}disabled{% endif %}>启动回测</button>
+    </div>
   </form>
-  <p class="muted">货币对 / 券商筛选决定回测哪些策略(默认全部)。勾<b>跨品种验证</b>=每策略在所有货币对各跑一行,
-    结果排名多出"跨品种健壮性"列(点开看每品种明细), 用来识别"只在某品种巧合赚"的过拟合;不勾=只跑主品种(快)。</p>
+  <p class="muted">回测按货币对进行,与策略状态无关、对 demo/live 交易零影响(只刷新回测记录)。
+    默认回测全部策略;勾<b>跨品种验证</b>=每策略在所有货币对各跑一行,结果排名多出"跨品种健壮性"列(点开看每品种明细)。</p>
   {% for e in bt.errors %}<div class="flash error">{{ e }}</div>{% endfor %}
 </section>
 

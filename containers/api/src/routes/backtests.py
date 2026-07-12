@@ -24,10 +24,9 @@ bt_state = {"running": False, "current": None, "done": 0, "total": 0, "errors": 
 
 
 class BacktestRequest(BaseModel):
-    status: str = "CANDIDATE"          # 回测哪批策略
-    # 两个筛选维度 (v1.3): 回测按货币对进行, 这里筛选要回测哪些策略。
+    # 筛选维度 (v1.3): 回测按货币对进行, 与策略状态无关(回测对 demo/live 零影响)。
     #   symbol=货币对(策略主品种); broker=券商(按 symbols 表的券商标签过滤品种)。
-    #   都不传 = 全部。券商标签是"下载数据"时落库的, 回测只读库、与 worker 无关。
+    #   都不传 = 回测全部策略。券商标签是"下载数据"时落库的, 回测只读库、与 worker 无关。
     symbol: Optional[str] = None
     broker: Optional[str] = None
     strategy_ids: Optional[list[int]] = None
@@ -54,9 +53,10 @@ async def run(req: BacktestRequest, request: Request):
         rows = await pool.fetch(
             "SELECT * FROM strategies WHERE id = ANY($1) ORDER BY symbol, id", req.strategy_ids)
     else:
-        # 只回测品种仍在主档里的策略: 品种已删除的孤儿策略(如旧 BTCUSD)自动跳过, 不报错
-        q = "SELECT * FROM strategies WHERE status=$1 AND symbol IN (SELECT symbol FROM symbols)"
-        args = [req.status]
+        # 回测不看状态(对 demo/live 零影响, 只刷新 backtests 记录)。
+        # 只回测品种仍在主档里的策略: 品种已删的孤儿策略(如旧 BTCUSD)自动跳过, 不报错。
+        q = "SELECT * FROM strategies WHERE symbol IN (SELECT symbol FROM symbols)"
+        args = []
         if req.symbol:  # 货币对筛选
             args.append(req.symbol); q += f" AND symbol=${len(args)}"
         if req.broker:  # 券商筛选: 按品种主档的券商标签圈定品种
