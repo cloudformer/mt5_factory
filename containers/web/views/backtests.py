@@ -11,7 +11,7 @@ def index():
     symbol = request.args.get("symbol") or None
     broker = request.args.get("broker") or None
     min_trades = request.args.get("min_trades", 30, type=int)
-    results, bt, costs, brokers, symbols = [], {}, {}, [], []
+    results, bt, costs, brokers, symbols, orphans = [], {}, {}, [], [], []
     try:
         params = {"min_trades": min_trades, "limit": 200}  # 前端分页展示, 多取一些
         if symbol:
@@ -25,11 +25,13 @@ def index():
         syms = api.get("/symbols")["symbols"]
         symbols = [s["symbol"] for s in syms if s.get("download")]
         brokers = sorted({s["broker"] for s in syms if s.get("broker")})
+        # 孤儿策略(品种已删、跑不了): 亮出来供清理
+        orphans = api.get("/strategies/orphans")["orphans"]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("backtests.html", results=results, bt=bt, costs=costs,
                            symbol=symbol, broker=broker, min_trades=min_trades,
-                           brokers=brokers, symbols=symbols)
+                           brokers=brokers, symbols=symbols, orphans=orphans)
 
 
 @bp.get("/status")
@@ -39,6 +41,17 @@ def status():
         return api.get("/backtest/status")
     except api.ApiError as e:
         return {"running": False, "error": str(e)}
+
+
+@bp.post("/archive-orphans")
+def archive_orphans():
+    """把品种已删的孤儿策略批量归档(可逆)"""
+    try:
+        r = api.post("/strategies/orphans/archive", {})
+        flash(f"已归档 {r['archived']} 条孤儿策略(品种已删)", "ok")
+    except api.ApiError as e:
+        flash(f"归档失败: {e}", "error")
+    return redirect(url_for("backtests.index"))
 
 
 @bp.post("/costs")

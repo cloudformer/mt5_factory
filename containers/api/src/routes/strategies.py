@@ -291,3 +291,24 @@ async def set_status(strategy_id: int, req: StatusRequest, request: Request):
     if row is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     return dict(row)
+
+
+# 孤儿策略: 品种已从主档删除、永远跑不了的策略(如旧 BTCUSD)。只算未归档的(归档=已处理)。
+_ORPHAN_WHERE = "symbol NOT IN (SELECT symbol FROM symbols) AND status <> 'ARCHIVED'"
+
+
+@router.get("/strategies/orphans")
+async def orphans(request: Request):
+    """列出孤儿策略(品种已删、未归档) — 供页面亮清单, 清理前先看清楚要清什么"""
+    rows = await request.app.state.pool.fetch(
+        f"SELECT id, name, symbol, status FROM strategies WHERE {_ORPHAN_WHERE}"
+        " ORDER BY symbol, id")
+    return {"orphans": [dict(r) for r in rows]}
+
+
+@router.post("/strategies/orphans/archive")
+async def archive_orphans(request: Request):
+    """把孤儿策略批量归档(ARCHIVED, 可逆); 不删除, 留尸体避免重复生成"""
+    rows = await request.app.state.pool.fetch(
+        f"UPDATE strategies SET status='ARCHIVED' WHERE {_ORPHAN_WHERE} RETURNING id")
+    return {"archived": len(rows)}

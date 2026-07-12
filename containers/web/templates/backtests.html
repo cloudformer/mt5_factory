@@ -3,6 +3,25 @@
 {% block content %}
 {{ m.page_header('回测', '悲观撮合（点差 / 滑点 / 佣金 / SL 优先），M1 拆解 bar 内走势；结果按净点数排名') }}
 
+{% if orphans %}
+<div class="flash error">
+  ⚠ <b>{{ orphans|length }} 条策略</b>的品种已从主档删除，无法回测（批量已自动跳过；单条点到会报错）。清理前先看清单：
+  <details style="margin-top:8px">
+    <summary style="cursor:pointer">看清单 / 归档这 {{ orphans|length }} 条</summary>
+    <table class="subtable" style="margin-top:8px">
+      <tr><th>策略</th><th>已删品种</th><th>当前状态</th></tr>
+      {% for o in orphans %}
+      <tr><td>{{ o.name }}</td><td class="neg">{{ o.symbol }}</td><td>{{ o.status }}</td></tr>
+      {% endfor %}
+    </table>
+    <form method="post" action="{{ url_for('backtests.archive_orphans') }}" class="inline" style="margin-top:8px"
+          onsubmit="return confirm('把这 {{ orphans|length }} 条孤儿策略归档(ARCHIVED)？可逆——之后不再出现在回测/排名/单条回测，随时可改回。')">
+      <button class="small hl danger">归档这 {{ orphans|length }} 条（可逆）</button>
+    </form>
+  </details>
+</div>
+{% endif %}
+
 <section>
   <h2>默认成本 (系统配置)</h2>
   <form method="post" action="{{ url_for('backtests.save_costs') }}" class="inline">
