@@ -118,7 +118,7 @@
       <td class="muted">{{ r.broker or '—' }}</td>
       <td>{{ r.timeframe }}</td>
       <td title="{% if r.ran_on and r.ran_on > 1 %}跨 {{ r.ran_on }} 个品种合计(展开看拆分){% else %}主品种{% endif %}">{{ ns.t }}</td>
-      <td>{{ '%.1f' % (ns.w / ns.t * 100) if ns.t else '0.0' }}%</td>
+      <td>{{ ('%.1f%%' % (ns.w / ns.t * 100)) if ns.t else '—' }}</td>
       <td class="{% if r.metrics.net_points > 0 %}pos{% else %}neg{% endif %}">{{ r.metrics.net_points }}</td>
       <td>{{ r.metrics.profit_factor or '—' }}</td>
       <td class="muted">{{ r.metrics.max_dd_points or 0 }}</td>
@@ -147,7 +147,7 @@
             <td>{{ b.symbol }}{% if b.symbol == r.symbol %} <span class="badge">主</span>{% endif %}</td>
             <td class="muted">{{ b.broker or '—' }}</td>
             <td>{{ b.metrics.trades }} ({{ bw }}胜/{{ b.metrics.trades - bw }}负)</td>
-            <td>{{ '%.1f' % ((b.metrics.win_rate or 0) * 100) }}%</td>
+            <td>{{ ('%.1f%%' % (b.metrics.win_rate * 100)) if b.metrics.trades else '—' }}</td>
             <td class="{{ 'pos' if b.metrics.net_points > 0 else 'neg' }}">{{ b.metrics.net_points }}</td>
             <td>{{ b.metrics.profit_factor or '—' }}</td>
             <td class="muted">{{ b.metrics.max_dd_points or 0 }}</td>
