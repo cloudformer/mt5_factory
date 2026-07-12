@@ -45,7 +45,8 @@ def run():
     payload = {"status": request.form.get("status", "CANDIDATE"),
                "limit": request.form.get("limit", 500, type=int),
                "slippage_points": request.form.get("slippage_points", type=float),
-               "commission_points": request.form.get("commission_points", type=float)}
+               "commission_points": request.form.get("commission_points", type=float),
+               "cross_symbol": bool(request.form.get("cross_symbol"))}
     if request.form.get("symbol"):
         payload["symbol"] = request.form["symbol"].strip().upper()
     if request.form.get("spread_points", "").strip():

@@ -80,8 +80,10 @@ document.addEventListener("change", async (e) => {
    数字列(含 %, +, — 空值)按数值排, 其余按文本; 空值(—)固定沉底 */
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("table").forEach((table) => {
-    // 有配对详情行的表(如 Workers 主行+隐藏详情)排序会把两者拆散, 跳过
-    if (table.querySelector(".detail-row")) return;
+    // 有配对详情行的表(如 Workers 主行+隐藏详情)排序会把两者拆散, 默认跳过;
+    // 标了 data-detail-sort 的表(如回测结果排名)要排序: 排序只动主行, 结束后把详情行按 toggle id 粘回主行后
+    const detailSort = table.hasAttribute("data-detail-sort");
+    if (table.querySelector(".detail-row") && !detailSort) return;
     const headers = [...table.querySelectorAll("tr:first-child th")];
     if (headers.length < 2) return;  // 单列表(如无表头的小结构)不处理
     headers.forEach((th, col) => {
@@ -94,9 +96,9 @@ document.addEventListener("DOMContentLoaded", () => {
         th.dataset.dir = asc ? "asc" : "desc";
         th.classList.add(asc ? "sort-asc" : "sort-desc");
 
-        // 数据行 = 除表头外的行; 跳过空态行(单格 colspan)
+        // 数据行 = 除表头外的行; 跳过空态行(单格 colspan); 排除嵌套子表(如展开明细里的 subtable)的行
         const rows = [...table.querySelectorAll("tr")].slice(1)
-          .filter((r) => !r.querySelector("td[colspan]"));
+          .filter((r) => r.closest("table") === table && !r.querySelector("td[colspan]"));
         const cell = (r) => (r.children[col]?.textContent || "").trim();
         const toNum = (t) => parseFloat(t.replace(/[%,+\s]/g, ""));
         const filled = rows.map(cell).filter((v) => v && v !== "—");
@@ -109,6 +111,12 @@ document.addEventListener("DOMContentLoaded", () => {
           const c = numeric ? toNum(va) - toNum(vb) : va.localeCompare(vb, "zh");
           return asc ? c : -c;
         }).forEach((r) => r.parentNode.appendChild(r));
+        // 详情行跟随: 排序只重排了主行(rows 已排除 colspan 详情行), 把每主行的详情行粘回其后
+        if (detailSort) rows.forEach((r) => {
+          const btn = r.querySelector("[data-json-toggle]");
+          const det = btn && document.getElementById(btn.getAttribute("data-json-toggle"));
+          if (det) r.after(det);
+        });
         if (table.id) { table.dataset.page = "1"; applyTableFilters(table); }  // 排序后回到第1页
       });
     });
@@ -133,7 +141,7 @@ function applyTableFilters(table) {
     document.querySelector(`select[data-table-limit="${tid}"]`)?.value || "0", 10);
 
   const rows = [...table.querySelectorAll("tr")].slice(1)
-    .filter((r) => !r.querySelector("td[colspan]")); // 空态行不动
+    .filter((r) => r.closest("table") === table && !r.querySelector("td[colspan]")); // 空态/嵌套子表行不动
   const matched = rows.filter((r) => {
     if (q !== "" && !r.textContent.toLowerCase().includes(q)) return false;
     for (const [col, v] of colFilters) {
