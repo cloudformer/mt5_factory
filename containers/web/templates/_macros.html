@@ -57,7 +57,7 @@
   <tr title="做什么: 交易执行进程, 按本机角色(demo/live)拉策略、盯bar、下单。&#10;未运行: 看门狗会自动拉起; 长期不起点『重启』。&#10;角色为空=未指派, 去 Demo/Live 页指派">
       <td>runner</td>
       <td><span class="badge {{ 'ok' if rn.alive else '' }}">{{ '运行中' if rn.alive else '未运行' }}</span></td>
-      <td class="muted">角色 {{ rn.run_status or '—' }} · 策略 {{ rn.strategies if rn.strategies is not none else '—' }} 个</td></tr>
+      <td class="muted">角色 <b class="pos">{{ '空闲' if rn.run_status in (none, '', '未指派') else rn.run_status }}</b> · 策略 <b class="pos">{{ rn.strategies if rn.strategies is not none else '—' }}</b> 个</td></tr>
   <tr><td>开机自检</td>
       <td>{% if st %}
         <span class="badge {{ 'ok' if st.ok else 'error' }}">{{ 'OK' if st.ok else 'FAIL' }}

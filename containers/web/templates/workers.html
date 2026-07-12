@@ -53,30 +53,31 @@
       {% for h in hosts if h.enabled %}<option value="{{ h.id }}">{{ h.name }} ({{ h.host }}, 当前: {{ m.worker_duty(h) }})</option>{% endfor %}
     </select>
     <select name="runner">
-      <option value="">不跑策略</option>
+      <option value="">空闲</option>
       <option value="demo">demo</option>
       <option value="live">live</option>
     </select>
     <button {% if not hosts %}disabled{% endif %}>指派</button>
   </form>
-  <p class="muted">worker 靠 bridge 自动上报(名字=计算机名), 无需手动注册; download 默认开。
-     这里给它指派 runner(跑什么策略); 也可在 Demo / Live 页指派。
-     已是 demo/live 的要先选『不跑策略』取消, 才能改投另一边(runner 60 秒内自动切换)。</p>
+  <p class="muted">worker 三种运行状态: <b>空闲</b>(不跑策略) / <b>demo</b> / <b>live</b>。
+     demo ⇄ live 必须先切回<b>空闲</b>再改投另一边(两步, 安全; runner 60 秒内自动切换)。
+     worker 靠 bridge 自动上报(名字=计算机名), 无需手动注册; download 默认开; MT5 账户在 Windows 手动登录。</p>
 </section>
 
 <section>
-  <h2>下发 MT5 账户</h2>
+  <h2>下发 MT5 账户 <span class="badge">未启用</span></h2>
+  {# 当前禁用: 账户在 Windows 手动登录。未来启用 = 把下面的 disabled 去掉即可(后端 /connect 端点一直在) #}
   <form method="post" id="connect-form" class="inline"
         onsubmit="this.action='/workers/'+this.host_id.value+'/connect'">
-    <select name="host_id">
+    <select name="host_id" disabled>
       {% for h in hosts %}<option value="{{ h.id }}">{{ h.name }} ({{ h.host }})</option>{% endfor %}
     </select>
-    <input name="login" placeholder="MT5 账号" size="10" required>
-    <input name="password" type="password" placeholder="密码" size="12" required>
-    <input name="server" placeholder="服务器 如 MetaQuotes-Demo" size="18" required>
-    <button {% if not hosts %}disabled{% endif %}>登录</button>
+    <input name="login" placeholder="MT5 账号" size="10" disabled>
+    <input name="password" type="password" placeholder="密码" size="12" disabled>
+    <input name="server" placeholder="服务器 如 MetaQuotes-Demo" size="18" disabled>
+    <button disabled>登录</button>
   </form>
-  <p class="muted">免去在 Windows 上手动配置；也可在 Windows 的 env/.dev.env 里填 MT5_LOGIN/PASSWORD/SERVER。</p>
+  <p class="muted">当前未启用：MT5 账户在 Windows 上手动登录。future: 需要远程下发账户时, 去掉本表单各控件的 disabled 即可(后端已就绪)。</p>
 </section>
 
 {% endblock %}
