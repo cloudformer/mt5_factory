@@ -101,9 +101,13 @@ async def _run_batch(pool, strategies: list, t_from, t_to, costs: dict):
             result = await asyncio.to_thread(
                 backtest.run_backtest, m1, s["template"], s["params"],
                 points[s["symbol"]], s["timeframe"], **costs)
+            # 一策略一行: 有则覆盖(免维护, 表不增长); 排名/战绩只看最新那次
             await pool.execute(
                 "INSERT INTO backtests (strategy_id, from_time, to_time, metrics, trades)"
-                " VALUES ($1, $2, $3, $4, $5)",
+                " VALUES ($1, $2, $3, $4, $5)"
+                " ON CONFLICT (strategy_id) DO UPDATE SET"
+                "   from_time=EXCLUDED.from_time, to_time=EXCLUDED.to_time,"
+                "   metrics=EXCLUDED.metrics, trades=EXCLUDED.trades, created_at=now()",
                 s["id"], t_from, t_to, result["metrics"], result["trades"])
         except Exception as e:
             logger.error("backtest %s failed: %s", s["name"], e)
