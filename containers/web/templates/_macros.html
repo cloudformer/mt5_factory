@@ -57,8 +57,9 @@
   <tr title="做什么: 交易执行进程, 按角色(demo/live)拉策略、盯bar、下单。&#10;进程未运行: 看门狗会自动拉起; 长期不起点『重启』。&#10;角色=你指派的(空闲/demo/live); 策略数是实际加载数, 切换后约15秒追上">
       <td>runner</td>
       <td><span class="badge {{ 'ok' if rn.alive else '' }}">{{ '运行中' if rn.alive else '未运行' }}</span></td>
-      {# 角色读数据库(h.runner, 与主表"运行"列同源, 即时一致); 策略数读心跳(实际加载, 可滞后) #}
-      <td class="muted">角色 <b class="pos">{{ h.runner or '空闲' }}</b> · 策略 <b class="pos">{{ rn.strategies if rn.strategies is not none else '—' }}</b> 个</td></tr>
+      {# 角色读数据库(即时,与主表一致)。策略数只在 demo/live 时显示 —
+         空闲时不显示(否则切换空档会出现"空闲·14"这种矛盾观感; 空闲本就无策略概念) #}
+      <td class="muted">角色 <b class="pos">{{ h.runner or '空闲' }}</b>{% if h.runner %} · 策略 <b class="pos">{{ rn.strategies if rn.strategies is not none else '—' }}</b> 个{% endif %}</td></tr>
   <tr><td>开机自检</td>
       <td>{% if st %}
         <span class="badge {{ 'ok' if st.ok else 'error' }}">{{ 'OK' if st.ok else 'FAIL' }}
