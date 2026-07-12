@@ -245,8 +245,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("table").forEach((table) => {
     const ths = [...table.querySelectorAll("tr:first-child th")];
     if (ths.length < 2) return;
-    ths.forEach((th, i) => {
-      if (i === ths.length - 1) return; // 最后一列不加拖柄
+    ths.forEach((th) => {
       const grip = document.createElement("div");
       grip.className = "col-resizer";
       th.style.position = "relative";
