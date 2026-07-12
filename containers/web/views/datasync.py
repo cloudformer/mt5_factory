@@ -11,9 +11,10 @@ bp = Blueprint("datasync", __name__, url_prefix="/datasync")
 
 @bp.get("/")
 def index():
-    data = {"symbols": [], "sync": {}, "hosts": []}
+    data = {"symbols": [], "orphans": [], "sync": {}, "hosts": []}
     try:
-        data["symbols"] = api.get("/symbols")["symbols"]
+        s = api.get("/symbols")
+        data["symbols"], data["orphans"] = s["symbols"], s.get("orphans", [])
         data["sync"] = api.get("/syncdata/status")
         data["hosts"] = [h for h in api.get("/hosts")["hosts"]
                          if h["enabled"] and h["download"]]

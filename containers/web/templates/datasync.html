@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('数据下载', 'M1 为唯一原始数据，高周期自动聚合；断点续传，多 worker 自动并行分摊。品种在『品种』页维护') }}
+{{ m.page_header('数据下载', '管每个品种的数据生命周期: 起始时间 / 覆盖 / 校验 / 清空。品种定义(名/券商/精度)在『品种』页') }}
 
 <section>
   <h2>同步</h2>
@@ -19,26 +19,72 @@
     {% endif %}
   </form>
   {% for e in sync.errors %}<div class="flash error">{{ e }}</div>{% endfor %}
-  <p class="muted">只同步『品种』页里开启下载的品种，各用自己的起始日期。断点续传：中断后再点即从上次位置继续。</p>
+  <p class="muted">只同步开启下载的品种，各用自己的起始日期。断点续传：中断后再点即从上次位置继续。M1 为唯一原始数据，高周期自动聚合。</p>
 </section>
 
 <section>
-  <h2>数据覆盖 (M1)</h2>
+  <h2>数据 ({{ symbols | length }} 品种)</h2>
   <table id="cov-table">
-    <tr><th data-nosort>#</th><th>品种</th><th>下载</th><th>起</th><th>止</th><th>K线数</th></tr>
+    <tr><th data-nosort>#</th><th>品种</th><th>券商</th><th>下载</th><th>起始日期</th>
+        <th>覆盖范围</th><th>已下载(M1)</th><th>校验</th><th data-nosort>操作</th></tr>
     {% for s in symbols %}
     <tr>
       <td class="rownum muted"></td>
       <td>{{ s.symbol }}</td>
-      <td>{% if s.download %}<span class="badge ok">开</span>{% else %}<span class="badge">关</span>{% endif %}</td>
-      <td class="muted">{{ m.ts(s.first_bar) }}</td>
-      <td class="muted">{{ m.ts(s.last_bar) }}</td>
+      <td class="muted">{{ s.broker or '—' }}</td>
+      <td>
+        <form method="post" action="{{ url_for('symbols.update', symbol=s.symbol) }}" class="inline">
+          <input type="checkbox" name="download" {% if s.download %}checked{% endif %} onchange="this.form.submit()">
+        </form>
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('symbols.update', symbol=s.symbol) }}" class="inline">
+          <input name="data_start" value="{{ s.data_start }}" size="10">
+          <button class="small">改</button>
+        </form>
+      </td>
+      <td class="muted">{{ m.ts(s.first_bar) }} → {{ m.ts(s.last_bar) }}</td>
       <td>{% if s.bars %}{{ "{:,}".format(s.bars) }}{% else %}<span class="muted">无</span>{% endif %}</td>
+      <td>{% if s.verified_at %}<span class="badge ok">已校验</span>{% else %}<span class="badge warn">未校验</span>{% endif %}</td>
+      <td>
+        <form method="post" action="{{ url_for('symbols.reverify', symbol=s.symbol) }}" class="inline">
+          <button class="small" title="向券商重新确认并刷新精度/券商">校验</button>
+        </form>
+        {% if s.bars %}
+        <form method="post" action="{{ url_for('symbols.purge', symbol=s.symbol) }}" class="inline"
+              onsubmit="return confirm('清空 {{ s.symbol }} 的 {{ '{:,}'.format(s.bars) }} 根历史数据? 不可恢复')">
+          <button class="small danger">清空数据</button>
+        </form>
+        {% endif %}
+      </td>
     </tr>
     {% else %}
-    {% call m.empty(6) %}还没有品种 — 去 <a href="{{ url_for('symbols.index') }}">品种</a> 页登记{% endcall %}
+    {% call m.empty(9) %}还没有品种 — 去 <a href="{{ url_for('symbols.index') }}">品种</a> 页登记{% endcall %}
     {% endfor %}
   </table>
 </section>
+
+{% if orphans %}
+<section>
+  <h2><span class="badge error">孤儿数据 ({{ orphans | length }})</span></h2>
+  <p class="muted">这些品种在数据库里有历史 K线、却没有品种登记(改名/直接操作数据库遗留)——暴露出来一键清空, 不留看不到的藏数据。</p>
+  <table>
+    <tr><th>品种</th><th>K线数</th><th>覆盖范围</th><th>操作</th></tr>
+    {% for o in orphans %}
+    <tr>
+      <td>{{ o.symbol }}</td>
+      <td>{{ "{:,}".format(o.bars) }}</td>
+      <td class="muted">{{ m.ts(o.first_bar) }} → {{ m.ts(o.last_bar) }}</td>
+      <td>
+        <form method="post" action="{{ url_for('symbols.purge', symbol=o.symbol) }}" class="inline"
+              onsubmit="return confirm('清空孤儿数据 {{ o.symbol }} 的 {{ '{:,}'.format(o.bars) }} 根? 不可恢复')">
+          <button class="small danger">清空数据</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
 
 {% endblock %}

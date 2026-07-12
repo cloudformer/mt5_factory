@@ -36,7 +36,7 @@ async def list_symbols(request: Request):
     直接暴露出来防"看不到的藏数据", 页面可一键清空。"""
     pool = request.app.state.pool
     rows = await pool.fetch(
-        "SELECT s.symbol, s.digits, s.point, s.volume_min, s.stops_level,"
+        "SELECT s.symbol, s.broker, s.digits, s.point, s.volume_min, s.stops_level,"
         "       s.download, s.role, s.data_start, s.verified_at,"
         "       c.first_bar, c.last_bar, c.bars"
         "  FROM symbols s"
@@ -58,11 +58,13 @@ class SymbolRegister(BaseModel):
     data_start: str = "2015-01-01"
 
 
-async def _broker_symbol(pool, name: str) -> dict:
+async def _broker_symbol(pool, name: str) -> tuple[dict, str]:
     """向任一下载 worker 的券商查这个品种是否存在及其真实精度。
+    返回 (symbol_info, broker) — broker=该 worker 账户的 server 名(品种来源标注)。
     券商没有 → 400 明确报错 (不再是下载时才炸的 500)。"""
     host = await pool.fetchrow(
-        "SELECT host, port FROM mt5_hosts WHERE enabled AND download ORDER BY id LIMIT 1")
+        "SELECT host, port, last_health->>'server' AS server FROM mt5_hosts"
+        " WHERE enabled AND download ORDER BY id LIMIT 1")
     if host is None:
         raise HTTPException(status_code=400, detail="没有可用的下载 worker, 无法向券商校验品种")
     headers = {"X-API-Key": sync.BRIDGE_API_KEY} if sync.BRIDGE_API_KEY else {}
@@ -77,7 +79,7 @@ async def _broker_symbol(pool, name: str) -> dict:
                                    "在 MT5 报价窗 Ctrl+M 查实际名称")
     if r.status_code != 200:
         raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", "bridge error"))
-    return r.json()
+    return r.json(), host["server"]
 
 
 @router.post("/symbols")
@@ -89,17 +91,18 @@ async def register_symbol(req: SymbolRegister, request: Request):
     if not name:
         raise HTTPException(status_code=400, detail="symbol 不能为空")
     ds = _parse_date(req.data_start)
-    info = await _broker_symbol(request.app.state.pool, name)
+    info, broker = await _broker_symbol(request.app.state.pool, name)
     row = await request.app.state.pool.fetchrow(
-        "INSERT INTO symbols (symbol, digits, point, volume_min, stops_level,"
+        "INSERT INTO symbols (symbol, broker, digits, point, volume_min, stops_level,"
         "                     role, data_start, download, verified_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, now())"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, now())"
         " ON CONFLICT (symbol) DO UPDATE SET"
-        "   digits=$2, point=$3, volume_min=$4, stops_level=$5, verified_at=now()"
+        "   broker=$2, digits=$3, point=$4, volume_min=$5, stops_level=$6, verified_at=now()"
         " RETURNING *",
-        name, info["digits"], info["point"], info.get("volume_min"),
+        name, broker, info["digits"], info["point"], info.get("volume_min"),
         info.get("trade_stops_level"), req.role, ds)
-    logger.info("symbol registered: %s (digits=%s point=%s)", name, info["digits"], info["point"])
+    logger.info("symbol registered: %s @ %s (digits=%s point=%s)",
+                name, broker, info["digits"], info["point"])
     return dict(row)
 
 
