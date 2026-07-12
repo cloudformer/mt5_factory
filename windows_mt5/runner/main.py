@@ -156,8 +156,8 @@ def fetch_strategies(run_status: str) -> list:
             })
         except Exception as e:
             logger.error("build strategy %s failed: %s", s.get("name"), e)
-    logger.info("loaded %d strategies, skipped %d (status=%s)",
-                len(instances), len(skipped), run_status)
+    logger.info("loaded %d strategies, skipped %d (role=%s)",
+                len(instances), len(skipped), run_status or "idle")
     return instances, skipped
 
 
@@ -230,7 +230,8 @@ def main():
         logger.error("MT5 attach failed %s | bridge side is fine, treating as transient, back to waiting",
                      mt5.last_error())
         time.sleep(10)
-    logger.info("runner started (status=%s, volume=%s)", RUN_STATUS, VOLUME)
+    # 注意: 这是启动横幅, 只打一次; 真实角色由 web 指派决定, 看每轮的 "loaded ... (role=)" 行
+    logger.info("runner started (volume=%s); live role follows web assignment", VOLUME)
 
     instances, skipped, last_bar, last_refresh, run_status = [], [], {}, 0.0, ""
     while True:
