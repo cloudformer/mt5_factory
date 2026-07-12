@@ -1,9 +1,14 @@
-/* 点 JSON 按钮: 展开/收起对应的详情行 (data-json-toggle="行id") */
+/* 点 JSON 按钮: 展开/收起对应的详情行 (data-json-toggle="行id")。
+   手风琴: 展开一条时先收起同表其它已展开的详情行(展开别条=自动收缩上一条)。 */
 document.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-json-toggle]");
   if (!btn) return;
   const row = document.getElementById(btn.getAttribute("data-json-toggle"));
-  if (row) row.hidden = !row.hidden;
+  if (!row) return;
+  const willOpen = row.hidden;
+  const table = row.closest("table");
+  if (table) table.querySelectorAll("tr.detail-row").forEach((r) => (r.hidden = true));
+  row.hidden = !willOpen;   // 再点同一条=收起
 });
 
 /* 行标记(全站): 点数据行加高亮标记, 再点取消, 点别行移到别行(同表只标一行)。
@@ -132,6 +137,8 @@ document.addEventListener("DOMContentLoaded", () => {
    - 计数显示:  <span   data-table-count="表id">         "本页 x / 匹配 y / 共 z" */
 function applyTableFilters(table) {
   const tid = table.id;
+  // 排序/筛选/翻页时把展开的详情行全部收起(干别的就自动收缩, 避免翻页后残留悬空)
+  table.querySelectorAll("tr.detail-row").forEach((r) => (r.hidden = true));
   const q = (document.querySelector(`input[data-table-filter="${tid}"]`)?.value || "")
     .trim().toLowerCase();
   const colFilters = [...document.querySelectorAll(`select[data-col-filter^="${tid}:"]`)]

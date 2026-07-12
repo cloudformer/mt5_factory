@@ -91,7 +91,7 @@
     <button class="small">筛选</button>
     <span class="muted">↑ 重新查库; ↓ 本页即时过滤/排序/翻页</span>
   </form>
-  {{ m.table_toolbar('bt-results', hint='搜索: 策略/品种/周期/状态…') }}
+  {{ m.table_toolbar('bt-results', hint='搜索 ID / 策略名 / 品种 / 周期 / 状态(模糊·即时)') }}
   {# data-detail-sort: 带展开明细行仍要能排序 — tables.js 排序只动主行, 明细行按 toggle id 跟随 #}
   <table id="bt-results" data-detail-sort>
     <tr><th data-nosort title="动态序号: 随排序/筛选/翻页变, 只为看行, 非策略ID">#</th>
