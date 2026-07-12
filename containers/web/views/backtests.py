@@ -9,19 +9,27 @@ bp = Blueprint("backtests", __name__, url_prefix="/backtests")
 @bp.get("/")
 def index():
     symbol = request.args.get("symbol") or None
+    broker = request.args.get("broker") or None
     min_trades = request.args.get("min_trades", 30, type=int)
-    results, bt, costs = [], {}, {}
+    results, bt, costs, brokers, symbols = [], {}, {}, [], []
     try:
         params = {"min_trades": min_trades, "limit": 200}  # 前端分页展示, 多取一些
         if symbol:
             params["symbol"] = symbol
+        if broker:
+            params["broker"] = broker
         results = api.get("/backtest/top", **params)["results"]
         bt = api.get("/backtest/status")
         costs = api.get("/config")["config"].get("backtest_costs", {})
+        # 两个筛选下拉的选项从库里拉 (货币对/券商), 默认全部; 与 worker 无关
+        syms = api.get("/symbols")["symbols"]
+        symbols = [s["symbol"] for s in syms if s.get("download")]
+        brokers = sorted({s["broker"] for s in syms if s.get("broker")})
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("backtests.html", results=results, bt=bt, costs=costs,
-                           symbol=symbol, min_trades=min_trades)
+                           symbol=symbol, broker=broker, min_trades=min_trades,
+                           brokers=brokers, symbols=symbols)
 
 
 @bp.post("/costs")
@@ -45,10 +53,12 @@ def run():
     payload = {"status": request.form.get("status", "CANDIDATE"),
                "limit": request.form.get("limit", 500, type=int),
                "slippage_points": request.form.get("slippage_points", type=float),
-               "commission_points": request.form.get("commission_points", type=float),
-               "cross_symbol": bool(request.form.get("cross_symbol"))}
+               "commission_points": request.form.get("commission_points", type=float)}
+    # 两个筛选: 货币对 / 券商, 空=全部
     if request.form.get("symbol"):
         payload["symbol"] = request.form["symbol"].strip().upper()
+    if request.form.get("broker"):
+        payload["broker"] = request.form["broker"]
     if request.form.get("spread_points", "").strip():
         payload["spread_points"] = float(request.form["spread_points"])
     ids = [s.strip() for s in request.form.get("strategy_ids", "").split(",") if s.strip()]
