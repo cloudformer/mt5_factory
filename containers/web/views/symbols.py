@@ -33,7 +33,7 @@ def add():
         flash(f"{result['symbol']} 已登记 (digits={result['digits']}, point={result['point']})", "ok")
     except (api.ApiError, KeyError) as e:
         flash(f"登记失败: {e}", "error")
-    return redirect(url_for("symbols.index"))
+    return redirect(request.referrer or url_for("symbols.index"))
 
 
 @bp.post("/<symbol>/update")
@@ -47,7 +47,7 @@ def update(symbol):
         flash(f"{symbol} 已更新", "ok")
     except api.ApiError as e:
         flash(f"更新失败: {e}", "error")
-    return redirect(url_for("symbols.index"))
+    return redirect(request.referrer or url_for("symbols.index"))
 
 
 @bp.post("/<symbol>/reverify")
@@ -58,7 +58,7 @@ def reverify(symbol):
         flash(f"{result['symbol']} 已重新校验 (digits={result['digits']}, point={result['point']})", "ok")
     except api.ApiError as e:
         flash(f"校验失败: {e}", "error")
-    return redirect(url_for("symbols.index"))
+    return redirect(request.referrer or url_for("symbols.index"))
 
 
 @bp.post("/<symbol>/purge")
@@ -69,7 +69,7 @@ def purge(symbol):
         flash(f"{symbol} 已清空 {result['deleted_bars']:,} 根历史数据", "ok")
     except api.ApiError as e:
         flash(f"清空失败: {e}", "error")
-    return redirect(url_for("symbols.index"))
+    return redirect(request.referrer or url_for("symbols.index"))
 
 
 @bp.post("/<symbol>/delete")
@@ -80,4 +80,4 @@ def delete(symbol):
         flash(f"{symbol} 已删除", "ok")
     except api.ApiError as e:
         flash(f"删除失败: {e}", "error")
-    return redirect(url_for("symbols.index"))
+    return redirect(request.referrer or url_for("symbols.index"))
