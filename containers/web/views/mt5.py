@@ -37,6 +37,9 @@ def index():
               ("其他", [h for h in hosts if not h["runner"]])]
     host_id = request.args.get("host_id", type=int) or next(
         (g[1][0]["id"] for g in groups if g[1]), None)  # 默认第一台 demo 主机
+    # 选中 worker 登录的券商(server) — 整页流水都来自这一家, 放页头
+    sel = next((h for h in hosts if h["id"] == host_id), None)
+    broker = ((sel or {}).get("last_health") or {}).get("server") if sel else None
     if host_id:
         try:
             data = api.get(f"/hosts/{host_id}/trades", days=days)
@@ -54,4 +57,5 @@ def index():
             d["entry_cn"] = ENTRY_CN.get(d["entry"], d["entry"])
             d["reason_cn"] = REASON_CN.get(d["reason"], d["reason"])
             d["who"] = "入金/出金" if d["type"] == "balance" else _who(d["magic"], magic_map)
-    return render_template("mt5.html", groups=groups, host_id=host_id, days=days, data=data)
+    return render_template("mt5.html", groups=groups, host_id=host_id, days=days,
+                           data=data, broker=broker)

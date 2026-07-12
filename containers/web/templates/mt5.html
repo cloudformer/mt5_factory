@@ -10,13 +10,14 @@
       <optgroup label="{{ label }}">
         {% for h in hs %}
         <option value="{{ h.id }}" {% if h.id == host_id %}selected{% endif %}>
-          {{ h.name }} ({{ h.host }} · {{ h.account_type }})</option>
+          {{ h.name }} ({{ h.host }}{% if h.last_health and h.last_health.server %} · {{ h.last_health.server }}{% else %} · {{ h.account_type }}{% endif %})</option>
         {% endfor %}
       </optgroup>
       {% endif %}{% endfor %}
     </select>
     <label>近 <input name="days" value="{{ days }}" size="3"> 天</label>
     <button class="small">查询</button>
+    {% if broker %}<span class="badge">券商 {{ broker }}</span>{% endif %}
     <span class="muted">点表头排序</span>
   </form>
 </section>
