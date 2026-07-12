@@ -129,7 +129,7 @@ def detect_run_status() -> str:
 def fetch_strategies(run_status: str) -> list:
     """从 api 拉取本 worker 应运行的策略实例"""
     if not run_status:
-        return []
+        return [], []   # 空闲: 无角色 → 不加载任何策略 (必须返回两个值, 与解包对齐)
     r = requests.get(f"{API_URL}/strategies/status",
                      params={"status": run_status, "limit": 500}, timeout=10)
     r.raise_for_status()
