@@ -41,25 +41,27 @@
       </td>
     </tr>
     {% else %}
-    {% call m.empty(8) %}暂无 worker — 启动 Windows worker 自动上报，或用下方表单注册{% endcall %}
+    {% call m.empty(8) %}暂无 worker — 启动 Windows worker 会自动上报到这里{% endcall %}
     {% endfor %}
   </table>
 </section>
 
 <section>
-  <h2>手动注册</h2>
-  <form method="post" action="{{ url_for('workers.add') }}" class="inline">
-    <input name="name" placeholder="名称 如 win-1" size="10" required>
-    <input name="host" placeholder="IP 如 192.168.1.50" size="14" required>
-    <input name="port" value="8020" size="5">
-    <label><input type="checkbox" name="download" checked> download</label>
-    <select name="runner">
-      <option value="">不跑策略</option><option value="demo">demo</option><option value="live">live</option>
+  <h2>指派职能</h2>
+  <form method="post" action="{{ url_for('workers.assign') }}" class="inline">
+    <select name="host_id">
+      {% for h in hosts if h.enabled %}<option value="{{ h.id }}">{{ h.name }} ({{ h.host }}, 当前: {{ m.worker_duty(h) }})</option>{% endfor %}
     </select>
-    <select name="account_type"><option>DEMO</option><option>REAL</option></select>
-    <button>注册</button>
+    <select name="runner">
+      <option value="">不跑策略</option>
+      <option value="demo">demo</option>
+      <option value="live">live</option>
+    </select>
+    <button {% if not hosts %}disabled{% endif %}>指派</button>
   </form>
-  <p class="muted">职能：download=参与数据下载（可多台并行）；runner=跑什么策略（demo/live 单选，结构上不可能同机双跑）；也可在 Demo / Live 页指派。</p>
+  <p class="muted">worker 靠 bridge 自动上报(名字=计算机名), 无需手动注册; download 默认开。
+     这里给它指派 runner(跑什么策略); 也可在 Demo / Live 页指派。
+     已是 demo/live 的要先选『不跑策略』取消, 才能改投另一边(runner 60 秒内自动切换)。</p>
 </section>
 
 <section>

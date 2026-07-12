@@ -22,21 +22,17 @@ def index():
     return render_template("workers.html", hosts=hosts)
 
 
-@bp.post("/add")
-def add():
+@bp.post("/assign")
+def assign():
+    """给已自动上报的 worker 指派 runner 职能(demo/live/不跑)。
+    机器从下拉选(名字=真实计算机名, 不手输); worker 本身靠 bridge 自动注册, 无需手动加。"""
     try:
+        host_id = int(request.form["host_id"])
         runner = request.form.get("runner") or None
-        result = api.post("/hosts", {
-            "name": request.form["name"].strip(),
-            "host": request.form["host"].strip(),
-            "port": request.form.get("port", 8020, type=int),
-            "download": request.form.get("download") == "on",
-            "runner": runner,
-            "account_type": request.form.get("account_type", "DEMO"),
-        })
-        flash(f"worker {result['name']} 已注册 (id={result['id']})", "ok")
-    except (api.ApiError, KeyError) as e:
-        flash(f"注册失败: {e}", "error")
+        result = api.post_patch(f"/hosts/{host_id}", {"runner": runner})
+        flash(f"{result['name']} → runner={result['runner'] or '不跑'}", "ok")
+    except (api.ApiError, ValueError, KeyError) as e:
+        flash(f"指派失败: {e}", "error")
     return redirect(url_for("workers.index"))
 
 
