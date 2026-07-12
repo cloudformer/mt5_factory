@@ -107,6 +107,9 @@ th, td {
 }
 th { white-space: nowrap; }  /* 表头短, 保持单行不折 */
 td form.inline { white-space: nowrap; }  /* 操作列按钮不折行 */
+/* 密集表(列很多, 如 Demo/Live 策略表): 单元格一律不换行 → 行高整齐、列宽自动稳定,
+   不用手动拖; 整表过宽时在自己区块内横向滚动(比挤着换行好看) */
+table.dense th, table.dense td { white-space: nowrap; overflow-wrap: normal; }
 th {
   color: var(--muted); font-weight: 600; font-size: 12px;
   text-transform: uppercase; letter-spacing: .5px;

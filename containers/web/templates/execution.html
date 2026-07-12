@@ -89,7 +89,7 @@
     <a class="btn" href="{{ url_for('mt5.index', host_id=assigned[0].id) if assigned else url_for('mt5.index') }}"
        title="从 MT5 实时读取原始持仓与成交明细(不经数据库), 用于核对本页统计">🔍 MT5 原始流水核对</a>
   </h2>
-  <table>
+  <table class="dense">
     <tr><th>ID</th><th>名称</th><th>品种</th><th>券商</th><th>周期</th><th>magic</th>
         <th title="最新一次回测的成绩 (悲观撮合); 悬停看净点数/PF/回撤">回测 笔(胜/负)</th>
         <th title="demo 账户实际战绩 (近90天窗口, 心跳快照入库) — 与回测列比 = 回测质量">Demo 实跑</th>
@@ -127,9 +127,8 @@
         {% if st.position.count %}<span class="badge ok">持仓中</span>
         {% else %}<span class="badge">等待信号</span>{% endif %}
         {% if st.quote_stale %}<span class="badge warn" title="该品种最新tick已超过10分钟没动">报价停滞(休市/断流?)</span>{% endif %}
-        {% if st.last_bar_fmt %}<div class="muted" style="font-size:11px"
-             title="最后处理的收盘bar — 时间跟着市场走=正常盯盘, 长时间停住=卡了或休市">
-          bar {{ st.last_bar_fmt }}</div>{% endif %}
+        {% if st.last_bar_fmt %}<span class="muted" style="font-size:11px; margin-left:6px"
+             title="最后处理的收盘bar — 时间跟着市场走=正常盯盘, 长时间停住=卡了或休市">bar {{ st.last_bar_fmt }}</span>{% endif %}
       </td>
       <td>{{ st.position.count or '—' }}{% if st.position.count %} ({{ st.position.volume }}手){% endif %}</td>
       <td class="{{ 'pos' if st.position.profit > 0 else ('neg' if st.position.profit < 0 else 'muted') }}">
