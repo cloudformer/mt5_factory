@@ -24,6 +24,7 @@
 
 <section>
   <h2>数据 ({{ symbols | length }} 品种)</h2>
+  {{ m.table_toolbar('cov-table', hint='搜索: 品种/券商…') }}
   <table id="cov-table">
     <tr><th data-nosort>#</th><th>品种</th><th>券商</th><th>下载</th><th>起始日期</th>
         <th>覆盖范围</th><th>已下载(M1)</th><th>校验</th><th data-nosort>操作</th></tr>

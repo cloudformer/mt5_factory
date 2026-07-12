@@ -18,6 +18,7 @@
 
 <section>
   <h2>品种主档 ({{ symbols | length }})</h2>
+  {{ m.table_toolbar('sym-table', hint='搜索: 品种/券商/角色…') }}
   <table id="sym-table">
     <tr><th data-nosort>#</th><th>品种</th><th>券商</th><th>角色</th><th>digits</th><th>point</th><th>最小手</th>
         <th>校验</th><th data-nosort>操作</th></tr>

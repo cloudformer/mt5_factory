@@ -65,6 +65,8 @@ document.addEventListener("change", async (e) => {
    数字列(含 %, +, — 空值)按数值排, 其余按文本; 空值(—)固定沉底 */
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("table").forEach((table) => {
+    // 有配对详情行的表(如 Workers 主行+隐藏详情)排序会把两者拆散, 跳过
+    if (table.querySelector(".detail-row")) return;
     const headers = [...table.querySelectorAll("tr:first-child th")];
     if (headers.length < 2) return;  // 单列表(如无表头的小结构)不处理
     headers.forEach((th, col) => {
