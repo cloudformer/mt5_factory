@@ -59,7 +59,7 @@
     </select>
     <button {% if not hosts %}disabled{% endif %}>指派</button>
   </form>
-  <p class="muted">worker 三种运行状态: <b>空闲</b>(不跑策略) / <b>demo</b> / <b>live</b>。
+  <p class="muted">worker 三种运行状态: <b>空闲</b> / <b>demo</b> / <b>live</b>(空闲=不跑策略, 仍参与数据下载)。
      demo ⇄ live 必须先切回<b>空闲</b>再改投另一边(两步, 安全; runner 60 秒内自动切换)。
      worker 靠 bridge 自动上报(名字=计算机名), 无需手动注册; download 默认开; MT5 账户在 Windows 手动登录。</p>
 </section>

@@ -24,13 +24,14 @@ def index():
 
 @bp.post("/assign")
 def assign():
-    """给已自动上报的 worker 指派 runner 职能(demo/live/不跑)。
+    """给已自动上报的 worker 指派运行状态(空闲/demo/live)。
     机器从下拉选(名字=真实计算机名, 不手输); worker 本身靠 bridge 自动注册, 无需手动加。"""
     try:
         host_id = int(request.form["host_id"])
         runner = request.form.get("runner") or None
         result = api.post_patch(f"/hosts/{host_id}", {"runner": runner})
-        flash(f"{result['name']} → runner={result['runner'] or '不跑'}", "ok")
+        flash(f"{result['name']} → {result['runner'] or '空闲'}"
+              " (详情里角色/策略数约 1 分钟后随 runner 心跳更新)", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
         flash(f"指派失败: {e}", "error")
     return redirect(url_for("workers.index"))
