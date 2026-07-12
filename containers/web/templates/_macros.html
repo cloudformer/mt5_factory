@@ -54,10 +54,11 @@
       <td>MT5 账户</td>
       <td><span class="badge {{ 'ok' if hb.login else '' }}">{{ (hb.login ~ ' @ ' ~ hb.server) if hb.login else '未登录' }}</span></td>
       <td class="muted">{{ hb.currency or '' }}</td></tr>
-  <tr title="做什么: 交易执行进程, 按本机角色(demo/live)拉策略、盯bar、下单。&#10;未运行: 看门狗会自动拉起; 长期不起点『重启』。&#10;角色为空=未指派, 去 Demo/Live 页指派">
+  <tr title="做什么: 交易执行进程, 按角色(demo/live)拉策略、盯bar、下单。&#10;进程未运行: 看门狗会自动拉起; 长期不起点『重启』。&#10;角色=你指派的(空闲/demo/live); 策略数是实际加载数, 切换后约15秒追上">
       <td>runner</td>
       <td><span class="badge {{ 'ok' if rn.alive else '' }}">{{ '运行中' if rn.alive else '未运行' }}</span></td>
-      <td class="muted">角色 <b class="pos">{{ '空闲' if rn.run_status in (none, '', '未指派') else rn.run_status }}</b> · 策略 <b class="pos">{{ rn.strategies if rn.strategies is not none else '—' }}</b> 个</td></tr>
+      {# 角色读数据库(h.runner, 与主表"运行"列同源, 即时一致); 策略数读心跳(实际加载, 可滞后) #}
+      <td class="muted">角色 <b class="pos">{{ h.runner or '空闲' }}</b> · 策略 <b class="pos">{{ rn.strategies if rn.strategies is not none else '—' }}</b> 个</td></tr>
   <tr><td>开机自检</td>
       <td>{% if st %}
         <span class="badge {{ 'ok' if st.ok else 'error' }}">{{ 'OK' if st.ok else 'FAIL' }}

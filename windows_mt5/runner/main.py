@@ -230,8 +230,8 @@ def main():
         logger.error("MT5 attach failed %s | bridge side is fine, treating as transient, back to waiting",
                      mt5.last_error())
         time.sleep(10)
-    # 注意: 这是启动横幅, 只打一次; 真实角色由 web 指派决定, 看每轮的 "loaded ... (role=)" 行
-    logger.info("runner started (volume=%s); live role follows web assignment", VOLUME)
+    # 启动横幅, 只打一次。进程起来了; 角色(idle/demo/live)看每轮的 "role=" 行, 不在这里断言
+    logger.info("runner process OK (volume=%s)", VOLUME)
 
     instances, skipped, last_bar, last_refresh, run_status = [], [], {}, 0.0, ""
     while True:
