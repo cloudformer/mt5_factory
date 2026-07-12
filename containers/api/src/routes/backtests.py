@@ -151,7 +151,7 @@ async def status():
 
 @router.get("/backtest/top")
 async def top(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
-              min_trades: int = 30, limit: int = 20,
+              min_trades: int = 0, limit: int = 20,
               q_field: Optional[str] = None, q_text: Optional[str] = None):
     """排名: 每策略取主品种成绩(b.symbol = s.symbol), 按净点数排; 附带跨品种健壮性摘要与明细。
 

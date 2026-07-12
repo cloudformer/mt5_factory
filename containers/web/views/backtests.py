@@ -12,7 +12,7 @@ def index():
     broker = request.args.get("broker") or None
     q_field = request.args.get("q_field") or "name"
     q_text = request.args.get("q_text") or None
-    min_trades = request.args.get("min_trades", 30, type=int)
+    min_trades = request.args.get("min_trades", 0, type=int)  # 默认0=全显示; 想过滤过拟合再调高
     results, bt, costs, brokers, symbols, orphans = [], {}, {}, [], [], []
     try:
         params = {"min_trades": min_trades, "limit": 200}  # 前端分页展示, 多取一些
