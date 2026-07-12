@@ -101,16 +101,17 @@
 <section>
   <h2>数据覆盖 (M1)</h2>
   <table>
-    <tr><th>品种</th><th>起</th><th>止</th><th>K线数</th></tr>
+    <tr><th>品种</th><th>券商</th><th>起</th><th>止</th><th>K线数</th></tr>
     {% for c in coverage %}
     <tr>
       <td>{{ c.symbol }}</td>
+      <td class="muted">{{ c.broker or '—' }}</td>
       <td class="muted">{{ m.ts(c.first_bar) }}</td>
       <td class="muted">{{ m.ts(c.last_bar) }}</td>
       <td>{{ "{:,}".format(c.bars) }}</td>
     </tr>
     {% else %}
-    {% call m.empty(4) %}暂无数据 — 到 <a href="{{ url_for('datasync.index') }}">下载</a> 页触发同步{% endcall %}
+    {% call m.empty(5) %}暂无数据 — 到 <a href="{{ url_for('datasync.index') }}">下载</a> 页触发同步{% endcall %}
     {% endfor %}
   </table>
 </section>

@@ -90,7 +90,7 @@
        title="从 MT5 实时读取原始持仓与成交明细(不经数据库), 用于核对本页统计">🔍 MT5 原始流水核对</a>
   </h2>
   <table>
-    <tr><th>ID</th><th>名称</th><th>品种</th><th>周期</th><th>magic</th>
+    <tr><th>ID</th><th>名称</th><th>品种</th><th>券商</th><th>周期</th><th>magic</th>
         <th title="最新一次回测的成绩 (悲观撮合); 悬停看净点数/PF/回撤">回测 笔(胜/负)</th>
         <th title="demo 账户实际战绩 (近90天窗口, 心跳快照入库) — 与回测列比 = 回测质量">Demo 实跑</th>
         <th title="live 账户实际战绩 — 与 Demo 列比 = 券商执行是否一致 (代码两边完全相同)">Live 实跑</th>
@@ -102,6 +102,7 @@
       <td>{{ s.id }}</td>
       <td class="clip" title="{{ s.name }}">{{ s.name }}</td>
       <td>{{ s.symbol }}</td>
+      <td class="muted">{{ s.broker or '—' }}</td>
       <td>{{ s.timeframe }}</td>
       <td class="muted cell-magic">{{ s.magic_number or '—' }}</td>
       <td class="muted">
@@ -139,7 +140,7 @@
       <td>{{ m.strategy_actions(s) }}</td>
     </tr>
     {% else %}
-    {% call m.empty(12) %}
+    {% call m.empty(13) %}
       没有 {{ cfg.status }} 状态的策略 —
       {% if mode == 'demo' %}去 <a href="{{ url_for('backtests.index') }}">回测</a> 页把优胜策略提升到 DEMO
       {% else %}去 <a href="{{ url_for('execution.demo') }}">Demo</a> 页把验证过的策略转为 LIVE{% endif %}

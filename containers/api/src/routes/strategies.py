@@ -136,8 +136,9 @@ async def list_strategies(request: Request, status: Optional[str] = None,
       backtest: 最新一次回测指标 (backtests 表, 可能为 null)
       stats:    {"demo": {trades,wins,profit}, "live": {...}} (strategy_stats 表, 心跳快照)"""
     q = ("SELECT s.id, s.name, s.template, s.symbol, s.timeframe, s.params, s.status,"
-         "       s.magic_number, b.metrics AS backtest, st.stats"
+         "       s.magic_number, sy.broker, b.metrics AS backtest, st.stats"
          "  FROM strategies s"
+         "  LEFT JOIN symbols sy ON sy.symbol = s.symbol"  # 券商(来自品种主档)
          "  LEFT JOIN LATERAL (SELECT metrics FROM backtests"
          "                      WHERE strategy_id = s.id ORDER BY id DESC LIMIT 1) b ON true"
          "  LEFT JOIN LATERAL (SELECT jsonb_object_agg(lower(env), jsonb_build_object("

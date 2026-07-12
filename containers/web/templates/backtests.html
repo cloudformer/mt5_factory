@@ -45,13 +45,14 @@
   </form>
   {{ m.table_toolbar('bt-results', hint='搜索: 策略/品种/周期/状态…') }}
   <table id="bt-results">
-    <tr><th data-nosort>#</th><th>策略</th><th>品种</th><th>周期</th><th>笔数</th><th>胜率</th>
+    <tr><th data-nosort>#</th><th>策略</th><th>品种</th><th>券商</th><th>周期</th><th>笔数</th><th>胜率</th>
         <th>净点数</th><th>PF</th><th>最大回撤</th><th>状态</th><th data-nosort>操作</th></tr>
     {% for r in results %}
     <tr>
       <td class="rownum muted"></td>{# 动态序号: 跟随当前筛选/排序, 由 tables.js 填充 #}
       <td class="clip" title="{{ r.name }}">{{ r.name }}</td>
       <td>{{ r.symbol }}</td>
+      <td class="muted">{{ r.broker or '—' }}</td>
       <td>{{ r.timeframe }}</td>
       <td>{{ r.metrics.trades }}</td>
       <td>{{ '%.1f' % (r.metrics.win_rate * 100) }}%</td>
@@ -62,7 +63,7 @@
       <td>{{ m.strategy_actions({'id': r.strategy_id, 'status': r.status}) }}</td>
     </tr>
     {% else %}
-    {% call m.empty(11) %}暂无结果 — 先到 <a href="{{ url_for('strategies.index') }}">策略</a> 页生成，再启动回测{% endcall %}
+    {% call m.empty(12) %}暂无结果 — 先到 <a href="{{ url_for('strategies.index') }}">策略</a> 页生成，再启动回测{% endcall %}
     {% endfor %}
   </table>
 </section>

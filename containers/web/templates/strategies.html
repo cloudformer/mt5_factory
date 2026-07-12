@@ -70,13 +70,14 @@
     <button class="small">筛选</button>
   </form>
   <table>
-    <tr><th>ID</th><th>名称</th><th>品种</th><th>周期</th><th data-nosort>参数</th>
+    <tr><th>ID</th><th>名称</th><th>品种</th><th>券商</th><th>周期</th><th data-nosort>参数</th>
         <th>状态</th><th>magic</th><th data-nosort>操作</th></tr>
     {% for s in strategies %}
     <tr>
       <td>{{ s.id }}</td>
       <td class="clip" title="{{ s.name }}">{{ s.name }}</td>
       <td>{{ s.symbol }}</td>
+      <td class="muted">{{ s.broker or '—' }}</td>
       <td>{{ s.timeframe }}</td>
       <td class="mono">{{ s.params }}</td>
       <td class="cell-status">{{ m.strategy_status(s.status) }}</td>
@@ -84,7 +85,7 @@
       <td>{{ m.strategy_actions(s) }}</td>
     </tr>
     {% else %}
-    {% call m.empty(8) %}没有匹配的策略 — 用上方表单生成{% endcall %}
+    {% call m.empty(9) %}没有匹配的策略 — 用上方表单生成{% endcall %}
     {% endfor %}
   </table>
 </section>

@@ -118,9 +118,10 @@ async def top(request: Request, symbol: Optional[str] = None,
     """每个策略取最新一次回测, 按净点数排名"""
     q = """
         SELECT DISTINCT ON (b.strategy_id)
-               b.strategy_id, s.name, s.symbol, s.timeframe, s.status,
+               b.strategy_id, s.name, s.symbol, s.timeframe, s.status, sy.broker,
                b.metrics, b.created_at
           FROM backtests b JOIN strategies s ON s.id = b.strategy_id
+          LEFT JOIN symbols sy ON sy.symbol = s.symbol
          WHERE (b.metrics->>'trades')::int >= $1
     """
     args = [min_trades]
