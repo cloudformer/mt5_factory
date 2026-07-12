@@ -52,6 +52,8 @@
         <option value="">全部</option>
         {% for b in brokers %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
       </select></label>
+    <label title="反过拟合(空间维度): 同参数在所有 download 货币对各回测一行, 产出『跨品种健壮性』列 + 每品种明细。运行时间 ×货币对数">
+      <input type="checkbox" name="cross_symbol" value="1"> 跨品种验证</label>
     <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="本次运行的滑点; 默认取上方系统配置"></label>
     <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="本次运行的佣金; 默认取上方系统配置"></label>
     <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="本次运行的点差; 留空=真实点差"></label>
@@ -63,8 +65,8 @@
       {% endif %}
     </span>
   </form>
-  <p class="muted">两个筛选(货币对 / 券商)决定回测哪些策略, 默认全部。回测只读数据库, 与 worker 无关;
-    券商目前一家, 下拉就一个选项, 选"全部"照跑, 接第二家自动多出来。</p>
+  <p class="muted">货币对 / 券商筛选决定回测哪些策略(默认全部)。勾<b>跨品种验证</b>=每策略在所有货币对各跑一行,
+    结果排名多出"跨品种健壮性"列(点开看每品种明细), 用来识别"只在某品种巧合赚"的过拟合;不勾=只跑主品种(快)。</p>
   {% for e in bt.errors %}<div class="flash error">{{ e }}</div>{% endfor %}
 </section>
 
@@ -86,9 +88,12 @@
     <span class="muted">↑ 重新查库; ↓ 本页即时过滤/排序/翻页</span>
   </form>
   {{ m.table_toolbar('bt-results', hint='搜索: 策略/品种/周期/状态…') }}
-  <table id="bt-results">
+  {# data-detail-sort: 带展开明细行仍要能排序 — tables.js 排序只动主行, 明细行按 toggle id 跟随 #}
+  <table id="bt-results" data-detail-sort>
     <tr><th data-nosort>#</th><th>策略</th><th>品种</th><th>券商</th><th>周期</th><th>笔数</th><th>胜率</th>
-        <th>净点数</th><th>PF</th><th>最大回撤</th><th>状态</th><th data-nosort>操作</th></tr>
+        <th>净点数</th><th>PF</th><th>最大回撤</th>
+        <th title="同参数跨品种回测: 几个品种里几个盈利。全赚=普适规律最可信; 少数赚=可能过拟合。点开看每品种明细">跨品种健壮性</th>
+        <th>状态</th><th data-nosort>操作</th></tr>
     {% for r in results %}
     <tr>
       <td class="rownum muted"></td>{# 动态序号: 跟随当前筛选/排序, 由 tables.js 填充 #}
@@ -101,11 +106,42 @@
       <td class="{% if r.metrics.net_points > 0 %}pos{% else %}neg{% endif %}">{{ r.metrics.net_points }}</td>
       <td>{{ r.metrics.profit_factor or '—' }}</td>
       <td class="muted">{{ r.metrics.max_dd_points }}</td>
+      <td class="cell-robust">
+        {% if r.breakdown %}
+        {% set ratio = (r.profitable / r.tested) if r.tested else 0 %}
+        <button class="status-btn" data-json-toggle="bt-bd-{{ r.strategy_id }}"
+                title="{{ r.profitable }}/{{ r.tested }} 个有交易的品种盈利 (共在 {{ r.ran_on }} 个品种上跑过); 点开看每品种明细">
+          {% if r.ran_on > 1 %}
+          <span class="badge {{ 'ok' if ratio == 1 else ('warn' if ratio >= 0.6 else '') }}">{{ r.profitable }}/{{ r.tested }} 赚</span>
+          {% else %}<span class="badge" title="只跑了主品种 — 勾『跨品种验证』重跑可比较多品种健壮性">1 品种</span>{% endif %}
+          <span class="caret">▾</span></button>
+        {% else %}<span class="muted">—</span>{% endif %}
+      </td>
       <td class="cell-status">{{ m.strategy_status(r.status) }}</td>
       <td>{{ m.strategy_actions({'id': r.strategy_id, 'status': r.status}) }}</td>
     </tr>
+    {% if r.breakdown %}
+    <tr id="bt-bd-{{ r.strategy_id }}" class="detail-row" hidden>
+      <td colspan="13">
+        <table class="subtable">
+          <tr><th>品种</th><th>券商</th><th>笔(胜/负)</th><th>净点数</th><th>PF</th><th>最大回撤</th></tr>
+          {% for b in r.breakdown %}
+          {% set bw = (b.metrics.trades * b.metrics.win_rate) | round | int if b.metrics.trades else 0 %}
+          <tr>
+            <td>{{ b.symbol }}{% if b.symbol == r.symbol %} <span class="badge">主</span>{% endif %}</td>
+            <td class="muted">{{ b.broker or '—' }}</td>
+            <td>{{ b.metrics.trades }} ({{ bw }}胜/{{ b.metrics.trades - bw }}负)</td>
+            <td class="{{ 'pos' if b.metrics.net_points > 0 else 'neg' }}">{{ b.metrics.net_points }}</td>
+            <td>{{ b.metrics.profit_factor or '—' }}</td>
+            <td class="muted">{{ b.metrics.max_dd_points }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </td>
+    </tr>
+    {% endif %}
     {% else %}
-    {% call m.empty(12) %}暂无结果 — 先到 <a href="{{ url_for('strategies.index') }}">策略</a> 页生成，再启动回测{% endcall %}
+    {% call m.empty(13) %}暂无结果 — 先到 <a href="{{ url_for('strategies.index') }}">策略</a> 页生成，再启动回测{% endcall %}
     {% endfor %}
   </table>
 </section>

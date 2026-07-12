@@ -81,6 +81,8 @@ def run():
         payload["symbol"] = request.form["symbol"].strip().upper()
     if request.form.get("broker"):
         payload["broker"] = request.form["broker"]
+    if request.form.get("cross_symbol"):  # 跨品种验证(乙)
+        payload["cross_symbol"] = True
     if request.form.get("spread_points", "").strip():
         payload["spread_points"] = float(request.form["spread_points"])
     ids = [s.strip() for s in request.form.get("strategy_ids", "").split(",") if s.strip()]

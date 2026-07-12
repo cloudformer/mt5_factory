@@ -139,8 +139,10 @@ async def list_strategies(request: Request, status: Optional[str] = None,
          "       s.magic_number, sy.broker, b.metrics AS backtest, st.stats"
          "  FROM strategies s"
          "  LEFT JOIN symbols sy ON sy.symbol = s.symbol"  # 券商(来自品种主档)
+         # 只取主品种回测 (symbol=s.symbol): 跨品种验证会写多品种行, 不能串到别品种成绩
          "  LEFT JOIN LATERAL (SELECT metrics FROM backtests"
-         "                      WHERE strategy_id = s.id ORDER BY id DESC LIMIT 1) b ON true"
+         "                      WHERE strategy_id = s.id AND symbol = s.symbol"
+         "                      ORDER BY id DESC LIMIT 1) b ON true"
          "  LEFT JOIN LATERAL (SELECT jsonb_object_agg(lower(env), jsonb_build_object("
          "                       'trades', trades, 'wins', wins,"
          "                       'profit', round(profit::numeric, 2))) AS stats"
