@@ -51,7 +51,8 @@ async def run(req: BacktestRequest, request: Request):
         rows = await pool.fetch(
             "SELECT * FROM strategies WHERE id = ANY($1) ORDER BY symbol, id", req.strategy_ids)
     else:
-        q = "SELECT * FROM strategies WHERE status=$1"
+        # 只回测品种仍在主档里的策略: 品种已删除的孤儿策略(如旧 BTCUSD)自动跳过, 不报错
+        q = "SELECT * FROM strategies WHERE status=$1 AND symbol IN (SELECT symbol FROM symbols)"
         args = [req.status]
         if req.symbol:  # 货币对筛选
             args.append(req.symbol); q += f" AND symbol=${len(args)}"
