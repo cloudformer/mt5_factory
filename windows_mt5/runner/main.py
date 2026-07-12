@@ -39,8 +39,8 @@ VOLUME = float(os.getenv("VOLUME", "0.01"))
 MT5_PATH = os.getenv("MT5_PATH", "").strip()
 BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 同机 bridge, 开机时等它先连上 MT5
 STATUS_FILE = Path(__file__).resolve().parents[1] / "runner_status.json"  # bridge 状态页读它
-POLL_SECONDS = 10
-REFRESH_SECONDS = 60
+POLL_SECONDS = 10       # 主循环: 写心跳 + 处理收盘bar
+REFRESH_SECONDS = 15    # 重新检测角色/拉策略 (原60s太久, 切换后要等太长; 收到15s 更快反映)
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),

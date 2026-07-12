@@ -85,4 +85,20 @@
   <p class="muted">当前未启用：MT5 账户在 Windows 上手动登录。future: 需要远程下发账户时, 去掉本表单各控件的 disabled 即可(后端已就绪)。</p>
 </section>
 
+{# 指派/重启后自动刷新: URL 带 watch=截止毫秒, 每 6 秒 reload(保留同一 URL), 到点自停。
+   避免更新后干等心跳; 不点操作时(无 watch)不刷, 不打扰正常浏览 #}
+<script>
+(function () {
+  const until = parseInt(new URLSearchParams(location.search).get("watch") || "0", 10);
+  if (until && Date.now() < until) {
+    const left = Math.ceil((until - Date.now()) / 1000);
+    const tip = document.createElement("div");
+    tip.className = "flash ok";
+    tip.textContent = "自动刷新中(约 " + left + " 秒后停)… 状态更新会自动显示";
+    document.querySelector("main").prepend(tip);
+    setTimeout(() => location.reload(), 6000);
+  }
+})();
+</script>
+
 {% endblock %}

@@ -1,4 +1,5 @@
 """Workers 页: worker 注册 / 启停 / 删除 / 下发 MT5 账户"""
+import time
 from datetime import datetime
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
@@ -6,6 +7,13 @@ from flask import Blueprint, flash, redirect, render_template, request, url_for
 import api_client as api
 
 bp = Blueprint("workers", __name__, url_prefix="/workers")
+
+WATCH_MS = 120_000  # 指派/重启后自动刷新页面的时长(毫秒), 到点自停
+
+
+def _watch():
+    """返回带"观察截止时间戳"的 index URL — 页面据此自动刷新到点自停(见模板 JS)"""
+    return url_for("workers.index", watch=int(time.time() * 1000) + WATCH_MS)
 
 
 @bp.get("/")
@@ -31,10 +39,10 @@ def assign():
         runner = request.form.get("runner") or None
         result = api.post_patch(f"/hosts/{host_id}", {"runner": runner})
         flash(f"{result['name']} → {result['runner'] or '空闲'}"
-              " (详情里角色/策略数约 1 分钟后随 runner 心跳更新)", "ok")
+              " (角色/策略数约 15 秒后随 runner 心跳更新, 页面已自动刷新)", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
         flash(f"指派失败: {e}", "error")
-    return redirect(url_for("workers.index"))
+    return redirect(_watch())
 
 
 @bp.post("/<int:host_id>/toggle")
@@ -63,10 +71,10 @@ def restart(host_id: int):
     """远程重启 worker 的 bridge/runner (更新代码请在 Windows 上手动 update.bat)"""
     try:
         api.post(f"/hosts/{host_id}/restart")
-        flash("已触发重启 — worker 离线约 1 分钟, 回来后看详情自检确认", "ok")
+        flash("已触发重启 — worker 离线约 1 分钟, 页面已自动刷新, 回来后看详情自检确认", "ok")
     except api.ApiError as e:
         flash(f"重启失败: {e}", "error")
-    return redirect(url_for("workers.index"))
+    return redirect(_watch())
 
 
 @bp.post("/<int:host_id>/connect")
