@@ -68,8 +68,10 @@
     </select>
     <input name="symbol" value="{{ symbol or '' }}" size="10" placeholder="品种">
     <button class="small">筛选</button>
+    <span class="muted">↑ 重新查库; ↓ 本页即时过滤/排序/翻页</span>
   </form>
-  <table>
+  {{ m.table_toolbar('strat-table', hint='搜索: 名称/品种/券商/状态…') }}
+  <table id="strat-table">
     <tr><th>ID</th><th>名称</th><th>品种</th><th>券商</th><th>周期</th><th data-nosort>参数</th>
         <th>状态</th><th>magic</th><th data-nosort>操作</th></tr>
     {% for s in strategies %}
