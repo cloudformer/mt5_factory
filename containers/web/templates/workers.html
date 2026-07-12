@@ -6,14 +6,14 @@
 <section>
   <h2>已注册 worker</h2>
   <table>
-    <tr><th>ID</th><th>名称</th><th>地址</th><th>职能</th><th>账户</th><th>状态 (点开看详情)</th><th>最后心跳</th><th>操作</th></tr>
+    <tr><th>ID</th><th>名称</th><th>地址</th><th>下载</th><th>运行</th><th>状态 (点开看详情)</th><th>最后心跳</th><th>操作</th></tr>
     {% for h in hosts %}
     <tr>
       <td>{{ h.id }}</td>
       <td>{{ h.name }}</td>
       <td>{{ h.host }}:{{ h.port }}</td>
-      <td>{{ m.worker_duty(h) }}</td>
-      <td>{{ h.account_type }}</td>
+      <td>{{ '是' if h.download else '否' }}</td>
+      <td>{% if h.runner %}<b class="pos">{{ h.runner }}</b>{% else %}空闲{% endif %}</td>
       <td>
         <button class="status-btn" data-json-toggle="health-{{ h.id }}">
           {{ m.worker_status(h) }} <span class="caret">▾</span></button>
