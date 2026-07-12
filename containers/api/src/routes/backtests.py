@@ -151,11 +151,13 @@ async def status():
 
 @router.get("/backtest/top")
 async def top(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
-              min_trades: int = 30, limit: int = 20):
+              min_trades: int = 30, limit: int = 20,
+              q_field: Optional[str] = None, q_text: Optional[str] = None):
     """排名: 每策略取主品种成绩(b.symbol = s.symbol), 按净点数排; 附带跨品种健壮性摘要与明细。
 
-    排名只认主品种行 — 跨品种验证结果只喂健壮性列/明细, 不参与排名,
-    避免拿某个巧合品种的成绩去排名。symbol/broker 为可选筛选(货币对/券商)。
+    排名只认主品种行 — 跨品种验证结果只喂健壮性列/明细, 不参与排名。
+    symbol/broker 为可选筛选(货币对/券商)。
+    q_field/q_text: 服务端搜索(查库), 策略名模糊(ILIKE), ID/周期/状态精准。
     """
     pool = request.app.state.pool
     q = """
@@ -171,6 +173,17 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
     if broker:
         args.append(broker)
         q += f" AND b.broker = ${len(args)}"
+    # 服务端搜索: 只有策略名模糊, 其余精准
+    if q_text and q_text.strip() and q_field:
+        t = q_text.strip()
+        if q_field == "name":
+            args.append(f"%{t}%"); q += f" AND s.name ILIKE ${len(args)}"
+        elif q_field == "id" and t.isdigit():
+            args.append(int(t)); q += f" AND b.strategy_id = ${len(args)}"
+        elif q_field == "timeframe":
+            args.append(t.upper()); q += f" AND s.timeframe = ${len(args)}"
+        elif q_field == "status":
+            args.append(t.upper()); q += f" AND s.status = ${len(args)}"
     rows = await pool.fetch(q, *args)
     ranked = sorted(rows, key=lambda r: r["metrics"]["net_points"], reverse=True)[:limit]
 

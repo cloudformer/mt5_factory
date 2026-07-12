@@ -10,6 +10,8 @@ bp = Blueprint("backtests", __name__, url_prefix="/backtests")
 def index():
     symbol = request.args.get("symbol") or None
     broker = request.args.get("broker") or None
+    q_field = request.args.get("q_field") or "name"
+    q_text = request.args.get("q_text") or None
     min_trades = request.args.get("min_trades", 30, type=int)
     results, bt, costs, brokers, symbols, orphans = [], {}, {}, [], [], []
     try:
@@ -18,6 +20,9 @@ def index():
             params["symbol"] = symbol
         if broker:
             params["broker"] = broker
+        if q_text:  # 服务端搜索(查库): 策略名模糊 / ID·周期·状态精准
+            params["q_field"] = q_field
+            params["q_text"] = q_text
         results = api.get("/backtest/top", **params)["results"]
         bt = api.get("/backtest/status")
         costs = api.get("/config")["config"].get("backtest_costs", {})
@@ -31,6 +36,7 @@ def index():
         flash(f"api 不可用: {e}", "error")
     return render_template("backtests.html", results=results, bt=bt, costs=costs,
                            symbol=symbol, broker=broker, min_trades=min_trades,
+                           q_field=q_field, q_text=q_text,
                            brokers=brokers, symbols=symbols, orphans=orphans)
 
 

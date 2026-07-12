@@ -88,10 +88,16 @@
         {% for b in brokers %}<option value="{{ b }}" {% if b == broker %}selected{% endif %}>{{ b }}</option>{% endfor %}
       </select></label>
     <label>最少交易数 <input name="min_trades" value="{{ min_trades }}" size="4"></label>
-    <button class="small">筛选</button>
-    <span class="muted">↑ 重新查库; ↓ 本页即时过滤/排序/翻页</span>
+    <label>搜索
+      <select name="q_field" title="策略名=模糊; ID/周期/状态=精准">
+        {% for v, t in [('name','策略名(模糊)'), ('id','ID'), ('timeframe','周期'), ('status','状态')] %}
+        <option value="{{ v }}" {% if v == q_field %}selected{% endif %}>{{ t }}</option>{% endfor %}
+      </select></label>
+    <input name="q_text" value="{{ q_text or '' }}" size="16" placeholder="关键词(空=不搜)">
+    <button class="small">查询</button>
+    <span class="muted">↑ 查库(搜全部策略); ↓ 本页即时过滤/排序/翻页</span>
   </form>
-  {{ m.table_toolbar('bt-results', hint='搜索 ID / 策略名 / 品种 / 周期 / 状态(模糊·即时)') }}
+  {{ m.table_toolbar('bt-results', hint='本页即时过滤已加载行(整行模糊)') }}
   {# data-detail-sort: 带展开明细行仍要能排序 — tables.js 排序只动主行, 明细行按 toggle id 跟随 #}
   <table id="bt-results" data-detail-sort>
     <tr><th data-nosort title="动态序号: 随排序/筛选/翻页变, 只为看行, 非策略ID">#</th>
