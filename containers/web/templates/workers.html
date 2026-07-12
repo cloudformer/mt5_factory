@@ -20,37 +20,43 @@
       </td>
       <td class="muted">{{ m.lts(h.last_heartbeat) }}</td>
       <td>
-        <form method="post" action="{{ url_for('workers.toggle', host_id=h.id) }}" class="inline">
-          <button name="enabled" value="{{ 'false' if h.enabled else 'true' }}" class="small">
-            {{ '停用' if h.enabled else '启用' }}</button>
-        </form>
-        <form method="post" action="{{ url_for('workers.delete', host_id=h.id) }}" class="inline"
-              onsubmit="return confirm('删除 worker {{ h.name }}?')">
-          <button class="small danger">删除</button>
-        </form>
-        <form method="post" action="{{ url_for('workers.restart', host_id=h.id) }}" class="inline"
-              onsubmit="return confirm('重启 {{ h.name }} 的 bridge/runner, 离线约1分钟?')">
-          <button class="small" title="做什么: 重启 bridge+runner 并重跑自检(约1分钟)。&#10;什么情况用:&#10;· MT5终端卡死(详情显示未连接)&#10;· 改了 env 配置要生效&#10;· runner 换账户后不下单(句柄失效)&#10;· 想重跑一遍自检&#10;不用于: 更新代码(去Windows双击update.bat)、休市、策略正常等信号&#10;前提: bridge 可达(离线状态点了没用)">重启</button>
-        </form>
-        {# 运行状态切换(状态机): 有角色→只能切空闲; 空闲→可跑demo/live #}
+        {# 左组: 角色切换(状态机, 有角色→空闲 / 空闲→demo·live), 点击需确认 #}
         {% if h.runner %}
-        <form method="post" action="{{ url_for('workers.assign') }}" class="inline">
+        <form method="post" action="{{ url_for('workers.assign') }}" class="inline"
+              onsubmit="return confirm('{{ h.name }} 切回空闲? 将停止跑策略(已有持仓由券商SL/TP兜底, 不受影响)')">
           <input type="hidden" name="host_id" value="{{ h.id }}">
           <input type="hidden" name="runner" value="">
           <button class="small" title="停止跑策略, 回到空闲(仍在线、仍下载)">切空闲</button>
         </form>
         {% else %}
-        <form method="post" action="{{ url_for('workers.assign') }}" class="inline">
+        <form method="post" action="{{ url_for('workers.assign') }}" class="inline"
+              onsubmit="return confirm('指派 {{ h.name }} 为 demo, 开始跑 DEMO 策略?')">
           <input type="hidden" name="host_id" value="{{ h.id }}">
           <input type="hidden" name="runner" value="demo">
           <button class="small" title="指派为 demo: 跑 DEMO 状态的策略">跑demo</button>
         </form>
-        <form method="post" action="{{ url_for('workers.assign') }}" class="inline">
+        <form method="post" action="{{ url_for('workers.assign') }}" class="inline"
+              onsubmit="return confirm('指派 {{ h.name }} 为 live —— 跑 LIVE 策略(真钱)! 确认该机 MT5 登录的是真实账户?')">
           <input type="hidden" name="host_id" value="{{ h.id }}">
           <input type="hidden" name="runner" value="live">
           <button class="small" title="指派为 live: 跑 LIVE 状态的策略(真钱)">跑live</button>
         </form>
         {% endif %}
+        <span class="op-sep">│</span>
+        {# 右组: 运维三件套(高亮), 任何状态都在, 点击需确认 #}
+        <form method="post" action="{{ url_for('workers.toggle', host_id=h.id) }}" class="inline"
+              onsubmit="return confirm('{{ '停用' if h.enabled else '启用' }} {{ h.name }}?{{ ' 将释放其MT5账户占用、停止心跳/下载/策略(可逆)' if h.enabled else '' }}')">
+          <button name="enabled" value="{{ 'false' if h.enabled else 'true' }}" class="small hl">
+            {{ '停用' if h.enabled else '启用' }}</button>
+        </form>
+        <form method="post" action="{{ url_for('workers.restart', host_id=h.id) }}" class="inline"
+              onsubmit="return confirm('重启 {{ h.name }} 的 bridge/runner, 离线约1分钟?')">
+          <button class="small hl" title="做什么: 重启 bridge+runner 并重跑自检(约1分钟)。&#10;什么情况用:&#10;· MT5终端卡死(详情显示未连接)&#10;· 改了 env 配置要生效&#10;· runner 换账户后不下单(句柄失效)&#10;· 想重跑一遍自检&#10;不用于: 更新代码(去Windows双击update.bat)、休市、策略正常等信号&#10;前提: bridge 可达(离线状态点了没用)">重启</button>
+        </form>
+        <form method="post" action="{{ url_for('workers.delete', host_id=h.id) }}" class="inline"
+              onsubmit="return confirm('删除 worker {{ h.name }}? (机器还在跑会自动重新注册; 彻底移除先在Windows关进程)')">
+          <button class="small hl danger">删除</button>
+        </form>
       </td>
     </tr>
     <tr id="health-{{ h.id }}" class="detail-row" hidden>

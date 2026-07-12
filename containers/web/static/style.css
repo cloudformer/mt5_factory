@@ -207,6 +207,11 @@ button.small {
 button.small:hover { background: #f8fafc; color: var(--text); border-color: #9ca3af; }
 button.danger { background: #fff; color: var(--err-fg); border: 1px solid var(--err-bd); }
 button.danger:hover { background: var(--err-bg); border-color: #f87171; }
+/* 运维三件套高亮: 比左边角色切换按钮更醒目(深字重边) */
+button.small.hl { color: var(--text); border-color: #9ca3af; font-weight: 600; }
+button.small.hl.danger { color: var(--err-fg); border-color: var(--err-bd); }
+/* 操作列左右分组的分隔符 */
+.op-sep { color: #cbd5e1; margin: 0 6px; user-select: none; }
 
 td form.inline { display: inline-flex; margin-right: 4px; }
 select.small { padding: 3px 6px; font-size: 12px; color: var(--muted); }
