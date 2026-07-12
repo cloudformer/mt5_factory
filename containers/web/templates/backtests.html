@@ -107,6 +107,9 @@
         <th title="同参数跨品种回测: 几个品种里几个盈利。全赚=普适规律最可信; 少数赚=可能过拟合。点开看每品种明细">跨品种健壮性</th>
         <th>状态</th><th data-nosort>操作</th></tr>
     {% for r in results %}
+    {# 收起行的笔数/胜率 = 跨所有测过品种合计(纯前端累加 breakdown); 净点/PF/回撤仍主品种 #}
+    {% set ns = namespace(t=0, w=0) %}
+    {% for b in r.breakdown %}{% set ns.t = ns.t + (b.metrics.trades or 0) %}{% set ns.w = ns.w + (b.metrics.wins or 0) %}{% endfor %}
     <tr>
       <td class="rownum muted"></td>{# 动态序号: 跟随当前筛选/排序, 由 tables.js 填充 #}
       <td class="mono">{{ r.strategy_id }}</td>{# 真实策略ID(固定), 填进批量回测的策略ID框 #}
@@ -114,8 +117,8 @@
       <td>{{ r.symbol }}</td>
       <td class="muted">{{ r.broker or '—' }}</td>
       <td>{{ r.timeframe }}</td>
-      <td>{{ r.metrics.trades }}</td>
-      <td>{{ '%.1f' % ((r.metrics.win_rate or 0) * 100) }}%</td>
+      <td title="{% if r.ran_on and r.ran_on > 1 %}跨 {{ r.ran_on }} 个品种合计(展开看拆分){% else %}主品种{% endif %}">{{ ns.t }}</td>
+      <td>{{ '%.1f' % (ns.w / ns.t * 100) if ns.t else '0.0' }}%</td>
       <td class="{% if r.metrics.net_points > 0 %}pos{% else %}neg{% endif %}">{{ r.metrics.net_points }}</td>
       <td>{{ r.metrics.profit_factor or '—' }}</td>
       <td class="muted">{{ r.metrics.max_dd_points or 0 }}</td>

@@ -37,13 +37,13 @@ async def list_symbols(request: Request):
     pool = request.app.state.pool
     rows = await pool.fetch(
         "SELECT s.symbol, s.broker, s.digits, s.point, s.volume_min, s.stops_level,"
-        "       s.download, s.role, s.data_start, s.verified_at,"
+        "       s.download, s.data_start, s.verified_at,"
         "       c.first_bar, c.last_bar, c.bars"
         "  FROM symbols s"
         "  LEFT JOIN LATERAL (SELECT min(time) AS first_bar, max(time) AS last_bar,"
         "                            count(*) AS bars FROM historical_bars"
         "                      WHERE symbol = s.symbol AND timeframe='M1') c ON true"
-        " ORDER BY s.role, s.symbol")
+        " ORDER BY s.symbol")
     orphans = await pool.fetch(
         "SELECT symbol, min(time) AS first_bar, max(time) AS last_bar, count(*) AS bars"
         "  FROM historical_bars"
@@ -54,7 +54,6 @@ async def list_symbols(request: Request):
 
 class SymbolRegister(BaseModel):
     symbol: str
-    role: str = "trade"            # trade | validate
     data_start: str = "2015-01-01"
 
 
