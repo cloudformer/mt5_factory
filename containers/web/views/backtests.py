@@ -32,6 +32,15 @@ def index():
                            brokers=brokers, symbols=symbols)
 
 
+@bp.get("/status")
+def status():
+    """回测进度 JSON — 供页面轮询自动刷新进度条(跑完前端整页刷新看结果)"""
+    try:
+        return api.get("/backtest/status")
+    except api.ApiError as e:
+        return {"running": False, "error": str(e)}
+
+
 @bp.post("/costs")
 def save_costs():
     """保存系统默认成本 (config 表, 运行表单会预填它)"""

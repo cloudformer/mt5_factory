@@ -37,9 +37,12 @@
     <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="本次运行的佣金; 默认取上方系统配置"></label>
     <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="本次运行的点差; 留空=真实点差"></label>
     <button {% if bt.running %}disabled{% endif %}>启动回测</button>
-    {% if bt.running %}
-    <span class="badge ok">运行中 {{ bt.done }}/{{ bt.total }}</span> <span class="muted">{{ bt.current }}</span>
-    {% endif %}
+    <span id="bt-progress"{% if bt.running %} data-running="1"{% endif %}>
+      {% if bt.running %}
+      <span class="badge ok">运行中 <span class="bt-done">{{ bt.done }}</span>/<span class="bt-total">{{ bt.total }}</span></span>
+      <span class="muted bt-current">{{ bt.current }}</span>
+      {% endif %}
+    </span>
   </form>
   <p class="muted">两个筛选(货币对 / 券商)决定回测哪些策略, 默认全部。回测只读数据库, 与 worker 无关;
     券商目前一家, 下拉就一个选项, 选"全部"照跑, 接第二家自动多出来。</p>
@@ -87,5 +90,24 @@
     {% endfor %}
   </table>
 </section>
+
+{# 回测运行中: 轮询状态自动刷新进度; 跑完自动整页刷新看排名结果 #}
+<script>
+(function () {
+  const box = document.getElementById("bt-progress");
+  if (!box || !box.dataset.running) return;
+  const tick = async () => {
+    try {
+      const s = await fetch("{{ url_for('backtests.status') }}").then((r) => r.json());
+      if (!s.running) { location.reload(); return; }   // 跑完刷新看结果 + 重启用按钮
+      box.querySelector(".bt-done").textContent = s.done;
+      box.querySelector(".bt-total").textContent = s.total;
+      box.querySelector(".bt-current").textContent = s.current || "";
+    } catch (e) { /* 网络抖动忽略, 下一拍再试 */ }
+    setTimeout(tick, 2000);
+  };
+  setTimeout(tick, 2000);
+})();
+</script>
 
 {% endblock %}
