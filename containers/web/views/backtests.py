@@ -49,6 +49,16 @@ def status():
         return {"running": False, "error": str(e)}
 
 
+@bp.get("/plan")
+def plan():
+    """运行预览 JSON — 表单选项一变就刷新"将回测 N×M=K 次"(透传 api /backtest/plan)"""
+    try:
+        return api.get("/backtest/plan",
+                       **{k: v for k, v in request.args.items() if v not in (None, "")})
+    except api.ApiError as e:
+        return {"strategies": 0, "symbols_per": 1, "runs": 0, "error": str(e)}
+
+
 @bp.post("/archive-orphans")
 def archive_orphans():
     """把品种已删的孤儿策略批量归档(可逆)"""
@@ -78,28 +88,28 @@ def save_costs():
 
 @bp.post("/run")
 def run():
-    payload = {"limit": request.form.get("limit", 500, type=int),
-               "slippage_points": request.form.get("slippage_points", type=float),
-               "commission_points": request.form.get("commission_points", type=float)}
-    # 两个筛选: 货币对 / 券商, 空=全部
-    if request.form.get("symbol"):
-        payload["symbol"] = request.form["symbol"].strip().upper()
-    if request.form.get("broker"):
-        payload["broker"] = request.form["broker"]
-    if request.form.get("cross_symbol"):  # 跨品种验证(乙)
-        payload["cross_symbol"] = True
-    if request.form.get("scope") == "untested":  # 范围: 全部(默认) / 仅未测试(补漏)
-        payload["untested_only"] = True
-    if request.form.get("spread_points", "").strip():
-        payload["spread_points"] = float(request.form["spread_points"])
-    ids = [s.strip() for s in request.form.get("strategy_ids", "").split(",") if s.strip()]
-    if ids:
+    """启动批量回测。选策略二选一: 按筛选(货币对/券商/范围) 或 按ID(点名)。
+    成本不再从本表单传 — api 自动取系统默认(上方"默认成本"区块是唯一修改处)。"""
+    payload = {}
+    if request.form.get("mode") == "ids":  # 按 ID 点名, 忽略筛选
+        ids = [s.strip() for s in request.form.get("strategy_ids", "").split(",") if s.strip()]
+        if not ids:
+            flash("按ID模式需要填策略ID(逗号分隔)", "error")
+            return redirect(url_for("backtests.index"))
         try:
             payload["strategy_ids"] = [int(s) for s in ids]
         except ValueError:
             flash("策略ID必须是数字, 逗号分隔", "error")
             return redirect(url_for("backtests.index"))
-    payload = {k: v for k, v in payload.items() if v is not None}
+    else:  # 按筛选圈一批
+        if request.form.get("symbol"):
+            payload["symbol"] = request.form["symbol"].strip().upper()
+        if request.form.get("broker"):
+            payload["broker"] = request.form["broker"]
+        if request.form.get("scope") == "untested":  # 范围: 全部(默认) / 仅未测试(补漏)
+            payload["untested_only"] = True
+    if request.form.get("cross_symbol"):  # 跨品种验证(乙)
+        payload["cross_symbol"] = True
     try:
         result = api.post("/backtest/run", payload)
         flash(f"回测已启动: {result['total']} 个策略 (成本: {result['costs']})", "ok")

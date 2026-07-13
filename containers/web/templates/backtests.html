@@ -35,36 +35,44 @@
 
 <section>
   <h2>批量回测</h2>
-  <form method="post" action="{{ url_for('backtests.run') }}" class="runbar">
+  {# 布局: 选策略(按筛选/按ID 二选一, 互斥灰掉) → 选项 → 预览(将跑 N×M=K)+成本只读+启动 #}
+  <form method="post" action="{{ url_for('backtests.run') }}" class="runbar" id="bt-run">
     <div class="row">
-      <span class="tag">筛选</span>
+      <span class="tag">选策略</span>
+      <label class="chk"><input type="radio" name="mode" value="filter" checked> 按筛选</label>
       <label>货币对
-        <select name="symbol" title="全部=不限; 选具体货币对=只回测该货币对的策略">
+        <select name="symbol" data-fsel title="全部=不限; 选具体货币对=只回测该货币对的策略">
           <option value="">全部</option>
           {% for s in symbols %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
         </select></label>
       <label>券商
-        <select name="broker" title="全部=不限; 选具体券商=只回测该券商的货币对(券商标签下载数据时落库, 与 worker 无关)">
+        <select name="broker" data-fsel title="全部=不限; 选具体券商=只回测该券商的货币对">
           <option value="">全部</option>
           {% for b in brokers %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
         </select></label>
-      <label title="全部=不管测没测过都跑(重跑覆盖); 仅未测试=只跑还没有回测记录的策略(补漏, 不重复跑已测的)">范围
-        <select name="scope">
+      <label title="全部=不管测没测过都跑(重跑覆盖); 仅未测试=只跑还没有回测记录的策略(补漏)">范围
+        <select name="scope" data-fsel>
           <option value="">全部</option>
           <option value="untested">仅未测试</option>
         </select></label>
-      <label class="chk" title="反过拟合(空间维度): 同参数在所有 download 货币对各回测一行, 产出『跨品种健壮性』列 + 每品种明细。运行时间 ×货币对数">
-        <input type="checkbox" name="cross_symbol" value="1"> 跨品种验证</label>
-      <label class="opt" title="指定则只回测这些策略; ID 在策略页查看">策略ID
-        <input name="strategy_ids" size="12" placeholder="逗号分隔·可空"></label>
-      <label class="opt">上限 <input name="limit" value="500" size="4"></label>
+      <span class="op-sep">│</span>
+      <label class="chk"><input type="radio" name="mode" value="ids"> 按 ID</label>
+      <input name="strategy_ids" size="14" placeholder="逗号分隔" disabled
+             title="直接点名策略(结果排名的 ID 列 / 策略页查看); 选中按ID时筛选失效">
     </div>
     <div class="row">
-      <span class="tag">成本</span>
-      <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="单边滑点(点)"></label>
-      <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="往返佣金(点数等值)"></label>
-      <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="留空=每根 bar 记录的真实点差"></label>
+      <span class="tag">选项</span>
+      <label class="chk" title="反过拟合(空间维度): 同参数在所有 download 货币对各回测一行, 产出『跨品种健壮性』列 + 每品种明细">
+        <input type="checkbox" name="cross_symbol" value="1"> 跨品种验证</label>
+      <span class="muted">每策略在所有货币对各跑一行, 运行 ×品种数</span>
+    </div>
+    <div class="row">
+      <span class="tag">预览</span>
+      <span id="bt-plan" class="muted">…</span>
       <span class="spacer"></span>
+      <span class="muted" title="回测撮合的成本假设, 在上方『默认成本(系统配置)』修改">
+        成本: 滑点{{ costs.get('slippage_points', 3) }} · 佣金{{ costs.get('commission_points', 7) }} ·
+        点差{{ costs.get('spread_points') if costs.get('spread_points') is not none else '真实' }}</span>
       <span id="bt-progress"{% if bt.running %} data-running="1"{% endif %}>
         {% if bt.running %}
         <span class="badge ok">运行中 <span class="bt-done">{{ bt.done }}</span>/<span class="bt-total">{{ bt.total }}</span></span>
@@ -74,9 +82,43 @@
       <button class="go" {% if bt.running %}disabled{% endif %}>启动回测</button>
     </div>
   </form>
-  <p class="muted">回测按货币对进行,与策略状态无关、对 demo/live 交易零影响(只刷新回测记录)。
-    默认回测全部策略;勾<b>跨品种验证</b>=每策略在所有货币对各跑一行,结果排名多出"跨品种健壮性"列(点开看每品种明细)。</p>
   {% for e in bt.errors %}<div class="flash error">{{ e }}</div>{% endfor %}
+
+  {# 选策略互斥(按筛选/按ID) + 运行预览实时刷新 #}
+  <script>
+  (function () {
+    const form = document.getElementById("bt-run");
+    const idsBox = form.querySelector("input[name=strategy_ids]");
+    const fsels = [...form.querySelectorAll("[data-fsel]")];
+    const planEl = document.getElementById("bt-plan");
+    const mode = () => form.querySelector("input[name=mode]:checked").value;
+
+    function applyMode() {
+      const byIds = mode() === "ids";
+      idsBox.disabled = !byIds;
+      fsels.forEach((s) => (s.disabled = byIds));
+    }
+    let timer;
+    async function refreshPlan() {
+      const p = new URLSearchParams();
+      if (mode() === "ids") {
+        if (!idsBox.value.trim()) { planEl.textContent = "按ID: 请输入策略ID"; return; }
+        p.set("strategy_ids", idsBox.value.trim());
+      } else {
+        fsels.forEach((s) => { if (s.value) p.set(s.name === "scope" ? "untested_only" : s.name,
+                                                  s.name === "scope" ? "true" : s.value); });
+      }
+      if (form.querySelector("input[name=cross_symbol]").checked) p.set("cross_symbol", "true");
+      try {
+        const d = await fetch("{{ url_for('backtests.plan') }}?" + p).then((r) => r.json());
+        planEl.textContent = `将回测 ${d.strategies} 个策略 × ${d.symbols_per} 品种 = ${d.runs} 次`;
+      } catch { planEl.textContent = "预览不可用"; }
+    }
+    form.addEventListener("change", () => { applyMode(); refreshPlan(); });
+    idsBox.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(refreshPlan, 400); });
+    applyMode(); refreshPlan();
+  })();
+  </script>
 </section>
 
 <section>

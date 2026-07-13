@@ -154,6 +154,41 @@ async def status():
     return bt_state
 
 
+@router.get("/backtest/plan")
+async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
+               untested_only: bool = False, cross_symbol: bool = False,
+               strategy_ids: Optional[str] = None, limit: int = 500):
+    """运行预览: 按当前选择数一数会跑多少 — N 个策略 × 品种 = K 次(启动前所见即所得)"""
+    pool = request.app.state.pool
+    # extra = 主品种不在 download 集合里的策略数(跨品种时它们的主品种仍会单独跑一次)
+    count_sql = ("SELECT count(*) AS n, count(*) FILTER (WHERE symbol NOT IN"
+                 " (SELECT symbol FROM symbols WHERE download)) AS extra FROM strategies")
+    if strategy_ids is not None:
+        try:
+            ids = [int(s) for s in strategy_ids.split(",") if s.strip()]
+        except ValueError:
+            return {"strategies": 0, "symbols_per": 1, "runs": 0}
+        if not ids:
+            return {"strategies": 0, "symbols_per": 1, "runs": 0}
+        row = await pool.fetchrow(f"{count_sql} WHERE id = ANY($1)", ids)
+    else:
+        q = f"{count_sql} WHERE symbol IN (SELECT symbol FROM symbols)"
+        args = []
+        if symbol:
+            args.append(symbol); q += f" AND symbol=${len(args)}"
+        if broker:
+            args.append(broker)
+            q += f" AND symbol IN (SELECT symbol FROM symbols WHERE broker=${len(args)})"
+        if untested_only:
+            q += (" AND NOT EXISTS (SELECT 1 FROM backtests b"
+                  "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol)")
+        row = await pool.fetchrow(q, *args)
+    n = min(row["n"], limit)
+    uni = await pool.fetchval("SELECT count(*) FROM symbols WHERE download") or 0
+    runs = (n * uni + min(row["extra"], n)) if cross_symbol else n
+    return {"strategies": n, "symbols_per": (uni if cross_symbol else 1), "runs": runs}
+
+
 @router.get("/backtest/top")
 async def top(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
               min_trades: int = 0, limit: int = 20,
