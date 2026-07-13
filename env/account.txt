@@ -22,3 +22,11 @@ account     : {'login': 10011650727, 'trade_mode': 0, 'leverage': 100, 'limit_or
 ============================================================
 
 请按任意键继续. . .
+
+Name     : Name     : 
+Type     : Forex Hedged USD
+Server   : MetaQuotes-Demo
+Login    : 109562647
+Password : -3YfBsFr
+Investor : _jYdFe1r
+
