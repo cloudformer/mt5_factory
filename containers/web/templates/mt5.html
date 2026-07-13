@@ -18,6 +18,7 @@
     <label>近 <input name="days" value="{{ days }}" size="3"> 天</label>
     <button class="small">查询</button>
     {% if broker %}<span class="badge">券商 {{ broker }}</span>{% endif %}
+    {% if worker_name %}<span class="badge {{ 'warn' if worker_role == 'demo' else ('ok' if worker_role == 'live' else '') }}">{{ worker_name }}{% if worker_role %} · {{ worker_role }}{% endif %}</span>{% endif %}
     <span class="muted">点表头排序</span>
   </form>
 </section>
@@ -54,22 +55,22 @@
   {# 通用工具条(宏) + 本表专属的列下拉筛选(放 caller 块, 选项由 tables.js 自动填) #}
   {% call m.table_toolbar('mt5-deals', hint='文本搜索…') %}
     <label>品种 <select data-col-filter="mt5-deals:2" class="small"><option value="">全部</option></select></label>
-    <label>类型 <select data-col-filter="mt5-deals:3" class="small"><option value="">全部</option></select></label>
-    <label>腿 <select data-col-filter="mt5-deals:4" class="small"><option value="">全部</option></select></label>
+    <label>动作 <select data-col-filter="mt5-deals:3" class="small"><option value="">全部</option></select></label>
+    <label>方向 <select data-col-filter="mt5-deals:4" class="small"><option value="">全部</option></select></label>
     <label>原因 <select data-col-filter="mt5-deals:5" class="small"><option value="">全部</option></select></label>
     <label>magic <select data-col-filter="mt5-deals:11" class="small"><option value="">全部</option></select></label>
     <label>归属 <select data-col-filter="mt5-deals:12" class="small"><option value="">全部</option></select></label>
   {% endcall %}
   <table id="mt5-deals">
-    <tr><th data-nosort>#</th><th>时间</th><th>品种</th><th>类型</th><th>腿</th><th>原因</th><th>手数</th><th>价格</th>
+    <tr><th data-nosort>#</th><th>时间</th><th>品种</th><th>动作</th><th>方向</th><th>原因</th><th>手数</th><th>价格</th>
         <th>盈亏</th><th>手续费</th><th>swap</th><th>magic</th><th>归属</th><th data-nosort>仓位ID</th></tr>
     {% for d in data.deals %}
     <tr>
       <td class="rownum muted"></td>
       <td>{{ d.time_fmt }}</td>
       <td>{{ d.symbol or '—' }}</td>
-      <td>{{ {'buy': '买', 'sell': '卖', 'balance': '资金'}.get(d.type, d.type) }}</td>
       <td>{{ d.entry_cn }}</td>
+      <td>{{ {'buy': '买', 'sell': '卖', 'balance': '资金'}.get(d.type, d.type) }}</td>
       <td>{{ d.reason_cn }}</td>
       <td>{{ d.volume or '—' }}</td>
       <td>{{ d.price or '—' }}</td>
@@ -84,8 +85,9 @@
     {% call m.empty(14) %}近 {{ data.days }} 天无成交{% endcall %}
     {% endfor %}
   </table>
-  <p class="muted">一笔完整交易 = 开仓腿 + 平仓腿两行（按仓位ID关联），盈亏落在平仓腿上；
-     "原因"列可直接看出是止损/止盈触发还是程序/手动下单。worker 本机备用入口：http://&lt;worker_ip&gt;:8020/trades?fmt=html</p>
+  <p class="muted">一笔完整交易 = 开仓 + 平仓两行（按仓位ID关联），盈亏落在平仓行上；
+     "原因"列只在<b>平仓</b>显示(止损/止盈,或测试单的程序平)——开仓统一是程序、不重复标。
+     worker 本机备用入口：http://&lt;worker_ip&gt;:8020/trades?fmt=html</p>
 </section>
 {% endif %}
 

@@ -11,7 +11,7 @@ import api_client as api
 
 bp = Blueprint("mt5", __name__, url_prefix="/mt5")
 
-ENTRY_CN = {"in": "开", "out": "平", "inout": "反手", "out_by": "对冲平"}
+ENTRY_CN = {"in": "开仓", "out": "平仓", "inout": "反手", "out_by": "对冲平"}
 REASON_CN = {"sl": "止损", "tp": "止盈", "expert": "程序", "manual": "手动",
              "mobile": "手机", "web": "网页", "so": "强平"}
 SMOKE_MAGIC = 999999
@@ -55,7 +55,16 @@ def index():
         for d in data["deals"]:
             d["time_fmt"] = datetime.fromtimestamp(d["time"]).strftime("%m-%d %H:%M:%S")
             d["entry_cn"] = ENTRY_CN.get(d["entry"], d["entry"])
-            d["reason_cn"] = REASON_CN.get(d["reason"], d["reason"])
+            # 原因只对平仓有意义; 开仓一律程序 → 冗余不显示。
+            # 平仓若是"程序"触发 = 测试单(策略平仓只会 SL/TP, 不主动平) → 显示"测试"
+            if d["entry"] == "in":
+                d["reason_cn"] = "—"
+            elif d["reason"] == "expert":
+                d["reason_cn"] = "测试"
+            else:
+                d["reason_cn"] = REASON_CN.get(d["reason"], d["reason"])
             d["who"] = "入金/出金" if d["type"] == "balance" else _who(d["magic"], magic_map)
     return render_template("mt5.html", groups=groups, host_id=host_id, days=days,
-                           data=data, broker=broker)
+                           data=data, broker=broker,
+                           worker_name=(sel or {}).get("name"),
+                           worker_role=(sel or {}).get("runner"))
