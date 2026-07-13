@@ -88,6 +88,8 @@ def run():
         payload["broker"] = request.form["broker"]
     if request.form.get("cross_symbol"):  # 跨品种验证(乙)
         payload["cross_symbol"] = True
+    if request.form.get("scope") == "untested":  # 范围: 全部(默认) / 仅未测试(补漏)
+        payload["untested_only"] = True
     if request.form.get("spread_points", "").strip():
         payload["spread_points"] = float(request.form["spread_points"])
     ids = [s.strip() for s in request.form.get("strategy_ids", "").split(",") if s.strip()]

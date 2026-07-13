@@ -40,6 +40,8 @@ class BacktestRequest(BaseModel):
     # 跨品种验证(乙, 反过拟合空间维度): 勾了则每策略在所有 download 品种各回测一行,
     #   看是普适规律还是只在某品种巧合。不勾=只跑主品种(快)。产出健壮性列 + 每品种明细。
     cross_symbol: bool = False
+    # 范围选项: True=只跑还没有回测记录(主品种行)的策略 — 补漏不重复跑; 默认 False=全部(现状)
+    untested_only: bool = False
 
 
 @router.post("/backtest/run")
@@ -62,6 +64,9 @@ async def run(req: BacktestRequest, request: Request):
         if req.broker:  # 券商筛选: 按品种主档的券商标签圈定品种
             args.append(req.broker)
             q += f" AND symbol IN (SELECT symbol FROM symbols WHERE broker=${len(args)})"
+        if req.untested_only:  # 范围=未测试: 主品种还没有回测记录的才跑(补漏)
+            q += (" AND NOT EXISTS (SELECT 1 FROM backtests b"
+                  "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol)")
         args.append(req.limit)
         q += f" ORDER BY symbol, id LIMIT ${len(args)}"
         rows = await pool.fetch(q, *args)

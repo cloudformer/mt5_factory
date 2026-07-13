@@ -48,6 +48,11 @@
           <option value="">全部</option>
           {% for b in brokers %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
         </select></label>
+      <label title="全部=不管测没测过都跑(重跑覆盖); 仅未测试=只跑还没有回测记录的策略(补漏, 不重复跑已测的)">范围
+        <select name="scope">
+          <option value="">全部</option>
+          <option value="untested">仅未测试</option>
+        </select></label>
       <label class="chk" title="反过拟合(空间维度): 同参数在所有 download 货币对各回测一行, 产出『跨品种健壮性』列 + 每品种明细。运行时间 ×货币对数">
         <input type="checkbox" name="cross_symbol" value="1"> 跨品种验证</label>
       <label class="opt" title="指定则只回测这些策略; ID 在策略页查看">策略ID
