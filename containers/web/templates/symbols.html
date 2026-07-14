@@ -41,6 +41,40 @@
 </section>
 
 <section>
+  <h2>排名模板</h2>
+  <p class="muted">回测排名的加权评分:四维先归一成 0~100 排名百分位再按权重加权(权重不必和=100, 按比例归一)。
+    稳定=PF · 盈利=净点数 · 风险=回撤小 · 健壮=跨品种盈利比(未跨品种=0分);最少笔数=选该模板时自动带的门槛。
+    <b>增删改都在这里, 不用改代码</b> — 删除=勾"删"或清空名称, 新增=填底部空白行。</p>
+  <form method="post" action="{{ url_for('symbols.save_ranks') }}">
+    <table class="subtable" style="min-width:560px">
+      <tr><th>模板名</th><th>稳定</th><th>盈利</th><th>风险</th><th>健壮</th><th>最少笔数</th><th>删</th></tr>
+      {% for t in rank_templates %}
+      <tr>
+        <td><input name="rt_name_{{ loop.index0 }}" value="{{ t.name }}" size="8"></td>
+        <td><input name="rt_stable_{{ loop.index0 }}" value="{{ '%g' % t.stable }}" size="3"></td>
+        <td><input name="rt_profit_{{ loop.index0 }}" value="{{ '%g' % t.profit }}" size="3"></td>
+        <td><input name="rt_risk_{{ loop.index0 }}" value="{{ '%g' % t.risk }}" size="3"></td>
+        <td><input name="rt_robust_{{ loop.index0 }}" value="{{ '%g' % t.robust }}" size="3"></td>
+        <td><input name="rt_mt_{{ loop.index0 }}" value="{{ t.min_trades or 0 }}" size="4"></td>
+        <td><input type="checkbox" name="rt_del_{{ loop.index0 }}" title="勾选后保存=删除该模板"></td>
+      </tr>
+      {% endfor %}
+      {# 新增行: 填了名称才生效 #}
+      <tr>
+        <td><input name="rt_name_{{ rank_templates|length }}" placeholder="新模板名" size="8"></td>
+        <td><input name="rt_stable_{{ rank_templates|length }}" size="3"></td>
+        <td><input name="rt_profit_{{ rank_templates|length }}" size="3"></td>
+        <td><input name="rt_risk_{{ rank_templates|length }}" size="3"></td>
+        <td><input name="rt_robust_{{ rank_templates|length }}" size="3"></td>
+        <td><input name="rt_mt_{{ rank_templates|length }}" size="4"></td>
+        <td></td>
+      </tr>
+    </table>
+    <div style="margin-top:8px"><button class="small">保存排名模板</button></div>
+  </form>
+</section>
+
+<section>
   <h2>AI 生成器 (可选)</h2>
   <form method="post" action="{{ url_for('symbols.save_ai') }}" class="inline">
     <label>地址 <input name="ai_generator_url" value="{{ ai_url }}" size="32" placeholder="http://host:9000 (空=不用)"></label>

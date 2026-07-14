@@ -134,7 +134,15 @@
         <option value="">全部</option>
         {% for b in brokers %}<option value="{{ b }}" {% if b == broker %}selected{% endif %}>{{ b }}</option>{% endfor %}
       </select></label>
-    <label>最少交易数 <input name="min_trades" value="{{ min_trades }}" size="4"></label>
+    <label title="排名模板(配置页可增删改权重): 四维百分位加权综合分; 默认=按净点数">排序
+      <select name="rank" id="rank-sel">
+        <option value="">默认(净点数)</option>
+        {% for t in rank_templates %}
+        <option value="{{ t.name }}" data-mt="{{ t.min_trades or 0 }}" {% if t.name == rank %}selected{% endif %}>{{ t.name }}</option>
+        {% endfor %}
+      </select></label>
+    <label>最少交易数 <input name="min_trades" id="min-trades" value="{{ min_trades }}" size="4"
+        title="选排名模板会自动填该模板的默认笔数, 可再手改"></label>
     {# 多条件过滤: 空=不限, 全部查库 #}
     <label title="主品种胜率 ≥ 此百分数; 空=不限">胜率≥ <input name="min_win_rate" size="3"
         value="{{ '%g' % filters.min_win_rate if filters.min_win_rate is not none else '' }}">%</label>
@@ -163,6 +171,7 @@
   <table id="bt-results" data-detail-sort>
     <tr><th data-nosort title="动态序号: 随排序/筛选/翻页变, 只为看行, 非策略ID">#</th>
         <th title="策略在数据库的固定唯一 ID, 用于批量回测的『策略ID』框点名">ID</th>
+        <th title="排名模板的综合分(0~100, 四维百分位加权); 默认排序下无">评分</th>
         <th>策略</th><th>品种</th><th>券商</th><th>周期</th><th>笔数</th><th>胜率</th>
         <th>净点数</th><th>PF</th><th>最大回撤</th>
         <th title="同参数跨品种回测: 几个品种里几个盈利。全赚=普适规律最可信; 少数赚=可能过拟合。点开看每品种明细">跨品种健壮性</th>
@@ -174,6 +183,7 @@
     <tr>
       <td class="rownum muted"></td>{# 动态序号: 跟随当前筛选/排序, 由 tables.js 填充 #}
       <td class="mono">{{ r.strategy_id }}</td>{# 真实策略ID(固定), 填进批量回测的策略ID框 #}
+      <td>{% if r.score is not none %}<b>{{ r.score }}</b>{% else %}<span class="muted">—</span>{% endif %}</td>
       <td class="clip" title="{{ r.name }}">{{ r.name }}</td>
       <td>{{ r.symbol }}</td>
       <td class="muted">{{ r.broker or '—' }}</td>
@@ -199,7 +209,7 @@
     </tr>
     {% if r.breakdown %}
     <tr id="bt-bd-{{ r.strategy_id }}" class="detail-row" hidden>
-      <td colspan="14">
+      <td colspan="15">
         <table class="subtable">
           <tr><th>品种</th><th>券商</th><th>笔(胜/负)</th><th>胜率</th><th>净点数</th><th>PF</th><th>最大回撤</th></tr>
           {% for b in r.breakdown %}
@@ -219,10 +229,22 @@
     </tr>
     {% endif %}
     {% else %}
-    {% call m.empty(14) %}暂无结果 — 先到 <a href="{{ url_for('strategies.generate_page') }}">策略生成</a> 造一批，再启动回测{% endcall %}
+    {% call m.empty(15) %}暂无结果 — 先到 <a href="{{ url_for('strategies.generate_page') }}">策略生成</a> 造一批，再启动回测{% endcall %}
     {% endfor %}
   </table>
 </section>
+
+{# 排名模板联动: 选模板自动填该模板的默认最少笔数(可再手改后点查询) #}
+<script>
+(function () {
+  const sel = document.getElementById("rank-sel"), mt = document.getElementById("min-trades");
+  if (!sel || !mt) return;
+  sel.addEventListener("change", () => {
+    const opt = sel.selectedOptions[0];
+    if (opt && opt.dataset.mt !== undefined) mt.value = opt.value ? opt.dataset.mt : 0;
+  });
+})();
+</script>
 
 {# 回测运行中: 轮询状态自动刷新进度; 跑完自动整页刷新看排名结果 #}
 <script>

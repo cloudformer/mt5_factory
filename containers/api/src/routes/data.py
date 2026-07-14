@@ -14,7 +14,8 @@ from src.services import sync
 
 router = APIRouter()
 
-CONFIG_KEYS = {"ai_generator_url", "backtest_costs", "backtest_batch_limit"}
+CONFIG_KEYS = {"ai_generator_url", "backtest_costs", "backtest_batch_limit",
+               "ranking_templates"}
 
 
 # ---------- 数据同步 ----------
@@ -63,6 +64,22 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
     if key == "backtest_batch_limit":  # 单批回测上限(防失控保护)
         if not isinstance(req.value, int) or req.value < 1:
             raise HTTPException(status_code=400, detail="backtest_batch_limit must be a positive integer")
+    if key == "ranking_templates":  # 排名模板: UI 可增删改, 结构在此把关
+        if not isinstance(req.value, list) or len(req.value) > 20:
+            raise HTTPException(status_code=400, detail="ranking_templates must be a list (≤20)")
+        names = set()
+        for t in req.value:
+            if not isinstance(t, dict) or not isinstance(t.get("name"), str) or not t["name"].strip():
+                raise HTTPException(status_code=400, detail="每个模板需要非空 name")
+            if t["name"] in names:
+                raise HTTPException(status_code=400, detail=f"模板名重复: {t['name']}")
+            names.add(t["name"])
+            ws = [t.get(k) for k in ("stable", "profit", "risk", "robust")]
+            if not all(isinstance(w, (int, float)) and w >= 0 for w in ws) or sum(ws) <= 0:
+                raise HTTPException(status_code=400, detail=f"{t['name']}: 四个权重需为非负数且和>0")
+            mt = t.get("min_trades", 0)
+            if not isinstance(mt, int) or mt < 0:
+                raise HTTPException(status_code=400, detail=f"{t['name']}: min_trades 需为非负整数")
     await request.app.state.pool.execute(
         "INSERT INTO config (key, value) VALUES ($1, $2)"
         " ON CONFLICT (key) DO UPDATE SET value = $2", key, req.value)

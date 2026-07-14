@@ -17,13 +17,17 @@ def index():
     filters = {k: request.args.get(k, type=float)
                for k in ("min_win_rate", "min_pf", "max_dd", "min_robust")}
     positive = request.args.get("positive") == "1"
-    results, bt, costs, brokers, symbols, orphans = [], {}, {}, [], [], []
+    rank = request.args.get("rank") or ""  # 排名模板名, 空=默认(净点数)
+    results, bt, costs, brokers, symbols, orphans, rank_templates = [], {}, {}, [], [], [], []
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
+        rank_templates = cfg.get("ranking_templates", [])
         # 排名取数上限跟随"单批上限"(同一个规模旋钮): 策略总量涨了排名不再被 200 截断
         params = {"min_trades": min_trades,
                   "limit": cfg.get("backtest_batch_limit", 500)}
+        if rank:
+            params["rank_template"] = rank
         if symbol:
             params["symbol"] = symbol
         if broker:
@@ -47,6 +51,7 @@ def index():
     return render_template("backtests.html", results=results, bt=bt, costs=costs,
                            symbol=symbol, broker=broker, min_trades=min_trades,
                            q_field=q_field, q_text=q_text, filters=filters, positive=positive,
+                           rank=rank, rank_templates=rank_templates,
                            brokers=brokers, symbols=symbols, orphans=orphans)
 
 

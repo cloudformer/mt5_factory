@@ -13,7 +13,7 @@ bp = Blueprint("symbols", __name__, url_prefix="/symbols")
 @bp.get("/")
 def index():
     """配置页: 货币对主档 + 回测参数(成本模型)"""
-    symbols, orphans, costs, batch_limit, ai_url = [], [], {}, 500, ""
+    symbols, orphans, costs, batch_limit, ai_url, rank_templates = [], [], {}, 500, "", []
     try:
         data = api.get("/symbols")
         symbols, orphans = data["symbols"], data.get("orphans", [])
@@ -21,10 +21,41 @@ def index():
         costs = cfg.get("backtest_costs", {})
         batch_limit = cfg.get("backtest_batch_limit", 500)
         ai_url = cfg.get("ai_generator_url") or ""
+        rank_templates = cfg.get("ranking_templates", [])
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("symbols.html", symbols=symbols, orphans=orphans,
-                           costs=costs, batch_limit=batch_limit, ai_url=ai_url)
+                           costs=costs, batch_limit=batch_limit, ai_url=ai_url,
+                           rank_templates=rank_templates)
+
+
+@bp.post("/config/ranks")
+def save_ranks():
+    """保存排名模板(config: ranking_templates)。UI 可增删改:
+    删除=勾『删』或清空名称; 新增=填底部空白行; 校验在 api 侧把关"""
+    tpls, i = [], 0
+    while f"rt_name_{i}" in request.form:
+        name = request.form[f"rt_name_{i}"].strip()
+        if name and not request.form.get(f"rt_del_{i}"):
+            try:
+                tpls.append({
+                    "name": name,
+                    "stable": float(request.form.get(f"rt_stable_{i}") or 0),
+                    "profit": float(request.form.get(f"rt_profit_{i}") or 0),
+                    "risk": float(request.form.get(f"rt_risk_{i}") or 0),
+                    "robust": float(request.form.get(f"rt_robust_{i}") or 0),
+                    "min_trades": int(request.form.get(f"rt_mt_{i}") or 0),
+                })
+            except ValueError:
+                flash(f"模板 {name}: 权重/笔数必须是数字", "error")
+                return redirect(url_for("symbols.index"))
+        i += 1
+    try:
+        api.put("/config/ranking_templates", {"value": tpls})
+        flash(f"排名模板已保存({len(tpls)} 个)", "ok")
+    except api.ApiError as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.index"))
 
 
 @bp.post("/config/ai")

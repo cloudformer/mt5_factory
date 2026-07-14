@@ -201,13 +201,52 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
     return {"strategies": n, "symbols_per": (uni if cross_symbol else 1), "runs": runs}
 
 
+def _pct_scores(values: list) -> list:
+    """排名百分位归一: 值→0~100(打赢了百分之几的对手)。None=没证据→0分; 并列取平均名次。
+    消除量纲差异(净点几万 vs PF小数), 加权前的统一刻度。"""
+    idx = [i for i, v in enumerate(values) if v is not None]
+    scores = [0.0] * len(values)
+    if not idx:
+        return scores
+    if len(idx) == 1:
+        scores[idx[0]] = 100.0
+        return scores
+    order = sorted(idx, key=lambda i: values[i])
+    n = len(idx)
+    i = 0
+    while i < n:  # 并列段取平均名次
+        j = i
+        while j + 1 < n and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        pct = (i + j) / 2 / (n - 1) * 100
+        for k in range(i, j + 1):
+            scores[order[k]] = pct
+        i = j + 1
+    return scores
+
+
+def _apply_template_scores(cands: list, tpl: dict) -> None:
+    """按模板四维权重给每个候选算综合分(0~100), 写入 d['score']。
+    稳定=PF(∞=无亏损按最大) / 盈利=净点 / 风险=回撤(小=好, 取负) / 健壮=跨品种盈利比(未跨品种=0分)"""
+    stable = _pct_scores([m["metrics"].get("profit_factor") if m["metrics"].get("profit_factor")
+                          is not None else float("inf") for m in cands])
+    profit = _pct_scores([m["metrics"].get("net_points", 0) for m in cands])
+    risk = _pct_scores([-(m["metrics"].get("max_dd_points") or 0) for m in cands])
+    robust = _pct_scores([(m["profitable"] / m["tested"]) if m["tested"] else None for m in cands])
+    w = {k: tpl.get(k, 0) for k in ("stable", "profit", "risk", "robust")}
+    total = sum(w.values()) or 1
+    for i, d in enumerate(cands):
+        d["score"] = round((stable[i] * w["stable"] + profit[i] * w["profit"]
+                            + risk[i] * w["risk"] + robust[i] * w["robust"]) / total, 1)
+
+
 @router.get("/backtest/top")
 async def top(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
               min_trades: int = 0, limit: int = 20,
               q_field: Optional[str] = None, q_text: Optional[str] = None,
               min_win_rate: float = 0, min_pf: float = 0,
               max_dd: Optional[float] = None, min_robust: Optional[float] = None,
-              positive_only: bool = False):
+              positive_only: bool = False, rank_template: Optional[str] = None):
     """排名: 每策略取主品种成绩(b.symbol = s.symbol), 按净点数排; 附带跨品种健壮性摘要与明细。
 
     排名只认主品种行 — 跨品种验证结果只喂健壮性列/明细, 不参与排名。
@@ -266,9 +305,10 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
                 " WHERE strategy_id = ANY($1) ORDER BY strategy_id, symbol", ids):
             breakdown.setdefault(br["strategy_id"], []).append(dict(br))
 
-    results = []
+    cands = []
     for r in ranked:
         d = dict(r)
+        d["score"] = None
         bd = sorted(breakdown.get(r["strategy_id"], []),
                     key=lambda x: x["metrics"].get("net_points", 0), reverse=True)
         d["breakdown"] = bd
@@ -279,10 +319,17 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         if min_robust is not None:  # 健壮性≥: 没跑跨品种/没交易 → 不通过
             if not d["tested"] or d["profitable"] / d["tested"] * 100 < min_robust:
                 continue
-        results.append(d)
-        if len(results) >= limit:
-            break
-    return {"results": results}
+        cands.append(d)
+
+    # 排名模板(config 可增删改): 四维百分位加权综合分排序; 并列/无模板按净点数
+    if rank_template:
+        tpl = next((t for t in (await pool.fetchval(
+            "SELECT value FROM config WHERE key='ranking_templates'") or [])
+            if t.get("name") == rank_template), None)
+        if tpl:
+            _apply_template_scores(cands, tpl)
+            cands.sort(key=lambda d: (d["score"], d["metrics"]["net_points"]), reverse=True)
+    return {"results": cands[:limit]}
 
 
 @router.get("/backtest/results/{strategy_id}")
