@@ -99,13 +99,15 @@ def _walk_exit(pos, j_from, j_to, m1, point, spread_points):
 def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe: str,
                  slippage_points: float = DEFAULT_SLIPPAGE_POINTS,
                  commission_points: float = DEFAULT_COMMISSION_POINTS,
-                 spread_points: float | None = None) -> dict:
+                 spread_points: float | None = None,
+                 oos_split: float | None = 0.7) -> dict:
     """单个策略实例回测, 返回 {metrics, trades}
 
     成本模型参数:
     - slippage_points:   单边滑点(点), 进场时向不利方向偏移
     - commission_points: 往返佣金(点数等值), 每笔盈亏中扣除
     - spread_points:     固定点差(点); None=用每根bar记录的真实点差(默认, 推荐)
+    - oos_split:         样本外切分比例(训练段占比, 默认0.7; None=不切) → metrics["oos"]
     """
     strat = make_strategy(template, params, point)
     tf = aggregate(m1, TF_SECONDS[timeframe])
@@ -152,6 +154,18 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
         "commission_points": commission_points,
         "spread_points": spread_points if spread_points is not None else "recorded",
     }
+    if oos_split and len(m1["time"]) > 1:
+        # 样本外(OOS)切分 — 反过拟合时间维度(v1.3 #1)。纯后处理: 撮合零改动,
+        # 按时间把已成交的 trades 切成 训练段(前 split) / 留出段(后 1-split) 各算一份。
+        # 纪律: 训练段用来选, 留出段只用来一票否决(留出亏=过拟合嫌疑, 不准进 demo)。
+        split_ts = int(m1["time"][0] + oos_split * (m1["time"][-1] - m1["time"][0]))
+        train = [t for t in trades if t["entry_time"] < split_ts]
+        metrics["oos"] = {
+            "split": oos_split,
+            "split_time": split_ts,
+            "train": _metrics(train),
+            "holdout": _metrics([t for t in trades if t["entry_time"] >= split_ts]),
+        }
     return {"metrics": metrics, "trades": trades}
 
 

@@ -68,6 +68,9 @@ def save_costs():
         if request.form.get("batch_limit", "").strip():  # 单批上限(防失控保护, 可配置)
             api.put("/config/backtest_batch_limit",
                     {"value": int(request.form["batch_limit"])})
+        if request.form.get("oos_split", "").strip():  # OOS 训练占比(0~1); 换比例必全量收敛
+            api.put("/config/backtest_oos_split",
+                    {"value": float(request.form["oos_split"])})
         flash("回测参数已保存", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
         flash(f"保存失败: {e}", "error")

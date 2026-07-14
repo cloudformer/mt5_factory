@@ -15,7 +15,7 @@ from src.services import sync
 router = APIRouter()
 
 CONFIG_KEYS = {"ai_generator_url", "backtest_costs", "backtest_batch_limit",
-               "ranking_templates"}
+               "ranking_templates", "backtest_oos_split"}
 
 
 # ---------- 数据同步 ----------
@@ -64,6 +64,9 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
     if key == "backtest_batch_limit":  # 单批回测上限(防失控保护)
         if not isinstance(req.value, int) or req.value < 1:
             raise HTTPException(status_code=400, detail="backtest_batch_limit must be a positive integer")
+    if key == "backtest_oos_split":  # OOS 训练段占比: (0,1) 开区间
+        if not isinstance(req.value, (int, float)) or not 0 < req.value < 1:
+            raise HTTPException(status_code=400, detail="backtest_oos_split must be between 0 and 1")
     if key == "ranking_templates":  # 排名模板: UI 可增删改, 结构在此把关
         if not isinstance(req.value, list) or len(req.value) > 20:
             raise HTTPException(status_code=400, detail="ranking_templates must be a list (≤20)")

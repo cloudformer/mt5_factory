@@ -116,6 +116,9 @@ async def _run_batch(pool, strategies: list, t_from, t_to, costs: dict,
     """
     t_from = t_from or datetime(2015, 1, 1, tzinfo=timezone.utc)
     t_to = t_to or datetime.now(timezone.utc)
+    # OOS 切分比例(训练段占比): config 可调(配置页), 兜底 0.7
+    oos_split = await pool.fetchval(
+        "SELECT value FROM config WHERE key='backtest_oos_split'") or 0.7
     meta = {r["symbol"]: r for r in
             await pool.fetch("SELECT symbol, point, broker, download FROM symbols")}
     universe = [sym for sym, r in meta.items() if r["download"]] if cross_symbol else []
@@ -142,7 +145,7 @@ async def _run_batch(pool, strategies: list, t_from, t_to, costs: dict,
                     raise ValueError(f"no M1 data for {sym}, run /syncdata first")
                 result = await asyncio.to_thread(
                     backtest.run_backtest, m1, s["template"], s["params"],
-                    meta[sym]["point"], s["timeframe"], **costs)
+                    meta[sym]["point"], s["timeframe"], oos_split=oos_split, **costs)
                 # 每"策略×品种"一行, 有则覆盖(键 strategy_id+symbol); 表有界不随重跑增长
                 await pool.execute(
                     "INSERT INTO backtests"
@@ -259,7 +262,8 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
               q_field: Optional[str] = None, q_text: Optional[str] = None,
               min_win_rate: float = 0, min_pf: float = 0,
               max_dd: Optional[float] = None, min_robust: Optional[float] = None,
-              positive_only: bool = False, rank_template: Optional[str] = None):
+              positive_only: bool = False, rank_template: Optional[str] = None,
+              oos_pass: bool = False):
     """策略列表排名: 从 strategies 出发 LEFT JOIN 主品种回测 — 未回测的策略也出现(成绩为空,
     默认沉底), 列表与排名合一。跨品种结果只喂健壮性列/明细, 不参与排名。
 
@@ -300,6 +304,9 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         q += f" AND b.id IS NOT NULL AND COALESCE((b.metrics->>'max_dd_points')::float, 0) <= ${len(args)}"
     if positive_only:
         q += " AND (b.metrics->>'net_points')::float > 0"
+    if oos_pass:  # 留出段一票否决: 留出净点>0 且有交易才通过(老结果没有oos字段=不通过)
+        q += (" AND COALESCE((b.metrics#>>'{oos,holdout,net_points}')::float, 0) > 0"
+              " AND COALESCE((b.metrics#>>'{oos,holdout,trades}')::int, 0) > 0")
     # 服务端搜索: 只有策略名模糊, 其余精准
     if q_text and q_text.strip() and q_field:
         t = q_text.strip()

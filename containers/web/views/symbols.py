@@ -14,6 +14,7 @@ bp = Blueprint("symbols", __name__, url_prefix="/symbols")
 def index():
     """配置页: 货币对主档 + 回测参数(成本模型)"""
     symbols, orphans, costs, batch_limit, ai_url, rank_templates = [], [], {}, 500, "", []
+    oos_split = 0.7
     try:
         data = api.get("/symbols")
         symbols, orphans = data["symbols"], data.get("orphans", [])
@@ -22,11 +23,12 @@ def index():
         batch_limit = cfg.get("backtest_batch_limit", 500)
         ai_url = cfg.get("ai_generator_url") or ""
         rank_templates = cfg.get("ranking_templates", [])
+        oos_split = cfg.get("backtest_oos_split", 0.7)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("symbols.html", symbols=symbols, orphans=orphans,
                            costs=costs, batch_limit=batch_limit, ai_url=ai_url,
-                           rank_templates=rank_templates)
+                           rank_templates=rank_templates, oos_split=oos_split)
 
 
 @bp.post("/config/ranks")

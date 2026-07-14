@@ -35,8 +35,10 @@
     <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="固定点差(点); 留空=用每根bar记录的真实点差"></label>
     <label>单批上限 <input name="batch_limit" value="{{ batch_limit }}" size="5"
         title="一次批量回测最多跑多少个策略(防失控保护)。策略总数超过它时'全部'跑不全 — 调大到不小于策略总数"></label>
+    <label>OOS训练占比 <input name="oos_split" value="{{ '%g' % oos_split }}" size="4"
+        title="样本外切分: 0.7=训练7:留出3(推荐, 长期固定)。纪律: 换比例后必须'范围=全部'跑一次全量收敛, 否则库里新旧口径混着不可比"></label>
     <button class="small">保存</button>
-    <span class="muted">成本 = 回测撮合的悲观假设, 每次结果随附所用设置; 上限 = 单批保护值(排名取数也跟它)</span>
+    <span class="muted">成本 = 悲观撮合假设; 上限 = 单批保护值(排名取数跟它); OOS = 训练段选/留出段一票否决, 比例长期固定 7:3</span>
   </form>
 </section>
 

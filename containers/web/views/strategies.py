@@ -23,6 +23,7 @@ def index():
     filters = {k: a.get(k, type=float)
                for k in ("min_win_rate", "min_pf", "max_dd", "min_robust")}
     positive = a.get("positive") == "1"
+    oos = a.get("oos") == "1"  # 留出段盈利过滤(OOS 一票否决)
     rank = a.get("rank") or ""  # 排名模板名, 空=默认(净点数)
     results, rank_templates, brokers, symbols = [], [], [], []
     try:
@@ -36,6 +37,8 @@ def index():
         params.update({k: v for k, v in filters.items() if v is not None})
         if positive:
             params["positive_only"] = "true"
+        if oos:
+            params["oos_pass"] = "true"
         if rank:
             params["rank_template"] = rank
         if q_text:  # 服务端搜索: 策略名模糊 / ID·周期·状态精准
@@ -49,7 +52,7 @@ def index():
         flash(f"api 不可用: {e}", "error")
     return render_template("strategies.html", results=results, symbol=symbol, broker=broker,
                            status=status, min_trades=min_trades, q_field=q_field, q_text=q_text,
-                           filters=filters, positive=positive, rank=rank,
+                           filters=filters, positive=positive, oos=oos, rank=rank,
                            rank_templates=rank_templates, brokers=brokers, symbols=symbols)
 
 

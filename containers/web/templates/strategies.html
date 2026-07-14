@@ -46,6 +46,11 @@
         <option value="">全部</option>
         <option value="1" {% if positive %}selected{% endif %}>仅盈利</option>
       </select></label>
+    <label title="样本外一票否决: 留出段(策略没见过的最近30%数据)也盈利才通过 — 过滤靠运气拟合历史的策略。老回测结果没有OOS字段, 需重跑后才能通过">OOS
+      <select name="oos">
+        <option value="">不限</option>
+        <option value="1" {% if oos %}selected{% endif %}>留出段盈利</option>
+      </select></label>
     <label>搜索
       <select name="q_field" title="策略名=模糊; ID/周期/状态=精准">
         {% for v, t in [('name','策略名(模糊)'), ('id','ID'), ('timeframe','周期'), ('status','状态')] %}
@@ -63,6 +68,7 @@
         <th title="排名模板的综合分(0~100, 四维百分位加权); 默认排序下无">评分</th>
         <th>策略</th><th>品种</th><th>券商</th><th>周期</th><th>状态</th>
         <th>笔数</th><th>胜率</th><th>净点数</th><th>PF</th><th>最大回撤</th>
+        <th title="样本外留出段(策略没见过的最近数据)净点数(笔数) — 绿=换时段还赚(真规律), 红=留出崩(过拟合嫌疑)。训练:留出比例在配置页(默认7:3)">留出段</th>
         <th title="同参数跨品种回测: 几个品种里几个盈利。点开还可看参数/magic/每品种明细">健壮性</th>
         <th data-nosort>操作</th></tr>
     {% for r in results %}
@@ -84,9 +90,15 @@
       <td class="{% if r.metrics.net_points > 0 %}pos{% else %}neg{% endif %}">{{ r.metrics.net_points }}</td>
       <td>{{ r.metrics.profit_factor or '—' }}</td>
       <td class="muted">{{ r.metrics.max_dd_points or 0 }}</td>
+      {% set h = (r.metrics.oos or {}).get('holdout') %}
+      <td>{% if h and h.trades %}
+        <span class="{{ 'pos' if h.net_points > 0 else 'neg' }}">{{ h.net_points }}</span>
+        <span class="muted">({{ h.trades }})</span>
+        {% elif h %}<span class="muted" title="留出段没有交易">0笔</span>
+        {% else %}<span class="muted" title="老回测结果无OOS — 重跑后出现">—</span>{% endif %}</td>
       {% else %}
       <td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>
-      <td class="muted">—</td><td class="muted">—</td>
+      <td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>
       {% endif %}
       <td class="cell-robust">
         <button class="status-btn" data-json-toggle="st-bd-{{ r.strategy_id }}"
@@ -101,7 +113,7 @@
       <td>{{ m.strategy_actions({'id': r.strategy_id, 'status': r.status}) }}</td>
     </tr>
     <tr id="st-bd-{{ r.strategy_id }}" class="detail-row" hidden>
-      <td colspan="15">
+      <td colspan="16">
         <p class="mono" style="margin:2px 0 8px">参数 {{ r.params }} · magic {{ r.magic_number or '未分配(进DEMO时分配)' }}</p>
         {% if r.breakdown %}
         <table class="subtable">
@@ -123,7 +135,7 @@
       </td>
     </tr>
     {% else %}
-    {% call m.empty(15) %}没有匹配的策略 — 去 <a href="{{ url_for('strategies.generate_page') }}">策略生成</a> 造一批{% endcall %}
+    {% call m.empty(16) %}没有匹配的策略 — 去 <a href="{{ url_for('strategies.generate_page') }}">策略生成</a> 造一批{% endcall %}
     {% endfor %}
   </table>
 </section>
