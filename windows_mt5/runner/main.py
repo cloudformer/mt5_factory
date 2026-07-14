@@ -171,19 +171,34 @@ def send_order(inst: dict, sig) -> None:
     if not sig.sl or not sig.tp:  # 铁律: 无 SL/TP 不下单
         logger.error("%s signal without SL/TP, refused", inst["name"])
         return
+    info = mt5.symbol_info(inst["symbol"])  # 下单前取现值: digits/最小手/停损距离都可能随券商变
     tick = mt5.symbol_info_tick(inst["symbol"])
-    if tick is None:
-        logger.error("%s no tick", inst["symbol"])
+    if info is None or tick is None:
+        logger.error("%s no symbol info / tick", inst["symbol"])
         return
     is_buy = sig.direction == "BUY"
+    price = tick.ask if is_buy else tick.bid
+    # A: SL/TP 按券商 digits 取整 — 浮点原值(如 4083.8400000001)苛刻券商会拒 Invalid stops
+    sl, tp = round(sig.sl, info.digits), round(sig.tp, info.digits)
+    # B1: 手数不得低于品种最小手 (拒单前置成明确日志, 不留给券商猜)
+    if info.volume_min and VOLUME < info.volume_min:
+        logger.error("%s volume %.2f < broker min %.2f, refused",
+                     inst["name"], VOLUME, info.volume_min)
+        return
+    # B2: SL/TP 距离不得小于券商最小停损距离 stops_level (小止损策略必须过这关)
+    min_d = (info.trade_stops_level or 0) * info.point
+    if min_d and (abs(price - sl) < min_d or abs(tp - price) < min_d):
+        logger.error("%s SL/TP too close to price: |price-sl|=%.5f |tp-price|=%.5f < stops_level %.5f, refused",
+                     inst["name"], abs(price - sl), abs(tp - price), min_d)
+        return
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": inst["symbol"],
         "volume": VOLUME,
         "type": mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL,
-        "price": tick.ask if is_buy else tick.bid,
-        "sl": sig.sl,
-        "tp": sig.tp,
+        "price": price,
+        "sl": sl,
+        "tp": tp,
         "deviation": 20,
         "magic": inst["magic"],
         # 下单备注(跟单进券商, 任何MT5终端可见): id:744,win-worker01 — 策略id定位+哪台机器下的。
