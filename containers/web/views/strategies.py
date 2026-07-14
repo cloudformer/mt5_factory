@@ -129,6 +129,26 @@ def run_backtest(strategy_id: int):
     return redirect(request.referrer or url_for("strategies.index"))
 
 
+@bp.post("/archive")
+def archive_batch():
+    """按【填入的ID】批量淘汰归档 — 标 ARCHIVED, 可逆, 不删除。只处理明确列出的ID,
+    与排名页的查看筛选无关(防误伤); 实盘/已淘汰归档由 api 侧自动跳过。"""
+    ids = [s.strip() for s in request.form.get("strategy_ids", "").split(",") if s.strip()]
+    if not ids:
+        flash("请填入要淘汰归档的策略ID(逗号分隔)", "error")
+        return redirect(request.referrer or url_for("strategies.index"))
+    try:
+        r = api.post("/strategies/archive", {"strategy_ids": [int(s) for s in ids]})
+        msg = f"已淘汰归档 {r['archived']} 条(可逆, 随时可改回)"
+        skipped = r["requested"] - r["archived"]
+        if skipped:
+            msg += f"；跳过 {skipped} 条(实盘不动 / 已淘汰归档)"
+        flash(msg, "ok" if r["archived"] else "error")
+    except (api.ApiError, ValueError) as e:
+        flash(f"批量淘汰归档失败: {e}", "error")
+    return redirect(request.referrer or url_for("strategies.index"))
+
+
 @bp.post("/mq5")
 def mq5_submit():
     try:

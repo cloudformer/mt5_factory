@@ -320,3 +320,21 @@ async def archive_orphans(request: Request):
     rows = await request.app.state.pool.fetch(
         f"UPDATE strategies SET status='ARCHIVED' WHERE {_ORPHAN_WHERE} RETURNING id")
     return {"archived": len(rows)}
+
+
+class ArchiveRequest(BaseModel):
+    strategy_ids: list[int]
+
+
+@router.post("/strategies/archive")
+async def archive_batch(req: ArchiveRequest, request: Request):
+    """按【明确列出的 ID】批量淘汰归档(标 ARCHIVED, 可逆); 不删除 — 留尸体避免重复生成/回测。
+    只处理请求里点名的 id, 不跟随任何查询过滤(防误伤全库)。
+    LIVE(真钱在跑)不动, 需单独手动改, 防误杀; 已淘汰归档的跳过(幂等)。"""
+    if not req.strategy_ids:
+        raise HTTPException(status_code=400, detail="no strategy_ids")
+    rows = await request.app.state.pool.fetch(
+        "UPDATE strategies SET status='ARCHIVED', updated_at=now()"
+        " WHERE id = ANY($1) AND status NOT IN ('ARCHIVED', 'LIVE') RETURNING id",
+        req.strategy_ids)
+    return {"archived": len(rows), "requested": len(req.strategy_ids)}
