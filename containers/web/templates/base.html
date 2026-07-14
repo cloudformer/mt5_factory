@@ -23,6 +23,7 @@
       <a href="{{ url_for('strategies.generate_page') }}" {% if ep == 'strategies.generate_page' %}class="active"{% endif %}>策略生成</a>
       <a href="{{ url_for('strategies.index') }}" {% if ep == 'strategies.index' %}class="active"{% endif %}>策略列表排名</a>
       <a href="{{ url_for('backtests.index') }}" {% if ep.startswith('backtests.') %}class="active"{% endif %}>策略回测</a>
+      <a href="{{ url_for('strategies.quality') }}" {% if ep == 'strategies.quality' %}class="active"{% endif %}>回测质量分析</a>
       <a href="{{ url_for('strategies.analysis') }}" {% if ep == 'strategies.analysis' %}class="active"{% endif %}>策略分析</a>
     </div>
   </div>

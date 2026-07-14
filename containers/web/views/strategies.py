@@ -72,8 +72,14 @@ def generate_page():
 
 @bp.get("/analysis")
 def analysis():
-    """策略分析(骨架页, 内容随 OOS/对账/评价加权逐步落进来)"""
+    """策略分析(骨架页, v1.4: 单策略胜负归因/拟合判别, 为AI迭代做准备)"""
     return render_template("strategy_analysis.html")
+
+
+@bp.get("/quality")
+def quality():
+    """回测质量(骨架页, v1.3: OOS/邻域/短样本等反过拟合工具箱)"""
+    return render_template("strategy_quality.html")
 
 
 @bp.post("/generate")

@@ -34,6 +34,7 @@ check GET "$WEB/" 200
 check GET "$WEB/strategies/" 200
 check GET "$WEB/strategies/generate" 200
 check GET "$WEB/strategies/analysis" 200
+check GET "$WEB/strategies/quality" 200
 check GET "$WEB/backtests/" 200
 check GET "$WEB/workers/" 200
 check GET "$WEB/datasync/" 200
