@@ -48,7 +48,8 @@
       </td>
       <td class="muted">{{ m.ts(s.first_bar) }} → {{ m.ts(s.last_bar) }}</td>
       <td>{% if s.bars %}{{ "{:,}".format(s.bars) }}{% else %}<span class="muted">无</span>{% endif %}</td>
-      <td>{% if s.verified_at %}<span class="badge ok">已校验</span>
+      <td>{% if s.verified_at %}<span class="badge ok"
+            title="券商已确认存在 · 精度 {{ s.digits }}·{{ s.point }} · 最小手 {{ s.volume_min if s.volume_min is not none else '—' }} · 停损位 {{ s.stops_level if s.stops_level is not none else '—' }}">已校验</span>
           {% else %}<span class="badge warn" title="未经券商校验, 点右边『校验』">未校验</span>{% endif %}</td>
       <td>
         <form method="post" action="{{ url_for('symbols.reverify', symbol=s.symbol) }}" class="inline">

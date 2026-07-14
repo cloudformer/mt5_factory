@@ -20,7 +20,14 @@ SMOKE_MAGIC = 999999
 def _who(magic: int, magic_map: dict) -> str:
     if magic == SMOKE_MAGIC:
         return "下单测试"
-    return magic_map.get(magic) or ("手动/其他" if magic == 0 else f"未知 magic {magic}")
+    if magic in magic_map:
+        return magic_map[magic]
+    if magic == 0:
+        return "手动/其他"
+    # magic 规则 = 100000 + 策略id: 就算映射表没拉到(超上限/已删), 也能推回策略号
+    if 100000 < magic < 200000:
+        return f"策略 #{magic - 100000}"
+    return f"未知 magic {magic}"
 
 
 @bp.get("/")
@@ -43,7 +50,8 @@ def index():
     if host_id:
         try:
             data = api.get(f"/hosts/{host_id}/trades", days=days)
-            strategies = api.get("/strategies/status", limit=500)["strategies"]
+            # magic→策略名映射: 上限给足(策略库会超500); 超出仍有 _who 的"策略 #id"兜底
+            strategies = api.get("/strategies/status", limit=5000)["strategies"]
             magic_map = {s["magic_number"]: s["name"]
                          for s in strategies if s["magic_number"]}
         except api.ApiError as e:
