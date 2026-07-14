@@ -50,10 +50,10 @@
           <option value="">全部</option>
           {% for b in brokers %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
         </select></label>
-      <label title="全部=不管测没测过都跑(重跑覆盖); 仅未测试=只跑还没有回测记录的策略(补漏)">范围
+      <label title="仅未测试(默认)=只跑还没有回测记录的策略(补漏, 不白跑); 全部=不管测没测过都跑(重跑覆盖)">范围
         <select name="scope" data-fsel>
+          <option value="untested" selected>仅未测试</option>
           <option value="">全部</option>
-          <option value="untested">仅未测试</option>
         </select></label>
       <span class="op-sep">│</span>
       <label class="chk"><input type="radio" name="mode" value="ids"> 按 ID</label>
@@ -219,7 +219,7 @@
     </tr>
     {% endif %}
     {% else %}
-    {% call m.empty(14) %}暂无结果 — 先到 <a href="{{ url_for('strategies.index') }}">策略</a> 页生成，再启动回测{% endcall %}
+    {% call m.empty(14) %}暂无结果 — 先到 <a href="{{ url_for('strategies.generate_page') }}">策略生成</a> 造一批，再启动回测{% endcall %}
     {% endfor %}
   </table>
 </section>

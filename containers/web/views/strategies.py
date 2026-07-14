@@ -1,4 +1,5 @@
-"""策略页: 生成 / 列表 / 状态流转"""
+"""策略组页面: 列表(index) / 生成+MQ5转化(generate_page) / 分析(analysis, 骨架) / 状态流转
+UI 拆分(2026-07-13): 生成=进货(偶发), 列表=日常主战场, 各自成页; 导航挂「策略▾」下拉。"""
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 import api_client as api
@@ -10,19 +11,36 @@ TIMEFRAMES = ["M5", "M15", "M30", "H1", "H4", "D1"]
 
 @bp.get("/")
 def index():
+    """策略列表(日常主战场)"""
     status = request.args.get("status") or None
     symbol = request.args.get("symbol") or None
-    strategies, templates, mq5_imports = [], {}, []
+    strategies = []
     try:
         params = {k: v for k, v in {"status": status, "symbol": symbol, "limit": 200}.items() if v}
         strategies = api.get("/strategies/status", **params)["strategies"]
+    except api.ApiError as e:
+        flash(f"api 不可用: {e}", "error")
+    return render_template("strategies.html", strategies=strategies,
+                           status=status, symbol=symbol)
+
+
+@bp.get("/generate")
+def generate_page():
+    """策略生成 + MQ5 转化(造新策略的入口)"""
+    templates, mq5_imports = {}, []
+    try:
         templates = api.get("/strategies/templates")["templates"]
         mq5_imports = api.get("/strategies/mq5")["imports"]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-    return render_template("strategies.html", strategies=strategies, templates=templates,
-                           mq5_imports=mq5_imports, timeframes=TIMEFRAMES,
-                           status=status, symbol=symbol)
+    return render_template("strategy_generate.html", templates=templates,
+                           mq5_imports=mq5_imports, timeframes=TIMEFRAMES)
+
+
+@bp.get("/analysis")
+def analysis():
+    """策略分析(骨架页, 内容随 OOS/对账/评价加权逐步落进来)"""
+    return render_template("strategy_analysis.html")
 
 
 @bp.post("/generate")
@@ -65,7 +83,7 @@ def mq5_submit():
         flash(f"MQ5 已提交待评估 (id={result['id']})", "ok")
     except (api.ApiError, KeyError) as e:
         flash(f"提交失败: {e}", "error")
-    return redirect(url_for("strategies.index"))
+    return redirect(url_for("strategies.generate_page"))  # MQ5 转化表在生成页
 
 
 @bp.post("/<int:strategy_id>/status")

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('策略生成', '造新策略的入口：模板 × 参数 × 品种 × 周期 批量生成，或提交 MQ5 转化；生成后去「策略列表」管理') }}
+
+<section>
+  <h2>生成策略</h2>
+  <form method="post" action="{{ url_for('strategies.generate') }}" class="inline">
+    <select name="template">
+      {% for name in templates %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+    </select>
+    <input name="symbols" value="EURUSD,GBPUSD,USDJPY,XAUUSD" size="36" placeholder="品种, 逗号分隔">
+    <select name="timeframe">
+      {% for tf in timeframes %}<option {% if tf == 'M15' %}selected{% endif %}>{{ tf }}</option>{% endfor %}
+    </select>
+    <select name="mode">
+      <option value="random" selected>随机 (默认)</option>
+      <option value="grid">网格 (固定组合)</option>
+      <option value="ai">AI (需配置生成器地址)</option>
+    </select>
+    <label>数量 <input name="count" value="50" size="4" title="随机模式下每个品种生成的数量"></label>
+    <button>生成</button>
+  </form>
+</section>
+
+<section>
+  <h2>MQ5 转化</h2>
+  <form method="post" action="{{ url_for('strategies.mq5_submit') }}">
+    <div class="inline" style="margin-bottom:8px">
+      <input name="name" placeholder="策略名称" size="20" required>
+      <button>提交待评估</button>
+    </div>
+    <textarea name="source" rows="4" placeholder="粘贴 .mq5 源码 (不是 .ex5)" required
+              style="width:100%;font-family:ui-monospace,monospace;font-size:12px"></textarea>
+  </form>
+  {% if mq5_imports %}
+  <table>
+    <tr><th>ID</th><th>名称</th><th>状态</th><th>评估结论</th><th>对应模板</th><th>一致率</th><th>提交时间</th></tr>
+    {% for i in mq5_imports %}
+    <tr>
+      <td>{{ i.id }}</td>
+      <td>{{ i.name }}</td>
+      <td><span class="badge {{ {'TRANSLATED':'ok','REJECTED':'error','ASSESSED':'warn'}.get(i.status, '') }}">{{ i.status }}</span></td>
+      <td class="muted">{{ i.assessment or '待评估' }}</td>
+      <td>{{ i.template or '—' }}</td>
+      <td>
+        {% if i.consistency is not none %}
+          <span class="{% if i.consistency >= 90 %}pos{% elif i.consistency >= 70 %}muted{% else %}neg{% endif %}">{{ '%.1f%%' % i.consistency }}</span>
+        {% else %}<span class="muted">未验证</span>{% endif %}
+      </td>
+      <td class="muted">{{ m.lts(i.created_at) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  <p class="muted">流程：提交 → 评估 → 翻译成模板（TRANSLATED）→ <b>一致性验证</b>（原版EA在 MT5 回测器的成交记录 vs 翻译版本地回测，出一致率%）→
+     你按一致率决定保留使用还是 REJECTED。参考线：≥90% 可放心用，70~90% 需人工看差异，&lt;70% 翻译有问题。</p>
+</section>
+
+{% endblock %}

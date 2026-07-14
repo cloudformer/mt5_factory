@@ -15,8 +15,17 @@
   <a href="{{ url_for('workers.index') }}" {% if ep.startswith('workers.') %}class="active"{% endif %}>Workers</a>
   <a href="{{ url_for('symbols.index') }}" {% if ep.startswith('symbols.') %}class="active"{% endif %}>品种</a>
   <a href="{{ url_for('datasync.index') }}" {% if ep.startswith('datasync.') %}class="active"{% endif %}>下载</a>
-  <a href="{{ url_for('strategies.index') }}" {% if ep.startswith('strategies.') %}class="active"{% endif %}>策略</a>
-  <a href="{{ url_for('backtests.index') }}" {% if ep.startswith('backtests.') %}class="active"{% endif %}>回测</a>
+  {# 策略组下拉: 生成(进货) / 列表(日常) / 回测 / 分析 #}
+  <div class="navmenu">
+    <a href="{{ url_for('strategies.index') }}"
+       {% if ep.startswith('strategies.') or ep.startswith('backtests.') %}class="active"{% endif %}>策略 ▾</a>
+    <div class="navmenu-items">
+      <a href="{{ url_for('strategies.generate_page') }}" {% if ep == 'strategies.generate_page' %}class="active"{% endif %}>策略生成</a>
+      <a href="{{ url_for('strategies.index') }}" {% if ep == 'strategies.index' %}class="active"{% endif %}>策略列表</a>
+      <a href="{{ url_for('backtests.index') }}" {% if ep.startswith('backtests.') %}class="active"{% endif %}>策略回测</a>
+      <a href="{{ url_for('strategies.analysis') }}" {% if ep == 'strategies.analysis' %}class="active"{% endif %}>策略分析</a>
+    </div>
+  </div>
   <a href="{{ url_for('execution.demo') }}" {% if ep == 'execution.demo' %}class="active"{% endif %}>Demo</a>
   <a href="{{ url_for('execution.live') }}" {% if ep == 'execution.live' %}class="active"{% endif %}>Live</a>
   <a href="{{ url_for('mt5.index') }}" {% if ep.startswith('mt5.') %}class="active"{% endif %}>MT5流水</a>

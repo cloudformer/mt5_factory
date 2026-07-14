@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('策略分析', '评价策略的家(骨架页)：样本外(OOS)结果、跨品种健壮性分布、demo 对账偏离、评价加权将逐步落在这里') }}
+
+<section>
+  <h2>规划中</h2>
+  <p class="muted">本页暂为骨架，将随以下功能落地填充：</p>
+  <ul class="muted">
+    <li>按货币对汇总（策略数 / 平均笔数 / 最高最低净点）</li>
+    <li>跨品种健壮性分布（几/几赚 的策略各多少）</li>
+    <li>样本外(OOS)切分结果（v1.3 #1）</li>
+    <li>demo 对账偏离 与 评价加权（v1.2 §8）</li>
+  </ul>
+</section>
+
+{% endblock %}
