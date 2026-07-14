@@ -95,6 +95,8 @@ def run():
             payload["symbol"] = request.form["symbol"].strip().upper()
         if request.form.get("broker"):
             payload["broker"] = request.form["broker"]
+        if request.form.get("status"):  # 状态维度(可选): 如热层 DEMO,LIVE 每日刷新
+            payload["status"] = request.form["status"]
         if request.form.get("scope") == "untested":  # 范围: 全部(默认) / 仅未测试(补漏)
             payload["untested_only"] = True
     if request.form.get("cross_symbol"):  # 跨品种验证(乙)

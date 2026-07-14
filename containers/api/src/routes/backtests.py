@@ -39,6 +39,8 @@ class BacktestRequest(BaseModel):
     #   都不传 = 回测全部策略。券商标签是"下载数据"时落库的, 回测只读库、与 worker 无关。
     symbol: Optional[str] = None
     broker: Optional[str] = None
+    # 状态筛选(可选维度, 默认不限 — 回测本身与状态无关): 支持逗号多值, 如 "DEMO,LIVE"(热层每日刷新)
+    status: Optional[str] = None
     strategy_ids: Optional[list[int]] = None
     from_time: Optional[datetime] = None
     to_time: Optional[datetime] = None
@@ -75,6 +77,9 @@ async def run(req: BacktestRequest, request: Request):
         if req.broker:  # 券商筛选: 按品种主档的券商标签圈定品种
             args.append(req.broker)
             q += f" AND symbol IN (SELECT symbol FROM symbols WHERE broker=${len(args)})"
+        if req.status:  # 状态筛选(逗号多值): 如热层每日刷新 DEMO,LIVE
+            args.append([s.strip().upper() for s in req.status.split(",") if s.strip()])
+            q += f" AND status = ANY(${len(args)})"
         if req.untested_only:  # 范围=未测试: 主品种还没有回测记录的才跑(补漏)
             q += (" AND NOT EXISTS (SELECT 1 FROM backtests b"
                   "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol)")
@@ -167,6 +172,7 @@ async def status():
 
 @router.get("/backtest/plan")
 async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
+               status: Optional[str] = None,
                untested_only: bool = False, cross_symbol: bool = False,
                strategy_ids: Optional[str] = None, limit: Optional[int] = None):
     """运行预览: 按当前选择数一数会跑多少 — N 个策略 × 品种 = K 次(启动前所见即所得)"""
@@ -191,6 +197,9 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
         if broker:
             args.append(broker)
             q += f" AND symbol IN (SELECT symbol FROM symbols WHERE broker=${len(args)})"
+        if status:
+            args.append([s.strip().upper() for s in status.split(",") if s.strip()])
+            q += f" AND status = ANY(${len(args)})"
         if untested_only:
             q += (" AND NOT EXISTS (SELECT 1 FROM backtests b"
                   "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol)")
