@@ -15,16 +15,23 @@
   <a href="{{ url_for('workers.index') }}" {% if ep.startswith('workers.') %}class="active"{% endif %}>Workers</a>
   <a href="{{ url_for('symbols.index') }}" {% if ep.startswith('symbols.') %}class="active"{% endif %}>配置</a>
   <a href="{{ url_for('datasync.index') }}" {% if ep.startswith('datasync.') %}class="active"{% endif %}>下载</a>
-  {# 策略组下拉: 生成(进货) / 列表(日常) / 回测 / 分析 #}
+  {# 策略组: 造和跑(生成/回测/排名) #}
   <div class="navmenu">
     <a href="{{ url_for('strategies.index') }}"
-       {% if ep.startswith('strategies.') or ep.startswith('backtests.') %}class="active"{% endif %}>策略 ▾</a>
+       {% if ep in ('strategies.index', 'strategies.generate_page') or ep.startswith('backtests.') %}class="active"{% endif %}>策略 ▾</a>
     <div class="navmenu-items">
       <a href="{{ url_for('strategies.generate_page') }}" {% if ep == 'strategies.generate_page' %}class="active"{% endif %}>策略生成</a>
-      <a href="{{ url_for('strategies.index') }}" {% if ep == 'strategies.index' %}class="active"{% endif %}>策略列表排名</a>
       <a href="{{ url_for('backtests.index') }}" {% if ep.startswith('backtests.') %}class="active"{% endif %}>策略回测</a>
-      <a href="{{ url_for('strategies.quality') }}" {% if ep == 'strategies.quality' %}class="active"{% endif %}>回测质量分析</a>
+      <a href="{{ url_for('strategies.index') }}" {% if ep == 'strategies.index' %}class="active"{% endif %}>策略列表排名</a>
+    </div>
+  </div>
+  {# 分析组: 看深度(单策略归因 / 回测体系质量) #}
+  <div class="navmenu">
+    <a href="{{ url_for('strategies.analysis') }}"
+       {% if ep in ('strategies.analysis', 'strategies.quality') %}class="active"{% endif %}>分析 ▾</a>
+    <div class="navmenu-items">
       <a href="{{ url_for('strategies.analysis') }}" {% if ep == 'strategies.analysis' %}class="active"{% endif %}>策略分析</a>
+      <a href="{{ url_for('strategies.quality') }}" {% if ep == 'strategies.quality' %}class="active"{% endif %}>回测质量分析</a>
     </div>
   </div>
   <a href="{{ url_for('execution.demo') }}" {% if ep == 'execution.demo' %}class="active"{% endif %}>Demo</a>
