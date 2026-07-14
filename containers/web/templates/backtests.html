@@ -135,14 +135,28 @@
         {% for b in brokers %}<option value="{{ b }}" {% if b == broker %}selected{% endif %}>{{ b }}</option>{% endfor %}
       </select></label>
     <label>最少交易数 <input name="min_trades" value="{{ min_trades }}" size="4"></label>
+    {# 多条件过滤: 空=不限, 全部查库 #}
+    <label title="主品种胜率 ≥ 此百分数; 空=不限">胜率≥ <input name="min_win_rate" size="3"
+        value="{{ '%g' % filters.min_win_rate if filters.min_win_rate is not none else '' }}">%</label>
+    <label title="盈利因子 ≥ 此值(毛利/毛损); 空=不限。无亏损(PF=∞)视为通过">PF≥ <input name="min_pf" size="3"
+        value="{{ '%g' % filters.min_pf if filters.min_pf is not none else '' }}"></label>
+    <label title="最大回撤(点) ≤ 此值; 空=不限">回撤≤ <input name="max_dd" size="6"
+        value="{{ '%g' % filters.max_dd if filters.max_dd is not none else '' }}"></label>
+    <label title="跨品种盈利比例 ≥ 此百分数; 空=不限。设了则没跑过跨品种的策略不通过">健壮≥ <input name="min_robust" size="3"
+        value="{{ '%g' % filters.min_robust if filters.min_robust is not none else '' }}">%</label>
+    <label title="净点数: 全部=不限; 仅盈利=只看净点数>0">净点
+      <select name="positive">
+        <option value="">全部</option>
+        <option value="1" {% if positive %}selected{% endif %}>仅盈利</option>
+      </select></label>
     <label>搜索
       <select name="q_field" title="策略名=模糊; ID/周期/状态=精准">
         {% for v, t in [('name','策略名(模糊)'), ('id','ID'), ('timeframe','周期'), ('status','状态')] %}
         <option value="{{ v }}" {% if v == q_field %}selected{% endif %}>{{ t }}</option>{% endfor %}
       </select></label>
-    <input name="q_text" value="{{ q_text or '' }}" size="16" placeholder="关键词(空=不搜)">
+    <input name="q_text" value="{{ q_text or '' }}" size="14" placeholder="关键词(空=不搜)">
     <button class="small">查询</button>
-    <span class="muted">↑ 查库(搜全部策略); ↓ 本页即时过滤/排序/翻页</span>
+    <span class="muted">↑ 查库(全量, 空=不限); ↓ 本页即时过滤/排序/翻页</span>
   </form>
   {{ m.table_toolbar('bt-results', hint='本页即时过滤已加载行(整行模糊)') }}
   {# data-detail-sort: 带展开明细行仍要能排序 — tables.js 排序只动主行, 明细行按 toggle id 跟随 #}

@@ -13,6 +13,10 @@ def index():
     q_field = request.args.get("q_field") or "name"
     q_text = request.args.get("q_text") or None
     min_trades = request.args.get("min_trades", 0, type=int)  # 默认0=全显示; 想过滤过拟合再调高
+    # 多条件过滤(1.1): 空=不限, 全部服务端查库
+    filters = {k: request.args.get(k, type=float)
+               for k in ("min_win_rate", "min_pf", "max_dd", "min_robust")}
+    positive = request.args.get("positive") == "1"
     results, bt, costs, brokers, symbols, orphans = [], {}, {}, [], [], []
     try:
         params = {"min_trades": min_trades, "limit": 200}  # 前端分页展示, 多取一些
@@ -20,6 +24,9 @@ def index():
             params["symbol"] = symbol
         if broker:
             params["broker"] = broker
+        params.update({k: v for k, v in filters.items() if v is not None})
+        if positive:
+            params["positive_only"] = "true"
         if q_text:  # 服务端搜索(查库): 策略名模糊 / ID·周期·状态精准
             params["q_field"] = q_field
             params["q_text"] = q_text
@@ -36,7 +43,7 @@ def index():
         flash(f"api 不可用: {e}", "error")
     return render_template("backtests.html", results=results, bt=bt, costs=costs,
                            symbol=symbol, broker=broker, min_trades=min_trades,
-                           q_field=q_field, q_text=q_text,
+                           q_field=q_field, q_text=q_text, filters=filters, positive=positive,
                            brokers=brokers, symbols=symbols, orphans=orphans)
 
 

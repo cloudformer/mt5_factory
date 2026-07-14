@@ -192,12 +192,18 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
 @router.get("/backtest/top")
 async def top(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
               min_trades: int = 0, limit: int = 20,
-              q_field: Optional[str] = None, q_text: Optional[str] = None):
+              q_field: Optional[str] = None, q_text: Optional[str] = None,
+              min_win_rate: float = 0, min_pf: float = 0,
+              max_dd: Optional[float] = None, min_robust: Optional[float] = None,
+              positive_only: bool = False):
     """排名: 每策略取主品种成绩(b.symbol = s.symbol), 按净点数排; 附带跨品种健壮性摘要与明细。
 
     排名只认主品种行 — 跨品种验证结果只喂健壮性列/明细, 不参与排名。
-    symbol/broker 为可选筛选(货币对/券商)。
-    q_field/q_text: 服务端搜索(查库), 策略名模糊(ILIKE), ID/周期/状态精准。
+    过滤(全部服务端查库, 不传=不限): symbol/broker(货币对/券商)、min_trades、
+      min_win_rate(胜率≥, 百分数)、min_pf(PF≥; PF为null=无亏损视为通过)、
+      max_dd(最大回撤≤)、positive_only(净点数>0)、min_robust(跨品种盈利比例≥, 百分数;
+      设了它则没跑过跨品种的策略不通过)。
+    q_field/q_text: 服务端搜索, 策略名模糊(ILIKE), ID/周期/状态精准。
     """
     pool = request.app.state.pool
     q = """
@@ -213,6 +219,17 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
     if broker:
         args.append(broker)
         q += f" AND b.broker = ${len(args)}"
+    if min_win_rate:
+        args.append(min_win_rate / 100)  # 前端传百分数, metrics 存 0~1
+        q += f" AND COALESCE((b.metrics->>'win_rate')::float, 0) >= ${len(args)}"
+    if min_pf:
+        args.append(min_pf)  # PF=null 表示无亏损(毛损为0) → 视为无穷大, 通过
+        q += f" AND COALESCE((b.metrics->>'profit_factor')::float, 1e9) >= ${len(args)}"
+    if max_dd is not None:
+        args.append(max_dd)
+        q += f" AND COALESCE((b.metrics->>'max_dd_points')::float, 0) <= ${len(args)}"
+    if positive_only:
+        q += " AND (b.metrics->>'net_points')::float > 0"
     # 服务端搜索: 只有策略名模糊, 其余精准
     if q_text and q_text.strip() and q_field:
         t = q_text.strip()
@@ -225,7 +242,8 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         elif q_field == "status":
             args.append(t.upper()); q += f" AND s.status = ${len(args)}"
     rows = await pool.fetch(q, *args)
-    ranked = sorted(rows, key=lambda r: r["metrics"]["net_points"], reverse=True)[:limit]
+    # 先全量排序; 健壮性过滤要等聚合后才能算, 所以 limit 放最后截
+    ranked = sorted(rows, key=lambda r: r["metrics"]["net_points"], reverse=True)
 
     # 跨品种健壮性: 每策略取其所有品种行, 汇总"几个品种赚 / 几个测过" + 每品种明细
     ids = [r["strategy_id"] for r in ranked]
@@ -246,7 +264,12 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         traded = [x for x in bd if x["metrics"].get("trades", 0) > 0]
         d["tested"] = len(traded)   # 实际有交易的品种数(健壮比例分母)
         d["profitable"] = sum(1 for x in traded if x["metrics"].get("net_points", 0) > 0)
+        if min_robust is not None:  # 健壮性≥: 没跑跨品种/没交易 → 不通过
+            if not d["tested"] or d["profitable"] / d["tested"] * 100 < min_robust:
+                continue
         results.append(d)
+        if len(results) >= limit:
+            break
     return {"results": results}
 
 
