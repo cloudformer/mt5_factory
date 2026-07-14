@@ -8,39 +8,12 @@ bp = Blueprint("backtests", __name__, url_prefix="/backtests")
 
 @bp.get("/")
 def index():
-    symbol = request.args.get("symbol") or None
-    broker = request.args.get("broker") or None
-    q_field = request.args.get("q_field") or "name"
-    q_text = request.args.get("q_text") or None
-    min_trades = request.args.get("min_trades", 0, type=int)  # 默认0=全显示; 想过滤过拟合再调高
-    # 多条件过滤(1.1): 空=不限, 全部服务端查库
-    filters = {k: request.args.get(k, type=float)
-               for k in ("min_win_rate", "min_pf", "max_dd", "min_robust")}
-    positive = request.args.get("positive") == "1"
-    rank = request.args.get("rank") or ""  # 排名模板名, 空=默认(净点数)
-    results, bt, costs, brokers, symbols, orphans, rank_templates = [], {}, {}, [], [], [], []
+    """策略回测页(纯执行): 批量/单策略回测 + 进度 + 孤儿警告。结果排名在「策略列表排名」。"""
+    bt, costs, brokers, symbols, orphans = {}, {}, [], [], []
     try:
-        cfg = api.get("/config")["config"]
-        costs = cfg.get("backtest_costs", {})
-        rank_templates = cfg.get("ranking_templates", [])
-        # 排名取数上限跟随"单批上限"(同一个规模旋钮): 策略总量涨了排名不再被 200 截断
-        params = {"min_trades": min_trades,
-                  "limit": cfg.get("backtest_batch_limit", 500)}
-        if rank:
-            params["rank_template"] = rank
-        if symbol:
-            params["symbol"] = symbol
-        if broker:
-            params["broker"] = broker
-        params.update({k: v for k, v in filters.items() if v is not None})
-        if positive:
-            params["positive_only"] = "true"
-        if q_text:  # 服务端搜索(查库): 策略名模糊 / ID·周期·状态精准
-            params["q_field"] = q_field
-            params["q_text"] = q_text
-        results = api.get("/backtest/top", **params)["results"]
+        costs = api.get("/config")["config"].get("backtest_costs", {})
         bt = api.get("/backtest/status")
-        # 两个筛选下拉的选项从库里拉 (货币对/券商), 默认全部; 与 worker 无关
+        # 运行表单筛选下拉的选项从库里拉 (货币对/券商), 默认全部; 与 worker 无关
         syms = api.get("/symbols")["symbols"]
         symbols = [s["symbol"] for s in syms if s.get("download")]
         brokers = sorted({s["broker"] for s in syms if s.get("broker")})
@@ -48,10 +21,7 @@ def index():
         orphans = api.get("/strategies/orphans")["orphans"]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-    return render_template("backtests.html", results=results, bt=bt, costs=costs,
-                           symbol=symbol, broker=broker, min_trades=min_trades,
-                           q_field=q_field, q_text=q_text, filters=filters, positive=positive,
-                           rank=rank, rank_templates=rank_templates,
+    return render_template("backtests.html", bt=bt, costs=costs,
                            brokers=brokers, symbols=symbols, orphans=orphans)
 
 

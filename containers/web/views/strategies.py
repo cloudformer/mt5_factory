@@ -11,17 +11,46 @@ TIMEFRAMES = ["M5", "M15", "M30", "H1", "H4", "D1"]
 
 @bp.get("/")
 def index():
-    """策略列表(日常主战场)"""
-    status = request.args.get("status") or None
-    symbol = request.args.get("symbol") or None
-    strategies = []
+    """策略列表排名(唯一工作台): 全部策略(含未回测, 成绩为空沉底) + 成绩/评分/健壮性
+    + 筛选(品种/券商/状态/多条件)/搜索/排名模板。数据走 /backtest/top(LEFT JOIN 版)。"""
+    a = request.args
+    symbol = a.get("symbol") or None
+    broker = a.get("broker") or None
+    status = a.get("status") or None
+    q_field = a.get("q_field") or "name"
+    q_text = a.get("q_text") or None
+    min_trades = a.get("min_trades", 0, type=int)
+    filters = {k: a.get(k, type=float)
+               for k in ("min_win_rate", "min_pf", "max_dd", "min_robust")}
+    positive = a.get("positive") == "1"
+    rank = a.get("rank") or ""  # 排名模板名, 空=默认(净点数)
+    results, rank_templates, brokers, symbols = [], [], [], []
     try:
-        params = {k: v for k, v in {"status": status, "symbol": symbol, "limit": 200}.items() if v}
-        strategies = api.get("/strategies/status", **params)["strategies"]
+        cfg = api.get("/config")["config"]
+        rank_templates = cfg.get("ranking_templates", [])
+        params = {"min_trades": min_trades,
+                  "limit": cfg.get("backtest_batch_limit", 500)}
+        for k, v in (("symbol", symbol), ("broker", broker), ("status", status)):
+            if v:
+                params[k] = v
+        params.update({k: v for k, v in filters.items() if v is not None})
+        if positive:
+            params["positive_only"] = "true"
+        if rank:
+            params["rank_template"] = rank
+        if q_text:  # 服务端搜索: 策略名模糊 / ID·周期·状态精准
+            params["q_field"] = q_field
+            params["q_text"] = q_text
+        results = api.get("/backtest/top", **params)["results"]
+        syms = api.get("/symbols")["symbols"]
+        symbols = [s["symbol"] for s in syms if s.get("download")]
+        brokers = sorted({s["broker"] for s in syms if s.get("broker")})
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-    return render_template("strategies.html", strategies=strategies,
-                           status=status, symbol=symbol)
+    return render_template("strategies.html", results=results, symbol=symbol, broker=broker,
+                           status=status, min_trades=min_trades, q_field=q_field, q_text=q_text,
+                           filters=filters, positive=positive, rank=rank,
+                           rank_templates=rank_templates, brokers=brokers, symbols=symbols)
 
 
 @bp.get("/generate")

@@ -227,11 +227,15 @@ def _pct_scores(values: list) -> list:
 
 def _apply_template_scores(cands: list, tpl: dict) -> None:
     """按模板四维权重给每个候选算综合分(0~100), 写入 d['score']。
-    稳定=PF(∞=无亏损按最大) / 盈利=净点 / 风险=回撤(小=好, 取负) / 健壮=跨品种盈利比(未跨品种=0分)"""
-    stable = _pct_scores([m["metrics"].get("profit_factor") if m["metrics"].get("profit_factor")
-                          is not None else float("inf") for m in cands])
-    profit = _pct_scores([m["metrics"].get("net_points", 0) for m in cands])
-    risk = _pct_scores([-(m["metrics"].get("max_dd_points") or 0) for m in cands])
+    稳定=PF(∞=无亏损按最大) / 盈利=净点 / 风险=回撤(小=好, 取负) / 健壮=跨品种盈利比。
+    未回测(has_bt=False)与未跨品种: 该维没证据 → None → 0分(不冒充好成绩)"""
+    def _bt(m, f):
+        return f(m["metrics"]) if m.get("has_bt", True) else None
+    stable = _pct_scores([_bt(m, lambda x: x.get("profit_factor")
+                              if x.get("profit_factor") is not None else float("inf"))
+                          for m in cands])
+    profit = _pct_scores([_bt(m, lambda x: x.get("net_points", 0)) for m in cands])
+    risk = _pct_scores([_bt(m, lambda x: -(x.get("max_dd_points") or 0)) for m in cands])
     robust = _pct_scores([(m["profitable"] / m["tested"]) if m["tested"] else None for m in cands])
     w = {k: tpl.get(k, 0) for k in ("stable", "profit", "risk", "robust")}
     total = sum(w.values()) or 1
@@ -242,43 +246,49 @@ def _apply_template_scores(cands: list, tpl: dict) -> None:
 
 @router.get("/backtest/top")
 async def top(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
-              min_trades: int = 0, limit: int = 20,
+              min_trades: int = 0, limit: int = 20, status: Optional[str] = None,
               q_field: Optional[str] = None, q_text: Optional[str] = None,
               min_win_rate: float = 0, min_pf: float = 0,
               max_dd: Optional[float] = None, min_robust: Optional[float] = None,
               positive_only: bool = False, rank_template: Optional[str] = None):
-    """排名: 每策略取主品种成绩(b.symbol = s.symbol), 按净点数排; 附带跨品种健壮性摘要与明细。
+    """策略列表排名: 从 strategies 出发 LEFT JOIN 主品种回测 — 未回测的策略也出现(成绩为空,
+    默认沉底), 列表与排名合一。跨品种结果只喂健壮性列/明细, 不参与排名。
 
-    排名只认主品种行 — 跨品种验证结果只喂健壮性列/明细, 不参与排名。
-    过滤(全部服务端查库, 不传=不限): symbol/broker(货币对/券商)、min_trades、
-      min_win_rate(胜率≥, 百分数)、min_pf(PF≥; PF为null=无亏损视为通过)、
-      max_dd(最大回撤≤)、positive_only(净点数>0)、min_robust(跨品种盈利比例≥, 百分数;
-      设了它则没跑过跨品种的策略不通过)。
+    过滤(全部服务端查库, 不传=不限): symbol/broker/status、min_trades(>0 时未回测不通过)、
+      min_win_rate(百分数)、min_pf(PF=null 即无亏损视为通过)、max_dd、positive_only、
+      min_robust(百分数, 未跨品种不通过) — 有成绩门槛的过滤, 未回测策略一律不通过。
     q_field/q_text: 服务端搜索, 策略名模糊(ILIKE), ID/周期/状态精准。
     """
     pool = request.app.state.pool
     q = """
-        SELECT b.strategy_id, s.name, s.symbol, s.timeframe, s.status, b.broker,
-               b.metrics, b.created_at
-          FROM backtests b JOIN strategies s ON s.id = b.strategy_id
-         WHERE b.symbol = s.symbol AND (b.metrics->>'trades')::int >= $1
+        SELECT s.id AS strategy_id, s.name, s.symbol, s.timeframe, s.status,
+               s.params, s.magic_number,
+               COALESCE(b.broker, sy.broker) AS broker, b.metrics, b.created_at
+          FROM strategies s
+          LEFT JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol
+          LEFT JOIN symbols sy ON sy.symbol = s.symbol
+         WHERE (b.id IS NOT NULL AND (b.metrics->>'trades')::int >= $1
+                OR b.id IS NULL AND $1 <= 0)
     """
-    args = [min_trades]
+    args = [min_trades]  # 未回测: min_trades=0 时显示(成绩为空), >0 时不通过(没证据)
     if symbol:
         args.append(symbol)
         q += f" AND s.symbol = ${len(args)}"
     if broker:
         args.append(broker)
-        q += f" AND b.broker = ${len(args)}"
+        q += f" AND COALESCE(b.broker, sy.broker) = ${len(args)}"
+    if status:
+        args.append(status.upper())
+        q += f" AND s.status = ${len(args)}"
     if min_win_rate:
         args.append(min_win_rate / 100)  # 前端传百分数, metrics 存 0~1
-        q += f" AND COALESCE((b.metrics->>'win_rate')::float, 0) >= ${len(args)}"
+        q += f" AND b.id IS NOT NULL AND COALESCE((b.metrics->>'win_rate')::float, 0) >= ${len(args)}"
     if min_pf:
-        args.append(min_pf)  # PF=null 表示无亏损(毛损为0) → 视为无穷大, 通过
-        q += f" AND COALESCE((b.metrics->>'profit_factor')::float, 1e9) >= ${len(args)}"
+        args.append(min_pf)  # PF=null 表示无亏损(毛损为0) → 视为无穷大, 通过; 未回测不通过
+        q += f" AND b.id IS NOT NULL AND COALESCE((b.metrics->>'profit_factor')::float, 1e9) >= ${len(args)}"
     if max_dd is not None:
         args.append(max_dd)
-        q += f" AND COALESCE((b.metrics->>'max_dd_points')::float, 0) <= ${len(args)}"
+        q += f" AND b.id IS NOT NULL AND COALESCE((b.metrics->>'max_dd_points')::float, 0) <= ${len(args)}"
     if positive_only:
         q += " AND (b.metrics->>'net_points')::float > 0"
     # 服务端搜索: 只有策略名模糊, 其余精准
@@ -287,14 +297,15 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         if q_field == "name":
             args.append(f"%{t}%"); q += f" AND s.name ILIKE ${len(args)}"
         elif q_field == "id" and t.isdigit():
-            args.append(int(t)); q += f" AND b.strategy_id = ${len(args)}"
+            args.append(int(t)); q += f" AND s.id = ${len(args)}"
         elif q_field == "timeframe":
             args.append(t.upper()); q += f" AND s.timeframe = ${len(args)}"
         elif q_field == "status":
             args.append(t.upper()); q += f" AND s.status = ${len(args)}"
     rows = await pool.fetch(q, *args)
-    # 先全量排序; 健壮性过滤要等聚合后才能算, 所以 limit 放最后截
-    ranked = sorted(rows, key=lambda r: r["metrics"]["net_points"], reverse=True)
+    # 先全量排序(未回测按 -inf 沉底); 健壮性过滤要等聚合后才能算, 所以 limit 放最后截
+    ranked = sorted(rows, key=lambda r: (r["metrics"] or {}).get("net_points", float("-inf")),
+                    reverse=True)
 
     # 跨品种健壮性: 每策略取其所有品种行, 汇总"几个品种赚 / 几个测过" + 每品种明细
     ids = [r["strategy_id"] for r in ranked]
@@ -308,6 +319,8 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
     cands = []
     for r in ranked:
         d = dict(r)
+        d["has_bt"] = d["metrics"] is not None  # 未回测 → 成绩列显示 '—'
+        d["metrics"] = d["metrics"] or {}
         d["score"] = None
         bd = sorted(breakdown.get(r["strategy_id"], []),
                     key=lambda x: x["metrics"].get("net_points", 0), reverse=True)
@@ -328,7 +341,9 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
             if t.get("name") == rank_template), None)
         if tpl:
             _apply_template_scores(cands, tpl)
-            cands.sort(key=lambda d: (d["score"], d["metrics"]["net_points"]), reverse=True)
+            cands.sort(key=lambda d: (d["score"],
+                                      d["metrics"].get("net_points", float("-inf"))),
+                       reverse=True)
     return {"results": cands[:limit]}
 
 
