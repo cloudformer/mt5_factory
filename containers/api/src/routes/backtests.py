@@ -84,6 +84,8 @@ async def run(req: BacktestRequest, request: Request):
         if req.status:  # 状态筛选(逗号多值): 如热层每日刷新 DEMO,LIVE
             args.append([s.strip().upper() for s in req.status.split(",") if s.strip()])
             q += f" AND status = ANY(${len(args)})"
+        else:  # 默认不测已淘汰(ARCHIVED)的尸体 — 要重测它们请显式选状态或按ID点名
+            q += " AND status <> 'ARCHIVED'"
         if req.untested_only:  # 范围=未测试: 主品种还没有回测记录的才跑(补漏)
             q += (" AND NOT EXISTS (SELECT 1 FROM backtests b"
                   "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol)")
@@ -209,6 +211,8 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
         if status:
             args.append([s.strip().upper() for s in status.split(",") if s.strip()])
             q += f" AND status = ANY(${len(args)})"
+        else:  # 与 run() 一致: 默认不计已淘汰的尸体
+            q += " AND status <> 'ARCHIVED'"
         if untested_only:
             q += (" AND NOT EXISTS (SELECT 1 FROM backtests b"
                   "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol)")

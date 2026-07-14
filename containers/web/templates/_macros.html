@@ -10,9 +10,14 @@
       title="bridge 不可达(HTTP 8020 无响应)。排查: 1) Windows 开机且已登录 2) start_bridge.bat 窗口在跑 3) IP {{ h.host }} 可达、无防火墙拦 8020 4) 与本机 env 的 IP 一致。bridge 不通时『重启』按钮也发不进去, 需去 Windows 本机">离线</span>{%- endif -%}
 {%- endmacro %}
 
+{# 策略状态中文名 (显示用; 存储/提交值仍是英文 CANDIDATE/DEMO/LIVE/ARCHIVED) #}
+{% macro status_label(s) -%}
+{{ {'CANDIDATE': '候选', 'DEMO': '模拟', 'LIVE': '实盘', 'ARCHIVED': '淘汰归档'}.get(s, s) }}
+{%- endmacro %}
+
 {# 策略状态徽章 #}
 {% macro strategy_status(s) -%}
-  <span class="badge {{ {'LIVE': 'ok', 'DEMO': 'warn', 'CANDIDATE': ''}.get(s, '') }}">{{ s }}</span>
+  <span class="badge {{ {'LIVE': 'ok', 'DEMO': 'warn', 'CANDIDATE': ''}.get(s, '') }}">{{ status_label(s) }}</span>
 {%- endmacro %}
 
 {# 策略操作列 (全站统一): 回测 + 状态下拉(可转任意状态, LIVE 也能撤回) #}
@@ -24,7 +29,7 @@
     <select name="status" class="small" data-status-select>
       <option value="">状态 →</option>
       {% for target in ['CANDIDATE', 'DEMO', 'LIVE', 'ARCHIVED'] if target != s.status %}
-      <option value="{{ target }}">{{ target }}</option>
+      <option value="{{ target }}">{{ status_label(target) }}</option>
       {% endfor %}
     </select>
   </form>

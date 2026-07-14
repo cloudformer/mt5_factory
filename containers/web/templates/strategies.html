@@ -10,7 +10,7 @@
       <select name="status">
         <option value="">全部</option>
         {% for s in ['CANDIDATE','DEMO','LIVE','ARCHIVED'] %}
-        <option {% if status == s %}selected{% endif %}>{{ s }}</option>
+        <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ m.status_label(s) }}</option>
         {% endfor %}
       </select></label>
     <label title="策略模板(生成时选的逻辑, 代码进git); 空=不限">策略模板
@@ -65,7 +65,13 @@
     <button class="small">查询</button>
     <button class="small" type="button" id="copy-ids"
         title="把当前查询结果(服务端筛选后)的全部策略ID逗号串复制到剪贴板 — 粘进「策略回测」的按ID框, 就是漏斗第三步(幸存者跨品种)">复制ID</button>
+    <button class="small danger" type="button" id="archive-ids"
+        title="把当前查询结果(服务端筛选后)的全部策略一键淘汰归档(标ARCHIVED, 可逆, 不删除) — 漏斗粗筛不达标的批量出局; 之后不再参与回测/排名, 随时可改回。实盘和已淘汰归档的自动跳过">批量淘汰归档</button>
     <span class="muted">↑ 查库(全量, 空=不限); ↓ 本页即时过滤/排序/翻页</span>
+  </form>
+  {# 批量淘汰: 提交当前查询结果的ID串 → 后端标ARCHIVED(可逆) #}
+  <form method="post" action="{{ url_for('strategies.archive_batch') }}" id="archive-form" hidden>
+    <input type="hidden" name="strategy_ids" id="archive-ids-input">
   </form>
   <p class="muted" style="margin:4px 0">样本外切分　<b>训练段 {{ (oos_split * 10) | round | int }}</b> ： <b>留出段 {{ ((1 - oos_split) * 10) | round | int }}</b>
     　训练段(前 {{ (oos_split * 100) | round | int }}% 时间)用来选，留出段(后 {{ ((1 - oos_split) * 100) | round | int }}%，策略没见过)只用来一票否决；比例在配置页可改。</p>
@@ -153,18 +159,33 @@
 {# 复制ID: 当前查询结果(服务端已筛)的全部策略ID → 剪贴板, 喂给回测的按ID框(漏斗第三步) #}
 <script>
 (function () {
-  const btn = document.getElementById("copy-ids");
-  if (!btn) return;
-  btn.addEventListener("click", async () => {
-    const ids = [...document.querySelectorAll("#strat-table tr")]
-      .filter((r) => !r.querySelector("th") && !r.classList.contains("detail-row")
-                     && !r.querySelector("td[colspan]"))
-      .map((r) => r.children[1].textContent.trim()).filter(Boolean);
+  // 当前查询结果的策略ID(服务端已筛; ID 在第2列 index 1, 排除表头/明细行/空态行)
+  const collectIds = () => [...document.querySelectorAll("#strat-table tr")]
+    .filter((r) => !r.querySelector("th") && !r.classList.contains("detail-row")
+                   && !r.querySelector("td[colspan]"))
+    .map((r) => r.children[1].textContent.trim()).filter(Boolean);
+
+  const copyBtn = document.getElementById("copy-ids");
+  if (copyBtn) copyBtn.addEventListener("click", async () => {
+    const ids = collectIds();
     try {
       await navigator.clipboard.writeText(ids.join(","));
-      btn.textContent = `已复制 ${ids.length} 个ID`;
-    } catch { btn.textContent = "复制失败(需HTTPS或localhost)"; }
-    setTimeout(() => (btn.textContent = "复制ID"), 2500);
+      copyBtn.textContent = `已复制 ${ids.length} 个ID`;
+    } catch { copyBtn.textContent = "复制失败(需HTTPS或localhost)"; }
+    setTimeout(() => (copyBtn.textContent = "复制ID"), 2500);
+  });
+
+  // 批量淘汰: 收集同一批ID → 确认 → 提交隐藏表单(后端标ARCHIVED, 可逆)
+  const arcBtn = document.getElementById("archive-ids");
+  const arcForm = document.getElementById("archive-form");
+  const arcInput = document.getElementById("archive-ids-input");
+  if (arcBtn && arcForm) arcBtn.addEventListener("click", () => {
+    const ids = collectIds();
+    if (!ids.length) { alert("当前查询结果为空, 没有可淘汰归档的策略"); return; }
+    if (!confirm(`把当前查询结果的 ${ids.length} 条策略淘汰归档(标 ARCHIVED)?\n\n` +
+                 `可逆 — 之后不再参与回测/排名, 随时可改回。\n实盘(LIVE)和已淘汰归档的会自动跳过。`)) return;
+    arcInput.value = ids.join(",");
+    arcForm.submit();
   });
 })();
 </script>

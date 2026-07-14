@@ -11,7 +11,7 @@
     <table class="subtable" style="margin-top:8px">
       <tr><th>策略</th><th>已删品种</th><th>当前状态</th></tr>
       {% for o in orphans %}
-      <tr><td>{{ o.name }}</td><td class="neg">{{ o.symbol }}</td><td>{{ o.status }}</td></tr>
+      <tr><td>{{ o.name }}</td><td class="neg">{{ o.symbol }}</td><td>{{ m.status_label(o.status) }}</td></tr>
       {% endfor %}
     </table>
     <form method="post" action="{{ url_for('backtests.archive_orphans') }}" class="inline" style="margin-top:8px"
