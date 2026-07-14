@@ -67,6 +67,8 @@
         title="把当前查询结果(服务端筛选后)的全部策略ID逗号串复制到剪贴板 — 粘进「策略回测」的按ID框, 就是漏斗第三步(幸存者跨品种)">复制ID</button>
     <span class="muted">↑ 查库(全量, 空=不限); ↓ 本页即时过滤/排序/翻页</span>
   </form>
+  <p class="muted" style="margin:4px 0">样本外切分　<b>训练段 {{ (oos_split * 10) | round | int }}</b> ： <b>留出段 {{ ((1 - oos_split) * 10) | round | int }}</b>
+    　训练段(前 {{ (oos_split * 100) | round | int }}% 时间)用来选，留出段(后 {{ ((1 - oos_split) * 100) | round | int }}%，策略没见过)只用来一票否决；比例在配置页可改。</p>
   {{ m.table_toolbar('strat-table', hint='本页即时过滤已加载行(整行模糊)') }}
   {# data-detail-sort: 带展开明细行仍要能排序 — tables.js 排序只动主行, 明细行按 toggle id 跟随 #}
   <table id="strat-table" data-detail-sort>
@@ -75,7 +77,7 @@
         <th title="排名模板的综合分(0~100, 四维百分位加权); 默认排序下无">评分</th>
         <th>策略</th><th title="生成用的策略模板(逻辑代码)">策略模板</th><th>品种</th><th>券商</th><th>周期</th><th>状态</th>
         <th>笔数</th><th>胜率</th><th>净点数</th><th>PF</th><th>最大回撤</th>
-        <th title="样本外留出段(策略没见过的最近数据)净点数(笔数) — 绿=换时段还赚(真规律), 红=留出崩(过拟合嫌疑)。训练:留出比例在配置页(默认7:3)">留出段</th>
+        <th title="样本外两段净点(笔数): 训练段=前段用来选; 留出段=后段(策略没见过)一票否决。绿=盈利红=亏。留出崩=过拟合嫌疑。比例见表上说明">训练/留出段<br><span class="muted">(净点)</span></th>
         <th title="同参数跨品种回测: 几个品种里几个盈利。点开还可看参数/magic/每品种明细">健壮性</th>
         <th data-nosort>操作</th></tr>
     {% for r in results %}
@@ -98,11 +100,11 @@
       <td class="{% if r.metrics.net_points > 0 %}pos{% else %}neg{% endif %}">{{ r.metrics.net_points }}</td>
       <td>{{ r.metrics.profit_factor or '—' }}</td>
       <td class="muted">{{ r.metrics.max_dd_points or 0 }}</td>
-      {% set h = (r.metrics.oos or {}).get('holdout') %}
-      <td>{% if h and h.trades %}
-        <span class="{{ 'pos' if h.net_points > 0 else 'neg' }}">{{ h.net_points }}</span>
-        <span class="muted">({{ h.trades }})</span>
-        {% elif h %}<span class="muted" title="留出段没有交易">0笔</span>
+      {% set oos = r.metrics.oos or {} %}
+      {% set tr = oos.get('train') %}{% set h = oos.get('holdout') %}
+      <td class="nowrap">{% if tr or h %}
+        <div title="训练段(前段, 用来选)">训 {% if tr and tr.trades %}<span class="{{ 'pos' if tr.net_points > 0 else 'neg' }}">{{ tr.net_points }}</span> <span class="muted">({{ tr.trades }})</span>{% else %}<span class="muted">0笔</span>{% endif %}</div>
+        <div title="留出段(后段, 策略没见过, 一票否决)">留 {% if h and h.trades %}<span class="{{ 'pos' if h.net_points > 0 else 'neg' }}">{{ h.net_points }}</span> <span class="muted">({{ h.trades }})</span>{% else %}<span class="muted">0笔</span>{% endif %}</div>
         {% else %}<span class="muted" title="老回测结果无OOS — 重跑后出现">—</span>{% endif %}</td>
       {% else %}
       <td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>

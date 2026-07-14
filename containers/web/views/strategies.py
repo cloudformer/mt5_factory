@@ -27,9 +27,11 @@ def index():
     oos = a.get("oos") == "1"  # 留出段盈利过滤(OOS 一票否决)
     rank = a.get("rank") or ""  # 排名模板名, 空=默认(净点数)
     results, rank_templates, brokers, symbols, templates = [], [], [], [], []
+    oos_split = 0.7  # 样本外训练段占比(配置页可改), 供页面显示"训练:留出"比例
     try:
         cfg = api.get("/config")["config"]
         rank_templates = cfg.get("ranking_templates", [])
+        oos_split = cfg.get("backtest_oos_split", 0.7)
         templates = sorted(api.get("/strategies/templates")["templates"].keys())
         params = {"min_trades": min_trades,
                   "limit": cfg.get("backtest_batch_limit", 500)}
@@ -57,7 +59,7 @@ def index():
                            status=status, min_trades=min_trades, q_field=q_field, q_text=q_text,
                            filters=filters, positive=positive, oos=oos, rank=rank,
                            rank_templates=rank_templates, brokers=brokers, symbols=symbols,
-                           template=template, templates=templates)
+                           template=template, templates=templates, oos_split=oos_split)
 
 
 @bp.get("/generate")
