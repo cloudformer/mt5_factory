@@ -90,7 +90,8 @@ def save_costs():
         flash("默认成本已保存", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
         flash(f"保存失败: {e}", "error")
-    return redirect(url_for("backtests.index"))
+    # 成本表单在「配置」页(也可能其它入口), 保存后回来源页
+    return redirect(request.referrer or url_for("symbols.index"))
 
 
 @bp.post("/run")

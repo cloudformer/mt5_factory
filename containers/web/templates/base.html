@@ -13,7 +13,7 @@
   {% set ep = request.endpoint or '' %}
   <a href="{{ url_for('dashboard.index') }}" {% if ep.startswith('dashboard.') %}class="active"{% endif %}>概览</a>
   <a href="{{ url_for('workers.index') }}" {% if ep.startswith('workers.') %}class="active"{% endif %}>Workers</a>
-  <a href="{{ url_for('symbols.index') }}" {% if ep.startswith('symbols.') %}class="active"{% endif %}>品种</a>
+  <a href="{{ url_for('symbols.index') }}" {% if ep.startswith('symbols.') %}class="active"{% endif %}>配置</a>
   <a href="{{ url_for('datasync.index') }}" {% if ep.startswith('datasync.') %}class="active"{% endif %}>下载</a>
   {# 策略组下拉: 生成(进货) / 列表(日常) / 回测 / 分析 #}
   <div class="navmenu">

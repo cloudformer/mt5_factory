@@ -23,17 +23,6 @@
 {% endif %}
 
 <section>
-  <h2>默认成本 (系统配置)</h2>
-  <form method="post" action="{{ url_for('backtests.save_costs') }}" class="inline">
-    <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="单边滑点(点)"></label>
-    <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="往返佣金(点数等值)"></label>
-    <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="固定点差(点); 留空=用每根bar记录的真实点差"></label>
-    <button class="small">保存默认</button>
-    <span class="muted">回测撮合的成本假设; 每次结果都随附所用设置, 不同设置的成绩不混淆</span>
-  </form>
-</section>
-
-<section>
   <h2>批量回测</h2>
   {# 布局: 选策略(按筛选/按ID 二选一, 互斥灰掉) → 选项 → 预览(将跑 N×M=K)+成本只读+启动 #}
   <form method="post" action="{{ url_for('backtests.run') }}" class="runbar" id="bt-run">
@@ -70,9 +59,10 @@
       <span class="tag">预览</span>
       <span id="bt-plan" class="muted">…</span>
       <span class="spacer"></span>
-      <span class="muted" title="回测撮合的成本假设, 在上方『默认成本(系统配置)』修改">
+      <span class="muted" title="回测撮合的成本假设(系统默认)">
         成本: 滑点{{ costs.get('slippage_points', 3) }} · 佣金{{ costs.get('commission_points', 7) }} ·
-        点差{{ costs.get('spread_points') if costs.get('spread_points') is not none else '真实' }}</span>
+        点差{{ costs.get('spread_points') if costs.get('spread_points') is not none else '真实' }}
+        <a href="{{ url_for('symbols.index') }}">配置页改</a></span>
       <span id="bt-progress"{% if bt.running %} data-running="1"{% endif %}>
         {% if bt.running %}
         <span class="badge ok">运行中 <span class="bt-done">{{ bt.done }}</span>/<span class="bt-total">{{ bt.total }}</span></span>

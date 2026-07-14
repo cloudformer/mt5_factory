@@ -1,47 +1,46 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('品种', '定义"有哪些品种" = 品种名(你输入) + 券商(自动取账户) + 精度(自动取券商)。数据的下载/起始日期/删除在『下载』页管') }}
+{{ m.page_header('配置', '系统配置：货币对主档（登记 / 精度）+ 回测参数。校验 / 下载 / 清空 / 删除等执行操作在「下载」页') }}
 
 <section>
-  <h2>登记品种</h2>
+  <h2>货币对</h2>
   <form method="post" action="{{ url_for('symbols.add') }}" class="inline">
     <label>品种 <input name="symbol" placeholder="如 EURUSD / BTCUSD" size="14" required></label>
-    <label>起始日期 <input name="data_start" value="2015-01-01" size="10"></label>
     <button>登记</button>
     <span class="muted">向券商确认品种存在并自动读取 券商名/digits/point；券商没有会明确报错。精度不手填(手填会与券商不一致)</span>
   </form>
-</section>
 
-<section>
-  <h2>品种主档 ({{ symbols | length }})</h2>
   {{ m.table_toolbar('sym-table', hint='搜索: 品种/券商…') }}
   <table id="sym-table">
-    <tr><th data-nosort>#</th><th>品种</th><th>券商</th><th>digits</th><th>point</th><th>最小手</th>
-        <th>校验</th><th data-nosort>操作</th></tr>
+    <tr><th data-nosort>#</th><th>品种</th><th>券商</th>
+        <th title="digits · point; 悬停单元格看最小手/停损位">精度</th>
+        <th>校验</th></tr>
     {% for s in symbols %}
     <tr>
       <td class="rownum muted"></td>
       <td>{{ s.symbol }}</td>
       <td>{{ s.broker or '—' }}</td>
-      <td class="muted">{{ s.digits }}</td>
-      <td class="muted">{{ s.point }}</td>
-      <td class="muted">{{ s.volume_min if s.volume_min is not none else '—' }}</td>
+      <td class="muted" title="最小手 {{ s.volume_min if s.volume_min is not none else '—' }} · 停损位 {{ s.stops_level if s.stops_level is not none else '—' }}">
+        {{ s.digits }} · {{ s.point }}</td>
       <td>{% if s.verified_at %}<span class="badge ok" title="券商已确认存在, 精度/券商自动取自券商">已校验</span>
-          {% else %}<span class="badge warn" title="未经券商校验(如从旧配置迁移而来), 去下载页点『校验』">未校验</span>{% endif %}</td>
-      <td>
-        <form method="post" action="{{ url_for('symbols.delete', symbol=s.symbol) }}" class="inline"
-              onsubmit="return confirm('删除品种 {{ s.symbol }} 的登记?(有数据会拦, 先去下载页清空)')">
-          <button class="small danger">删除</button>
-        </form>
-      </td>
+          {% else %}<span class="badge warn" title="未经券商校验 — 去「下载」页点『校验』">未校验</span>{% endif %}</td>
     </tr>
     {% else %}
-    {% call m.empty(8) %}还没有登记品种 — 用上方表单登记(会向券商校验){% endcall %}
+    {% call m.empty(5) %}还没有登记品种 — 用上方表单登记(会向券商校验){% endcall %}
     {% endfor %}
   </table>
-  <p class="muted">这里只管"品种定义"(品种/券商/精度)。数据下载、起始日期、校验、清空数据在
-     <a href="{{ url_for('datasync.index') }}">下载</a> 页。删除品种要先在下载页清空它的数据。</p>
+</section>
+
+<section>
+  <h2>回测参数 (成本模型)</h2>
+  <form method="post" action="{{ url_for('backtests.save_costs') }}" class="inline">
+    <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="单边滑点(点)"></label>
+    <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="往返佣金(点数等值)"></label>
+    <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="固定点差(点); 留空=用每根bar记录的真实点差"></label>
+    <button class="small">保存</button>
+    <span class="muted">回测撮合的成本假设(悲观); 每次回测结果都随附所用设置, 不同设置的成绩不混淆</span>
+  </form>
 </section>
 
 {% endblock %}

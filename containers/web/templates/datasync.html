@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('数据下载', '管每个品种的数据生命周期: 起始时间 / 覆盖 / 校验 / 清空。品种定义(名/券商/精度)在『品种』页') }}
+{{ m.page_header('数据下载', '执行页: 下载开关 / 起始时间 / 同步 / 覆盖 / 校验 / 清空 / 删除。货币对登记与回测参数在「配置」页') }}
 
 <section>
   <h2>同步</h2>
@@ -26,7 +26,9 @@
   <h2>数据 ({{ symbols | length }} 品种)</h2>
   {{ m.table_toolbar('cov-table', hint='搜索: 品种/券商…') }}
   <table id="cov-table">
-    <tr><th data-nosort>#</th><th>品种</th><th>券商</th><th>下载</th><th>起始日期</th>
+    <tr><th data-nosort>#</th><th>品种</th><th>券商</th>
+        <th title="是否参与同步; 只同步打勾的品种">下载</th>
+        <th title="从哪天开始下载; 每品种独立">起始日期</th>
         <th>覆盖范围</th><th>已下载(M1)</th><th>校验</th><th data-nosort>操作</th></tr>
     {% for s in symbols %}
     <tr>
@@ -46,21 +48,27 @@
       </td>
       <td class="muted">{{ m.ts(s.first_bar) }} → {{ m.ts(s.last_bar) }}</td>
       <td>{% if s.bars %}{{ "{:,}".format(s.bars) }}{% else %}<span class="muted">无</span>{% endif %}</td>
-      <td>{% if s.verified_at %}<span class="badge ok">已校验</span>{% else %}<span class="badge warn">未校验</span>{% endif %}</td>
+      <td>{% if s.verified_at %}<span class="badge ok">已校验</span>
+          {% else %}<span class="badge warn" title="未经券商校验, 点右边『校验』">未校验</span>{% endif %}</td>
       <td>
         <form method="post" action="{{ url_for('symbols.reverify', symbol=s.symbol) }}" class="inline">
-          <button class="small" title="向券商重新确认并刷新精度/券商">校验</button>
+          <button class="small" title="向券商重新确认并刷新精度/券商(需下载worker在线)">校验</button>
         </form>
+        <span class="op-sep">│</span>
         {% if s.bars %}
         <form method="post" action="{{ url_for('symbols.purge', symbol=s.symbol) }}" class="inline"
-              onsubmit="return confirm('清空 {{ s.symbol }} 的 {{ '{:,}'.format(s.bars) }} 根历史数据? 不可恢复')">
-          <button class="small danger">清空数据</button>
+              onsubmit="return confirm('清空 {{ s.symbol }} 的 {{ '{:,}'.format(s.bars) }} 根历史数据? 不可恢复(删除登记前的必经步骤)')">
+          <button class="small hl danger">清空数据</button>
         </form>
         {% endif %}
+        <form method="post" action="{{ url_for('symbols.delete', symbol=s.symbol) }}" class="inline"
+              onsubmit="return confirm('删除品种 {{ s.symbol }} 的登记?{% if s.bars %}(还有数据会被拦, 先点左边清空){% endif %}')">
+          <button class="small hl danger">删除</button>
+        </form>
       </td>
     </tr>
     {% else %}
-    {% call m.empty(9) %}还没有品种 — 去 <a href="{{ url_for('symbols.index') }}">品种</a> 页登记{% endcall %}
+    {% call m.empty(9) %}还没有品种 — 去 <a href="{{ url_for('symbols.index') }}">配置</a> 页登记{% endcall %}
     {% endfor %}
   </table>
 </section>

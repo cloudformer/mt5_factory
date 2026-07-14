@@ -12,13 +12,15 @@ bp = Blueprint("symbols", __name__, url_prefix="/symbols")
 
 @bp.get("/")
 def index():
-    symbols, orphans = [], []
+    """配置页: 货币对主档 + 回测参数(成本模型)"""
+    symbols, orphans, costs = [], [], {}
     try:
         data = api.get("/symbols")
         symbols, orphans = data["symbols"], data.get("orphans", [])
+        costs = api.get("/config")["config"].get("backtest_costs", {})
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-    return render_template("symbols.html", symbols=symbols, orphans=orphans)
+    return render_template("symbols.html", symbols=symbols, orphans=orphans, costs=costs)
 
 
 @bp.post("/add")
