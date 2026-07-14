@@ -23,6 +23,12 @@
   </form>
 </section>
 
+{% if acct_stale %}
+<div class="flash error">⚠ 该 worker 的账户数据已 <b>{{ acct_stale }} 分钟</b>没有更新 — 下方四卡是过期快照。
+  排查: worker 状态页 8020 → runner 是否在跑; 通常重启 worker 即恢复</div>
+{% endif %}
+{% if account %}{{ m.account_cards(account) }}{% endif %}
+
 {% if data %}
 <section>
   <h2>当前持仓 ({{ data.positions | length }})</h2>

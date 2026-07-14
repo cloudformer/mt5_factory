@@ -73,6 +73,42 @@
 </table>
 {%- endmacro %}
 
+{# 账户四卡: 余额/净值/可用保证金/保证金水平(爆仓风险)。Demo/Live 页与 MT5 流水页共用。
+   数据 = 券商服务器计算 → MT5 终端 → worker 回传(~30s 一刷), 本系统只透传不推算 #}
+{% macro account_cards(a) -%}
+{% set lvl = a.margin_level or 0 %}
+{% set risk = 'ok' if (a.margin == 0 or lvl >= 200) else ('warn' if lvl >= 100 else 'error') %}
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">余额 ({{ a.host }})</div>
+    <div class="stat-value">{{ '%.2f' % a.balance }}<span class="stat-dim"> {{ a.currency }}</span></div>
+    <div class="stat-sub">已实现</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">净值</div>
+    <div class="stat-value">{{ '%.2f' % a.equity }}</div>
+    <div class="stat-sub">浮动盈亏 <span class="{{ 'pos' if a.profit >= 0 else 'neg' }}">{{ '%+.2f' % a.profit }}</span></div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">可用保证金</div>
+    <div class="stat-value">{{ '%.2f' % a.margin_free }}</div>
+    <div class="stat-sub">已用 {{ '%.2f' % a.margin }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">保证金水平 (爆仓风险)</div>
+    <div class="stat-value">
+      {% if a.margin == 0 %}<span class="muted">无持仓</span>
+      {% else %}<span class="{{ 'pos' if risk == 'ok' else ('neg' if risk == 'error' else '') }}">{{ '%.0f%%' % lvl }}</span>{% endif %}
+    </div>
+    <div class="stat-sub">
+      {% if risk == 'error' %}<span class="badge error">接近强平 (追保 {{ '%.0f%%' % a.margin_so_call }} / 强平 {{ '%.0f%%' % a.margin_so_so }})</span>
+      {% elif risk == 'warn' %}<span class="badge warn">保证金偏紧</span>
+      {% else %}追保线 {{ '%.0f%%' % a.margin_so_call }} · 强平线 {{ '%.0f%%' % a.margin_so_so }}{% endif %}
+    </div>
+  </div>
+</div>
+{%- endmacro %}
+
 {# 时间戳: 截断到秒, 去掉 T #}
 {# 交易/bar 时间戳: 券商服务器时间, 原样显示不转时区 (转了会与 MT5 对不上, 害对账) #}
 {% macro ts(v) -%}{{ ((v or '')[:19]) | replace('T', ' ') }}{%- endmacro %}

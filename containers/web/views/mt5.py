@@ -61,6 +61,16 @@ def index():
         for p in data["positions"]:
             p["time_fmt"] = datetime.fromtimestamp(p["time"]).strftime("%m-%d %H:%M:%S")
             p["who"] = _who(p["magic"], magic_map)
+    # 账户四卡(2.1): 与 Demo/Live 同源 — runner 落盘 → bridge /health → api 心跳 last_health(~30s)
+    runner = ((sel or {}).get("last_health") or {}).get("runner") or {}
+    account = ({"host": sel["name"], **runner["account"]}
+               if sel and runner.get("account") else None)
+    acct_stale = None  # 回传超过3分钟没更新 → 明示是过期快照(过期数据看着和实时一样, 会骗人)
+    if account and runner.get("updated"):
+        age = datetime.now().timestamp() - runner["updated"]
+        if age > 180:
+            acct_stale = int(age / 60)
+    if data:
         for d in data["deals"]:
             d["time_fmt"] = datetime.fromtimestamp(d["time"]).strftime("%m-%d %H:%M:%S")
             d["entry_cn"] = ENTRY_CN.get(d["entry"], d["entry"])
@@ -74,6 +84,6 @@ def index():
                 d["reason_cn"] = REASON_CN.get(d["reason"], d["reason"])
             d["who"] = "入金/出金" if d["type"] == "balance" else _who(d["magic"], magic_map)
     return render_template("mt5.html", groups=groups, host_id=host_id, days=days,
-                           data=data, broker=broker,
+                           data=data, broker=broker, account=account, acct_stale=acct_stale,
                            worker_name=(sel or {}).get("name"),
                            worker_role=(sel or {}).get("runner"))
