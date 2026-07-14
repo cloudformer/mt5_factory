@@ -28,8 +28,14 @@ router = APIRouter()
 
 @router.get("/strategies/templates")
 async def templates_list():
-    """可用策略模板及其参数网格 (前端表单用)"""
-    return {"templates": {name: cls.PARAM_GRID for name, cls in TEMPLATES.items()}}
+    """可用策略模板: 参数网格 + 随机采样空间 + 模板说明(模块 docstring) — 生成页展示定义用"""
+    import sys
+    return {"templates": {
+        name: {
+            "grid": cls.PARAM_GRID,
+            "random": cls.RANDOM_SPACE,
+            "doc": (sys.modules[cls.__module__].__doc__ or cls.__doc__ or "").strip(),
+        } for name, cls in TEMPLATES.items()}}
 
 
 class GenerateRequest(BaseModel):

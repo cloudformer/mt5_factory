@@ -5,23 +5,56 @@
 
 <section>
   <h2>生成策略</h2>
-  <form method="post" action="{{ url_for('strategies.generate') }}" class="inline">
-    <select name="template">
-      {% for name in templates %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
-    </select>
-    <input name="symbols" value="{{ default_symbols }}" size="36" placeholder="品种, 逗号分隔"
-           title="默认=配置页登记且开下载的全部品种; 可手动删减">
-    <select name="timeframe">
-      {% for tf in timeframes %}<option {% if tf == 'M15' %}selected{% endif %}>{{ tf }}</option>{% endfor %}
-    </select>
-    <select name="mode">
-      <option value="random" selected>随机 (默认)</option>
-      <option value="grid">网格 (固定组合)</option>
-      <option value="ai">AI (需配置生成器地址)</option>
-    </select>
-    <label>数量 <input name="count" value="50" size="4" title="随机模式下每个品种生成的数量"></label>
-    <button>生成</button>
+  <form method="post" action="{{ url_for('strategies.generate') }}">
+    {# 布局: ①选模板 → ②看定义+参数空间(只读, 代码进git是铁律, UI不改逻辑) → ③底部配生成参数 #}
+    <div class="inline" style="margin-bottom:8px">
+      <label>模板
+        <select name="template" id="tpl-sel">
+          {% for name in templates %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+        </select></label>
+      <span class="muted">模板 = 策略逻辑(代码, 在 strategy_core/ 进 git); 下面是它的定义与参数空间</span>
+    </div>
+
+    {% for name, t in templates.items() %}
+    <div class="tpl-info" id="tpl-info-{{ name }}" {% if not loop.first %}hidden{% endif %}>
+      <p class="muted" style="white-space:pre-wrap; margin:4px 0 8px">{{ t.doc }}</p>
+      <table class="subtable">
+        <tr><th>参数</th><th>随机采样范围 (min~max, 步长)</th><th>网格候选</th></tr>
+        {% for p, space in t.random.items() %}
+        <tr>
+          <td class="mono">{{ p }}</td>
+          <td>{{ space[0] }} ~ {{ space[1] }}, 步长 {{ space[2] }}</td>
+          <td class="muted">{{ t.grid.get(p, []) | join(', ') }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endfor %}
+
+    <div class="inline" style="margin-top:12px">
+      <input name="symbols" value="{{ default_symbols }}" size="36" placeholder="品种, 逗号分隔"
+             title="默认=配置页登记且开下载的全部品种; 可手动删减">
+      <select name="timeframe">
+        {% for tf in timeframes %}<option {% if tf == 'M15' %}selected{% endif %}>{{ tf }}</option>{% endfor %}
+      </select>
+      <select name="mode">
+        <option value="random" selected>随机 (默认)</option>
+        <option value="grid">网格 (固定组合)</option>
+        <option value="ai">AI (需配置生成器地址)</option>
+      </select>
+      <label>数量 <input name="count" value="50" size="4" title="随机模式下每个品种生成的数量"></label>
+      <button>生成</button>
+    </div>
   </form>
+
+  <script>
+  (function () {  // 切模板 → 显示对应定义/参数空间
+    const sel = document.getElementById("tpl-sel");
+    const show = () => document.querySelectorAll(".tpl-info").forEach(
+      (d) => (d.hidden = d.id !== "tpl-info-" + sel.value));
+    sel.addEventListener("change", show); show();
+  })();
+  </script>
 </section>
 
 <section>
