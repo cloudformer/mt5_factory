@@ -1,23 +1,27 @@
-/* MT5 Factory - 设计令牌 */
+/* MT5 Factory - 设计令牌 (色阶=slate系 / 间距=8pt网格 / 圆角8px / 阴影两级) */
 :root {
-  --bg: #f6f7f9;
-  --card: #ffffff;
-  --border: #e5e8ec;
-  --text: #1a202c;
-  --muted: #6b7280;
+  --bg: #eef1f4;             /* 带一点灰的底, 大面积不晃眼 */
+  --card: #fdfdfd;           /* 卡片微离纯白, 与底的层次靠阴影+边框 */
+  --border: #e3e8ee;
+  --border-strong: #cbd5e1;  /* 表头分隔线等需要更实的地方 */
+  --text: #16202e;
+  --muted: #64748b;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --ok-fg: #15803d;  --ok-bg: #ecfdf3;  --ok-bd: #bbf7d0;
   --warn-fg: #92400e; --warn-bg: #fffbeb; --warn-bd: #fde68a;
   --err-fg: #b91c1c;  --err-bg: #fef2f2; --err-bd: #fecaca;
-  --radius: 10px;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, .05);   /* 卡片/区块 */
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, .10);  /* 浮层(下拉菜单等) */
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font: 14px/1.6 -apple-system, "SF Pro Text", "Segoe UI", "PingFang SC",
+  font: 14px/1.55 -apple-system, "SF Pro Text", "Segoe UI", "PingFang SC",
         "Microsoft YaHei", sans-serif;
   background: var(--bg);
   color: var(--text);
@@ -50,15 +54,15 @@ nav a.active { color: #fff; background: rgba(255, 255, 255, .12); }
   display: none; position: absolute; top: 100%; left: 0; z-index: 50;
   min-width: 120px; padding: 6px;
   background: #0f172a; border: 1px solid rgba(255, 255, 255, .1);
-  border-radius: 8px; box-shadow: 0 8px 24px rgba(15, 23, 42, .35);
+  border-radius: 8px; box-shadow: var(--shadow-md);
 }
 .navmenu:hover .navmenu-items { display: block; }
 .navmenu-items a { display: block; padding: 6px 12px; white-space: nowrap; }
 
-/* ---------- 布局 ---------- */
-main { max-width: 1200px; margin: 0 auto; padding: 28px 28px 64px; }
+/* ---------- 布局 (8pt 网格: 间距取 8 的倍数, 半步允许 4) ---------- */
+main { max-width: 1200px; margin: 0 auto; padding: 24px 24px 64px; }
 
-.page { margin: 4px 0 20px; }
+.page { margin: 4px 0 24px; }
 .page h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: .2px; }
 .page p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 
@@ -66,14 +70,14 @@ main { max-width: 1200px; margin: 0 auto; padding: 28px 28px 64px; }
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px; margin-bottom: 20px;
+  gap: 16px; margin-bottom: 16px;
 }
 .stat {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 14px 18px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
 }
 .stat-label {
   font-size: 11px; font-weight: 600; color: var(--muted);
@@ -92,17 +96,17 @@ section {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px 24px;
-  margin-bottom: 20px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  padding: 16px 24px 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
 }
 
 h2 {
-  margin: 0 0 14px; font-size: 15px; font-weight: 650;
+  margin: 0 0 12px; font-size: 15px; font-weight: 650;
   letter-spacing: .2px;
 }
 h3 {
-  margin: 22px 0 10px; font-size: 12px; font-weight: 600;
+  margin: 24px 0 8px; font-size: 12px; font-weight: 600;
   color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
 }
 
@@ -112,10 +116,11 @@ h3 {
    列宽拖拽由 tables.js 统一处理(拖时切 table-layout:fixed)。 */
 table { width: 100%; border-collapse: collapse; margin-top: 4px; }
 th, td {
-  text-align: left; padding: 9px 12px;
+  text-align: left; padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   overflow-wrap: anywhere;   /* 长 token(如时间戳/长参数名)能断行, 不撑宽表格 */
 }
+td { font-variant-numeric: tabular-nums; }  /* 等宽数字: 数据列上下对齐, 可读性 */
 th { white-space: nowrap; }  /* 表头短, 保持单行不折 */
 td form.inline { white-space: nowrap; }  /* 操作列按钮不折行 */
 /* 密集表(列很多, 如 Demo/Live 策略表): 单元格一律不换行 → 行高整齐、列宽自动稳定,
@@ -124,10 +129,11 @@ table.dense th, table.dense td { white-space: nowrap; overflow-wrap: normal; }
 th {
   color: var(--muted); font-weight: 600; font-size: 12px;
   text-transform: uppercase; letter-spacing: .5px;
-  border-bottom: 2px solid var(--border);
+  background: #f5f7fa;                             /* 表头浅底: 数据区界面感 */
+  border-bottom: 1px solid var(--border-strong);
 }
 tr:last-child td { border-bottom: 0; }
-tbody tr:hover, table tr:hover td { background: #fafbfc; }
+tbody tr:hover, table tr:hover td { background: #f3f6fa; }
 /* 行标记(tables.js 点行切换): 高亮当前查看的行, 宽表横滑时对着看; 盖过 hover 底色 */
 tr.row-marked td, tr.row-marked:hover td { background: #fff7e6; }
 tr.row-marked td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
@@ -181,7 +187,7 @@ td.mono {
 /* 链接按钮: 页面内醒目跳转入口 (如 MT5 原始流水) */
 a.btn {
   display: inline-block; padding: 4px 12px; margin-left: 8px;
-  border: 1px solid #bfdbfe; border-radius: 6px;
+  border: 1px solid #bfdbfe; border-radius: var(--radius-sm);
   font-size: 12px; font-weight: 500; text-decoration: none;
   color: #2563eb; background: #eff6ff; vertical-align: middle;
 }
@@ -258,7 +264,7 @@ select.small:hover { color: var(--text); }
 .status-btn:hover .caret { color: var(--accent); }
 
 /* worker 健康详情展开行 */
-.detail-row td { background: #fafbfc; padding: 12px 18px; }
+.detail-row td { background: #f5f7fa; padding: 12px 16px; }
 table.subtable { width: auto; min-width: 420px; margin: 0; border: 1px solid var(--border);
                  border-radius: 8px; overflow: hidden; background: #fff; }
 table.subtable td { border-bottom: 1px solid var(--border); padding: 8px 14px; }
