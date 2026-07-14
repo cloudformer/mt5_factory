@@ -273,7 +273,7 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
               min_win_rate: float = 0, min_pf: float = 0,
               max_dd: Optional[float] = None, min_robust: Optional[float] = None,
               positive_only: bool = False, rank_template: Optional[str] = None,
-              oos_pass: bool = False, template: Optional[str] = None):
+              oos_pass: bool = False, template: Optional[str] = None, page: int = 1):
     """策略列表排名: 从 strategies 出发 LEFT JOIN 主品种回测 — 未回测的策略也出现(成绩为空,
     默认沉底), 列表与排名合一。跨品种结果只喂健壮性列/明细, 不参与排名。
 
@@ -332,48 +332,64 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         elif q_field == "status":
             args.append(t.upper()); q += f" AND s.status = ${len(args)}"
     rows = await pool.fetch(q, *args)
-    # 先全量排序(未回测按 -inf 沉底); 健壮性过滤要等聚合后才能算, 所以 limit 放最后截
+    # 先全量排序(未回测按 -inf 沉底), 排名在完整集合上算, 最后才切页 — 保证分页不改排名语义
     ranked = sorted(rows, key=lambda r: (r["metrics"] or {}).get("net_points", float("-inf")),
                     reverse=True)
 
-    # 跨品种健壮性: 每策略取其所有品种行, 汇总"几个品种赚 / 几个测过" + 每品种明细
-    ids = [r["strategy_id"] for r in ranked]
-    breakdown: dict[int, list] = {}
-    if ids:
-        for br in await pool.fetch(
-                "SELECT strategy_id, symbol, broker, metrics FROM backtests"
-                " WHERE strategy_id = ANY($1) ORDER BY strategy_id, symbol", ids):
-            breakdown.setdefault(br["strategy_id"], []).append(dict(br))
+    async def _breakdown(sids):
+        """跨品种健壮性明细: strategy_id → 各品种行(按净点降序)。只为需要的策略拉(分页省算力)"""
+        bd: dict[int, list] = {}
+        if sids:
+            for br in await pool.fetch(
+                    "SELECT strategy_id, symbol, broker, metrics FROM backtests"
+                    " WHERE strategy_id = ANY($1) ORDER BY strategy_id, symbol", sids):
+                bd.setdefault(br["strategy_id"], []).append(dict(br))
+        return bd
 
-    cands = []
-    for r in ranked:
+    def _build(r, bd_map):
         d = dict(r)
         d["has_bt"] = d["metrics"] is not None  # 未回测 → 成绩列显示 '—'
         d["metrics"] = d["metrics"] or {}
         d["score"] = None
-        bd = sorted(breakdown.get(r["strategy_id"], []),
-                    key=lambda x: x["metrics"].get("net_points", 0), reverse=True)
-        d["breakdown"] = bd
-        d["ran_on"] = len(bd)   # 在几个品种上跑过(含没触发交易的)
-        traded = [x for x in bd if x["metrics"].get("trades", 0) > 0]
+        b = sorted(bd_map.get(r["strategy_id"], []),
+                   key=lambda x: x["metrics"].get("net_points", 0), reverse=True)
+        d["breakdown"] = b
+        d["ran_on"] = len(b)   # 在几个品种上跑过(含没触发交易的)
+        traded = [x for x in b if x["metrics"].get("trades", 0) > 0]
         d["tested"] = len(traded)   # 实际有交易的品种数(健壮比例分母)
         d["profitable"] = sum(1 for x in traded if x["metrics"].get("net_points", 0) > 0)
-        if min_robust is not None:  # 健壮性≥: 没跑跨品种/没交易 → 不通过
-            if not d["tested"] or d["profitable"] / d["tested"] * 100 < min_robust:
-                continue
-        cands.append(d)
+        return d
 
-    # 排名模板(config 可增删改): 四维百分位加权综合分排序; 并列/无模板按净点数
-    if rank_template:
-        tpl = next((t for t in (await pool.fetchval(
-            "SELECT value FROM config WHERE key='ranking_templates'") or [])
-            if t.get("name") == rank_template), None)
-        if tpl:
-            _apply_template_scores(cands, tpl)
-            cands.sort(key=lambda d: (d["score"],
-                                      d["metrics"].get("net_points", float("-inf"))),
-                       reverse=True)
-    return {"results": cands[:limit]}
+    lo = max(page - 1, 0) * limit
+    # 排名模板打分 / 健壮性过滤 都要在"完整集合"上算(百分位、过滤后计数) → 这两种情况拉全量明细;
+    # 否则(默认净点排序)只切当页、只为当页拉明细 — 载荷与 DB 明细量随页大小而非总量, 大表也快
+    if rank_template or min_robust is not None:
+        bd_map = await _breakdown([r["strategy_id"] for r in ranked])
+        cands = []
+        for r in ranked:
+            d = _build(r, bd_map)
+            if min_robust is not None and (  # 健壮性≥: 没跑跨品种/没交易 → 不通过
+                    not d["tested"] or d["profitable"] / d["tested"] * 100 < min_robust):
+                continue
+            cands.append(d)
+        if rank_template:  # 四维百分位加权综合分排序; 并列/无模板按净点数
+            tpl = next((t for t in (await pool.fetchval(
+                "SELECT value FROM config WHERE key='ranking_templates'") or [])
+                if t.get("name") == rank_template), None)
+            if tpl:
+                _apply_template_scores(cands, tpl)
+                cands.sort(key=lambda d: (d["score"],
+                                          d["metrics"].get("net_points", float("-inf"))),
+                           reverse=True)
+        total = len(cands)
+        page_cands = cands[lo:lo + limit]
+    else:
+        total = len(ranked)
+        page_rows = ranked[lo:lo + limit]
+        bd_map = await _breakdown([r["strategy_id"] for r in page_rows])
+        page_cands = [_build(r, bd_map) for r in page_rows]
+
+    return {"results": page_cands, "total": total, "page": page, "page_size": limit}
 
 
 @router.get("/backtest/results/{strategy_id}")

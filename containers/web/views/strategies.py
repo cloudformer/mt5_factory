@@ -26,15 +26,17 @@ def index():
     positive = a.get("positive") == "1"
     oos = a.get("oos") == "1"  # 留出段盈利过滤(OOS 一票否决)
     rank = a.get("rank") or ""  # 排名模板名, 空=默认(净点数)
+    page = max(a.get("page", 1, type=int), 1)  # 服务端分页页码(1起)
     results, rank_templates, brokers, symbols, templates = [], [], [], [], []
     oos_split = 0.7  # 样本外训练段占比(配置页可改), 供页面显示"训练:留出"比例
+    total, page_size = 0, 100
     try:
         cfg = api.get("/config")["config"]
         rank_templates = cfg.get("ranking_templates", [])
         oos_split = cfg.get("backtest_oos_split", 0.7)
+        page_size = cfg.get("ranking_page_size", 100)  # 排名页每页条数(config可改, 缺省100)
         templates = sorted(api.get("/strategies/templates")["templates"].keys())
-        params = {"min_trades": min_trades,
-                  "limit": cfg.get("backtest_batch_limit", 500)}
+        params = {"min_trades": min_trades, "limit": page_size, "page": page}
         for k, v in (("template", template), ("symbol", symbol),
                      ("broker", broker), ("status", status)):
             if v:
@@ -49,17 +51,23 @@ def index():
         if q_text:  # 服务端搜索: 策略名模糊 / ID·周期·状态精准
             params["q_field"] = q_field
             params["q_text"] = q_text
-        results = api.get("/backtest/top", **params)["results"]
+        resp = api.get("/backtest/top", **params)
+        results = resp["results"]
+        total = resp.get("total", len(results))
         syms = api.get("/symbols")["symbols"]
         symbols = [s["symbol"] for s in syms if s.get("download")]
         brokers = sorted({s["broker"] for s in syms if s.get("broker")})
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
+    total_pages = max((total + page_size - 1) // page_size, 1)  # 向上取整
+    base_args = {k: v for k, v in a.items() if k != "page"}     # 翻页链接保留其它筛选
     return render_template("strategies.html", results=results, symbol=symbol, broker=broker,
                            status=status, min_trades=min_trades, q_field=q_field, q_text=q_text,
                            filters=filters, positive=positive, oos=oos, rank=rank,
                            rank_templates=rank_templates, brokers=brokers, symbols=symbols,
-                           template=template, templates=templates, oos_split=oos_split)
+                           template=template, templates=templates, oos_split=oos_split,
+                           page=page, page_size=page_size, total=total,
+                           total_pages=total_pages, base_args=base_args)
 
 
 @bp.get("/generate")
@@ -118,26 +126,6 @@ def run_backtest(strategy_id: int):
         flash(f"策略 #{strategy_id} 回测已启动, 结果见回测页", "ok")
     except api.ApiError as e:
         flash(f"回测启动失败: {e}", "error")
-    return redirect(request.referrer or url_for("strategies.index"))
-
-
-@bp.post("/archive")
-def archive_batch():
-    """批量淘汰归档当前查询结果(排名页收集的ID串) — 标 ARCHIVED, 可逆, 不删除。
-    漏斗粗筛不达标的批量出局; 实盘/已淘汰归档的由 api 侧自动跳过。"""
-    ids = [s.strip() for s in request.form.get("strategy_ids", "").split(",") if s.strip()]
-    if not ids:
-        flash("没有可淘汰归档的策略ID", "error")
-        return redirect(request.referrer or url_for("strategies.index"))
-    try:
-        r = api.post("/strategies/archive", {"strategy_ids": [int(s) for s in ids]})
-        msg = f"已淘汰归档 {r['archived']} 条(可逆, 随时可改回)"
-        skipped = r["requested"] - r["archived"]
-        if skipped:
-            msg += f"；跳过 {skipped} 条(实盘不批量淘汰 / 已淘汰归档)"
-        flash(msg, "ok" if r["archived"] else "error")
-    except (api.ApiError, ValueError) as e:
-        flash(f"批量淘汰归档失败: {e}", "error")
     return redirect(request.referrer or url_for("strategies.index"))
 
 
