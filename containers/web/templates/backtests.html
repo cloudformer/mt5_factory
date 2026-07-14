@@ -69,7 +69,7 @@
         <span class="muted bt-current">{{ bt.current }}</span>
         {% endif %}
       </span>
-      <button class="go" {% if bt.running %}disabled{% endif %}>启动回测</button>
+      <button class="go" {% if bt.running %}disabled data-running="1"{% endif %}>启动回测</button>
     </div>
   </form>
   {% for e in bt.errors %}<div class="flash error">{{ e }}</div>{% endfor %}
@@ -101,7 +101,17 @@
       if (form.querySelector("input[name=cross_symbol]").checked) p.set("cross_symbol", "true");
       try {
         const d = await fetch("{{ url_for('backtests.plan') }}?" + p).then((r) => r.json());
-        planEl.textContent = `将回测 ${d.strategies} 个策略 × ${d.symbols_per} 品种 = ${d.runs} 次`;
+        if (d.runs === 0) {
+          // 没有匹配的策略: 明说原因 + 禁用启动(点了也是404, 不如不让点)
+          const scope = form.querySelector("select[name=scope]");
+          planEl.textContent = (mode() === "filter" && scope && scope.value === "untested")
+            ? "没有未回测的策略 — 全部都测过了(想重测切范围=全部)"
+            : "没有匹配的策略 — 调整筛选/ID";
+        } else {
+          planEl.textContent = `将回测 ${d.strategies} 个策略 × ${d.symbols_per} 品种 = ${d.runs} 次`;
+        }
+        const go = form.querySelector("button.go");
+        if (!go.hasAttribute("data-running")) go.disabled = (d.runs === 0);
       } catch { planEl.textContent = "预览不可用"; }
     }
     form.addEventListener("change", () => { applyMode(); refreshPlan(); });

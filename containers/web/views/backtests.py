@@ -87,7 +87,10 @@ def save_costs():
             "commission_points": float(request.form["commission_points"]),
             "spread_points": float(spread) if spread else None,
         }})
-        flash("默认成本已保存", "ok")
+        if request.form.get("batch_limit", "").strip():  # 单批上限(防失控保护, 可配置)
+            api.put("/config/backtest_batch_limit",
+                    {"value": int(request.form["batch_limit"])})
+        flash("回测参数已保存", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
         flash(f"保存失败: {e}", "error")
     # 成本表单在「配置」页(也可能其它入口), 保存后回来源页
@@ -122,5 +125,8 @@ def run():
         result = api.post("/backtest/run", payload)
         flash(f"回测已启动: {result['total']} 个策略 (成本: {result['costs']})", "ok")
     except api.ApiError as e:
-        flash(f"启动回测失败: {e}", "error")
+        if "no strategies matched" in str(e):  # 没有匹配不算故障, 说人话
+            flash("没有匹配的策略可回测 — 范围=仅未测试时说明全部都测过了(想重测切'全部')", "error")
+        else:
+            flash(f"启动回测失败: {e}", "error")
     return redirect(url_for("backtests.index"))

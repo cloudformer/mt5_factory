@@ -33,8 +33,10 @@
     <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="单边滑点(点)"></label>
     <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="往返佣金(点数等值)"></label>
     <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="固定点差(点); 留空=用每根bar记录的真实点差"></label>
+    <label>单批上限 <input name="batch_limit" value="{{ batch_limit }}" size="5"
+        title="一次批量回测最多跑多少个策略(防失控保护)。策略总数超过它时'全部'跑不全 — 调大到不小于策略总数"></label>
     <button class="small">保存</button>
-    <span class="muted">回测撮合的成本假设(悲观); 每次回测结果都随附所用设置, 不同设置的成绩不混淆</span>
+    <span class="muted">成本 = 回测撮合的悲观假设, 每次结果随附所用设置; 上限 = 单批保护值</span>
   </form>
 </section>
 

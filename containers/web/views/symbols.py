@@ -13,14 +13,17 @@ bp = Blueprint("symbols", __name__, url_prefix="/symbols")
 @bp.get("/")
 def index():
     """配置页: 货币对主档 + 回测参数(成本模型)"""
-    symbols, orphans, costs = [], [], {}
+    symbols, orphans, costs, batch_limit = [], [], {}, 500
     try:
         data = api.get("/symbols")
         symbols, orphans = data["symbols"], data.get("orphans", [])
-        costs = api.get("/config")["config"].get("backtest_costs", {})
+        cfg = api.get("/config")["config"]
+        costs = cfg.get("backtest_costs", {})
+        batch_limit = cfg.get("backtest_batch_limit", 500)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-    return render_template("symbols.html", symbols=symbols, orphans=orphans, costs=costs)
+    return render_template("symbols.html", symbols=symbols, orphans=orphans,
+                           costs=costs, batch_limit=batch_limit)
 
 
 @bp.post("/add")

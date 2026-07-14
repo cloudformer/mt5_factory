@@ -22,6 +22,16 @@ router = APIRouter()
 # 全局进度 (单进程内存即可)
 bt_state = {"running": False, "current": None, "done": 0, "total": 0, "errors": []}
 
+DEFAULT_BATCH_LIMIT = 500  # 单批上限兜底; 实际值优先读 config 表 backtest_batch_limit(配置页可改)
+
+
+async def _batch_limit(pool, requested: Optional[int]) -> int:
+    """单批上限: 请求值 > config(配置页) > 代码兜底"""
+    if requested:
+        return requested
+    return await pool.fetchval(
+        "SELECT value FROM config WHERE key='backtest_batch_limit'") or DEFAULT_BATCH_LIMIT
+
 
 class BacktestRequest(BaseModel):
     # 筛选维度 (v1.3): 回测按货币对进行, 与策略状态无关(回测对 demo/live 零影响)。
@@ -32,7 +42,8 @@ class BacktestRequest(BaseModel):
     strategy_ids: Optional[list[int]] = None
     from_time: Optional[datetime] = None
     to_time: Optional[datetime] = None
-    limit: int = 500
+    # 单批上限(防失控保护): 不传则用 config 表 backtest_batch_limit(配置页可改), 再兜底 500
+    limit: Optional[int] = None
     # 成本模型: 不传则用 config 表 backtest_costs 的系统默认 (web 可改)
     slippage_points: Optional[float] = None
     commission_points: Optional[float] = None
@@ -67,7 +78,7 @@ async def run(req: BacktestRequest, request: Request):
         if req.untested_only:  # 范围=未测试: 主品种还没有回测记录的才跑(补漏)
             q += (" AND NOT EXISTS (SELECT 1 FROM backtests b"
                   "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol)")
-        args.append(req.limit)
+        args.append(await _batch_limit(pool, req.limit))
         q += f" ORDER BY symbol, id LIMIT ${len(args)}"
         rows = await pool.fetch(q, *args)
     if not rows:
@@ -157,9 +168,10 @@ async def status():
 @router.get("/backtest/plan")
 async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
                untested_only: bool = False, cross_symbol: bool = False,
-               strategy_ids: Optional[str] = None, limit: int = 500):
+               strategy_ids: Optional[str] = None, limit: Optional[int] = None):
     """运行预览: 按当前选择数一数会跑多少 — N 个策略 × 品种 = K 次(启动前所见即所得)"""
     pool = request.app.state.pool
+    limit = await _batch_limit(pool, limit)
     # extra = 主品种不在 download 集合里的策略数(跨品种时它们的主品种仍会单独跑一次)
     count_sql = ("SELECT count(*) AS n, count(*) FILTER (WHERE symbol NOT IN"
                  " (SELECT symbol FROM symbols WHERE download)) AS extra FROM strategies")
