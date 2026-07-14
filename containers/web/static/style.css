@@ -32,7 +32,7 @@ body {
 nav {
   display: flex; gap: 4px; align-items: center;
   padding: 0 28px; height: 52px;
-  background: #0f172a;
+  background: #1f2937;
   box-shadow: 0 1px 3px rgba(15, 23, 42, .2);
 }
 nav .brand {
@@ -41,7 +41,7 @@ nav .brand {
 }
 nav .brand::before { content: "◆ "; color: var(--accent); }
 nav a {
-  color: #94a3b8; text-decoration: none;
+  color: #cbd5e1; text-decoration: none;
   padding: 5px 12px; border-radius: 6px;
   transition: color .15s, background .15s;
 }
@@ -53,7 +53,7 @@ nav a.active { color: #fff; background: rgba(255, 255, 255, .12); }
 .navmenu-items {
   display: none; position: absolute; top: 100%; left: 0; z-index: 50;
   min-width: 120px; padding: 6px;
-  background: #0f172a; border: 1px solid rgba(255, 255, 255, .1);
+  background: #1f2937; border: 1px solid rgba(255, 255, 255, .12);
   border-radius: 8px; box-shadow: var(--shadow-md);
 }
 .navmenu:hover .navmenu-items { display: block; }
