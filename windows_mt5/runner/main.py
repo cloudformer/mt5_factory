@@ -186,7 +186,10 @@ def send_order(inst: dict, sig) -> None:
         "tp": sig.tp,
         "deviation": 20,
         "magic": inst["magic"],
-        "comment": inst["name"][:26],
+        # 下单备注(跟单进券商, 任何MT5终端可见): id:744,win-worker01 — 策略id定位+哪台机器下的。
+        # MT5 comment上限约31字符, 截到26留券商后缀余量; id在前保证永远完整, 超长只丢机器名尾部。
+        # 方向/品种/时间不写 — MT5 原生字段已有, 不重复占位。权威归因仍是 magic。
+        "comment": f"id:{inst['id']},{socket.gethostname()}"[:26],
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": mt5.ORDER_FILLING_IOC,
     }
