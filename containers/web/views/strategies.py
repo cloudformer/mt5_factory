@@ -27,14 +27,18 @@ def index():
 @bp.get("/generate")
 def generate_page():
     """策略生成 + MQ5 转化(造新策略的入口)"""
-    templates, mq5_imports = {}, []
+    templates, mq5_imports, default_symbols = {}, [], ""
     try:
         templates = api.get("/strategies/templates")["templates"]
         mq5_imports = api.get("/strategies/mq5")["imports"]
+        # 品种默认值从主档取(download=✓), 不写死 — 登记/删品种自动跟着变
+        default_symbols = ",".join(
+            s["symbol"] for s in api.get("/symbols")["symbols"] if s.get("download"))
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("strategy_generate.html", templates=templates,
-                           mq5_imports=mq5_imports, timeframes=TIMEFRAMES)
+                           mq5_imports=mq5_imports, timeframes=TIMEFRAMES,
+                           default_symbols=default_symbols)
 
 
 @bp.get("/analysis")

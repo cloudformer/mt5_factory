@@ -19,7 +19,11 @@ def index():
     positive = request.args.get("positive") == "1"
     results, bt, costs, brokers, symbols, orphans = [], {}, {}, [], [], []
     try:
-        params = {"min_trades": min_trades, "limit": 200}  # 前端分页展示, 多取一些
+        cfg = api.get("/config")["config"]
+        costs = cfg.get("backtest_costs", {})
+        # 排名取数上限跟随"单批上限"(同一个规模旋钮): 策略总量涨了排名不再被 200 截断
+        params = {"min_trades": min_trades,
+                  "limit": cfg.get("backtest_batch_limit", 500)}
         if symbol:
             params["symbol"] = symbol
         if broker:
@@ -32,7 +36,6 @@ def index():
             params["q_text"] = q_text
         results = api.get("/backtest/top", **params)["results"]
         bt = api.get("/backtest/status")
-        costs = api.get("/config")["config"].get("backtest_costs", {})
         # 两个筛选下拉的选项从库里拉 (货币对/券商), 默认全部; 与 worker 无关
         syms = api.get("/symbols")["symbols"]
         symbols = [s["symbol"] for s in syms if s.get("download")]

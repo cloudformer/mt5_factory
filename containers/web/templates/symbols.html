@@ -36,7 +36,16 @@
     <label>单批上限 <input name="batch_limit" value="{{ batch_limit }}" size="5"
         title="一次批量回测最多跑多少个策略(防失控保护)。策略总数超过它时'全部'跑不全 — 调大到不小于策略总数"></label>
     <button class="small">保存</button>
-    <span class="muted">成本 = 回测撮合的悲观假设, 每次结果随附所用设置; 上限 = 单批保护值</span>
+    <span class="muted">成本 = 回测撮合的悲观假设, 每次结果随附所用设置; 上限 = 单批保护值(排名取数也跟它)</span>
+  </form>
+</section>
+
+<section>
+  <h2>AI 生成器 (可选)</h2>
+  <form method="post" action="{{ url_for('symbols.save_ai') }}" class="inline">
+    <label>地址 <input name="ai_generator_url" value="{{ ai_url }}" size="32" placeholder="http://host:9000 (空=不用)"></label>
+    <button class="small">保存</button>
+    <span class="muted">策略生成页的 AI 模式调它的 /propose; 留空则该模式不可用, 生成走 random/grid 不受影响</span>
   </form>
 </section>
 

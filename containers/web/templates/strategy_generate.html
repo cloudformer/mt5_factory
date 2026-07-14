@@ -9,7 +9,8 @@
     <select name="template">
       {% for name in templates %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
     </select>
-    <input name="symbols" value="EURUSD,GBPUSD,USDJPY,XAUUSD" size="36" placeholder="品种, 逗号分隔">
+    <input name="symbols" value="{{ default_symbols }}" size="36" placeholder="品种, 逗号分隔"
+           title="默认=配置页登记且开下载的全部品种; 可手动删减">
     <select name="timeframe">
       {% for tf in timeframes %}<option {% if tf == 'M15' %}selected{% endif %}>{{ tf }}</option>{% endfor %}
     </select>
