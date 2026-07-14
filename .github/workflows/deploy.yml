@@ -1,0 +1,24 @@
+# CD 自动部署: push main → Linux 服务器上的 self-hosted runner 在部署目录 git pull + make up。
+# 不用 checkout(不另开工作副本) — 直接操作现有部署目录, env/.dev.env 与 postgres 数据都在原地。
+# 前置(一次性): GitHub 仓库 Settings → Actions → Runners → New self-hosted runner,
+#              按页面命令装到 Linux 并 ./svc.sh install && ./svc.sh start 常驻。
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# 连续 push 排队执行, 不并发跑两个 make up
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - name: git pull + make up (部署目录)
+        run: |
+          git -C /home/frank/mt5_factory pull --ff-only
+          make -C /home/frank/mt5_factory up
