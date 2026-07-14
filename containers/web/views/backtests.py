@@ -9,7 +9,7 @@ bp = Blueprint("backtests", __name__, url_prefix="/backtests")
 @bp.get("/")
 def index():
     """策略回测页(纯执行): 批量/单策略回测 + 进度 + 孤儿警告。结果排名在「策略列表排名」。"""
-    bt, costs, brokers, symbols, orphans = {}, {}, [], [], []
+    bt, costs, brokers, symbols, orphans, templates = {}, {}, [], [], [], []
     try:
         costs = api.get("/config")["config"].get("backtest_costs", {})
         bt = api.get("/backtest/status")
@@ -17,12 +17,14 @@ def index():
         syms = api.get("/symbols")["symbols"]
         symbols = [s["symbol"] for s in syms if s.get("download")]
         brokers = sorted({s["broker"] for s in syms if s.get("broker")})
+        templates = sorted(api.get("/strategies/templates")["templates"].keys())
         # 孤儿策略(品种已删、跑不了): 亮出来供清理
         orphans = api.get("/strategies/orphans")["orphans"]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("backtests.html", bt=bt, costs=costs,
-                           brokers=brokers, symbols=symbols, orphans=orphans)
+                           brokers=brokers, symbols=symbols, orphans=orphans,
+                           templates=templates)
 
 
 @bp.get("/status")
@@ -94,6 +96,8 @@ def run():
             flash("策略ID必须是数字, 逗号分隔", "error")
             return redirect(url_for("backtests.index"))
     else:  # 按筛选圈一批
+        if request.form.get("template"):
+            payload["template"] = request.form["template"]
         if request.form.get("symbol"):
             payload["symbol"] = request.form["symbol"].strip().upper()
         if request.form.get("broker"):

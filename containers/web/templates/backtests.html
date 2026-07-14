@@ -29,6 +29,11 @@
     <div class="row">
       <span class="tag">选策略</span>
       <label class="chk"><input type="radio" name="mode" value="filter" checked> 按筛选</label>
+      <label title="全部=不限; 选某模板=只回测该策略模板生成的实例(如只跑 intraday_multi)">策略模板
+        <select name="template" data-fsel>
+          <option value="">全部</option>
+          {% for t in templates %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select></label>
       <label>货币对
         <select name="symbol" data-fsel title="全部=不限; 选具体货币对=只回测该货币对的策略">
           <option value="">全部</option>

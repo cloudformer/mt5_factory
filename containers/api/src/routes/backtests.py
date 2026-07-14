@@ -39,6 +39,8 @@ class BacktestRequest(BaseModel):
     #   都不传 = 回测全部策略。券商标签是"下载数据"时落库的, 回测只读库、与 worker 无关。
     symbol: Optional[str] = None
     broker: Optional[str] = None
+    # 策略模板筛选(可选): 只回测某个模板生成的实例(如只跑 intraday_multi), 不传=不限
+    template: Optional[str] = None
     # 状态筛选(可选维度, 默认不限 — 回测本身与状态无关): 支持逗号多值, 如 "DEMO,LIVE"(热层每日刷新)
     status: Optional[str] = None
     strategy_ids: Optional[list[int]] = None
@@ -72,6 +74,8 @@ async def run(req: BacktestRequest, request: Request):
         # 只回测品种仍在主档里的策略: 品种已删的孤儿策略(如旧 BTCUSD)自动跳过, 不报错。
         q = "SELECT * FROM strategies WHERE symbol IN (SELECT symbol FROM symbols)"
         args = []
+        if req.template:  # 策略模板筛选
+            args.append(req.template); q += f" AND template=${len(args)}"
         if req.symbol:  # 货币对筛选
             args.append(req.symbol); q += f" AND symbol=${len(args)}"
         if req.broker:  # 券商筛选: 按品种主档的券商标签圈定品种
@@ -175,7 +179,7 @@ async def status():
 
 @router.get("/backtest/plan")
 async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
-               status: Optional[str] = None,
+               status: Optional[str] = None, template: Optional[str] = None,
                untested_only: bool = False, cross_symbol: bool = False,
                strategy_ids: Optional[str] = None, limit: Optional[int] = None):
     """运行预览: 按当前选择数一数会跑多少 — N 个策略 × 品种 = K 次(启动前所见即所得)"""
@@ -195,6 +199,8 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
     else:
         q = f"{count_sql} WHERE symbol IN (SELECT symbol FROM symbols)"
         args = []
+        if template:
+            args.append(template); q += f" AND template=${len(args)}"
         if symbol:
             args.append(symbol); q += f" AND symbol=${len(args)}"
         if broker:
