@@ -14,6 +14,7 @@ def index():
     """策略列表排名(唯一工作台): 全部策略(含未回测, 成绩为空沉底) + 成绩/评分/健壮性
     + 筛选(品种/券商/状态/多条件)/搜索/排名模板。数据走 /backtest/top(LEFT JOIN 版)。"""
     a = request.args
+    template = a.get("template") or None
     symbol = a.get("symbol") or None
     broker = a.get("broker") or None
     status = a.get("status") or None
@@ -25,13 +26,15 @@ def index():
     positive = a.get("positive") == "1"
     oos = a.get("oos") == "1"  # 留出段盈利过滤(OOS 一票否决)
     rank = a.get("rank") or ""  # 排名模板名, 空=默认(净点数)
-    results, rank_templates, brokers, symbols = [], [], [], []
+    results, rank_templates, brokers, symbols, templates = [], [], [], [], []
     try:
         cfg = api.get("/config")["config"]
         rank_templates = cfg.get("ranking_templates", [])
+        templates = sorted(api.get("/strategies/templates")["templates"].keys())
         params = {"min_trades": min_trades,
                   "limit": cfg.get("backtest_batch_limit", 500)}
-        for k, v in (("symbol", symbol), ("broker", broker), ("status", status)):
+        for k, v in (("template", template), ("symbol", symbol),
+                     ("broker", broker), ("status", status)):
             if v:
                 params[k] = v
         params.update({k: v for k, v in filters.items() if v is not None})
@@ -53,7 +56,8 @@ def index():
     return render_template("strategies.html", results=results, symbol=symbol, broker=broker,
                            status=status, min_trades=min_trades, q_field=q_field, q_text=q_text,
                            filters=filters, positive=positive, oos=oos, rank=rank,
-                           rank_templates=rank_templates, brokers=brokers, symbols=symbols)
+                           rank_templates=rank_templates, brokers=brokers, symbols=symbols,
+                           template=template, templates=templates)
 
 
 @bp.get("/generate")

@@ -263,18 +263,18 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
               min_win_rate: float = 0, min_pf: float = 0,
               max_dd: Optional[float] = None, min_robust: Optional[float] = None,
               positive_only: bool = False, rank_template: Optional[str] = None,
-              oos_pass: bool = False):
+              oos_pass: bool = False, template: Optional[str] = None):
     """策略列表排名: 从 strategies 出发 LEFT JOIN 主品种回测 — 未回测的策略也出现(成绩为空,
     默认沉底), 列表与排名合一。跨品种结果只喂健壮性列/明细, 不参与排名。
 
-    过滤(全部服务端查库, 不传=不限): symbol/broker/status、min_trades(>0 时未回测不通过)、
+    过滤(全部服务端查库, 不传=不限): template(模板名)/symbol/broker/status、min_trades(>0 时未回测不通过)、
       min_win_rate(百分数)、min_pf(PF=null 即无亏损视为通过)、max_dd、positive_only、
       min_robust(百分数, 未跨品种不通过) — 有成绩门槛的过滤, 未回测策略一律不通过。
     q_field/q_text: 服务端搜索, 策略名模糊(ILIKE), ID/周期/状态精准。
     """
     pool = request.app.state.pool
     q = """
-        SELECT s.id AS strategy_id, s.name, s.symbol, s.timeframe, s.status,
+        SELECT s.id AS strategy_id, s.name, s.template, s.symbol, s.timeframe, s.status,
                s.params, s.magic_number,
                COALESCE(b.broker, sy.broker) AS broker, b.metrics, b.created_at
           FROM strategies s
@@ -287,6 +287,9 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
     if symbol:
         args.append(symbol)
         q += f" AND s.symbol = ${len(args)}"
+    if template:
+        args.append(template)
+        q += f" AND s.template = ${len(args)}"
     if broker:
         args.append(broker)
         q += f" AND COALESCE(b.broker, sy.broker) = ${len(args)}"
