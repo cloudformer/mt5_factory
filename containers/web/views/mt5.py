@@ -24,8 +24,9 @@ def _who(magic: int, magic_map: dict) -> str:
         return magic_map[magic]
     if magic == 0:
         return "手动/其他"
-    # magic 规则 = 100000 + 策略id: 就算映射表没拉到(超上限/已删), 也能推回策略号
-    if 100000 < magic < 200000:
+    # magic 规则(全系统不变量, 三处依赖: api分配/runner下单/此处兜底) = 100000 + 策略id;
+    # 999999=下单测试。规则可用到 id=899998 才会撞测试号 — 到那天再整体迁基数, 现在不动。
+    if 100000 < magic < SMOKE_MAGIC:
         return f"策略 #{magic - 100000}"
     return f"未知 magic {magic}"
 
