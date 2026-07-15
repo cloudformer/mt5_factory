@@ -146,7 +146,9 @@ def fetch_strategies(run_status: str) -> list:
             mt5.symbol_select(s["symbol"], True)
             info = mt5.symbol_info(s["symbol"])
             if info is None:
-                logger.warning("symbol %s unavailable, skip %s", s["symbol"], s["name"])
+                # 走到这已确认连接在(主循环断线会先重连), 故这里是真·单品种不可用: 记 last_error 便于分辨名字问题
+                logger.warning("symbol %s unavailable (err=%s), skip %s",
+                               s["symbol"], mt5.last_error(), s["name"])
                 skipped.append({"id": s["id"], "name": s["name"], "symbol": s["symbol"],
                                 "reason": "not_in_market_watch"})
                 continue
@@ -254,6 +256,20 @@ def main():
 
     instances, skipped, last_bar, last_refresh, run_status = [], [], {}, 0.0, ""
     while True:
+        # 连接自愈: 附着后 MT5 可能掉线(终端更新/重启, 或 bridge 自愈重连使旧 handle 失效),
+        # MetaTrader5 掉线不自愈 → 必须重新附着。否则 symbol_info 恒为 None,
+        # 所有策略被误判"无报价"卡死, 只能靠看门狗整进程重启才恢复(实测过)。
+        if mt5.terminal_info() is None:
+            logger.warning("MT5 connection lost, re-attaching (else everything falsely skipped as 'no quote')")
+            mt5.shutdown()
+            wait_bridge()                 # 等同机 bridge 把终端重新连好, 再附着
+            if not mt5_connect():
+                logger.error("re-attach failed: %s | retry in 10s", mt5.last_error())
+                write_status("重连中", [], skipped=[])
+                time.sleep(10)
+                continue
+            logger.info("MT5 re-attached OK")
+            last_refresh = 0.0            # 立刻重拉策略(重跑 symbol_select)
         if time.time() - last_refresh > REFRESH_SECONDS:
             try:
                 run_status = detect_run_status()
