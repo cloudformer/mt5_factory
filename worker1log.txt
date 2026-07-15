@@ -1,0 +1,699 @@
+[2026/07/15 周三  8:00:51.62] starting bridge...
+C:\mt5_factory\windows_mt5\bridge\main.py:239: DeprecationWarning:
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+
+  @app.on_event("startup")
+[32mINFO[0m:     Started server process [[36m7280[0m]
+[32mINFO[0m:     Waiting for application startup.
+[32mINFO[0m:     Application startup complete.
+[32mINFO[0m:     Uvicorn running on [1mhttp://0.0.0.0:8020[0m (Press CTRL+C to quit)
+[32mINFO[0m:     127.0.0.1:49706 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+{"time": "2026-07-15 08:00:56,424", "level": "INFO", "message": "MT5 terminal not running, launching C:\Program Files\MetaTrader 5\terminal64.exe"}
+[32mINFO[0m:     192.168.4.139:44240 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49715 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49717 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+{"time": "2026-07-15 08:01:50,016", "level": "INFO", "message": "MT5 connected: login=10011650727 server=MetaQuotes-Demo balance=99958.04"}
+[32mINFO[0m:     127.0.0.1:49731 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49732 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49739 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+{"time": "2026-07-15 08:01:50,830", "level": "INFO", "message": "ordertest PASS: open 4060.38000 close 4060.10000"}
+[32mINFO[0m:     127.0.0.1:49742 - "[1mPOST /ordertest HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49743 - "[1mGET /recon?fmt=json HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49744 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:55716 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:60436 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:52626 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:36514 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+{"time": "2026-07-15 08:03:50,067", "level": "WARNING", "message": "MT5 not connected, retrying..."}
+{"time": "2026-07-15 08:03:50,177", "level": "INFO", "message": "MT5 connected: login=10011650727 server=MetaQuotes-Demo balance=99957.76"}
+[32mINFO[0m:     192.168.4.139:54332 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:36228 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:52730 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:43190 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:35514 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:39542 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:52294 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:49706 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:48506 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:40808 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:39866 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:57058 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:56660 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:46924 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:34632 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:35904 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:59160 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:45354 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:46240 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:43914 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:39852 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:53584 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:34752 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:54984 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:49640 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:38838 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     192.168.4.139:47440 - "[1mGET /health HTTP/1.1[0m" [32m200 OK[0m
+[2026/07/15 周三  8:00:54.29] starting runner...
+{"time": "2026-07-15 08:00:55,269", "level": "INFO", "message": "runner is up (NOT stuck), waiting for local bridge to connect MT5 before attaching..."}
+{"time": "2026-07-15 08:01:50,321", "level": "INFO", "message": "bridge reports MT5 connected, runner attaching now"}
+{"time": "2026-07-15 08:01:50,332", "level": "INFO", "message": "runner process OK (volume=0.01)"}
+{"time": "2026-07-15 08:01:50,370", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (role=DEMO)"}
+{"time": "2026-07-15 08:01:51,089", "level": "INFO", "message": "ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150 BUY 0.01 lots @ 4060.34000 sl=4057.40000 tp=4072.10000 (magic=100200)"}
+{"time": "2026-07-15 08:02:11,149", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (role=DEMO)"}
+{"time": "2026-07-15 08:02:31,182", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (role=DEMO)"}
+{"time": "2026-07-15 08:02:51,243", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (role=DEMO)"}
+{"time": "2026-07-15 08:03:11,263", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (role=DEMO)"}
+{"time": "2026-07-15 08:03:32,055", "level": "INFO", "message": "loaded 14 strategies, skipped 0 (role=DEMO)"}
+{"time": "2026-07-15 08:03:52,292", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:03:52,355", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:03:52,355", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:04:12,392", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:04:12,392", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:04:32,405", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:04:32,405", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:04:32,421", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:04:32,421", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:04:32,421", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:04:32,421", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:04:32,421", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:04:32,421", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:04:32,437", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:04:32,437", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:04:32,437", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:04:32,437", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:04:32,437", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:04:32,437", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:04:32,437", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:04:52,449", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:04:52,449", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:04:52,449", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:04:52,449", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:04:52,449", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:04:52,449", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:04:52,465", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:04:52,465", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:04:52,465", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:04:52,465", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:04:52,465", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:04:52,465", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:04:52,465", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:04:52,465", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:04:52,465", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:05:12,491", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:05:12,491", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:05:32,517", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:05:32,517", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:05:32,517", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:05:32,517", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:05:32,517", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:05:32,533", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:05:32,533", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:05:32,533", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:05:32,533", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:05:32,533", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:05:32,533", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:05:32,533", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:05:32,533", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:05:32,533", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:05:32,533", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:05:52,552", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:05:52,568", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:06:12,580", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:06:12,580", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:06:12,580", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:06:12,580", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:06:12,580", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:06:12,580", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:06:12,580", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:06:12,596", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:06:12,596", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:06:12,596", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:06:12,596", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:06:12,596", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:06:12,596", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:06:12,596", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:06:12,596", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:06:32,606", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:06:32,622", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:06:52,664", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:06:52,664", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:06:52,664", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:06:52,664", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:06:52,664", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:06:52,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:06:52,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:06:52,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:06:52,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:06:52,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:06:52,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:06:52,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:06:52,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:06:52,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:06:52,680", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:07:12,690", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:07:12,690", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:07:12,690", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:07:12,690", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:07:12,704", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:07:12,704", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:07:12,704", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:07:12,704", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:07:12,704", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:07:12,704", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:07:12,704", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:07:12,704", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:07:12,704", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:07:12,704", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:07:12,704", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:07:32,730", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:07:32,730", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:07:32,730", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:07:32,730", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:07:32,730", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:07:32,730", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:07:32,730", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:07:32,730", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:07:32,730", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:07:32,730", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:07:32,745", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:07:32,745", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:07:32,745", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:07:32,745", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:07:32,745", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:07:52,762", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:07:52,762", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:07:52,762", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:07:52,762", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:07:52,778", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:07:52,778", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:07:52,778", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:07:52,778", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:07:52,778", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:07:52,778", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:07:52,778", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:07:52,778", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:07:52,778", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:07:52,778", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:07:52,778", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:08:12,812", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:08:12,812", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:08:12,812", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:08:12,812", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:08:12,812", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:08:12,812", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:08:12,812", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:08:12,812", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:08:12,827", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:08:12,827", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:08:12,827", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:08:12,827", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:08:12,827", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:08:12,827", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:08:12,827", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:08:32,847", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:08:32,863", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:08:32,863", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:08:32,894", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:08:32,894", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:08:32,894", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:08:32,894", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:08:32,894", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:08:32,894", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:08:32,894", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:08:32,894", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:08:32,894", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:08:32,894", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:08:32,894", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:08:32,894", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:08:52,932", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:08:52,932", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:09:12,950", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:09:12,950", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:09:12,966", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:09:12,966", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:09:32,981", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:09:32,981", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:09:32,981", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:09:32,981", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:09:32,981", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:09:32,981", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:09:32,981", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:09:32,981", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:09:32,996", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:09:32,996", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:09:32,996", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:09:32,996", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:09:32,996", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:09:32,996", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:09:32,996", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:09:53,029", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:09:53,029", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:10:13,059", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:10:13,059", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:10:13,059", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:10:13,059", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:10:13,059", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:10:13,075", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:10:13,075", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:10:13,075", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:10:13,075", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:10:13,075", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:10:13,075", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:10:13,075", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:10:13,075", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:10:13,075", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:10:13,075", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:10:33,087", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:10:33,087", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:10:33,087", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:10:33,087", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:10:33,087", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:10:33,087", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:10:33,087", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:10:33,102", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:10:33,102", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:10:33,102", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:10:33,102", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:10:33,102", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:10:33,102", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:10:33,102", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:10:33,102", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:10:53,131", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:10:53,131", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:10:53,131", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:10:53,131", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:10:53,131", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:10:53,147", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:10:53,147", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:10:53,147", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:10:53,147", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:10:53,147", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:10:53,162", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:10:53,162", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:10:53,162", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:10:53,162", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:10:53,162", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:11:13,182", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:11:13,182", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:11:13,182", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:11:13,198", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:11:13,198", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:11:13,198", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:11:13,198", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:11:13,198", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:11:13,198", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:11:13,198", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:11:13,198", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:11:13,198", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:11:13,198", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:11:13,198", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:11:13,213", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:11:33,240", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:11:33,240", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:11:33,256", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:11:33,256", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:11:53,267", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:11:53,284", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:11:53,284", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:12:13,316", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:12:13,316", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:12:13,316", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:12:13,316", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:12:13,316", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:12:13,316", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:12:13,316", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:12:13,333", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:12:13,333", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:12:13,333", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:12:13,333", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:12:13,333", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:12:13,333", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:12:13,333", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:12:13,333", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:12:33,382", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:12:33,382", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:12:53,413", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:12:53,413", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:12:53,413", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:12:53,413", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:12:53,413", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:12:53,413", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:12:53,413", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:12:53,413", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:12:53,413", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:12:53,429", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:12:53,429", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:12:53,429", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:12:53,429", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:12:53,429", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:12:53,429", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:13:13,456", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:13:13,456", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:13:13,456", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:13:13,456", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:13:13,473", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:13:13,473", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:13:13,473", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:13:13,473", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:13:13,473", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:13:13,473", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:13:13,473", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:13:13,473", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:13:13,473", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:13:13,473", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:13:13,473", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:13:33,483", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:13:33,483", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:13:33,483", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:13:33,483", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:13:33,483", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:13:33,483", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:13:33,483", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:13:33,499", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:13:33,499", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:13:33,499", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:13:33,499", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:13:33,499", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:13:33,499", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:13:33,499", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:13:33,499", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:13:53,514", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:13:53,514", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:13:53,514", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:13:53,514", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:13:53,530", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:13:53,530", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:13:53,530", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:13:53,530", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:13:53,530", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:13:53,530", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:13:53,530", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:13:53,530", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:13:53,530", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:13:53,530", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:13:53,530", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:14:13,540", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:14:13,540", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:14:13,540", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:14:13,540", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:14:13,540", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:14:13,540", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:14:13,556", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:14:13,556", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:14:13,556", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:14:13,556", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:14:13,556", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:14:13,556", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:14:13,556", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:14:13,556", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:14:13,556", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:14:33,564", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:14:33,564", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:14:33,564", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:14:33,564", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:14:33,564", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:14:33,564", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:14:33,564", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:14:33,579", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:14:33,579", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:14:33,579", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:14:33,579", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:14:33,579", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:14:33,579", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:14:33,579", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:14:33,579", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:14:53,604", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:14:53,620", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:14:53,620", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:15:13,650", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:15:13,650", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:15:33,664", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:15:33,680", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:15:33,680", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:15:53,709", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:15:53,709", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:15:53,709", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:15:53,709", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:15:53,709", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:15:53,724", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:15:53,724", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:15:53,724", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:15:53,724", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:15:53,724", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:15:53,724", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:15:53,724", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:15:53,724", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:15:53,724", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:15:53,724", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:16:13,736", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:16:13,752", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:16:13,752", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:16:13,752", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:16:13,768", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:16:13,768", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:16:13,768", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:16:13,768", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:16:13,784", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:16:13,784", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:16:13,799", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:16:13,799", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:16:13,799", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:16:13,799", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:16:13,799", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:16:33,807", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:16:33,823", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:16:33,823", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:16:53,839", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:16:53,839", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:16:53,839", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:16:53,839", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:16:53,839", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:16:53,856", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:16:53,856", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:16:53,856", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:16:53,856", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:16:53,856", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:16:53,856", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:16:53,856", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:16:53,856", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:16:53,856", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:16:53,856", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:17:13,897", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:17:13,897", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
+{"time": "2026-07-15 08:17:33,921", "level": "WARNING", "message": "symbol EURUSD unavailable, skip ma_cross-EURUSD-M15-fast10-rr1.9-sl_points150-slow370"}
+{"time": "2026-07-15 08:17:33,921", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast19-rr3.6-sl_points1200-slow280"}
+{"time": "2026-07-15 08:17:33,921", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast52-rr3.1-sl_points500-slow365"}
+{"time": "2026-07-15 08:17:33,921", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast4-rr1.2-sl_points550-slow285"}
+{"time": "2026-07-15 08:17:33,938", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast27-rr2.4-sl_points1500-slow285"}
+{"time": "2026-07-15 08:17:33,938", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast5-rr1.2-sl_points600-slow105"}
+{"time": "2026-07-15 08:17:33,938", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast17-rr1.5-sl_points1350-slow25"}
+{"time": "2026-07-15 08:17:33,938", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast29-rr3.6-sl_points300-slow175"}
+{"time": "2026-07-15 08:17:33,938", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast49-rr2.2-sl_points1050-slow85"}
+{"time": "2026-07-15 08:17:33,938", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast13-rr2.6-sl_points150-slow155"}
+{"time": "2026-07-15 08:17:33,938", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast30-rr3.6-sl_points1250-slow195"}
+{"time": "2026-07-15 08:17:33,938", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast6-rr2.6-sl_points1500-slow225"}
+{"time": "2026-07-15 08:17:33,938", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast38-rr3.9-sl_points300-slow150"}
+{"time": "2026-07-15 08:17:33,938", "level": "WARNING", "message": "symbol XAUUSD unavailable, skip ma_cross-XAUUSD-M15-fast16-rr3.0-sl_points1300-slow370"}
+{"time": "2026-07-15 08:17:33,938", "level": "INFO", "message": "loaded 0 strategies, skipped 14 (role=DEMO)"}
