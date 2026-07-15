@@ -151,6 +151,55 @@ async def heartbeat_loop(pool: asyncpg.Pool):
             await asyncio.sleep(30)
 
 
+TRADES_WINDOW_DAYS = 7  # 逐笔重拉的重叠窗口(去重靠主键, 多拉无害; 覆盖迟到平仓)
+
+
+async def _persist_trades(pool: asyncpg.Pool, client: httpx.AsyncClient, h, account: int) -> None:
+    """拉 bridge /trades → 按 position_id 把 deal 腿配对成回合 → upsert trades(增量去重)。
+    只落: 已平仓(有 in+out 腿) 且 magic 归属策略(100000+id) 的回合; 持仓中/手动单不入。"""
+    headers = {"X-API-Key": BRIDGE_API_KEY} if BRIDGE_API_KEY else {}
+    r = await client.get(f"http://{h['host']}:{h['port']}/trades",
+                         params={"days": TRADES_WINDOW_DAYS}, headers=headers)
+    if r.status_code != 200:
+        return
+    by_pos: dict = {}
+    for d in r.json().get("deals", []):
+        by_pos.setdefault(d["position_id"], []).append(d)
+    env = h["runner"].upper()
+    points = {row["symbol"]: row["point"]
+              for row in await pool.fetch("SELECT symbol, point FROM symbols")}
+    rows = []
+    for pos_id, legs in by_pos.items():
+        ins = next((d for d in legs if d["entry"] == "in"), None)
+        out = next((d for d in legs if d["entry"] == "out"), None)
+        if not ins or not out:                        # 未平仓 → 平仓后下次心跳再纳入
+            continue
+        magic = ins["magic"]
+        if not (100_000 <= magic < 200_000):          # 只落策略回合(手动0/测试999999跳过)
+            continue
+        if ins["type"] not in ("buy", "sell"):         # 跳过 balance 等非交易腿
+            continue
+        symbol = ins["symbol"] or out["symbol"]
+        pt = points.get(symbol) or 0
+        move = (out["price"] - ins["price"]) if ins["type"] == "buy" else (ins["price"] - out["price"])
+        rows.append((
+            account, pos_id, magic - 100_000, magic, env, symbol, ins["type"], ins["volume"],
+            datetime.fromtimestamp(ins["time"], tz=timezone.utc), ins["price"],
+            datetime.fromtimestamp(out["time"], tz=timezone.utc), out["price"],
+            out["reason"], out["profit"],
+            (ins.get("commission") or 0) + (out.get("commission") or 0), out.get("swap") or 0,
+            round(move / pt, 1) if pt else None))
+    if not rows:
+        return
+    await pool.executemany(
+        "INSERT INTO trades (account, position_id, strategy_id, magic, env, symbol,"
+        "   direction, volume, entry_time, entry_price, exit_time, exit_price,"
+        "   close_reason, profit, commission, swap, net_points)"
+        " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)"
+        " ON CONFLICT (account, position_id) DO NOTHING",   # 已平仓回合不可变, 去重即可
+        rows)
+
+
 async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
     """单台主机的一次心跳探测与状态落库"""
     health = None
@@ -198,6 +247,13 @@ async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
                 [(s["id"], h["runner"].upper(), s["closed"]["trades"],
                   s["closed"]["wins"], s["closed"]["profit"])
                  for s in rn["per_strategy"] if s.get("closed")])
+        # 逐笔回合入库(关2对账源数据, v1.6): 拉 /trades → 按 position_id 配对回合 → upsert。
+        # 独立 try: 逐笔落库失败不能拖垮心跳状态机(它只是对账用, 不影响 worker 存活判定)
+        if h["runner"] and health.get("login"):
+            try:
+                await _persist_trades(pool, client, h, int(health["login"]))
+            except Exception as e:
+                logger.warning("persist trades %s failed: %s", h["name"], e)
     else:  # 探测失败: 超过90s宽限才判下线
         row = await pool.fetchrow(
             "UPDATE mt5_hosts SET status='OFFLINE', offline_at=now()"
