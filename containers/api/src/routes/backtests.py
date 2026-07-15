@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from src.services import backtest
+from strategy_core import TF_SECONDS
 
 logger = logging.getLogger("backtests")
 router = APIRouter()
@@ -399,3 +400,89 @@ async def results(strategy_id: int, request: Request):
         "SELECT id, from_time, to_time, symbol, broker, metrics, created_at FROM backtests"
         " WHERE strategy_id=$1 ORDER BY symbol", strategy_id)
     return {"results": [dict(r) for r in rows]}
+
+
+# ---------- 关2 对账: 回测 vs 实盘(demo/live)逐笔匹配 (v1.6) ----------
+def _reconcile_metrics(actual: list, bt: list, tf_seconds: int) -> dict:
+    """纯函数: 实际成交 vs 回测信号 → 4 个一致率(0~1)+ 综合分(0~100)。
+    actual 项: {direction(buy/sell), entry_ts(epoch), profit}
+    bt 项:     {dir(BUY/SELL), entry_time(epoch), points}
+    配对: 每笔实际找最近的未匹配回测笔(entry 差 ≤ 2根bar, 吸收 runner 次开盘的偏移)。"""
+    n_a, n_b = len(actual), len(bt)
+    count_rate = (min(n_a, n_b) / max(n_a, n_b)) if max(n_a, n_b) else 1.0
+    tol = 2 * tf_seconds
+    used, paired, dir_ok, outcome_ok = set(), 0, 0, 0
+    for a in actual:
+        best, bestd = None, tol + 1
+        for i, t in enumerate(bt):
+            if i in used:
+                continue
+            d = abs(t["entry_time"] - a["entry_ts"])
+            if d < bestd:
+                best, bestd = i, d
+        if best is not None and bestd <= tol:
+            used.add(best); paired += 1
+            t = bt[best]
+            if t["dir"].upper() == a["direction"].upper():
+                dir_ok += 1
+            if (t["points"] > 0) == (a["profit"] > 0):   # 盈亏方向(是否盈利)一致
+                outcome_ok += 1
+    signal_hit = paired / n_a if n_a else 0.0
+    dir_rate = dir_ok / paired if paired else 0.0
+    outcome_rate = outcome_ok / paired if paired else 0.0
+    metrics = {
+        "count_match_rate": round(count_rate, 3),      # 笔数一致率
+        "signal_hit_rate": round(signal_hit, 3),       # 实际有信号回测也有
+        "dir_match_rate": round(dir_rate, 3),          # 方向一致(配对内)
+        "outcome_match_rate": round(outcome_rate, 3),  # 盈亏方向一致(配对内)
+    }
+    # 综合分(权重暂写死, 未来进config): 信号命中最重
+    metrics["match_score"] = round(100 * (0.4 * signal_hit + 0.2 * count_rate
+                                          + 0.2 * dir_rate + 0.2 * outcome_rate), 1)
+    return metrics
+
+
+@router.get("/reconcile/{strategy_id}")
+async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
+    """关2对账: 用该策略实盘/demo成交(scope: all=demo+live)验证回测 —
+    自动取实际成交时间窗 → 切片回测同窗 → 4 个一致率 + 综合分, 落 reconciliations(覆盖)。"""
+    pool = request.app.state.pool
+    strat = await pool.fetchrow("SELECT symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
+    if strat is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    q = ("SELECT direction, entry_time, exit_time, profit FROM trades"
+         " WHERE strategy_id=$1")
+    args = [strategy_id]
+    if scope != "all":
+        args.append(scope.upper()); q += f" AND env = ${len(args)}"
+    q += " ORDER BY entry_time"
+    actual = await pool.fetch(q, *args)
+    out = {"strategy_id": strategy_id, "scope": scope, "symbol": strat["symbol"],
+           "window_from": None, "window_to": None,
+           "actual_trades": len(actual), "bt_trades": 0, "metrics": {}}
+    if not actual:
+        out["note"] = "该策略暂无 demo/live 成交, 无法对账"
+        return out
+    wf = min(a["entry_time"] for a in actual)
+    wt = max(a["exit_time"] for a in actual)
+    bt_row = await pool.fetchrow(
+        "SELECT trades FROM backtests WHERE strategy_id=$1 AND symbol=$2",
+        strategy_id, strat["symbol"])
+    bt_all = (bt_row["trades"] if bt_row else []) or []
+    wf_ts, wt_ts = wf.timestamp(), wt.timestamp()
+    bt = [t for t in bt_all if wf_ts <= t["entry_time"] <= wt_ts]  # 切到实际成交窗口
+    metrics = _reconcile_metrics(
+        [{"direction": a["direction"], "entry_ts": a["entry_time"].timestamp(),
+          "profit": a["profit"]} for a in actual],
+        bt, TF_SECONDS.get(strat["timeframe"], 900))
+    out.update(window_from=wf, window_to=wt, bt_trades=len(bt), metrics=metrics)
+    await pool.execute(
+        "INSERT INTO reconciliations (strategy_id, scope, window_from, window_to,"
+        "   actual_trades, bt_trades, match_score, metrics)"
+        " VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"
+        " ON CONFLICT (strategy_id, scope) DO UPDATE SET"
+        "   window_from=EXCLUDED.window_from, window_to=EXCLUDED.window_to,"
+        "   actual_trades=EXCLUDED.actual_trades, bt_trades=EXCLUDED.bt_trades,"
+        "   match_score=EXCLUDED.match_score, metrics=EXCLUDED.metrics, updated_at=now()",
+        strategy_id, scope, wf, wt, len(actual), len(bt), metrics["match_score"], metrics)
+    return out
