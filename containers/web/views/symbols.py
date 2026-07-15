@@ -12,23 +12,50 @@ bp = Blueprint("symbols", __name__, url_prefix="/symbols")
 
 @bp.get("/")
 def index():
-    """配置页: 货币对主档 + 回测参数(成本模型)"""
-    symbols, orphans, costs, batch_limit, ai_url, rank_templates = [], [], {}, 500, "", []
-    oos_split = 0.7
+    """配置·货币对: 品种主档(登记/列表) — 精度/下载/清空都在「下载」页"""
+    symbols = []
     try:
-        data = api.get("/symbols")
-        symbols, orphans = data["symbols"], data.get("orphans", [])
+        symbols = api.get("/symbols")["symbols"]
+    except api.ApiError as e:
+        flash(f"api 不可用: {e}", "error")
+    return render_template("symbols.html", symbols=symbols)
+
+
+@bp.get("/backtest")
+def backtest_params():
+    """配置·回测参数: 成本模型 + 单批上限 + OOS 切分"""
+    costs, batch_limit, oos_split = {}, 500, 0.7
+    try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
         batch_limit = cfg.get("backtest_batch_limit", 500)
-        ai_url = cfg.get("ai_generator_url") or ""
-        rank_templates = cfg.get("ranking_templates", [])
         oos_split = cfg.get("backtest_oos_split", 0.7)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-    return render_template("symbols.html", symbols=symbols, orphans=orphans,
-                           costs=costs, batch_limit=batch_limit, ai_url=ai_url,
-                           rank_templates=rank_templates, oos_split=oos_split)
+    return render_template("config_backtest.html", costs=costs,
+                           batch_limit=batch_limit, oos_split=oos_split)
+
+
+@bp.get("/ranking")
+def ranking():
+    """配置·排名模板: 四维加权评分模板(增删改)"""
+    rank_templates = []
+    try:
+        rank_templates = api.get("/config")["config"].get("ranking_templates", [])
+    except api.ApiError as e:
+        flash(f"api 不可用: {e}", "error")
+    return render_template("config_ranking.html", rank_templates=rank_templates)
+
+
+@bp.get("/ai")
+def ai():
+    """配置·AI 生成器: 外部 AI 服务地址(可选)"""
+    ai_url = ""
+    try:
+        ai_url = api.get("/config")["config"].get("ai_generator_url") or ""
+    except api.ApiError as e:
+        flash(f"api 不可用: {e}", "error")
+    return render_template("config_ai.html", ai_url=ai_url)
 
 
 @bp.post("/config/ranks")
@@ -57,7 +84,7 @@ def save_ranks():
         flash(f"排名模板已保存({len(tpls)} 个)", "ok")
     except api.ApiError as e:
         flash(f"保存失败: {e}", "error")
-    return redirect(url_for("symbols.index"))
+    return redirect(url_for("symbols.ranking"))
 
 
 @bp.post("/config/ai")
@@ -69,7 +96,7 @@ def save_ai():
         flash("AI 生成器地址已保存", "ok")
     except api.ApiError as e:
         flash(f"保存失败: {e}", "error")
-    return redirect(url_for("symbols.index"))
+    return redirect(url_for("symbols.ai"))
 
 
 @bp.post("/add")

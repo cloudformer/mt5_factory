@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('配置 · 回测参数', '悲观撮合成本 + 单批上限 + 样本外(OOS)切分。改比例后需「范围=全部」重跑一次全量收敛') }}
+
+<section>
+  <h2>回测参数 (成本模型)</h2>
+  <form method="post" action="{{ url_for('backtests.save_costs') }}" class="inline">
+    <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="单边滑点(点)"></label>
+    <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="往返佣金(点数等值)"></label>
+    <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="固定点差(点); 留空=用每根bar记录的真实点差"></label>
+    <label>单批上限 <input name="batch_limit" value="{{ batch_limit }}" size="5"
+        title="一次批量回测最多跑多少个策略(防失控保护)。策略总数超过它时'全部'跑不全 — 调大到不小于策略总数"></label>
+    <label>OOS训练占比 <input name="oos_split" value="{{ '%g' % oos_split }}" size="4"
+        title="样本外切分: 0.7=训练7:留出3(推荐, 长期固定)。纪律: 换比例后必须'范围=全部'跑一次全量收敛, 否则库里新旧口径混着不可比"></label>
+    <button class="small">保存</button>
+    <span class="muted">成本 = 悲观撮合假设; 上限 = 单批保护值(排名取数跟它); OOS = 训练段选/留出段一票否决, 比例长期固定 7:3</span>
+  </form>
+</section>
+{% endblock %}

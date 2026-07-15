@@ -76,8 +76,8 @@ def save_costs():
         flash("回测参数已保存", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
         flash(f"保存失败: {e}", "error")
-    # 成本表单在「配置」页(也可能其它入口), 保存后回来源页
-    return redirect(request.referrer or url_for("symbols.index"))
+    # 成本表单在「配置·回测参数」页, 保存后回来源页(兜底回该页)
+    return redirect(request.referrer or url_for("symbols.backtest_params"))
 
 
 @bp.post("/run")

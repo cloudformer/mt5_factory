@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('配置', '系统配置：货币对（登记哪些对）+ 回测参数。精度/校验由券商自动取、连同下载/清空/删除都在「下载」页') }}
+{{ m.page_header('配置 · 货币对', '登记哪些货币对（唯一数据源）。精度/校验由券商自动取；下载/清空/删除在「下载」页') }}
 
 <section>
   <h2>货币对</h2>
@@ -26,63 +26,4 @@
     {% endfor %}
   </table>
 </section>
-
-<section>
-  <h2>回测参数 (成本模型)</h2>
-  <form method="post" action="{{ url_for('backtests.save_costs') }}" class="inline">
-    <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="单边滑点(点)"></label>
-    <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="往返佣金(点数等值)"></label>
-    <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="固定点差(点); 留空=用每根bar记录的真实点差"></label>
-    <label>单批上限 <input name="batch_limit" value="{{ batch_limit }}" size="5"
-        title="一次批量回测最多跑多少个策略(防失控保护)。策略总数超过它时'全部'跑不全 — 调大到不小于策略总数"></label>
-    <label>OOS训练占比 <input name="oos_split" value="{{ '%g' % oos_split }}" size="4"
-        title="样本外切分: 0.7=训练7:留出3(推荐, 长期固定)。纪律: 换比例后必须'范围=全部'跑一次全量收敛, 否则库里新旧口径混着不可比"></label>
-    <button class="small">保存</button>
-    <span class="muted">成本 = 悲观撮合假设; 上限 = 单批保护值(排名取数跟它); OOS = 训练段选/留出段一票否决, 比例长期固定 7:3</span>
-  </form>
-</section>
-
-<section>
-  <h2>排名模板</h2>
-  <p class="muted">回测排名的加权评分:四维先归一成 0~100 排名百分位再按权重加权(权重不必和=100, 按比例归一)。
-    稳定=PF · 盈利=净点数 · 风险=回撤小 · 健壮=跨品种盈利比(未跨品种=0分);最少笔数=选该模板时自动带的门槛。
-    <b>增删改都在这里, 不用改代码</b> — 删除=勾"删"或清空名称, 新增=填底部空白行。</p>
-  <form method="post" action="{{ url_for('symbols.save_ranks') }}">
-    <table class="subtable" style="min-width:560px">
-      <tr><th>模板名</th><th>稳定</th><th>盈利</th><th>风险</th><th>健壮</th><th>最少笔数</th><th>删</th></tr>
-      {% for t in rank_templates %}
-      <tr>
-        <td><input name="rt_name_{{ loop.index0 }}" value="{{ t.name }}" size="8"></td>
-        <td><input name="rt_stable_{{ loop.index0 }}" value="{{ '%g' % t.stable }}" size="3"></td>
-        <td><input name="rt_profit_{{ loop.index0 }}" value="{{ '%g' % t.profit }}" size="3"></td>
-        <td><input name="rt_risk_{{ loop.index0 }}" value="{{ '%g' % t.risk }}" size="3"></td>
-        <td><input name="rt_robust_{{ loop.index0 }}" value="{{ '%g' % t.robust }}" size="3"></td>
-        <td><input name="rt_mt_{{ loop.index0 }}" value="{{ t.min_trades or 0 }}" size="4"></td>
-        <td><input type="checkbox" name="rt_del_{{ loop.index0 }}" title="勾选后保存=删除该模板"></td>
-      </tr>
-      {% endfor %}
-      {# 新增行: 填了名称才生效 #}
-      <tr>
-        <td><input name="rt_name_{{ rank_templates|length }}" placeholder="新模板名" size="8"></td>
-        <td><input name="rt_stable_{{ rank_templates|length }}" size="3"></td>
-        <td><input name="rt_profit_{{ rank_templates|length }}" size="3"></td>
-        <td><input name="rt_risk_{{ rank_templates|length }}" size="3"></td>
-        <td><input name="rt_robust_{{ rank_templates|length }}" size="3"></td>
-        <td><input name="rt_mt_{{ rank_templates|length }}" size="4"></td>
-        <td></td>
-      </tr>
-    </table>
-    <div style="margin-top:8px"><button class="small">保存排名模板</button></div>
-  </form>
-</section>
-
-<section>
-  <h2>AI 生成器 (可选)</h2>
-  <form method="post" action="{{ url_for('symbols.save_ai') }}" class="inline">
-    <label>地址 <input name="ai_generator_url" value="{{ ai_url }}" size="32" placeholder="http://host:9000 (空=不用)"></label>
-    <button class="small">保存</button>
-    <span class="muted">策略生成页的 AI 模式调它的 /propose; 留空则该模式不可用, 生成走 random/grid 不受影响</span>
-  </form>
-</section>
-
 {% endblock %}
