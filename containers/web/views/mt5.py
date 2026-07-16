@@ -109,6 +109,7 @@ def system():
     win = a.get("win") or "30"        # 预设天数 or 'custom'
     frm = a.get("from") or ""
     to = a.get("to") or ""
+    include_test = a.get("include_test") == "1"   # 默认不含: 过滤下单测试单
     presets, accounts, trades, magic_map, cons = [7, 30, 90], [], [], {}, None
     try:
         presets = api.get("/config")["config"].get("mt5_trades_days") or [7, 30, 90]
@@ -127,6 +128,8 @@ def system():
             params["from_time"] = from_iso
         if to_iso:
             params["to_time"] = to_iso
+        if include_test:
+            params["include_test"] = "true"
         data = api.get("/trades/local", **params)
         accounts, trades = data["accounts"], data["trades"]
         strategies = api.get("/strategies/status", limit=5000)["strategies"]

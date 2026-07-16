@@ -566,6 +566,8 @@ async def trades_consistency(request: Request, account: int, from_time: datetime
             ins = next((d for d in legs if d.get("entry") == "in"), None)
             out = next((d for d in legs if d.get("entry") == "out"), None)
             if ins and out and ins.get("type") in ("buy", "sell") and ft <= out["time"] <= tt:
+                if not include_test and ins.get("magic") == TEST_MAGIC:  # 与库侧同口径过滤
+                    continue
                 mt5 += 1
         return {"account": account, "db": db, "mt5": mt5, "consistent": db == mt5}
     except Exception as e:
