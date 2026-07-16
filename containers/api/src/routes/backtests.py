@@ -18,7 +18,6 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from src.services import backtest
-from strategy_core import TF_SECONDS
 
 logger = logging.getLogger("backtests")
 router = APIRouter()
@@ -417,13 +416,15 @@ async def results(strategy_id: int, request: Request):
 
 
 # ---------- 关2 对账: 回测 vs 实盘(demo/live)逐笔匹配 (v1.6) ----------
-def _reconcile_metrics(actual: list, bt: list, tf_seconds: int):
+PAIR_TOL_SECONDS = 20 * 60  # 对账配对容差 ±20分钟(2026-07-15 定): 吸收 runner 次开盘偏移/秒级成交延迟
+
+
+def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS):
     """纯函数: 实际成交 vs 回测信号 → (metrics, pairs)。
     actual 项: {dir(buy/sell), ts(epoch), profit, entry(显示串)}
     bt 项:     {dir(BUY/SELL), entry_time(epoch), points, entry(价), exit(价)}
-    配对: 每笔实际找最近的未匹配回测笔(entry 差 ≤ 2根bar, 吸收 runner 次开盘偏移)。"""
+    配对: 每笔实际找最近的未匹配回测笔(entry 差 ≤ tol, 默认±20分钟)。"""
     n_a, n_b = len(actual), len(bt)
-    tol = 2 * tf_seconds
     used, pairs = set(), []
     for a in actual:
         best, bestd = None, tol + 1
@@ -504,12 +505,13 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
         strategy_id, strat["symbol"])
     bt_all = (bt_row["trades"] if bt_row else []) or []
     wf_ts, wt_ts = wf.timestamp(), wt.timestamp()
-    bt = [t for t in bt_all if wf_ts <= t["entry_time"] <= wt_ts]  # 切到实际成交窗口
+    # 切到实际成交窗口。左端放宽一个配对容差: 回测入场=bar开盘时刻, 实盘成交晚几秒,
+    # 否则实盘第一笔对应的回测信号永远被切掉(2026-07-15 实测: #177 07-10 09:00 误报"未触发")
+    bt = [t for t in bt_all if wf_ts - PAIR_TOL_SECONDS <= t["entry_time"] <= wt_ts]
     metrics, pairs = _reconcile_metrics(
         [{"dir": a["direction"], "ts": a["entry_time"].timestamp(), "profit": a["profit"],
           "entry": a["entry_time"].strftime("%m-%d %H:%M"),
-          "price": a["entry_price"], "net": a["net_points"]} for a in actual],
-        bt, TF_SECONDS.get(strat["timeframe"], 900))
+          "price": a["entry_price"], "net": a["net_points"]} for a in actual])
     # 覆盖信息两级: 行情数据(库内M1) / 回测窗口 — 分辨低匹配是'数据没下载'/'回测没跑到'/'真没信号'
     bt_from, bt_to = (bt_row["from_time"], bt_row["to_time"]) if bt_row else (None, None)
     if bt_from is not None and bt_from.tzinfo is None:  # naive→aware, 防与 wt(aware)比较 TypeError
