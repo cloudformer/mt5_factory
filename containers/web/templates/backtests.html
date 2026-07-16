@@ -83,6 +83,11 @@
         {% endif %}
       </span>
       <button class="go" {% if bt.running %}disabled data-running="1"{% endif %}>启动回测</button>
+      {% if bt.running %}
+      {# jobs 化后重启 api 会续跑批次(断点续跑), 取消必须显式点这里 #}
+      <button class="small danger" type="button" id="bt-cancel"
+          title="删掉本批未跑完的任务(已完成的结果保留)。注意: 重启 api 不再取消批次, 会接着跑">取消批次</button>
+      {% endif %}
     </div>
   </form>
   {% for e in bt.errors %}<div class="flash error">{{ e }}</div>{% endfor %}
@@ -139,6 +144,13 @@
 (function () {
   const box = document.getElementById("bt-progress");
   if (!box || !box.dataset.running) return;
+  const cancel = document.getElementById("bt-cancel");
+  if (cancel) cancel.addEventListener("click", async () => {
+    if (!confirm("取消本批回测?\n\n未跑的任务会删掉; 已完成的结果保留。")) return;
+    cancel.disabled = true;
+    try { await fetch("{{ url_for('backtests.cancel') }}", { method: "POST" }); } catch (e) {}
+    location.reload();
+  });
   const tick = async () => {
     try {
       const s = await fetch("{{ url_for('backtests.status') }}").then((r) => r.json());

@@ -6,7 +6,6 @@
 扩展点: 新增回测指标 = services/backtest.py 的 _metrics() 加字段
        (metrics 是 JSONB, 表结构不用动)。
 """
-import asyncio
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -17,14 +16,12 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import backtest
+from src.services import backtest, jobs
 
 logger = logging.getLogger("backtests")
 router = APIRouter()
 
 # 全局进度 (单进程内存即可)
-bt_state = {"running": False, "current": None, "done": 0, "total": 0, "errors": []}
-
 DEFAULT_BATCH_LIMIT = 500  # 单批上限兜底; 实际值优先读 config 表 backtest_batch_limit(配置页可改)
 
 
@@ -64,11 +61,11 @@ class BacktestRequest(BaseModel):
 
 @router.post("/backtest/run")
 async def run(req: BacktestRequest, request: Request):
-    """批量回测 (后台执行)"""
-    if bt_state["running"]:
-        raise HTTPException(status_code=409, detail="backtest already running")
-
+    """批量回测: 拆成 每策略×品种 的 jobs(schema/020)投递后即返回 —
+    api 重启批次不丢(consumer 断点续跑), 进度查表(/backtest/status), 多副本安全(铁律5/6)"""
     pool = request.app.state.pool
+    if await jobs.has_active(pool):
+        raise HTTPException(status_code=409, detail="backtest already running")
     if req.strategy_ids:
         rows = await pool.fetch(
             "SELECT * FROM strategies WHERE id = ANY($1) ORDER BY symbol, id", req.strategy_ids)
@@ -98,8 +95,7 @@ async def run(req: BacktestRequest, request: Request):
     if not rows:
         raise HTTPException(status_code=404, detail="no strategies matched")
 
-    bt_state.update(running=True, current=None, done=0, total=len(rows), errors=[])
-    # 成本: 请求值 > config 系统默认 > 代码默认
+    # 成本: 请求值 > config 系统默认 > 代码默认(冻结进 payload, 批次内口径一致)
     cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
     costs = {
         "slippage_points": req.slippage_points if req.slippage_points is not None
@@ -109,77 +105,33 @@ async def run(req: BacktestRequest, request: Request):
         "spread_points": req.spread_points if req.spread_points is not None
                          else cfg.get("spread_points"),
     }
-    asyncio.create_task(_run_batch(pool, [dict(r) for r in rows], req.from_time,
-                                   req.to_time, costs, req.cross_symbol))
-    return {"started": True, "total": len(rows),
+    # 展开成 每策略×品种 一个 job: 主品种必测(排名要它); 跨品种再并上全 download 品种
+    # (反过拟合空间维度)。时间窗冻结在投递时刻; 品种是否存在等校验留给执行时(错误落在 job 行)
+    t_from = req.from_time or datetime(2015, 1, 1, tzinfo=timezone.utc)
+    t_to = req.to_time or datetime.now(timezone.utc)
+    universe = ([r["symbol"] for r in await pool.fetch("SELECT symbol FROM symbols WHERE download")]
+                if req.cross_symbol else [])
+    items = [{"strategy_id": s["id"], "name": s["name"], "symbol": sym,
+              "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs}
+             for s in rows for sym in {s["symbol"]} | set(universe)]
+    await jobs.submit_batch(pool, items)
+    return {"started": True, "total": len(items),
             "cross_symbol": req.cross_symbol, "costs": costs}
 
 
-async def _run_batch(pool, strategies: list, t_from, t_to, costs: dict,
-                     cross_symbol: bool = False):
-    """按品种分组的外层循环: 每个品种的 M1 只加载一次, 内层跑所有需要它的策略。
-
-    不跨品种(默认): 每个策略只在自己主品种上跑一行。
-    跨品种(cross_symbol): 每个策略额外在所有 download 品种各跑一行(反过拟合空间维度)。
-    每"策略×品种"一行, upsert(键 strategy_id+symbol)覆盖; 排名只认主品种行, 其余喂健壮性。
-    """
-    t_from = t_from or datetime(2015, 1, 1, tzinfo=timezone.utc)
-    t_to = t_to or datetime.now(timezone.utc)
-    # OOS 切分比例(训练段占比): config 可调(配置页), 兜底 0.7
-    oos_split = await pool.fetchval(
-        "SELECT value FROM config WHERE key='backtest_oos_split'") or 0.7
-    meta = {r["symbol"]: r for r in
-            await pool.fetch("SELECT symbol, point, broker, download FROM symbols")}
-    universe = [sym for sym, r in meta.items() if r["download"]] if cross_symbol else []
-
-    # 目标 (品种 → 要在它上面跑的策略列表): 主品种必测(排名要它), 跨品种再并上全 universe
-    by_symbol: dict[str, list] = {}
-    for s in strategies:
-        for sym in {s["symbol"]} | set(universe):
-            by_symbol.setdefault(sym, []).append(s)
-
-    bt_state.update(running=True, current=None, done=0,
-                    total=sum(len(v) for v in by_symbol.values()), errors=[])
-    for sym, strs in by_symbol.items():
-        if sym not in meta:
-            for s in strs:
-                bt_state["errors"].append(f"{s['name']} @ {sym}: symbol not in symbols table")
-                bt_state["done"] += 1
-            continue
-        m1 = await backtest.load_m1(pool, sym, t_from, t_to)
-        for s in strs:
-            bt_state["current"] = f"{s['name']} @ {sym}"
-            try:
-                if m1 is None:
-                    raise ValueError(f"no M1 data for {sym}, run /syncdata first")
-                result = await asyncio.to_thread(
-                    backtest.run_backtest, m1, s["template"], s["params"],
-                    meta[sym]["point"], s["timeframe"], oos_split=oos_split, **costs)
-                # 每"策略×品种"一行, 有则覆盖(键 strategy_id+symbol); 表有界不随重跑增长
-                await pool.execute(
-                    "INSERT INTO backtests"
-                    " (strategy_id, from_time, to_time, symbol, broker, metrics, trades)"
-                    " VALUES ($1, $2, $3, $4, $5, $6, $7)"
-                    " ON CONFLICT (strategy_id, symbol) DO UPDATE SET"
-                    "   from_time=EXCLUDED.from_time, to_time=EXCLUDED.to_time,"
-                    "   broker=EXCLUDED.broker, metrics=EXCLUDED.metrics,"
-                    "   trades=EXCLUDED.trades, created_at=now()",
-                    s["id"], t_from, t_to, sym, meta[sym]["broker"],
-                    result["metrics"], result["trades"])
-            except Exception as e:
-                logger.error("backtest %s @ %s failed: %s", s["name"], sym, e)
-                bt_state["errors"].append(f"{s['name']} @ {sym}: {e}")
-            bt_state["done"] += 1
-        m1 = None  # 释放该品种 M1 再进下一个品种
-
-    bt_state.update(running=False, current=None)
-    logger.info("backtest batch finished: %d done, %d errors",
-                bt_state["done"], len(bt_state["errors"]))
-
-
 @router.get("/backtest/status")
-async def status():
-    return bt_state
+async def status(request: Request):
+    """批量回测进度(查 jobs 表聚合; 结构与旧内存版一致, web 零改动)"""
+    return await jobs.progress(request.app.state.pool)
+
+
+@router.post("/backtest/cancel")
+async def cancel(request: Request):
+    """取消当前批次: 删掉未跑完的 jobs(旧世界"重启api=取消"没有了 — 重启会续跑, 取消要显式)。
+    正在跑的那一个 job 会跑完但结果无害(幂等 upsert), 行已删不再计数。"""
+    n = await request.app.state.pool.execute(
+        "DELETE FROM jobs WHERE kind='backtest' AND status IN ('PENDING','RUNNING')")
+    return {"cancelled": int(n.split()[-1])}
 
 
 @router.get("/backtest/plan")

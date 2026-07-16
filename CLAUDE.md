@@ -45,11 +45,12 @@
 7. **先扩副本，后加服务**：效能不够默认加副本解决；有明确痛点和需求才考虑新服务
 
 > **已知欠账**（违反 5/6，api 多副本之前必须还清；铁律本身不变）：
-> - 批量回测的队列+进度在 api 进程内存 — `api/src/routes/backtests.py`（全局进度 dict + 后台
->   task）→ 改 jobs 表投递 + `FOR UPDATE SKIP LOCKED` 消费，进度查表（方案已定，见 v1.5）
-> - api 后台循环多副本会重复执行 — `api/src/services/sync.py`（heartbeat_loop / 下载编排）
->   → pg advisory lock 选主，抢到锁的副本跑
-> - api 启动建表有并发竞态 — `api/src/main.py`（schema 目录执行）→ 套同一 advisory lock 串行
+> - 数据下载的编排+进度在 api 进程内存 — `api/src/services/sync.py`（full_sync 的 state dict，
+>   /syncdata 触发）→ 同回测方案 jobs 化（进度查表、断点续跑）；低频人工操作，暂不阻塞
+>
+> 已还清（2026-07-16）：批量回测队列/进度 → jobs 表（schema/020 + services/jobs.py，
+> SKIP LOCKED 消费、租约回收、重启续跑）；心跳循环 → advisory lock 选主（sync.py）；
+> 启动建表 → advisory lock 串行（main.py）
 
 ## 策略准入漏斗（单向淘汰，逐级变贵）
 

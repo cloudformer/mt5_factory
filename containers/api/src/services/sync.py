@@ -166,24 +166,47 @@ async def _touch_runtime(pool: asyncpg.Pool, ids: list[int], host: str):
         ids, host, write_min, gap_min)
 
 
+HEARTBEAT_LEADER_LOCK = 714002  # advisory lock key: 心跳循环选主(铁律6, 多副本只跑一份)
+
+
 async def heartbeat_loop(pool: asyncpg.Pool):
     """每 30s 轮询启用 worker 的 /health, 维护三态状态机 + 事件记录:
       ONLINE   = /health healthy (bridge + MT5 + 账户全就绪)
       DEGRADED = bridge 可达但 MT5 未就绪 (未连接/账户未登录) — 可远程下发账户, 不是离线
-      OFFLINE  = bridge 不可达超过 90s 宽限 (避免单次超时抖动)"""
-    async with httpx.AsyncClient(timeout=5) as client:
-        while True:
-            try:
-                hosts = await pool.fetch(
-                    "SELECT id, name, host, port, status, runner FROM mt5_hosts WHERE enabled")
-                for h in hosts:
-                    try:
-                        await _beat_one(pool, client, h)
-                    except Exception as e:  # 单台异常隔离: 不能冻结其他主机的状态更新
-                        logger.warning("heartbeat %s error: %s", h["name"], e)
-            except Exception as e:
-                logger.warning("heartbeat loop error: %s", e)
-            await asyncio.sleep(30)
+      OFFLINE  = bridge 不可达超过 90s 宽限 (避免单次超时抖动)
+
+    选主(铁律6): 拿到 advisory lock 的副本才轮询(锁挂在专用连接上, 持有到进程死);
+    其余副本待机每 30s 重试 — 主挂了连接断开锁自动释放, 待机者接管, 无需任何协调服务。"""
+    while True:
+        try:
+            async with pool.acquire() as lock_conn:
+                if not await lock_conn.fetchval(
+                        "SELECT pg_try_advisory_lock($1)", HEARTBEAT_LEADER_LOCK):
+                    await asyncio.sleep(30)   # 别的副本是主, 待机重试(释放连接)
+                    continue
+                logger.info("heartbeat leader acquired (lock %s)", HEARTBEAT_LEADER_LOCK)
+                # 当主: lock_conn 挂着锁不还池(池 min2/max10, 占1条无碍), 循环体照旧用池
+                async with httpx.AsyncClient(timeout=5) as client:
+                    while True:
+                        try:
+                            hosts = await pool.fetch(
+                                "SELECT id, name, host, port, status, runner"
+                                " FROM mt5_hosts WHERE enabled")
+                            for h in hosts:
+                                try:
+                                    await _beat_one(pool, client, h)
+                                except Exception as e:  # 单台异常隔离
+                                    logger.warning("heartbeat %s error: %s", h["name"], e)
+                        except asyncpg.PostgresConnectionError:
+                            raise   # 池级连接故障 → 掉出主循环重新选主
+                        except Exception as e:
+                            logger.warning("heartbeat loop error: %s", e)
+                        if lock_conn.is_closed():   # 锁连接断 = 主身份已失效, 停止双写
+                            raise asyncpg.PostgresConnectionError("leader lock conn lost")
+                        await asyncio.sleep(30)
+        except Exception as e:
+            logger.warning("heartbeat leader error (re-electing): %s", e)
+            await asyncio.sleep(10)
 
 
 TRADES_BACKFILL_DAYS = 90   # 首次/空库回填窗口(足够大, 保证历史完整)

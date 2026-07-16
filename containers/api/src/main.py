@@ -16,7 +16,7 @@ import asyncpg
 from fastapi import FastAPI, Response
 
 from src.routes import ROUTERS
-from src.services import sync
+from src.services import jobs, sync
 
 # ---- 配置只在一处: 必须由 docker-compose.yml 注入, 代码不留兜底值 ----
 _missing = [k for k in ("DB_HOST", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB")
@@ -69,13 +69,19 @@ async def lifespan(app: FastAPI):
     schema_files = sorted(schema_dir.glob("*.sql"))
     if not schema_files:  # 挂载丢了必须炸而不是静默跳过 — 否则空库会以"无表"状态运行
         raise RuntimeError(f"no schema files in {schema_dir} — compose 应挂载 containers/postgres/schema")
+    # advisory lock 串行化(铁律6): 多副本同时启动时只有一个执行建表, 其余等它完成后再跑
+    # (幂等无害)。锁随连接释放, 不会悬挂。
     async with app.state.pool.acquire() as conn:
-        for f in schema_files:
-            try:
-                await conn.execute(f.read_text())
-                logger.info("schema applied: %s", f.name)
-            except Exception as e:
-                raise RuntimeError(f"schema {f.name} failed: {e}") from e
+        await conn.execute("SELECT pg_advisory_lock(714003)")
+        try:
+            for f in schema_files:
+                try:
+                    await conn.execute(f.read_text())
+                    logger.info("schema applied: %s", f.name)
+                except Exception as e:
+                    raise RuntimeError(f"schema {f.name} failed: {e}") from e
+        finally:
+            await conn.execute("SELECT pg_advisory_unlock(714003)")
 
     # env 的 MT5_HOSTS 仅作首次引导: 表为空时种入, 之后完全由 web/API 管理
     if await app.state.pool.fetchval("SELECT count(*) FROM mt5_hosts") == 0:
@@ -88,8 +94,12 @@ async def lifespan(app: FastAPI):
             logger.info("MT5 worker seeded: %s:%s", host, mt5_port)
 
     heartbeat = asyncio.create_task(sync.heartbeat_loop(app.state.pool))
+    # jobs 消费者(schema/020): 批量回测的执行体 — SKIP LOCKED 抢单, 多副本安全,
+    # 启动即消费(api 重启后接着跑上次没跑完的批次)
+    consumer = asyncio.create_task(jobs.consumer_loop(app.state.pool))
     yield
     heartbeat.cancel()
+    consumer.cancel()
     await app.state.pool.close()
 
 

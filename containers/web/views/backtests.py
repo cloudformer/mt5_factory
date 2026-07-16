@@ -36,6 +36,15 @@ def status():
         return {"running": False, "error": str(e)}
 
 
+@bp.post("/cancel")
+def cancel():
+    """取消当前批次(透传 api): jobs 化后重启 api 会续跑, 取消必须显式"""
+    try:
+        return api.post("/backtest/cancel", {})
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
 @bp.get("/plan")
 def plan():
     """运行预览 JSON — 表单选项一变就刷新"将回测 N×M=K 次"(透传 api /backtest/plan)"""
