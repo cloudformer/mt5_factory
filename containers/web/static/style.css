@@ -280,3 +280,9 @@ table.subtable td:first-child { font-weight: 600; width: 90px; }
 }
 .col-resizer:hover { background: rgba(37, 99, 235, .25); border-radius: 2px; }
 td { overflow: hidden; text-overflow: ellipsis; }
+
+/* 进度条(标准组件, 配 _macros.progress_bar 用; 下载/回测等长任务通用) */
+.pbar { display: inline-block; vertical-align: middle; width: 160px; height: 10px;
+        background: var(--border); border-radius: 5px; overflow: hidden; }
+.pbar-fill { display: block; height: 100%; background: var(--ok-fg);
+             border-radius: 5px; transition: width .5s ease; }

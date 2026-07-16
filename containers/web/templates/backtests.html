@@ -79,6 +79,7 @@
       <span id="bt-progress"{% if bt.running %} data-running="1"{% endif %}>
         {% if bt.running %}
         <span class="badge ok">运行中 <span class="bt-done">{{ bt.done }}</span>/<span class="bt-total">{{ bt.total }}</span></span>
+        {{ m.progress_bar(bt.done, bt.total, id='bt-pbar') }}
         <span class="muted bt-current">{{ bt.current }}</span>
         {% endif %}
       </span>
@@ -126,7 +127,10 @@
             ? "没有未回测的策略 — 全部都测过了(想重测切范围=全部)"
             : "没有匹配的策略 — 调整筛选/ID";
         } else {
-          planEl.textContent = `将回测 ${d.strategies} 个策略 × ${d.symbols_per} 品种 = ${d.runs} 次`;
+          let txt = `将回测 ${d.strategies} 个策略 × ${d.symbols_per} 品种 = ${d.runs} 次`;
+          if (d.cross_gated_out > 0)   // 交叉门槛(配置页可改): 主品种没过线的只跑主品种
+            txt += `(交叉够格 ${d.cross_qualified} · 未过门槛 ${d.cross_gated_out} 只跑主品种)`;
+          planEl.textContent = txt;
         }
         const go = form.querySelector("button.go");
         if (!go.hasAttribute("data-running")) go.disabled = (d.runs === 0);
@@ -158,6 +162,8 @@
       box.querySelector(".bt-done").textContent = s.done;
       box.querySelector(".bt-total").textContent = s.total;
       box.querySelector(".bt-current").textContent = s.current || "";
+      const fill = document.querySelector("#bt-pbar .pbar-fill");
+      if (fill && s.total) fill.style.width = (s.done / s.total * 100).toFixed(1) + "%";
     } catch (e) { /* 网络抖动忽略, 下一拍再试 */ }
     setTimeout(tick, 2000);
   };

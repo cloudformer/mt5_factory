@@ -23,6 +23,15 @@ def index():
     return render_template("datasync.html", **data)
 
 
+@bp.get("/status")
+def status():
+    """同步进度 JSON — 供页面轮询更新进度条(与回测页同一模式)"""
+    try:
+        return api.get("/syncdata/status")
+    except api.ApiError as e:
+        return {"running": False, "error": str(e)}
+
+
 @bp.post("/run")
 def run():
     try:

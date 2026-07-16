@@ -19,6 +19,25 @@
 </section>
 
 <section>
+  <h2>交叉测试门槛(批量回测勾"跨品种"时生效)</h2>
+  <form method="post" action="{{ url_for('symbols.save_cross_gate') }}" class="inline">
+    <label>笔数≥ <input name="min_trades" value="{{ gate.get('min_trades') if gate.get('min_trades') is not none else '' }}" size="4"
+        title="主品种回测至少几笔才够格交叉; 空=不检查"></label>
+    <label>胜率≥ <input name="min_win_rate" value="{{ '%g' % (gate.min_win_rate * 100) if gate.get('min_win_rate') is not none else '' }}" size="3"
+        title="主品种胜率下限(百分数); 空=不检查">%</label>
+    <label>净点> <input name="min_net_points" value="{{ '%g' % gate.min_net_points if gate.get('min_net_points') is not none else '' }}" size="5"
+        title="主品种净点必须大于此值(0=必须盈利); 空=不检查"></label>
+    <label>PF≥ <input name="min_pf" value="{{ '%g' % gate.min_pf if gate.get('min_pf') is not none else '' }}" size="4"
+        title="主品种盈利因子下限; 零亏损(∞)视为通过; 空=不检查"></label>
+    <label>回撤≤ <input name="max_dd_points" value="{{ '%g' % gate.max_dd_points if gate.get('max_dd_points') is not none else '' }}" size="6"
+        title="主品种最大回撤(点)上限; 空=不检查"></label>
+    <button class="small">保存</button>
+    <span class="muted">主货币成绩过线才展开交叉品种(省算力);没过/没测过的只跑主品种,下一批自动够格。
+      按 ID 点名回测不走门槛(点名即信任,随便交叉)。全留空 = 不设门槛(全交叉)</span>
+  </form>
+</section>
+
+<section>
   <h2>策略运行状态(strategy_runtime 区间记录)</h2>
   <form method="post" action="{{ url_for('symbols.save_runtime') }}" class="inline">
     <label>写入间隔(分钟) <input name="runtime_write_minutes" value="{{ runtime_write }}" size="3"

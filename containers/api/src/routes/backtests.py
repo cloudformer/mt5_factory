@@ -25,6 +25,37 @@ router = APIRouter()
 DEFAULT_BATCH_LIMIT = 500  # 单批上限兜底; 实际值优先读 config 表 backtest_batch_limit(配置页可改)
 
 
+def _passes_gate(m: Optional[dict], gate: dict) -> bool:
+    """主品种回测成绩过交叉门槛?(config: cross_symbol_gate)
+    无主品种成绩 = 不过(先跑出成绩, 下一批自然够格); 门槛项为 null = 不检查;
+    PF 为 None(零亏损=∞)视为通过。"""
+    if not m or not m.get("trades"):
+        return False
+    if gate.get("min_trades") is not None and m["trades"] < gate["min_trades"]:
+        return False
+    if gate.get("min_win_rate") is not None and (m.get("win_rate") or 0) < gate["min_win_rate"]:
+        return False
+    if gate.get("min_net_points") is not None and (m.get("net_points") or 0) <= gate["min_net_points"]:
+        return False
+    if gate.get("min_pf") is not None:
+        pf = m.get("profit_factor")
+        if pf is not None and pf < gate["min_pf"]:
+            return False
+    if gate.get("max_dd_points") is not None and (m.get("max_dd_points") or 0) > gate["max_dd_points"]:
+        return False
+    return True
+
+
+async def _cross_qualified(pool, strategy_ids: list[int]) -> set[int]:
+    """批量交叉的够格集合: 按各策略主品种成绩过 cross_symbol_gate 的 id"""
+    gate = await pool.fetchval("SELECT value FROM config WHERE key='cross_symbol_gate'") or {}
+    mains = {r["strategy_id"]: r["metrics"] for r in await pool.fetch(
+        "SELECT b.strategy_id, b.metrics FROM backtests b"
+        " JOIN strategies s ON s.id = b.strategy_id AND s.symbol = b.symbol"
+        " WHERE b.strategy_id = ANY($1)", strategy_ids)}
+    return {sid for sid in strategy_ids if _passes_gate(mains.get(sid), gate)}
+
+
 async def _batch_limit(pool, requested: Optional[int]) -> int:
     """单批上限: 请求值 > config(配置页) > 代码兜底"""
     if requested:
@@ -109,14 +140,24 @@ async def run(req: BacktestRequest, request: Request):
     # (反过拟合空间维度)。时间窗冻结在投递时刻; 品种是否存在等校验留给执行时(错误落在 job 行)
     t_from = req.from_time or datetime(2015, 1, 1, tzinfo=timezone.utc)
     t_to = req.to_time or datetime.now(timezone.utc)
-    universe = ([r["symbol"] for r in await pool.fetch("SELECT symbol FROM symbols WHERE download")]
-                if req.cross_symbol else [])
+    universe = (set(r["symbol"] for r in
+                    await pool.fetch("SELECT symbol FROM symbols WHERE download"))
+                if req.cross_symbol else set())
+    # 交叉门槛(config: cross_symbol_gate): 批量模式只给主品种够格的策略展开交叉;
+    # 按 ID 点名 = 点名即信任, 不走门槛随便交叉
+    qualified = None
+    if req.cross_symbol and not req.strategy_ids:
+        qualified = await _cross_qualified(pool, [s["id"] for s in rows])
     items = [{"strategy_id": s["id"], "name": s["name"], "symbol": sym,
               "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs}
-             for s in rows for sym in {s["symbol"]} | set(universe)]
+             for s in rows
+             for sym in ({s["symbol"]} | universe
+                         if (qualified is None or s["id"] in qualified) else {s["symbol"]})]
     await jobs.submit_batch(pool, items)
-    return {"started": True, "total": len(items),
-            "cross_symbol": req.cross_symbol, "costs": costs}
+    return {"started": True, "total": len(items), "cross_symbol": req.cross_symbol,
+            "cross_qualified": (len(qualified) if qualified is not None else None),
+            "cross_gated_out": (len(rows) - len(qualified) if qualified is not None else 0),
+            "costs": costs}
 
 
 @router.get("/backtest/status")
@@ -139,12 +180,11 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
                status: Optional[str] = None, template: Optional[str] = None,
                untested_only: bool = False, cross_symbol: bool = False,
                strategy_ids: Optional[str] = None, limit: Optional[int] = None):
-    """运行预览: 按当前选择数一数会跑多少 — N 个策略 × 品种 = K 次(启动前所见即所得)"""
+    """运行预览: 按当前选择数一数会跑多少 — N 个策略 × 品种 = K 次(启动前所见即所得)。
+    勾交叉且非点名时按 cross_symbol_gate 预演门槛: 够格 q 个展开交叉, 其余只跑主品种。"""
     pool = request.app.state.pool
     limit = await _batch_limit(pool, limit)
-    # extra = 主品种不在 download 集合里的策略数(跨品种时它们的主品种仍会单独跑一次)
-    count_sql = ("SELECT count(*) AS n, count(*) FILTER (WHERE symbol NOT IN"
-                 " (SELECT symbol FROM symbols WHERE download)) AS extra FROM strategies")
+    sel = "SELECT id, symbol FROM strategies"
     if strategy_ids is not None:
         try:
             ids = [int(s) for s in strategy_ids.split(",") if s.strip()]
@@ -152,9 +192,9 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
             return {"strategies": 0, "symbols_per": 1, "runs": 0}
         if not ids:
             return {"strategies": 0, "symbols_per": 1, "runs": 0}
-        row = await pool.fetchrow(f"{count_sql} WHERE id = ANY($1)", ids)
+        rows = await pool.fetch(f"{sel} WHERE id = ANY($1) LIMIT $2", ids, limit)
     else:
-        q = f"{count_sql} WHERE symbol IN (SELECT symbol FROM symbols)"
+        q = f"{sel} WHERE symbol IN (SELECT symbol FROM symbols)"
         args = []
         if template:
             args.append(template); q += f" AND template=${len(args)}"
@@ -171,11 +211,18 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
         if untested_only:
             q += (" AND NOT EXISTS (SELECT 1 FROM backtests b"
                   "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol)")
-        row = await pool.fetchrow(q, *args)
-    n = min(row["n"], limit)
-    uni = await pool.fetchval("SELECT count(*) FROM symbols WHERE download") or 0
-    runs = (n * uni + min(row["extra"], n)) if cross_symbol else n
-    return {"strategies": n, "symbols_per": (uni if cross_symbol else 1), "runs": runs}
+        args.append(limit)
+        rows = await pool.fetch(f"{q} LIMIT ${len(args)}", *args)
+    n = len(rows)
+    universe = set(r["symbol"] for r in
+                   await pool.fetch("SELECT symbol FROM symbols WHERE download"))
+    if not cross_symbol:
+        return {"strategies": n, "symbols_per": 1, "runs": n}
+    qualified = ({r["id"] for r in rows} if strategy_ids is not None   # 点名不设门槛
+                 else await _cross_qualified(pool, [r["id"] for r in rows]))
+    runs = sum(len({r["symbol"]} | universe) if r["id"] in qualified else 1 for r in rows)
+    return {"strategies": n, "symbols_per": len(universe), "runs": runs,
+            "cross_qualified": len(qualified), "cross_gated_out": n - len(qualified)}
 
 
 def _pct_scores(values: list) -> list:

@@ -16,7 +16,7 @@ router = APIRouter()
 
 CONFIG_KEYS = {"ai_generator_url", "backtest_costs", "backtest_batch_limit",
                "ranking_templates", "backtest_oos_split", "mt5_trades_days",
-               "runtime_write_minutes", "runtime_gap_minutes"}
+               "runtime_write_minutes", "runtime_gap_minutes", "cross_symbol_gate"}
 
 
 # ---------- 数据同步 ----------
@@ -68,6 +68,18 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
     if key == "backtest_oos_split":  # OOS 训练段占比: (0,1) 开区间
         if not isinstance(req.value, (int, float)) or not 0 < req.value < 1:
             raise HTTPException(status_code=400, detail="backtest_oos_split must be between 0 and 1")
+    if key == "cross_symbol_gate":  # 交叉测试门槛: 各项数值或 null(=不检查)
+        allowed = {"min_trades", "min_win_rate", "min_net_points", "min_pf", "max_dd_points"}
+        if not isinstance(req.value, dict) or set(req.value) - allowed:
+            raise HTTPException(status_code=400,
+                                detail=f"cross_symbol_gate keys must be subset of {sorted(allowed)}")
+        for k, v in req.value.items():
+            if v is not None and not isinstance(v, (int, float)):
+                raise HTTPException(status_code=400,
+                                    detail=f"cross_symbol_gate.{k} must be number or null")
+        wr = req.value.get("min_win_rate")
+        if wr is not None and not 0 <= wr <= 1:
+            raise HTTPException(status_code=400, detail="min_win_rate must be 0~1 (e.g. 0.3)")
     if key in ("runtime_write_minutes", "runtime_gap_minutes"):  # 运行区间节奏: 正整数分钟
         if not isinstance(req.value, int) or not 1 <= req.value <= 1440:
             raise HTTPException(status_code=400, detail=f"{key} must be 1~1440 (minutes)")

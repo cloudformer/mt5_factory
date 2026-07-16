@@ -25,7 +25,7 @@ def index():
 def backtest_params():
     """配置·回测参数: 成本模型 + 单批上限 + OOS 切分"""
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
-    runtime_write, runtime_gap = 5, 15
+    runtime_write, runtime_gap, gate = 5, 15, {}
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
@@ -34,11 +34,36 @@ def backtest_params():
         mt5_days = cfg.get("mt5_trades_days") or [7, 30, 90]
         runtime_write = cfg.get("runtime_write_minutes", 5)
         runtime_gap = cfg.get("runtime_gap_minutes", 15)
+        gate = cfg.get("cross_symbol_gate") or {}
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
                            oos_split=oos_split, mt5_days=mt5_days,
-                           runtime_write=runtime_write, runtime_gap=runtime_gap)
+                           runtime_write=runtime_write, runtime_gap=runtime_gap, gate=gate)
+
+
+@bp.post("/config/cross-gate")
+def save_cross_gate():
+    """保存交叉测试门槛(config: cross_symbol_gate)。空输入框 = null = 不检查该项;
+    胜率输入百分数, 存 0~1 小数"""
+    try:
+        def num(name, scale=1.0, as_int=False):
+            raw = request.form.get(name, "").strip()
+            if not raw:
+                return None
+            v = float(raw) * scale
+            return int(v) if as_int else v
+        gate = {"min_trades": num("min_trades", as_int=True),
+                "min_win_rate": num("min_win_rate", 0.01),
+                "min_net_points": num("min_net_points"),
+                "min_pf": num("min_pf"),
+                "max_dd_points": num("max_dd_points")}
+        api.put("/config/cross_symbol_gate", {"value": gate})
+        parts = [f"{k}={v}" for k, v in gate.items() if v is not None]
+        flash("交叉测试门槛已保存: " + (", ".join(parts) if parts else "全空(不设门槛)"), "ok")
+    except (api.ApiError, ValueError) as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
 
 
 @bp.post("/config/runtime")

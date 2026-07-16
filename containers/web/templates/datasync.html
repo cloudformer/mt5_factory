@@ -14,13 +14,41 @@
       <span class="muted">下载 worker: {% for h in hosts %}{{ h.name }}{% if not loop.last %}、{% endif %}{% endfor %} ({{ hosts | length }} 台并行)</span>
     {% endif %}
     {% if sync.running %}
-      {% for w, p in (sync.current or {}).items() %}<span class="badge ok">{{ w }}: {{ p }}</span>{% endfor %}
-      <span class="muted">已写入 {{ "{:,}".format(sync.bars_written) }} 根</span>
+      <span id="ds-progress" data-running="1">
+        <span class="badge ok"><span class="ds-done">{{ sync.done | length }}</span>/<span class="ds-total">{{ sync.symbols | length }}</span> 品种</span>
+        {{ m.progress_bar(sync.done | length, sync.symbols | length, id='ds-pbar') }}
+        <span class="muted ds-current">{% for w, p in (sync.current or {}).items() %}{{ w }}: {{ p }}{% if not loop.last %} · {% endif %}{% endfor %}</span>
+        <span class="muted">已写入 <span class="ds-bars">{{ "{:,}".format(sync.bars_written) }}</span> 根</span>
+      </span>
     {% endif %}
   </form>
   {% for e in sync.errors %}<div class="flash error">{{ e }}</div>{% endfor %}
   <p class="muted">只同步开启下载的品种，各用自己的起始日期。断点续传：中断后再点即从上次位置继续。M1 为唯一原始数据，高周期自动聚合。</p>
 </section>
+
+{# 同步运行中: 轮询进度自动更新(与回测页同一模式); 跑完整页刷新看覆盖表 #}
+<script>
+(function () {
+  const box = document.getElementById("ds-progress");
+  if (!box) return;
+  const tick = async () => {
+    try {
+      const s = await fetch("{{ url_for('datasync.status') }}").then((r) => r.json());
+      if (!s.running) { location.reload(); return; }
+      const done = (s.done || []).length, total = (s.symbols || []).length;
+      box.querySelector(".ds-done").textContent = done;
+      box.querySelector(".ds-total").textContent = total;
+      box.querySelector(".ds-bars").textContent = (s.bars_written || 0).toLocaleString();
+      box.querySelector(".ds-current").textContent =
+        Object.entries(s.current || {}).map(([w, p]) => `${w}: ${p}`).join(" · ");
+      const fill = document.querySelector("#ds-pbar .pbar-fill");
+      if (fill && total) fill.style.width = (done / total * 100).toFixed(1) + "%";
+    } catch (e) { /* 网络抖动忽略 */ }
+    setTimeout(tick, 3000);
+  };
+  setTimeout(tick, 3000);
+})();
+</script>
 
 <section>
   <h2>数据 ({{ symbols | length }} 品种)</h2>

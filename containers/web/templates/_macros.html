@@ -11,6 +11,13 @@
 {%- endmacro %}
 
 {# 策略状态中文名 (显示用; 存储/提交值仍是英文 CANDIDATE/DEMO/LIVE/ARCHIVED) #}
+{# 进度条(标准组件): 长任务(下载/回测)通用; 配 data-pbar 让轮询 JS 按 id 更新 #}
+{% macro progress_bar(done, total, id='') -%}
+<span class="pbar" {% if id %}id="{{ id }}"{% endif %} title="{{ done }}/{{ total }}">
+  <span class="pbar-fill" style="width: {{ (done / total * 100) | round(1) if total else 0 }}%"></span>
+</span>
+{%- endmacro %}
+
 {% macro status_label(s) -%}
 {{ {'CANDIDATE': '候选', 'DEMO': '模拟', 'LIVE': '真金', 'ARCHIVED': '淘汰归档'}.get(s, s) }}
 {%- endmacro %}
