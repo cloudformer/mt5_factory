@@ -492,11 +492,15 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
 
 
 # ---------- 系统流水: 本地库(trades)已持久化成交, 按账号 + 时间范围查(v1.6) ----------
+TEST_MAGIC = 999999  # 下单测试单 magic(bridge ordertest); 默认从流水/核对里过滤
+
+
 @router.get("/trades/local")
 async def trades_local(request: Request, account: Optional[int] = None,
-                       from_time: Optional[datetime] = None,
-                       to_time: Optional[datetime] = None, limit: int = 1000):
+                       from_time: Optional[datetime] = None, to_time: Optional[datetime] = None,
+                       include_test: bool = False, limit: int = 1000):
     """读本地库 trades(MT5 已平仓的持久副本): 按 account + 平仓时间范围过滤。
+    include_test=false(默认): 过滤掉下单测试单(magic=999999)。
     与 /hosts/{id}/trades(实时拉 MT5)互补 — 这个不限 90 天、离线也能查。"""
     pool = request.app.state.pool
     if from_time and from_time.tzinfo is None:      # naive → 按 UTC(券商时间口径), 与 timestamptz 一致
@@ -512,6 +516,8 @@ async def trades_local(request: Request, account: Optional[int] = None,
         args.append(from_time); q += f" AND exit_time >= ${len(args)}"
     if to_time:
         args.append(to_time); q += f" AND exit_time <= ${len(args)}"
+    if not include_test:
+        q += f" AND magic <> {TEST_MAGIC}"      # 默认过滤下单测试单
     args.append(limit)
     q += f" ORDER BY exit_time DESC LIMIT ${len(args)}"
     rows = await pool.fetch(q, *args)
@@ -519,10 +525,11 @@ async def trades_local(request: Request, account: Optional[int] = None,
 
 
 @router.get("/trades/consistency")
-async def trades_consistency(request: Request, account: int,
-                             from_time: datetime, to_time: Optional[datetime] = None):
+async def trades_consistency(request: Request, account: int, from_time: datetime,
+                             to_time: Optional[datetime] = None, include_test: bool = False):
     """按需一致性核对: 本时间段 库(trades)笔数 vs 该账号 worker 实时 MT5 已平仓笔数。
-    两数相等 = 一致(库可信); 不等 = 库疑似漏存/多存。worker 离线则无法实时核对。"""
+    两数相等 = 一致(库可信); 不等 = 库疑似漏存/多存。worker 离线则无法实时核对。
+    include_test 两边同口径生效(默认都过滤下单测试单) — 单边过滤会造成假不一致。"""
     pool = request.app.state.pool
     # ① 归一时区: web 可能传 naive(datetime.now().isoformat()无tz) → 与 aware 运算会 TypeError。
     #   trades.exit_time 存的是券商时间(按 UTC 标), 故 naive 一律按 UTC 处理。
@@ -533,9 +540,10 @@ async def trades_consistency(request: Request, account: int,
         to_time = to_time.replace(tzinfo=timezone.utc)
     db = None
     try:  # ② 兜底: 任何异常都返回优雅结果, 绝不 500(核对是辅助功能, 不该拖垮页面)
-        db = await pool.fetchval(
-            "SELECT count(*) FROM trades WHERE account=$1 AND exit_time>=$2 AND exit_time<=$3",
-            account, from_time, to_time)
+        db_q = "SELECT count(*) FROM trades WHERE account=$1 AND exit_time>=$2 AND exit_time<=$3"
+        if not include_test:
+            db_q += f" AND magic <> {TEST_MAGIC}"
+        db = await pool.fetchval(db_q, account, from_time, to_time)
         host = await pool.fetchrow(
             "SELECT host, port FROM mt5_hosts WHERE mt5_login=$1 AND enabled", account)
         if host is None:
