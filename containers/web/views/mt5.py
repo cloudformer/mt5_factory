@@ -146,6 +146,10 @@ def system():
         flash(f"api 不可用: {e}", "error")
     for t in trades:
         t["who"] = magic_map.get(t["magic"]) or _who(t["magic"], {})
+    # 账号按券商分组(券商→账号 两级下拉); accounts 为 [{account, broker}]
+    acct_groups = {}
+    for ac in accounts:
+        acct_groups.setdefault(ac.get("broker") or "未知券商", []).append(ac["account"])
     return render_template("mt5_system.html", presets=presets, win=win, frm=frm, to=to,
-                           account=account, accounts=accounts, trades=trades, cons=cons,
+                           account=account, acct_groups=acct_groups, trades=trades, cons=cons,
                            include_test=include_test)

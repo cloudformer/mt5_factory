@@ -89,13 +89,7 @@ def generate_page():
 
 @bp.get("/analysis")
 def analysis():
-    """策略分析(骨架页, v1.4: 单策略胜负归因/拟合判别, 为AI迭代做准备)"""
-    return render_template("strategy_analysis.html")
-
-
-@bp.get("/quality")
-def quality():
-    """回测质量分析: 关2对账(输入策略id → 回测vs实盘 match%) + 反过拟合工具箱概览"""
+    """策略分析: 关2对账(输入策略id → 回测 vs 实盘 match%); v1.4 更多归因维度待建"""
     sid = request.args.get("strategy_id", type=int)
     recon = None
     if sid:
@@ -103,7 +97,13 @@ def quality():
             recon = api.get(f"/reconcile/{sid}")
         except api.ApiError as e:
             flash(f"对账失败: {e}", "error")
-    return render_template("strategy_quality.html", recon=recon, sid=sid)
+    return render_template("strategy_analysis.html", recon=recon, sid=sid)
+
+
+@bp.get("/quality")
+def quality():
+    """回测质量分析: 反过拟合工具箱概览(OOS/健壮/邻域); 关2对账已移到「策略分析」页"""
+    return render_template("strategy_quality.html")
 
 
 @bp.post("/generate")

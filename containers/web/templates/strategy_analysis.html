@@ -1,19 +1,63 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('策略分析', '单个策略的胜负归因（规划中, 见 v1.4_策略分析.md）：它为什么赢、为什么输，是真规律还是拟合出来的') }}
+{{ m.page_header('策略分析', '单个策略深看：回测 vs 实盘对账(关2)+ 胜负归因(规划中)。为 AI 迭代做准备') }}
 
 <section>
-  <h2>规划中 — 未来开发</h2>
-  <p class="muted">分析<b>单个策略</b>在三个阶段的胜负原因, 互相对照:</p>
+  <h2>关2 对账:回测 vs 实盘(demo/live)</h2>
+  <form method="get" class="inline">
+    <label>策略ID <input name="strategy_id" value="{{ sid or '' }}" size="8" required
+        title="用该策略的实盘/demo实际成交, 验证回测在同一时间段的一致性"></label>
+    <button class="small">对账</button>
+    <span class="muted">时间窗自动取自实盘成交跨度;综合匹配度 ≥90 = 该策略回测可信(纳入回测质量标准)</span>
+  </form>
+
+  {% if recon %}
+    {% if recon.note %}
+    <p class="muted" style="margin-top:12px">策略 #{{ recon.strategy_id }}（{{ recon.symbol }}）:{{ recon.note }}</p>
+    {% else %}
+    {% set mt = recon.metrics %}
+    <div class="stats" style="margin-top:12px">
+      <div class="stat">
+        <div class="stat-label">综合匹配度</div>
+        <div class="stat-value {{ 'pos' if mt.match_score >= 90 else 'neg' }}">{{ mt.match_score }}</div>
+        <div class="stat-sub">满分100 · ≥90 = 回测可信</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">笔数一致率</div>
+        <div class="stat-value">{{ (mt.count_match_rate * 100) | round | int }}%</div>
+        <div class="stat-sub">实盘 {{ recon.actual_trades }} · 回测 {{ recon.bt_trades }}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">信号命中率</div>
+        <div class="stat-value">{{ (mt.signal_hit_rate * 100) | round | int }}%</div>
+        <div class="stat-sub">实盘有信号回测也有</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">方向一致</div>
+        <div class="stat-value">{{ (mt.dir_match_rate * 100) | round | int }}%</div>
+        <div class="stat-sub">配对内 买/卖 一致</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">盈亏方向一致</div>
+        <div class="stat-value">{{ (mt.outcome_match_rate * 100) | round | int }}%</div>
+        <div class="stat-sub">配对内 是否盈利一致</div>
+      </div>
+    </div>
+    <p class="muted">品种 {{ recon.symbol }} · 对比时间窗 {{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }}（取自实盘成交跨度）· scope={{ recon.scope }}</p>
+    {% endif %}
+  {% endif %}
+</section>
+
+<section>
+  <h2>胜负归因 — 未来开发(v1.4)</h2>
+  <p class="muted">分析<b>单个策略</b>为什么赢/输, 对照回测与实盘:</p>
   <ul class="muted">
-    <li><b>回测</b>胜负原因 — 赢单/输单的分布、时段、行情形态</li>
-    <li><b>demo</b> 胜负原因 — 与回测逐笔对照, 偏离在哪</li>
-    <li><b>live</b> 胜负原因 — 真金环境是否复现 demo</li>
-    <li><b>拟合判别</b> — 赚钱是因为拟合了历史数据, 还是碰上短期行情, 还是真规律</li>
+    <li>盈利时间分布 / 时段·星期效应 / 方向不对称 / 出场原因构成 / 连亏串(基于 backtests.trades)</li>
+    <li>拟合判别:训练 vs 留出(时间轴)、本币 vs 他币(品种轴)</li>
+    <li>实盘胜负归因(demo/live)+ 手动干预剔除(已解锁:trades 逐笔已落库)</li>
   </ul>
-  <p class="muted">定位:为 <b>AI 生成策略/参数</b>做准备 — AI 接入后用「生成 → 回测 → 分析归因 → 再生成」闭环不断迭代优化。
-    依赖:v1.2 逐笔落库(demo/live 明细)、v1.3 回测质量(OOS 等)。</p>
+  <p class="muted">定位:为 <b>AI 生成策略/参数</b>做准备 — 「生成 → 回测 → 分析归因 → 再生成」闭环。</p>
 </section>
 
 {% endblock %}

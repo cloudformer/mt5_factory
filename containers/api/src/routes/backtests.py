@@ -507,8 +507,11 @@ async def trades_local(request: Request, account: Optional[int] = None,
         from_time = from_time.replace(tzinfo=timezone.utc)
     if to_time and to_time.tzinfo is None:
         to_time = to_time.replace(tzinfo=timezone.utc)
-    accounts = [r["account"] for r in await pool.fetch(
-        "SELECT DISTINCT account FROM trades ORDER BY account")]
+    # 账号带券商(优先库里存的 broker; 老行未回填则回退到 mt5_login→mt5_server), "券商→账号"两级过滤
+    accounts = [dict(r) for r in await pool.fetch(
+        "SELECT DISTINCT t.account, COALESCE(t.broker, hh.mt5_server) AS broker"
+        " FROM trades t LEFT JOIN mt5_hosts hh ON hh.mt5_login = t.account"
+        " ORDER BY COALESCE(t.broker, hh.mt5_server) NULLS LAST, t.account")]
     q, args = "SELECT * FROM trades WHERE true", []
     if account:
         args.append(account); q += f" AND account = ${len(args)}"

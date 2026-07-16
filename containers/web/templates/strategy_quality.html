@@ -1,53 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('回测质量分析', '关2对账(回测 vs 实盘)+ 反过拟合工具箱：让"回测好"尽量等于"实盘好"') }}
-
-<section>
-  <h2>关2 对账:回测 vs 实盘(demo/live)</h2>
-  <form method="get" class="inline">
-    <label>策略ID <input name="strategy_id" value="{{ sid or '' }}" size="8" required
-        title="用该策略的实盘/demo实际成交, 验证回测在同一时间段的一致性"></label>
-    <button class="small">对账</button>
-    <span class="muted">时间窗自动取自实盘成交跨度;综合匹配度 ≥90 = 该策略回测可信(纳入回测质量标准)</span>
-  </form>
-
-  {% if recon %}
-    {% if recon.note %}
-    <p class="muted" style="margin-top:12px">策略 #{{ recon.strategy_id }}（{{ recon.symbol }}）:{{ recon.note }}</p>
-    {% else %}
-    {% set mt = recon.metrics %}
-    <div class="stats" style="margin-top:12px">
-      <div class="stat">
-        <div class="stat-label">综合匹配度</div>
-        <div class="stat-value {{ 'pos' if mt.match_score >= 90 else 'neg' }}">{{ mt.match_score }}</div>
-        <div class="stat-sub">满分100 · ≥90 = 回测可信</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">笔数一致率</div>
-        <div class="stat-value">{{ (mt.count_match_rate * 100) | round | int }}%</div>
-        <div class="stat-sub">实盘 {{ recon.actual_trades }} · 回测 {{ recon.bt_trades }}</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">信号命中率</div>
-        <div class="stat-value">{{ (mt.signal_hit_rate * 100) | round | int }}%</div>
-        <div class="stat-sub">实盘有信号回测也有</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">方向一致</div>
-        <div class="stat-value">{{ (mt.dir_match_rate * 100) | round | int }}%</div>
-        <div class="stat-sub">配对内 买/卖 一致</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">盈亏方向一致</div>
-        <div class="stat-value">{{ (mt.outcome_match_rate * 100) | round | int }}%</div>
-        <div class="stat-sub">配对内 是否盈利一致</div>
-      </div>
-    </div>
-    <p class="muted">品种 {{ recon.symbol }} · 对比时间窗 {{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }}（取自实盘成交跨度）· scope={{ recon.scope }}</p>
-    {% endif %}
-  {% endif %}
-</section>
+{{ m.page_header('回测质量分析', '反过拟合工具箱概览：让"回测好"尽量等于"实盘好"(关2对账在「策略分析」页)') }}
 
 <section>
   <h2>反过拟合工具箱 — 已实现(散在各页, 此页将来做汇总视图)</h2>
@@ -56,7 +10,7 @@
     <li>跨品种验证(#5) — 同参数在所有货币对各跑一行, 健壮性列/明细在「策略列表排名」</li>
     <li>排名模板 — 四维百分位加权评分(配置页可增删改)</li>
     <li>悲观撮合 — 点差/滑点/佣金/SL优先/跳空按实际价, 在回测引擎里</li>
-    <li><b>关2 对账匹配度</b> — 回测 vs 实盘逐笔(本页上方), 是"回测信/实盘验"的第三维</li>
+    <li><b>关2 对账匹配度</b> — 回测 vs 实盘逐笔(在「策略分析」页,输入策略id), 是"回测信/实盘验"的第三维</li>
   </ul>
 </section>
 
