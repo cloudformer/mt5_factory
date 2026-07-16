@@ -472,7 +472,7 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
     strat = await pool.fetchrow("SELECT symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
     if strat is None:
         raise HTTPException(status_code=404, detail="strategy not found")
-    q = ("SELECT direction, entry_time, exit_time, profit FROM trades"
+    q = ("SELECT direction, entry_time, exit_time, profit, entry_price, net_points FROM trades"
          " WHERE strategy_id=$1")
     args = [strategy_id]
     if scope != "all":
@@ -500,6 +500,8 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
         bt, TF_SECONDS.get(strat["timeframe"], 900))
     # 回测覆盖信息: 让人看清"回测总共几笔/覆盖到几号", 分辨低匹配是'回测没覆盖'还是'真没信号'
     bt_to = bt_row["to_time"] if bt_row else None
+    if bt_to is not None and bt_to.tzinfo is None:   # naive→aware, 防与 wt(aware)比较 TypeError
+        bt_to = bt_to.replace(tzinfo=timezone.utc)
     out.update(window_from=wf, window_to=wt, bt_trades=len(bt), metrics=metrics, pairs=pairs,
                bt_total=len(bt_all),
                bt_from=(bt_row["from_time"] if bt_row else None), bt_to=bt_to,
