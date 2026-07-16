@@ -486,7 +486,7 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
     wf = min(a["entry_time"] for a in actual)
     wt = max(a["exit_time"] for a in actual)
     bt_row = await pool.fetchrow(
-        "SELECT trades FROM backtests WHERE strategy_id=$1 AND symbol=$2",
+        "SELECT trades, from_time, to_time FROM backtests WHERE strategy_id=$1 AND symbol=$2",
         strategy_id, strat["symbol"])
     bt_all = (bt_row["trades"] if bt_row else []) or []
     wf_ts, wt_ts = wf.timestamp(), wt.timestamp()
@@ -495,7 +495,13 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
         [{"dir": a["direction"], "ts": a["entry_time"].timestamp(), "profit": a["profit"],
           "entry": a["entry_time"].strftime("%m-%d %H:%M")} for a in actual],
         bt, TF_SECONDS.get(strat["timeframe"], 900))
-    out.update(window_from=wf, window_to=wt, bt_trades=len(bt), metrics=metrics, pairs=pairs)
+    # 回测覆盖信息: 让人看清"回测总共几笔/覆盖到几号", 分辨低匹配是'回测没覆盖'还是'真没信号'
+    bt_to = bt_row["to_time"] if bt_row else None
+    out.update(window_from=wf, window_to=wt, bt_trades=len(bt), metrics=metrics, pairs=pairs,
+               bt_total=len(bt_all),
+               bt_from=(bt_row["from_time"] if bt_row else None), bt_to=bt_to,
+               # 回测末尾早于 demo 末尾 = 回测没覆盖到近期 → 提示重跑
+               bt_stale=(bt_to is not None and bt_to < wt))
     await pool.execute(
         "INSERT INTO reconciliations (strategy_id, scope, window_from, window_to,"
         "   actual_trades, bt_trades, match_score, metrics)"

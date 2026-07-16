@@ -50,6 +50,9 @@
       → {% if mt.q10_pass %}<span class="pos">达标</span>{% else %}<span class="neg">未达标</span>{% endif %}
       <span class="muted">　|　记录不评判:信号 {{ (mt.signal_hit_rate * 100) | round | int }}% · 涨跌 {{ (mt.outcome_match_rate * 100) | round | int }}%</span></p>
     <p class="muted">品种 {{ recon.symbol }} · 对比时间窗 {{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }}（取自实盘成交跨度）· scope={{ recon.scope }}</p>
+    <p class="muted">回测覆盖 {{ m.lts(recon.bt_from) }} → {{ m.lts(recon.bt_to) }} · 共 <b>{{ recon.bt_total }}</b> 笔 · 本窗口内 {{ recon.bt_trades }} 笔
+      {% if recon.bt_stale %}<span class="neg">— 回测未覆盖到 demo 末尾:用最新数据重跑回测再对账</span>
+      {% elif recon.bt_total == 0 %}<span class="neg">— 该策略还没回测过:先去「策略回测」</span>{% endif %}</p>
     {% if recon.pairs %}
     <h3>逐笔对照(实盘 ↔ 回测:看实际交易 + 是否匹配)</h3>
     <table class="subtable">
