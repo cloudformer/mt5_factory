@@ -9,7 +9,7 @@
     稳定=PF · 盈利=净点数 · 风险=回撤小 · 健壮=跨品种盈利比(未跨品种=0分);最少笔数=选该模板时自动带的门槛。
     <b>增删改都在这里, 不用改代码</b> — 删除=勾"删"或清空名称, 新增=填底部空白行。</p>
   <form method="post" action="{{ url_for('symbols.save_ranks') }}">
-    <table class="subtable" style="min-width:560px">
+    <table>
       <tr><th>模板名</th><th>稳定</th><th>盈利</th><th>风险</th><th>健壮</th><th>最少笔数</th><th>删</th></tr>
       {% for t in rank_templates %}
       <tr>

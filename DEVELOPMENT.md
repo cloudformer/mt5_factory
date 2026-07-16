@@ -57,6 +57,13 @@ mt5_factory/
 2. `templates/新页面.html`——`extends base.html` + `import _macros.html`
 3. `app.py` 注册 Blueprint，`base.html` 导航加一项
 4. 徽章/时间/空态用 `_macros.html` 现成宏，不要重写样式
+5. **表格三选一，不许有例外**（2026-07-16 定，起因：逐笔对照误用 subtable 被挤死）：
+   - `<table>` 正文/表单主表——全宽自适应，页面直接可见的表一律用它
+   - `<table class="dense">` 列多的主表——同上且单元格不折行（如逐笔明细）
+   - `<table class="subtable">` **只用于**点开详情（`<details>`/展开行）里嵌套的小表，
+     它 `width:auto` + 首列锁 90px，放正文表必挤死
+   不许给表格打内联 style 补丁救布局——类不对就换类；
+   需要过滤/分页/排序 → 配 `m.table_toolbar()` + `tables.js`，不要自己造
 
 ### 改表结构
 1. `containers/postgres/schema/` **追加**一个新的编号幂等 SQL 文件（如 `002_add_bucket.sql`），

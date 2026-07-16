@@ -7,7 +7,7 @@
   <h2>关2 对账:回测 vs 实盘(demo/live)</h2>
   <form method="get" class="inline">
     <label>策略ID <input name="strategy_id" value="{{ sid or '' }}" size="8" required
-        title="用该策略的实盘/demo实际成交, 验证回测在同一时间段的一致性"></label>
+        title="用该策略的实盘(demo+live)实际成交, 验证回测在同一时间段的一致性"></label>
     <button class="small">对账</button>
     <span class="muted">时间窗自动取自实盘成交跨度;综合匹配度 ≥90 = 该策略回测可信(纳入回测质量标准)</span>
   </form>

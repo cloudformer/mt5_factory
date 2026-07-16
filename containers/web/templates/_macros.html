@@ -12,7 +12,7 @@
 
 {# 策略状态中文名 (显示用; 存储/提交值仍是英文 CANDIDATE/DEMO/LIVE/ARCHIVED) #}
 {% macro status_label(s) -%}
-{{ {'CANDIDATE': '候选', 'DEMO': '模拟', 'LIVE': '实盘', 'ARCHIVED': '淘汰归档'}.get(s, s) }}
+{{ {'CANDIDATE': '候选', 'DEMO': '模拟', 'LIVE': '真金', 'ARCHIVED': '淘汰归档'}.get(s, s) }}
 {%- endmacro %}
 
 {# 策略状态徽章 #}
