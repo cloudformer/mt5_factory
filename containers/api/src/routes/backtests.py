@@ -393,6 +393,17 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         bd_map = await _breakdown([r["strategy_id"] for r in page_rows])
         page_cands = [_build(r, bd_map) for r in page_rows]
 
+    # 实盘战绩(demo+live 合并, 来自 strategy_stats)—— 回测列不动, 仅附加实盘对比(胜率/笔数/盈亏)
+    page_ids = [d["strategy_id"] for d in page_cands]
+    if page_ids:
+        st = {s["strategy_id"]: s for s in await pool.fetch(
+            "SELECT strategy_id, sum(trades) AS t, sum(wins) AS w, sum(profit) AS p"
+            " FROM strategy_stats WHERE strategy_id = ANY($1) GROUP BY strategy_id", page_ids)}
+        for d in page_cands:
+            s = st.get(d["strategy_id"])
+            d["actual"] = ({"trades": s["t"], "wins": s["w"], "profit": round(float(s["p"]), 2),
+                            "win_rate": round(s["w"] / s["t"], 3) if s["t"] else None}
+                           if s and s["t"] else None)
     return {"results": page_cands, "total": total, "page": page, "page_size": limit}
 
 
