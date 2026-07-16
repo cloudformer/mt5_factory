@@ -46,14 +46,22 @@ def _passes_gate(m: Optional[dict], gate: dict) -> bool:
     return True
 
 
-async def _cross_qualified(pool, strategy_ids: list[int]) -> set[int]:
-    """批量交叉的够格集合: 按各策略主品种成绩过 cross_symbol_gate 的 id"""
+EST_CROSS_PASS_PCT = 20  # 预览用: 未测过的策略预估有 ~20% 出成绩后能过门槛(仅显示, 不影响执行)
+
+
+async def _cross_qualified(pool, strategy_ids: list[int]) -> tuple[set[int], int]:
+    """批量交叉的够格判定 → (够格集合, 未测过主品种的数量)。
+    门槛全空(每项都 null) = 完全没配置 = 全部够格(含还没测过主品种的, 与老行为一致)"""
     gate = await pool.fetchval("SELECT value FROM config WHERE key='cross_symbol_gate'") or {}
+    if not any(v is not None for v in gate.values()):
+        return set(strategy_ids), 0
     mains = {r["strategy_id"]: r["metrics"] for r in await pool.fetch(
         "SELECT b.strategy_id, b.metrics FROM backtests b"
         " JOIN strategies s ON s.id = b.strategy_id AND s.symbol = b.symbol"
         " WHERE b.strategy_id = ANY($1)", strategy_ids)}
-    return {sid for sid in strategy_ids if _passes_gate(mains.get(sid), gate)}
+    qualified = {sid for sid in strategy_ids if _passes_gate(mains.get(sid), gate)}
+    untested = sum(1 for sid in strategy_ids if sid not in mains)
+    return qualified, untested
 
 
 async def _batch_limit(pool, requested: Optional[int]) -> int:
@@ -147,7 +155,7 @@ async def run(req: BacktestRequest, request: Request):
     # 按 ID 点名 = 点名即信任, 不走门槛随便交叉
     qualified = None
     if req.cross_symbol and not req.strategy_ids:
-        qualified = await _cross_qualified(pool, [s["id"] for s in rows])
+        qualified, _ = await _cross_qualified(pool, [s["id"] for s in rows])
     items = [{"strategy_id": s["id"], "name": s["name"], "symbol": sym,
               "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs}
              for s in rows
@@ -218,11 +226,15 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
                    await pool.fetch("SELECT symbol FROM symbols WHERE download"))
     if not cross_symbol:
         return {"strategies": n, "symbols_per": 1, "runs": n}
-    qualified = ({r["id"] for r in rows} if strategy_ids is not None   # 点名不设门槛
-                 else await _cross_qualified(pool, [r["id"] for r in rows]))
+    qualified, untested = (({r["id"] for r in rows}, 0) if strategy_ids is not None  # 点名不设门槛
+                           else await _cross_qualified(pool, [r["id"] for r in rows]))
     runs = sum(len({r["symbol"]} | universe) if r["id"] in qualified else 1 for r in rows)
+    # 未测过的策略这批出成绩后, 下一批预估 ~20% 过门槛 → 预估新增交叉次数(仅显示, 不影响本批)
+    est_next = round(untested * EST_CROSS_PASS_PCT / 100) * max(len(universe) - 1, 1)
     return {"strategies": n, "symbols_per": len(universe), "runs": runs,
-            "cross_qualified": len(qualified), "cross_gated_out": n - len(qualified)}
+            "cross_qualified": len(qualified), "cross_gated_out": n - len(qualified),
+            "cross_untested": untested, "est_next_cross": est_next,
+            "est_pass_pct": EST_CROSS_PASS_PCT}
 
 
 def _pct_scores(values: list) -> list:
