@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('系统流水', '本地库已持久化的 MT5 已平仓成交(不限90天、worker离线也能查);与「Worker流水」实时拉取互补') }}
+
+<section>
+  <form method="get" class="inline">
+    <label>账号
+      <select name="account">
+        <option value="">全部</option>
+        {% for ac in accounts %}<option value="{{ ac }}" {% if account == ac %}selected{% endif %}>{{ ac }}</option>{% endfor %}
+      </select></label>
+    {{ m.time_range(presets, win, frm, to) }}
+    <button class="small">查询</button>
+    <span class="muted">只含已平仓回合(持仓中看「Worker流水」实时)· 券商服务器时间</span>
+  </form>
+
+  {# 一致性核对: 本时段 库 vs MT5 两边笔数, 两个灯一起绿(一致)/一起红(不一致) #}
+  {% if cons %}
+  {% set light = '🟢' if cons.consistent else ('🔴' if cons.mt5 is not none else '⚪') %}
+  <p style="margin:6px 0"><b>一致性核对(本时段)</b>：
+    库 <b>{{ cons.db }}</b> 笔 {{ light }} &nbsp;·&nbsp;
+    MT5 <b>{{ cons.mt5 if cons.mt5 is not none else '—' }}</b> 笔 {{ light }} &nbsp;
+    {% if cons.consistent %}<span class="pos">一致,库可信</span>
+    {% elif cons.mt5 is not none %}<span class="neg">不一致 — 库疑似漏存/多存, 需排查</span>
+    {% else %}<span class="muted">{{ cons.note }}</span>{% endif %}
+  </p>
+  {% elif not account %}
+  <p class="muted" style="margin:6px 0">选具体账号后, 这里实时核对本时段「库 vs MT5」两边笔数(两个灯:一起绿=一致 / 一起红=不一致)</p>
+  {% endif %}
+
+  {{ m.table_toolbar('sys-trades', hint='本页即时过滤已加载行') }}
+  <table id="sys-trades" class="dense">
+    <tr><th data-nosort>#</th><th>平仓时间</th><th>入场时间</th><th>账号</th><th>品种</th><th>方向</th>
+        <th>手数</th><th>入场价</th><th>出场价</th><th>原因</th><th>盈亏</th><th>净点</th><th>策略</th><th>env</th></tr>
+    {% for t in trades %}
+    <tr>
+      <td class="rownum muted"></td>
+      <td>{{ m.ts(t.exit_time) }}</td>
+      <td class="muted">{{ m.ts(t.entry_time) }}</td>
+      <td class="mono">{{ t.account }}</td>
+      <td>{{ t.symbol }}</td>
+      <td>{{ '买' if t.direction == 'buy' else '卖' }}</td>
+      <td>{{ t.volume }}</td>
+      <td class="muted">{{ t.entry_price }}</td>
+      <td class="muted">{{ t.exit_price }}</td>
+      <td>{{ t.close_reason or '—' }}</td>
+      <td class="{{ 'pos' if t.profit >= 0 else 'neg' }}">{{ '%+.2f' % t.profit }}</td>
+      <td class="{{ 'pos' if (t.net_points or 0) >= 0 else 'neg' }}">{{ t.net_points if t.net_points is not none else '—' }}</td>
+      <td class="clip" title="{{ t.who }}">{{ t.who }}</td>
+      <td>{{ t.env }}</td>
+    </tr>
+    {% else %}
+    {% call m.empty(14) %}该账号/时间范围没有已平仓成交(系统流水只存已平仓的持久副本;持仓中看「Worker流水」){% endcall %}
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

@@ -46,7 +46,14 @@
   </div>
   <a href="{{ url_for('execution.demo') }}" {% if ep == 'execution.demo' %}class="active"{% endif %}>Demo</a>
   <a href="{{ url_for('execution.live') }}" {% if ep == 'execution.live' %}class="active"{% endif %}>Live</a>
-  <a href="{{ url_for('mt5.index') }}" {% if ep.startswith('mt5.') %}class="active"{% endif %}>MT5流水</a>
+  <div class="navmenu">
+    <a href="{{ url_for('mt5.index') }}"
+       {% if ep.startswith('mt5.') %}class="active"{% endif %}>MT5 ▾</a>
+    <div class="navmenu-items">
+      <a href="{{ url_for('mt5.index') }}" {% if ep == 'mt5.index' %}class="active"{% endif %}>Worker 流水</a>
+      <a href="{{ url_for('mt5.system') }}" {% if ep == 'mt5.system' %}class="active"{% endif %}>系统流水</a>
+    </div>
+  </div>
 </nav>
 <main>
   {% with messages = get_flashed_messages(with_categories=true) %}

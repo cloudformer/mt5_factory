@@ -3,7 +3,7 @@
 链路 web → api → bridge → MT5, 看到的就是券商侧原始数据;
 web 端只做两件事: magic → 策略名归因, 枚举值翻译成中文。
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Blueprint, flash, render_template, request
 
@@ -87,3 +87,48 @@ def index():
                            data=data, broker=broker, account=account, acct_stale=acct_stale,
                            worker_name=(sel or {}).get("name"),
                            worker_role=(sel or {}).get("runner"))
+
+
+@bp.get("/system")
+def system():
+    """系统流水: 本地库 trades(持久副本), 按账号 + 时间范围(预设/自定义)查。
+    与 Worker 流水(实时拉 MT5)互补 — 这个读库, 不限 90 天、worker 离线也能看。"""
+    a = request.args
+    account = a.get("account", type=int)
+    win = a.get("win") or "30"        # 预设天数 or 'custom'
+    frm = a.get("from") or ""
+    to = a.get("to") or ""
+    presets, accounts, trades, magic_map, cons = [7, 30, 90], [], [], {}, None
+    try:
+        presets = api.get("/config")["config"].get("mt5_trades_days") or [7, 30, 90]
+        # 时间窗(预设/自定义)→ 同一个窗口喂 流水查询 + 一致性核对
+        from_iso, to_iso = None, None
+        if win == "custom":
+            from_iso = frm or None
+            to_iso = (to + "T23:59:59") if to else None
+        else:
+            days = int(win) if str(win).isdigit() else 30
+            from_iso = (datetime.now() - timedelta(days=days)).isoformat()
+        params = {}
+        if account:
+            params["account"] = account
+        if from_iso:
+            params["from_time"] = from_iso
+        if to_iso:
+            params["to_time"] = to_iso
+        data = api.get("/trades/local", **params)
+        accounts, trades = data["accounts"], data["trades"]
+        strategies = api.get("/strategies/status", limit=5000)["strategies"]
+        magic_map = {s["magic_number"]: s["name"] for s in strategies if s["magic_number"]}
+        # 一致性核对(本时段 库 vs MT5): 需选定具体账号才能定位其 worker
+        if account and from_iso:
+            cp = {"account": account, "from_time": from_iso}
+            if to_iso:
+                cp["to_time"] = to_iso
+            cons = api.get("/trades/consistency", **cp)
+    except api.ApiError as e:
+        flash(f"api 不可用: {e}", "error")
+    for t in trades:
+        t["who"] = magic_map.get(t["magic"]) or _who(t["magic"], {})
+    return render_template("mt5_system.html", presets=presets, win=win, frm=frm, to=to,
+                           account=account, accounts=accounts, trades=trades, cons=cons)

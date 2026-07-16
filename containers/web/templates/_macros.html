@@ -145,6 +145,19 @@
 </form>
 {%- endmacro %}
 
+{# 时间范围过滤(全站共享): 预设 chips(近N天, N来自config mt5_trades_days) + 自定义区间。
+   放在 caller 的 <form method="get"> 里; 页面读取: win='custom'→用 from/to, 否则 days=int(win)。
+   to_enabled=false 用于实时流水(Worker: 只"最近N天到现在", 无过去的"止")。 #}
+{% macro time_range(presets, win='30', frm='', to='', to_enabled=true) -%}
+<span class="tag">时间</span>
+{% for d in presets %}
+<label class="chk"><input type="radio" name="win" value="{{ d }}" {% if win == d | string %}checked{% endif %}> 近{{ d }}天</label>
+{% endfor %}
+<label class="chk"><input type="radio" name="win" value="custom" {% if win == 'custom' %}checked{% endif %}> 自定义</label>
+<input type="date" name="from" value="{{ frm }}" title="自定义: 起始日">
+{% if to_enabled %}<input type="date" name="to" value="{{ to }}" title="自定义: 结束日(实时流水无此项)">{% endif %}
+{%- endmacro %}
+
 {# 表格空态行 #}
 {% macro empty(colspan) -%}
   <tr><td colspan="{{ colspan }}" class="muted empty">{{ caller() }}</td></tr>

@@ -8,8 +8,11 @@
 """
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
+
+import httpx
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -486,3 +489,65 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
         "   match_score=EXCLUDED.match_score, metrics=EXCLUDED.metrics, updated_at=now()",
         strategy_id, scope, wf, wt, len(actual), len(bt), metrics["match_score"], metrics)
     return out
+
+
+# ---------- 系统流水: 本地库(trades)已持久化成交, 按账号 + 时间范围查(v1.6) ----------
+@router.get("/trades/local")
+async def trades_local(request: Request, account: Optional[int] = None,
+                       from_time: Optional[datetime] = None,
+                       to_time: Optional[datetime] = None, limit: int = 1000):
+    """读本地库 trades(MT5 已平仓的持久副本): 按 account + 平仓时间范围过滤。
+    与 /hosts/{id}/trades(实时拉 MT5)互补 — 这个不限 90 天、离线也能查。"""
+    pool = request.app.state.pool
+    accounts = [r["account"] for r in await pool.fetch(
+        "SELECT DISTINCT account FROM trades ORDER BY account")]
+    q, args = "SELECT * FROM trades WHERE true", []
+    if account:
+        args.append(account); q += f" AND account = ${len(args)}"
+    if from_time:
+        args.append(from_time); q += f" AND exit_time >= ${len(args)}"
+    if to_time:
+        args.append(to_time); q += f" AND exit_time <= ${len(args)}"
+    args.append(limit)
+    q += f" ORDER BY exit_time DESC LIMIT ${len(args)}"
+    rows = await pool.fetch(q, *args)
+    return {"accounts": accounts, "trades": [dict(r) for r in rows]}
+
+
+@router.get("/trades/consistency")
+async def trades_consistency(request: Request, account: int,
+                             from_time: datetime, to_time: Optional[datetime] = None):
+    """按需一致性核对: 本时间段 库(trades)笔数 vs 该账号 worker 实时 MT5 已平仓笔数。
+    两数相等 = 一致(库可信); 不等 = 库疑似漏存/多存。worker 离线则无法实时核对。"""
+    pool = request.app.state.pool
+    to_time = to_time or datetime.now(timezone.utc)
+    db = await pool.fetchval(
+        "SELECT count(*) FROM trades WHERE account=$1 AND exit_time>=$2 AND exit_time<=$3",
+        account, from_time, to_time)
+    host = await pool.fetchrow(
+        "SELECT host, port FROM mt5_hosts WHERE mt5_login=$1 AND enabled", account)
+    if host is None:
+        return {"account": account, "db": db, "mt5": None, "consistent": None,
+                "note": "该账号当前无在线 worker 登录, 无法实时核对(库数据仍在)"}
+    ft, tt = from_time.timestamp(), to_time.timestamp()
+    days = max(1, int((datetime.now(timezone.utc) - from_time).total_seconds() // 86400) + 2)
+    headers = {"X-API-Key": os.getenv("BRIDGE_API_KEY", "")} if os.getenv("BRIDGE_API_KEY") else {}
+    try:
+        async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+            r = await client.get(f"http://{host['host']}:{host['port']}/trades",
+                                 params={"days": days})
+        by_pos: dict = {}
+        for d in r.json().get("deals", []):
+            pid = d.get("position_id")
+            if pid is not None:
+                by_pos.setdefault(pid, []).append(d)
+        mt5 = 0
+        for legs in by_pos.values():
+            ins = next((d for d in legs if d.get("entry") == "in"), None)
+            out = next((d for d in legs if d.get("entry") == "out"), None)
+            if ins and out and ins.get("type") in ("buy", "sell") and ft <= out["time"] <= tt:
+                mt5 += 1
+    except (httpx.HTTPError, ValueError) as e:
+        return {"account": account, "db": db, "mt5": None, "consistent": None,
+                "note": f"实时核对失败(worker/bridge 不可达): {e}"}
+    return {"account": account, "db": db, "mt5": mt5, "consistent": db == mt5}

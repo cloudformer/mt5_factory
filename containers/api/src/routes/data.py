@@ -15,7 +15,7 @@ from src.services import sync
 router = APIRouter()
 
 CONFIG_KEYS = {"ai_generator_url", "backtest_costs", "backtest_batch_limit",
-               "ranking_templates", "backtest_oos_split"}
+               "ranking_templates", "backtest_oos_split", "mt5_trades_days"}
 
 
 # ---------- 数据同步 ----------
@@ -67,6 +67,11 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
     if key == "backtest_oos_split":  # OOS 训练段占比: (0,1) 开区间
         if not isinstance(req.value, (int, float)) or not 0 < req.value < 1:
             raise HTTPException(status_code=400, detail="backtest_oos_split must be between 0 and 1")
+    if key == "mt5_trades_days":  # 流水时间预设: 正整数天数列表(≤6个)
+        if (not isinstance(req.value, list) or not req.value or len(req.value) > 6
+                or not all(isinstance(d, int) and 0 < d <= 3650 for d in req.value)):
+            raise HTTPException(status_code=400,
+                                detail="mt5_trades_days must be a list of 1~6 positive ints (days)")
     if key == "ranking_templates":  # 排名模板: UI 可增删改, 结构在此把关
         if not isinstance(req.value, list) or len(req.value) > 20:
             raise HTTPException(status_code=400, detail="ranking_templates must be a list (≤20)")
