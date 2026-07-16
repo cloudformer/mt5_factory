@@ -337,12 +337,8 @@ async def ai_report(strategy_id: int, request: Request):
     if s is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     bts = await pool.fetch(
-        "SELECT symbol, broker, from_time, to_time, metrics FROM backtests"
+        "SELECT symbol, broker, from_time, to_time, metrics, trades FROM backtests"
         " WHERE strategy_id=$1 ORDER BY (symbol = $2) DESC, symbol", strategy_id, s["symbol"])
-    recon = await pool.fetchrow(
-        "SELECT window_from, window_to, actual_trades, bt_trades, match_score, metrics,"
-        "       updated_at FROM reconciliations WHERE strategy_id=$1 AND scope='all'",
-        strategy_id)
     actual = await pool.fetchrow(
         "SELECT sum(trades) AS t, sum(wins) AS w, sum(profit) AS p"
         " FROM strategy_stats WHERE strategy_id=$1", strategy_id)
@@ -350,28 +346,43 @@ async def ai_report(strategy_id: int, request: Request):
         "SELECT params, archive_reason FROM strategies"
         " WHERE template=$1 AND status='ARCHIVED' AND id<>$2"
         " ORDER BY updated_at DESC LIMIT 20", s["template"], strategy_id)
-    # 归因细分(方向/出场/时段/星期/连亏/集中度): 聚合进成绩单, 逐笔明细不进(无增量信息白吃token)
-    from src.routes.backtests import _analyze_trades, actual_attribution
-    bt_trades = await pool.fetchval(
-        "SELECT trades FROM backtests WHERE strategy_id=$1 AND symbol=$2",
-        strategy_id, s["symbol"]) or []
-    attr_bt = _analyze_trades(bt_trades, {}, [])
+    # 单策略深分析是低频、单条的闭环动作 → 详细度优先, 不截断不省略(2026-07-16 定):
+    # 归因聚合 + 每品种全量逐笔 + 实盘全量逐笔 + 对账全量(含逐笔对照/缺口归因/精度偏差)
+    from src.routes.backtests import _analyze_trades, actual_attribution, compute_reconcile
+    main_trades = next((b["trades"] for b in bts if b["symbol"] == s["symbol"]), None) or []
+    attr_bt = _analyze_trades(main_trades, {}, [])
     attr_bt.pop("overfit", None)   # oos/跨品种已在 backtests 各行 metrics 里, 不重复
     attr_actual = await actual_attribution(pool, strategy_id)
+    act_rows = await pool.fetch(
+        "SELECT entry_time, direction, profit, net_points, close_reason, env FROM trades"
+        " WHERE strategy_id=$1 ORDER BY entry_time", strategy_id)
+    recon = await compute_reconcile(pool, strategy_id)  # 现算最新对账(与分析页同口径)
+
+    def _cols(ts):  # 回测逐笔 → 紧凑列式
+        return {"cols": ["entry_time", "dir", "points", "reason", "mae", "mfe"],
+                "rows": [[t["entry_time"], t.get("dir"), t.get("points"), t.get("reason"),
+                          t.get("mae"), t.get("mfe")]
+                         for t in sorted(ts, key=lambda x: x["entry_time"])]}
     return {
         "strategy": dict(s),
-        "attribution_backtest": attr_bt if attr_bt.get("has_data") else None,   # 主品种回测归因
-        "attribution_actual": attr_actual if attr_actual.get("has_data") else None,  # 实盘归因
+        # 主品种带全量逐笔; 交叉品种只带成绩汇总(角色是及格线筛查, 交叉不灵就不会深分析,
+        # 逐笔属于过度供给 — 2026-07-16 定)
         "backtests": [{"symbol": b["symbol"], "broker": b["broker"],
                        "from": b["from_time"], "to": b["to_time"],
-                       "is_main": b["symbol"] == s["symbol"], "metrics": b["metrics"]}
+                       "is_main": b["symbol"] == s["symbol"], "metrics": b["metrics"],
+                       **({"trades": _cols(b["trades"] or [])}
+                          if b["symbol"] == s["symbol"] else {})}
                       for b in bts],
-        "reliability": (None if recon is None else
-                        {"match_score": float(recon["match_score"]),
-                         "actual_trades": recon["actual_trades"],
-                         "bt_trades": recon["bt_trades"],
-                         "window_from": recon["window_from"], "window_to": recon["window_to"],
-                         "updated_at": recon["updated_at"], **(recon["metrics"] or {})}),
+        "attribution_backtest": attr_bt if attr_bt.get("has_data") else None,   # 主品种回测归因
+        "attribution_actual": attr_actual if attr_actual.get("has_data") else None,  # 实盘归因
+        "trades_actual": {   # 实盘全量逐笔
+            "cols": ["entry_time", "dir", "net_points", "profit", "reason", "env"],
+            "rows": [[int(r["entry_time"].timestamp()), r["direction"],
+                      (float(r["net_points"]) if r["net_points"] is not None else None),
+                      float(r["profit"]), r["close_reason"], r["env"]] for r in act_rows],
+        },
+        # 对账全量(可信度+校准): 匹配率/精度偏差/模式/对比窗口/逐笔对照(含缺口归因)
+        "reconciliation": recon,
         "actual": ({"trades": actual["t"], "wins": actual["w"],
                     "profit": float(actual["p"])} if actual and actual["t"] else None),
         "failed_neighbors": [{"params": d["params"], "died_of": d["archive_reason"]}

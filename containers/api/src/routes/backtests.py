@@ -528,9 +528,13 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
 
 @router.get("/reconcile/{strategy_id}")
 async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
+    """关2对账端点 — 计算逻辑在 compute_reconcile(策略分析页与 AI 成绩单共用)"""
+    return await compute_reconcile(request.app.state.pool, strategy_id, scope)
+
+
+async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
     """关2对账: 用该策略实盘/demo成交(scope: all=demo+live)验证回测 —
     自动取实际成交时间窗 → 切片回测同窗 → 4 个一致率 + 综合分, 落 reconciliations(覆盖)。"""
-    pool = request.app.state.pool
     strat = await pool.fetchrow("SELECT symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
     if strat is None:
         raise HTTPException(status_code=404, detail="strategy not found")
