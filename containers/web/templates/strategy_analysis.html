@@ -72,9 +72,9 @@
     {% if recon.bt_total == 0 %}
     <p class="muted"><span class="neg">❌ 该策略还没回测过 — 先去「策略回测」</span></p>
     {% elif not recon.data_cover %}
-    <p class="muted"><span class="neg">❌ 库内M1数据落后(到 {{ m.lts(recon.data_to) if recon.data_to else '无' }})— 先去「数据下载」补到最新再重跑回测</span></p>
+    <p class="muted"><span class="neg">❌ 库内M1数据落后:<b>{{ recon.symbol }}</b>{% if recon.broker %} @ <b>{{ recon.broker }}</b>{% endif %} 只到 {{ m.lts(recon.data_to) if recon.data_to else '无数据' }} — 先去「数据下载」补这个品种到最新,再重跑回测</span></p>
     {% elif recon.bt_stale %}
-    <p class="muted"><span class="neg">⚠ 回测未跑到实盘末尾(到 {{ m.lts(recon.bt_to) }}),数据已有 — 重跑回测即可</span></p>
+    <p class="muted"><span class="neg">⚠ 回测未跑到实盘末尾:<b>{{ recon.symbol }}</b>{% if recon.broker %} @ <b>{{ recon.broker }}</b>{% endif %} 回测只到 {{ m.lts(recon.bt_to) }},数据已有 — 重跑回测即可</span></p>
     {% endif %}
     {% if recon.pairs %}
     <h3>逐笔对照(实盘 ↔ 回测;匹配的点开看价/净点详情)</h3>

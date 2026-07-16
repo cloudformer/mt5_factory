@@ -560,6 +560,8 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
         bt_to = bt_to.replace(tzinfo=timezone.utc)
     data_to = await pool.fetchval(   # 该品种库内原始 M1 的最新时间(唯一原始数据, 回测的原料)
         "SELECT max(time) FROM historical_bars WHERE symbol=$1 AND timeframe='M1'", strat["symbol"])
+    out["broker"] = await pool.fetchval(  # 品种主档的券商 — 补数据提示里点名"下哪家的哪个品种"
+        "SELECT broker FROM symbols WHERE symbol=$1", strat["symbol"])
     bt_from_ts = bt_from.timestamp() if bt_from else None
     bt_to_ts = bt_to.timestamp() if bt_to else None
     data_to_ts = data_to.timestamp() if data_to else None
