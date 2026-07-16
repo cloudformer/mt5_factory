@@ -131,6 +131,41 @@ async def log_host_event(pool: asyncpg.Pool, host_id: int, event: str, detail: d
         host_id, event, detail or {})
 
 
+async def _touch_runtime(pool: asyncpg.Pool, ids: list[int], host: str):
+    """运行区间批量推进(strategy_runtime, schema/019): ids = worker 心跳里真实加载中的策略。
+    一条语句完成三分支, 写库次数与策略数量无关(每 worker 每写入间隔 2 条):
+      最近段 run_to 距今 < 写入间隔      → 跳过(节流, 心跳30s没必要每跳写)
+      距今 ∈ [写入间隔, 裂段阈值)        → 推进该段 run_to = now()
+      距今 ≥ 裂段阈值 / 无任何段          → 新开一段(run_from = run_to = now())
+    死机/下架 = 心跳停 = run_to 自动定格, 无需任何"关闭"动作。"""
+    if not ids:
+        return
+    cfg = {r["key"]: r["value"] for r in await pool.fetch(
+        "SELECT key, value FROM config WHERE key IN ('runtime_write_minutes',"
+        " 'runtime_gap_minutes')")}
+    write_min = int(cfg.get("runtime_write_minutes") or 5)
+    gap_min = max(int(cfg.get("runtime_gap_minutes") or 15), write_min + 1)  # 阈值必须>间隔
+    await pool.execute(
+        """
+        WITH latest AS (            -- 每个策略最近的一段
+          SELECT DISTINCT ON (strategy_id) strategy_id, run_from, run_to
+            FROM strategy_runtime WHERE strategy_id = ANY($1::int[])
+           ORDER BY strategy_id, run_from DESC
+        ), bumped AS (              -- 未裂段且到了写入间隔 → 推进
+          UPDATE strategy_runtime r SET run_to = now(), host = $2
+            FROM latest l
+           WHERE r.strategy_id = l.strategy_id AND r.run_from = l.run_from
+             AND l.run_to >  now() - make_interval(mins => $4)
+             AND l.run_to <= now() - make_interval(mins => $3)
+        )                           -- 无段 / 已裂段 → 新开一段
+        INSERT INTO strategy_runtime (strategy_id, run_from, run_to, host)
+        SELECT sid, now(), now(), $2 FROM unnest($1::int[]) AS sid
+         WHERE NOT EXISTS (SELECT 1 FROM latest l WHERE l.strategy_id = sid
+                             AND l.run_to > now() - make_interval(mins => $4))
+        """,
+        ids, host, write_min, gap_min)
+
+
 async def heartbeat_loop(pool: asyncpg.Pool):
     """每 30s 轮询启用 worker 的 /health, 维护三态状态机 + 事件记录:
       ONLINE   = /health healthy (bridge + MT5 + 账户全就绪)
@@ -276,6 +311,14 @@ async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
                 [(s["id"], h["runner"].upper(), s["closed"]["trades"],
                   s["closed"]["wins"], s["closed"]["profit"])
                  for s in rn["per_strategy"] if s.get("closed")])
+        # 运行区间(strategy_runtime, schema/019): 名单里的策略 = 此刻真实在跑 →
+        # 批量"推进最近段 / 新开一段"。独立 try: 区间记录失败不拖垮心跳状态机
+        if h["runner"] and rn.get("per_strategy"):
+            try:
+                await _touch_runtime(
+                    pool, [s["id"] for s in rn["per_strategy"] if s.get("id")], h["name"])
+            except Exception as e:
+                logger.warning("touch runtime %s failed: %s", h["name"], e)
         # 逐笔回合入库(关2对账源数据, v1.6): 拉 /trades → 按 position_id 配对回合 → upsert。
         # 独立 try: 逐笔落库失败不能拖垮心跳状态机(它只是对账用, 不影响 worker 存活判定)
         if h["runner"] and health.get("login"):

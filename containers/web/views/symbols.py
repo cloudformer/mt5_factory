@@ -25,16 +25,38 @@ def index():
 def backtest_params():
     """配置·回测参数: 成本模型 + 单批上限 + OOS 切分"""
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
+    runtime_write, runtime_gap = 5, 15
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
         batch_limit = cfg.get("backtest_batch_limit", 500)
         oos_split = cfg.get("backtest_oos_split", 0.7)
         mt5_days = cfg.get("mt5_trades_days") or [7, 30, 90]
+        runtime_write = cfg.get("runtime_write_minutes", 5)
+        runtime_gap = cfg.get("runtime_gap_minutes", 15)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
-                           oos_split=oos_split, mt5_days=mt5_days)
+                           oos_split=oos_split, mt5_days=mt5_days,
+                           runtime_write=runtime_write, runtime_gap=runtime_gap)
+
+
+@bp.post("/config/runtime")
+def save_runtime():
+    """保存策略运行状态节奏(config: runtime_write_minutes / runtime_gap_minutes)
+    约束在这里把关: 两值为正整数, 裂段阈值必须大于写入间隔(否则节流被误判成断线)"""
+    try:
+        write_min = int(request.form.get("runtime_write_minutes", 5))
+        gap_min = int(request.form.get("runtime_gap_minutes", 15))
+        if write_min < 1 or gap_min <= write_min:
+            flash(f"裂段阈值({gap_min})必须大于写入间隔({write_min}), 且都为正整数", "error")
+            return redirect(url_for("symbols.backtest_params"))
+        api.put("/config/runtime_write_minutes", {"value": write_min})
+        api.put("/config/runtime_gap_minutes", {"value": gap_min})
+        flash(f"运行状态节奏已保存: 写入间隔 {write_min} 分钟 / 裂段阈值 {gap_min} 分钟", "ok")
+    except (api.ApiError, ValueError) as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
 
 
 @bp.post("/config/mt5-days")

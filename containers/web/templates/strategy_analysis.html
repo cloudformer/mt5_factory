@@ -23,20 +23,21 @@
         <div class="stat-value {{ 'pos' if mt.match_score >= 90 else 'neg' }}">{{ mt.match_score }}</div>
         <div class="stat-sub">满分100 · ≥90 = 回测可信</div>
       </div>
+      {% set denom_name = '并集' if recon.mode == 'segments' else '实盘笔数' %}
       <div class="stat">
         <div class="stat-label">笔数匹配率 · v1</div>
         <div class="stat-value">{{ (mt.count_match_rate * 100) | round | int }}%</div>
-        <div class="stat-sub">配对 {{ mt.paired }} / 并集 {{ mt.union }}(实盘{{ recon.actual_trades }}·回测{{ recon.bt_trades }})</div>
+        <div class="stat-sub">配对 {{ mt.paired }} / {{ denom_name }} {{ mt.denominator if mt.denominator is defined else mt.union }}(实盘{{ recon.actual_trades }}·回测{{ recon.bt_trades }})</div>
       </div>
       <div class="stat">
         <div class="stat-label">方向匹配率 · v1</div>
         <div class="stat-value">{{ (mt.dir_match_rate * 100) | round | int }}%</div>
-        <div class="stat-sub">配对且方向对 / 并集</div>
+        <div class="stat-sub">配对且方向对 / {{ denom_name }}</div>
       </div>
       <div class="stat">
         <div class="stat-label">涨跌率 · 记录</div>
         <div class="stat-value">{{ (mt.outcome_match_rate * 100) | round | int }}%</div>
-        <div class="stat-sub">配对且盈亏对 / 并集(不评判)</div>
+        <div class="stat-sub">配对且盈亏对 / {{ denom_name }}(不评判)</div>
       </div>
       <div class="stat">
         <div class="stat-label">信号率 · 记录</div>
@@ -44,20 +45,37 @@
         <div class="stat-sub">实盘有信号回测也有(不评判)</div>
       </div>
     </div>
-    <p style="margin:8px 0"><b>回测质量 v1 验收(目标 ≥90%,分母=两边并集)</b>:
+    <p style="margin:8px 0"><b>回测质量 v1 验收(目标 ≥90%,分母={{ denom_name }})</b>:
       笔数 {{ (mt.count_match_rate * 100) | round | int }}% {{ '✅' if mt.count_match_rate >= 0.9 else '❌' }} ·
       方向 {{ (mt.dir_match_rate * 100) | round | int }}% {{ '✅' if mt.dir_match_rate >= 0.9 else '❌' }}
       → {% if mt.q10_pass %}<span class="pos">达标</span>{% else %}<span class="neg">未达标</span>{% endif %}
       <span class="muted">　|　记录不评判:信号 {{ (mt.signal_hit_rate * 100) | round | int }}% · 涨跌 {{ (mt.outcome_match_rate * 100) | round | int }}%</span></p>
-    <p class="muted">品种 {{ recon.symbol }} · 对比时间窗 {{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }}（取自实盘成交跨度）· scope={{ recon.scope }}</p>
-    <p class="muted">数据覆盖(库内M1 · {{ recon.symbol }}):到 <b>{{ m.lts(recon.data_to) if recon.data_to else '无数据' }}</b>
-      {% if recon.data_cover %}<span class="pos">✅ 已盖住实盘窗口 — 无需下载</span>
-      {% else %}<span class="neg">❌ 落后于实盘末尾({{ m.lts(recon.window_to) }})— 先去「数据下载」补到最新</span>{% endif %}</p>
-    <p class="muted">回测覆盖:{{ m.lts(recon.bt_from) }} → {{ m.lts(recon.bt_to) }} · 共 <b>{{ recon.bt_total }}</b> 笔 · 本窗口内 {{ recon.bt_trades }} 笔
-      {% if recon.bt_total == 0 %}<span class="neg">❌ 该策略还没回测过:先去「策略回测」</span>
-      {% elif recon.bt_stale and recon.data_cover %}<span class="neg">⚠ 回测未跑到实盘末尾,但数据已有 → 重跑回测即可再对账</span>
-      {% elif recon.bt_stale %}<span class="neg">⚠ 回测未跑到实盘末尾 → 先下载数据、再重跑回测</span>
-      {% else %}<span class="pos">✅ 已盖住实盘窗口</span>{% endif %}</p>
+    <p class="muted">品种 {{ recon.symbol }} · 对比时间窗 {{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }} ·
+      实盘 <b>{{ recon.actual_trades }}</b> 笔 · 回测 <b>{{ recon.bt_trades }}</b> 笔 ·
+      {% if recon.mode == 'segments' %}<span class="badge ok" title="按 strategy_runtime 运行区间分段对账: 只比策略真实在跑的时段, 段内'回测有信号实盘没单'照样抓 runner 漏单">双边 · 运行区间 {{ recon.windows_total }} 段</span>
+      {% else %}<span class="badge warn" title="该策略还没有运行区间记录(表上线前的历史数据): 只在每笔实盘±20分钟内找回测信号, 仅验证'实盘每笔回测可复现', 抓不了漏单; 分母=实盘笔数">单边(降级) · 不抓漏单</span>{% endif %}</p>
+    {% if recon.windows and recon.windows | length > 1 %}
+    <details class="muted" style="margin:4px 0">
+      <summary>对比窗口 {{ recon.windows_total }} 段(逐段看两边笔数)</summary>
+      <table class="subtable">
+        <tr><th>窗口</th><th>实盘</th><th>回测</th></tr>
+        {% for w in recon.windows %}
+        <tr><td>{{ w.from }} → {{ w.to }}</td><td>{{ w.actual }}</td><td>{{ w.bt }}</td></tr>
+        {% endfor %}
+        {% if recon.windows_total > recon.windows | length %}
+        <tr><td colspan="3" class="muted">… 共 {{ recon.windows_total }} 段, 仅显示前 {{ recon.windows | length }} 段</td></tr>
+        {% endif %}
+      </table>
+    </details>
+    {% endif %}
+    {# 覆盖检查: 正常不打扰, 有问题才出警告行 #}
+    {% if recon.bt_total == 0 %}
+    <p class="muted"><span class="neg">❌ 该策略还没回测过 — 先去「策略回测」</span></p>
+    {% elif not recon.data_cover %}
+    <p class="muted"><span class="neg">❌ 库内M1数据落后(到 {{ m.lts(recon.data_to) if recon.data_to else '无' }})— 先去「数据下载」补到最新再重跑回测</span></p>
+    {% elif recon.bt_stale %}
+    <p class="muted"><span class="neg">⚠ 回测未跑到实盘末尾(到 {{ m.lts(recon.bt_to) }}),数据已有 — 重跑回测即可</span></p>
+    {% endif %}
     {% if recon.pairs %}
     <h3>逐笔对照(实盘 ↔ 回测;匹配的点开看价/净点详情)</h3>
     <table class="subtable">

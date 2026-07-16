@@ -9,7 +9,7 @@
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -419,11 +419,25 @@ async def results(strategy_id: int, request: Request):
 PAIR_TOL_SECONDS = 20 * 60  # 对账配对容差 ±20分钟(2026-07-15 定): 吸收 runner 次开盘偏移/秒级成交延迟
 
 
-def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS):
+def _merge_windows(windows: list) -> list:
+    """[[from_ts, to_ts], ...] 排序 + 合并重叠/相邻 — 避免同一笔回测信号被两个窗争抢"""
+    merged = []
+    for w in sorted(windows):
+        if merged and w[0] <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], w[1])
+        else:
+            merged.append(list(w))
+    return merged
+
+
+def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
+                       one_sided: bool = False):
     """纯函数: 实际成交 vs 回测信号 → (metrics, pairs)。
     actual 项: {dir(buy/sell), ts(epoch), profit, entry(显示串)}
     bt 项:     {dir(BUY/SELL), entry_time(epoch), points, entry(价), exit(价)}
-    配对: 每笔实际找最近的未匹配回测笔(entry 差 ≤ tol, 默认±20分钟)。"""
+    配对: 每笔实际找最近的未匹配回测笔(entry 差 ≤ tol, 默认±20分钟)。
+    one_sided: 无运行区间记录的降级口径 — 回测池只剩实盘附近的信号, 抓不了漏单,
+    分母用实盘笔数(并集里回测侧被清空, 再用并集会虚高得没意义)。"""
     n_a, n_b = len(actual), len(bt)
     used, pairs = set(), []
     for a in actual:
@@ -449,16 +463,19 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS):
     dir_ok = sum(1 for p in pairs if p["dir_match"])
     outcome_ok = sum(1 for p in pairs if p["outcome_match"])
     union = n_a + n_b - paired                          # 两边并集: 配对 + 实盘多 + 回测多
-    count_rate = paired / union if union else 1.0        # 笔数正确率 = 两边都有 / 并集
-    dir_rate = dir_ok / union if union else 0.0          # 趋势正确率 = 配对且方向对 / 并集
-    outcome_rate = outcome_ok / union if union else 0.0  # 涨跌正确率 = 配对且盈亏方向对 / 并集
+    denom = n_a if one_sided else union                 # 分母: 双边=并集, 单边=实盘笔数
+    count_rate = paired / denom if denom else 1.0        # 笔数正确率 = 两边都有 / 分母
+    dir_rate = dir_ok / denom if denom else 0.0          # 趋势正确率 = 配对且方向对 / 分母
+    outcome_rate = outcome_ok / denom if denom else 0.0  # 涨跌正确率 = 配对且盈亏方向对 / 分母
     signal_hit = paired / n_a if n_a else 0.0            # 辅助: 实盘有信号回测也有
     metrics = {
-        "count_match_rate": round(count_rate, 3),      # 笔数正确率(配对/并集, step1)
+        "count_match_rate": round(count_rate, 3),      # 笔数正确率(配对/分母, step1)
         "signal_hit_rate": round(signal_hit, 3),       # 实际有信号回测也有(辅助)
-        "dir_match_rate": round(dir_rate, 3),          # 趋势正确率(配对且方向对/并集, step2)
-        "outcome_match_rate": round(outcome_rate, 3),  # 涨跌正确率(配对且盈亏对/并集, step2)
-        "union": union, "paired": paired,              # 并集/配对数, 供页面显示分母
+        "dir_match_rate": round(dir_rate, 3),          # 趋势正确率(配对且方向对/分母, step2)
+        "outcome_match_rate": round(outcome_rate, 3),  # 涨跌正确率(配对且盈亏对/分母, step2)
+        "union": union, "paired": paired,
+        "denominator": denom,                          # 页面显示实际用的分母
+        "mode": "one_sided" if one_sided else "segments",  # 对账口径入库, 历史分数不混淆
     }
     metrics["match_score"] = round(100 * (0.4 * signal_hit + 0.2 * count_rate
                                           + 0.2 * dir_rate + 0.2 * outcome_rate), 1)
@@ -505,13 +522,30 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
         strategy_id, strat["symbol"])
     bt_all = (bt_row["trades"] if bt_row else []) or []
     wf_ts, wt_ts = wf.timestamp(), wt.timestamp()
-    # 切到实际成交窗口。左端放宽一个配对容差: 回测入场=bar开盘时刻, 实盘成交晚几秒,
+    # 对比窗口(双模式, 2026-07-16 定):
+    #   有运行区间(strategy_runtime) → 分段双边: 只比"策略真实在跑"的时段, 段内照样抓漏单
+    #   区间没覆盖到的实盘笔(老数据/api停摆) → 逐笔±20分钟单窗兜底(单边, 抓不了漏单)
+    # 全部窗口合并重叠后过滤回测池; 左端放宽容差: 回测入场=bar开盘, 实盘成交晚几秒,
     # 否则实盘第一笔对应的回测信号永远被切掉(2026-07-15 实测: #177 07-10 09:00 误报"未触发")
-    bt = [t for t in bt_all if wf_ts - PAIR_TOL_SECONDS <= t["entry_time"] <= wt_ts]
+    tol = PAIR_TOL_SECONDS
+    segs = await pool.fetch(
+        "SELECT run_from, run_to FROM strategy_runtime"
+        " WHERE strategy_id=$1 AND run_to >= $2 AND run_from <= $3 ORDER BY run_from",
+        strategy_id, wf - timedelta(seconds=tol), wt + timedelta(seconds=tol))
+    windows = [[s["run_from"].timestamp() - tol, s["run_to"].timestamp() + tol] for s in segs]
+    for a in actual:  # 区间外的实盘笔(成交是事实, 必须参与对账) → 兜底小窗
+        a_ts = a["entry_time"].timestamp()
+        if not any(w0 <= a_ts <= w1 for w0, w1 in windows):
+            windows.append([a_ts - tol, a_ts + tol])
+    windows = _merge_windows(windows)
+    mode = "segments" if segs else "one_sided"
+    bt = [t for t in bt_all if wf_ts - tol <= t["entry_time"] <= wt_ts
+          and any(w0 <= t["entry_time"] <= w1 for w0, w1 in windows)]
     metrics, pairs = _reconcile_metrics(
         [{"dir": a["direction"], "ts": a["entry_time"].timestamp(), "profit": a["profit"],
           "entry": a["entry_time"].strftime("%m-%d %H:%M"),
-          "price": a["entry_price"], "net": a["net_points"]} for a in actual], bt)
+          "price": a["entry_price"], "net": a["net_points"]} for a in actual],
+        bt, one_sided=(mode == "one_sided"))
     # 覆盖信息两级: 行情数据(库内M1) / 回测窗口 — 分辨低匹配是'数据没下载'/'回测没跑到'/'真没信号'
     bt_from, bt_to = (bt_row["from_time"], bt_row["to_time"]) if bt_row else (None, None)
     if bt_from is not None and bt_from.tzinfo is None:  # naive→aware, 防与 wt(aware)比较 TypeError
@@ -535,8 +569,17 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
             p["gap"] = "bt_stale"        # 库内数据已到, 只是回测没重跑
         else:
             p["gap"] = "data_missing"    # 库内 M1 都没到该时间 → 先下载
+    def _fmt(ts):
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%m-%d %H:%M")
+    win_view = [{  # 每段窗口 + 两边笔数(页面逐段显示); 上限12段防撑爆
+        "from": _fmt(w0), "to": _fmt(w1),
+        "actual": sum(1 for a in actual if w0 <= a["entry_time"].timestamp() <= w1),
+        "bt": sum(1 for t in bt if w0 <= t["entry_time"] <= w1),
+    } for w0, w1 in windows[:12]]
     out.update(window_from=wf, window_to=wt, bt_trades=len(bt), metrics=metrics, pairs=pairs,
                bt_total=len(bt_all), bt_from=bt_from, bt_to=bt_to,
+               # 对账口径: segments=分段双边(有运行区间) / one_sided=逐笔小窗单边(降级)
+               mode=mode, windows=win_view, windows_total=len(windows),
                # 回测末尾早于 demo 末尾 = 回测没覆盖到近期 → 提示重跑
                bt_stale=(bt_to is not None and bt_to < wt),
                # 数据覆盖检查: 库内 M1 是否盖住实盘窗口末尾(✅=不用下载, 重跑回测即可)

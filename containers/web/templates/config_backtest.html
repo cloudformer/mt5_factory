@@ -19,6 +19,19 @@
 </section>
 
 <section>
+  <h2>策略运行状态(strategy_runtime 区间记录)</h2>
+  <form method="post" action="{{ url_for('symbols.save_runtime') }}" class="inline">
+    <label>写入间隔(分钟) <input name="runtime_write_minutes" value="{{ runtime_write }}" size="3"
+        title="策略运行状态写入间隔: 心跳30秒一次, 但 run_to 落后超过本值才真正写库(节流)。死机时区间终点的定格误差 ≤ 本值; 对账容差±20分钟, 默认5足够"></label>
+    <label>裂段阈值(分钟) <input name="runtime_gap_minutes" value="{{ runtime_gap }}" size="3"
+        title="距上次运行记录超过本值 → 视为断开, 新开一段运行区间。必须明显大于写入间隔, 否则正常节流会被误判成断线; 短于本值的停机会被连成一段(偏严格方向, 多比不漏比)"></label>
+    <button class="small">保存</button>
+    <span class="muted">worker 心跳持续记录每个策略的真实运行区间 → 关2对账只比“在跑的时段”。
+      写入间隔=运行状态多久落一次库(默认5); 裂段阈值=断多久算一次下架(默认15, 需&gt;写入间隔)</span>
+  </form>
+</section>
+
+<section>
   <h2>MT5 流水天数预设</h2>
   <form method="post" action="{{ url_for('symbols.save_mt5_days') }}" class="inline">
     <label>天数选项 <input name="mt5_trades_days" value="{{ mt5_days | join(', ') }}" size="18"
