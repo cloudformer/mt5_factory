@@ -463,7 +463,7 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
             "bt": (None if m is None else
                    {"entry": datetime.fromtimestamp(m["entry_time"], tz=timezone.utc).strftime("%m-%d %H:%M"),
                     "dir": m["dir"], "win": m["points"] > 0, "points": m.get("points"),
-                    "price": m.get("entry")}),
+                    "price": m.get("entry"), "ts": m["entry_time"]}),
             "dir_match": dir_match, "outcome_match": outcome_match})
     paired = sum(1 for p in pairs if p["bt"] is not None)
     dir_ok = sum(1 for p in pairs if p["dir_match"])
@@ -496,7 +496,7 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
                 "actual": None, "dir_match": False, "outcome_match": False,
                 "bt": {"entry": datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).strftime("%m-%d %H:%M"),
                        "dir": t["dir"], "win": t["points"] > 0, "points": t.get("points"),
-                       "price": t.get("entry")}})
+                       "price": t.get("entry"), "ts": t["entry_time"]}})
     return metrics, pairs
 
 
@@ -565,10 +565,14 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
     bt_from_ts = bt_from.timestamp() if bt_from else None
     bt_to_ts = bt_to.timestamp() if bt_to else None
     data_to_ts = data_to.timestamp() if data_to else None
-    for p in pairs:  # 实盘有、回测无的行: 按时间点归因缺口, 页面据此给不同修复提示
+    for p in pairs:  # 每行: ①归属窗口(逐笔对照按窗口分组显示) ②缺口归因(实盘有回测无时)
+        ts = (p["actual"] or p["bt"])["ts"]
+        p["win"] = next((k for k, (w0, w1) in enumerate(windows) if w0 <= ts <= w1), None)
+        if p["bt"] is not None:
+            p["bt"].pop("ts", None)
         if p["actual"] is None:
             continue
-        ts = p["actual"].pop("ts")
+        p["actual"].pop("ts", None)
         if p["bt"] is not None:
             continue
         if bt_to_ts is not None and (bt_from_ts is None or ts >= bt_from_ts) and ts <= bt_to_ts:
@@ -579,11 +583,14 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
             p["gap"] = "data_missing"    # 库内 M1 都没到该时间 → 先下载
     def _fmt(ts):
         return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%m-%d %H:%M")
-    win_view = [{  # 每段窗口 + 两边笔数(页面逐段显示); 上限12段防撑爆
+    win_view = [{  # 每段窗口 + 两边笔数(逐笔对照的分组表头); 上限100段防撑爆
         "from": _fmt(w0), "to": _fmt(w1),
         "actual": sum(1 for a in actual if w0 <= a["entry_time"].timestamp() <= w1),
         "bt": sum(1 for t in bt if w0 <= t["entry_time"] <= w1),
-    } for w0, w1 in windows[:12]]
+    } for w0, w1 in windows[:100]]
+    for p in pairs:  # 超出显示上限的窗口归组会丢行 → 防御性归入"窗口外"兜底组
+        if p.get("win") is not None and p["win"] >= len(win_view):
+            p["win"] = None
     out.update(window_from=wf, window_to=wt, bt_trades=len(bt), metrics=metrics, pairs=pairs,
                bt_total=len(bt_all), bt_from=bt_from, bt_to=bt_to,
                # 对账口径: segments=分段双边(有运行区间) / one_sided=逐笔小窗单边(降级)

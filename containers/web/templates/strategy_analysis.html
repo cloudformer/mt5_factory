@@ -54,20 +54,6 @@
       实盘 <b>{{ recon.actual_trades }}</b> 笔 · 回测 <b>{{ recon.bt_trades }}</b> 笔 ·
       {% if recon.mode == 'segments' %}<span class="badge ok" title="按 strategy_runtime 运行区间分段对账: 只比策略真实在跑的时段, 段内'回测有信号实盘没单'照样抓 runner 漏单">双边 · 运行区间 {{ recon.windows_total }} 段</span>
       {% else %}<span class="badge warn" title="该策略还没有运行区间记录(表上线前的历史数据): 只在每笔实盘±20分钟内找回测信号, 仅验证'实盘每笔回测可复现', 抓不了漏单; 分母=实盘笔数">单边(降级) · 不抓漏单</span>{% endif %}</p>
-    {% if recon.windows and recon.windows | length > 1 %}
-    <details class="muted" style="margin:4px 0">
-      <summary>对比窗口 {{ recon.windows_total }} 段(逐段看两边笔数)</summary>
-      <table class="subtable">
-        <tr><th>窗口</th><th>实盘</th><th>回测</th></tr>
-        {% for w in recon.windows %}
-        <tr><td>{{ w.from }} → {{ w.to }}</td><td>{{ w.actual }}</td><td>{{ w.bt }}</td></tr>
-        {% endfor %}
-        {% if recon.windows_total > recon.windows | length %}
-        <tr><td colspan="3" class="muted">… 共 {{ recon.windows_total }} 段, 仅显示前 {{ recon.windows | length }} 段</td></tr>
-        {% endif %}
-      </table>
-    </details>
-    {% endif %}
     {# 覆盖检查: 正常不打扰, 有问题才出警告行 #}
     {% if recon.bt_total == 0 %}
     <p class="muted"><span class="neg">❌ 该策略还没回测过 — 先去「策略回测」</span></p>
@@ -77,10 +63,7 @@
     <p class="muted"><span class="neg">⚠ 回测未跑到实盘末尾:<b>{{ recon.symbol }}</b>{% if recon.broker %} @ <b>{{ recon.broker }}</b>{% endif %} 回测只到 {{ m.lts(recon.bt_to) }},数据已有 — 重跑回测即可</span></p>
     {% endif %}
     {% if recon.pairs %}
-    <h3>逐笔对照(实盘 ↔ 回测;匹配的点开看价/净点详情)</h3>
-    <table class="subtable">
-      <tr><th>时间</th><th>实盘(demo/live)</th><th>回测</th><th>描述</th></tr>
-      {% for p in recon.pairs %}
+    {% macro pair_row(p) %}
       <tr>
         <td>{{ p.actual.entry if p.actual else p.bt.entry }}</td>
         <td>{% if p.actual %}{{ '买' if (p.actual.dir or '') | upper == 'BUY' else '卖' }} ·
@@ -107,8 +90,30 @@
           {% endif %}
         </td>
       </tr>
+    {% endmacro %}
+    <h3>逐笔对照(实盘 ↔ 回测;按运行窗口分组;匹配的点开看价/净点详情)</h3>
+    <table class="subtable">
+      <tr><th>时间</th><th>实盘(demo/live)</th><th>回测</th><th>描述</th></tr>
+      {% set shown = namespace(n=0) %}
+      {% for w in recon.windows %}
+        {% set rows = recon.pairs | selectattr('win', 'equalto', loop.index0) | list %}
+        {% if rows %}
+        {% set shown.n = shown.n + 1 %}
+        <tr class="muted"><td colspan="4" title="一段连续运行窗口(±20分钟), 两边只在窗口内互相找对家">
+          ▸ 窗口{{ shown.n }}:{{ w.from }} → {{ w.to }} · 实盘 {{ w.actual }} 笔 · 回测 {{ w.bt }} 笔</td></tr>
+        {% for p in rows %}{{ pair_row(p) }}{% endfor %}
+        {% endif %}
       {% endfor %}
+      {% set orphans = recon.pairs | selectattr('win', 'none') | list %}
+      {% if orphans %}
+      <tr class="muted"><td colspan="4">▸ 窗口外(兜底)</td></tr>
+      {% for p in orphans %}{{ pair_row(p) }}{% endfor %}
+      {% endif %}
     </table>
+    {% set empty_w = recon.windows_total - shown.n %}
+    {% if empty_w > 0 %}
+    <p class="muted">另有 {{ empty_w }} 段运行窗口两边均无成交(策略在跑、双方都没信号 = 一致,不占版面)。</p>
+    {% endif %}
     {% endif %}
     {% endif %}
   {% endif %}
