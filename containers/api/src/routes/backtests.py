@@ -406,43 +406,60 @@ async def results(strategy_id: int, request: Request):
 
 
 # ---------- 关2 对账: 回测 vs 实盘(demo/live)逐笔匹配 (v1.6) ----------
-def _reconcile_metrics(actual: list, bt: list, tf_seconds: int) -> dict:
-    """纯函数: 实际成交 vs 回测信号 → 4 个一致率(0~1)+ 综合分(0~100)。
-    actual 项: {direction(buy/sell), entry_ts(epoch), profit}
-    bt 项:     {dir(BUY/SELL), entry_time(epoch), points}
-    配对: 每笔实际找最近的未匹配回测笔(entry 差 ≤ 2根bar, 吸收 runner 次开盘的偏移)。"""
+def _reconcile_metrics(actual: list, bt: list, tf_seconds: int):
+    """纯函数: 实际成交 vs 回测信号 → (metrics, pairs)。
+    actual 项: {dir(buy/sell), ts(epoch), profit, entry(显示串)}
+    bt 项:     {dir(BUY/SELL), entry_time(epoch), points, entry(价), exit(价)}
+    配对: 每笔实际找最近的未匹配回测笔(entry 差 ≤ 2根bar, 吸收 runner 次开盘偏移)。"""
     n_a, n_b = len(actual), len(bt)
-    count_rate = (min(n_a, n_b) / max(n_a, n_b)) if max(n_a, n_b) else 1.0
     tol = 2 * tf_seconds
-    used, paired, dir_ok, outcome_ok = set(), 0, 0, 0
+    used, pairs = set(), []
     for a in actual:
         best, bestd = None, tol + 1
         for i, t in enumerate(bt):
-            if i in used:
-                continue
-            d = abs(t["entry_time"] - a["entry_ts"])
-            if d < bestd:
-                best, bestd = i, d
-        if best is not None and bestd <= tol:
-            used.add(best); paired += 1
-            t = bt[best]
-            if t["dir"].upper() == a["direction"].upper():
-                dir_ok += 1
-            if (t["points"] > 0) == (a["profit"] > 0):   # 盈亏方向(是否盈利)一致
-                outcome_ok += 1
-    signal_hit = paired / n_a if n_a else 0.0
-    dir_rate = dir_ok / paired if paired else 0.0
-    outcome_rate = outcome_ok / paired if paired else 0.0
+            if i not in used and abs(t["entry_time"] - a["ts"]) < bestd:
+                best, bestd = i, abs(t["entry_time"] - a["ts"])
+        m = bt[best] if (best is not None and bestd <= tol) else None
+        if m is not None:
+            used.add(best)
+        dir_match = m is not None and m["dir"].upper() == a["dir"].upper()
+        outcome_match = m is not None and (m["points"] > 0) == (a["profit"] > 0)
+        pairs.append({
+            "actual": {"entry": a["entry"], "dir": a["dir"],
+                       "win": a["profit"] > 0, "profit": round(a["profit"], 2)},
+            "bt": (None if m is None else
+                   {"entry": datetime.fromtimestamp(m["entry_time"], tz=timezone.utc).strftime("%m-%d %H:%M"),
+                    "dir": m["dir"], "win": m["points"] > 0, "points": m.get("points")}),
+            "dir_match": dir_match, "outcome_match": outcome_match})
+    paired = sum(1 for p in pairs if p["bt"] is not None)
+    dir_ok = sum(1 for p in pairs if p["dir_match"])
+    outcome_ok = sum(1 for p in pairs if p["outcome_match"])
+    union = n_a + n_b - paired                          # 两边并集: 配对 + 实盘多 + 回测多
+    count_rate = paired / union if union else 1.0        # 笔数正确率 = 两边都有 / 并集
+    dir_rate = dir_ok / union if union else 0.0          # 趋势正确率 = 配对且方向对 / 并集
+    outcome_rate = outcome_ok / union if union else 0.0  # 涨跌正确率 = 配对且盈亏方向对 / 并集
+    signal_hit = paired / n_a if n_a else 0.0            # 辅助: 实盘有信号回测也有
     metrics = {
-        "count_match_rate": round(count_rate, 3),      # 笔数一致率
-        "signal_hit_rate": round(signal_hit, 3),       # 实际有信号回测也有
-        "dir_match_rate": round(dir_rate, 3),          # 方向一致(配对内)
-        "outcome_match_rate": round(outcome_rate, 3),  # 盈亏方向一致(配对内)
+        "count_match_rate": round(count_rate, 3),      # 笔数正确率(配对/并集, step1)
+        "signal_hit_rate": round(signal_hit, 3),       # 实际有信号回测也有(辅助)
+        "dir_match_rate": round(dir_rate, 3),          # 趋势正确率(配对且方向对/并集, step2)
+        "outcome_match_rate": round(outcome_rate, 3),  # 涨跌正确率(配对且盈亏对/并集, step2)
+        "union": union, "paired": paired,              # 并集/配对数, 供页面显示分母
     }
-    # 综合分(权重暂写死, 未来进config): 信号命中最重
     metrics["match_score"] = round(100 * (0.4 * signal_hit + 0.2 * count_rate
                                           + 0.2 * dir_rate + 0.2 * outcome_rate), 1)
-    return metrics
+    # 回测质量v1 达标: 只判 笔数(trade) & 方向(direction) 两率 ≥ 90%(阈值暂写死, 未来进config);
+    # 信号(indicator)/涨跌(outcome) 照算照存, 记录/展示用, 不进 v1 考核
+    metrics["q10_pass"] = (count_rate >= 0.9 and dir_rate >= 0.9)
+    metrics["q10_target"] = 0.9
+    # 两边对账: 补"回测有信号、实盘没下单"那一边(能抓 runner 漏单)。不计入上面的率, 仅显示
+    for i, t in enumerate(bt):
+        if i not in used:
+            pairs.append({
+                "actual": None, "dir_match": False, "outcome_match": False,
+                "bt": {"entry": datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).strftime("%m-%d %H:%M"),
+                       "dir": t["dir"], "win": t["points"] > 0, "points": t.get("points")}})
+    return metrics, pairs
 
 
 @router.get("/reconcile/{strategy_id}")
@@ -474,11 +491,11 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
     bt_all = (bt_row["trades"] if bt_row else []) or []
     wf_ts, wt_ts = wf.timestamp(), wt.timestamp()
     bt = [t for t in bt_all if wf_ts <= t["entry_time"] <= wt_ts]  # 切到实际成交窗口
-    metrics = _reconcile_metrics(
-        [{"direction": a["direction"], "entry_ts": a["entry_time"].timestamp(),
-          "profit": a["profit"]} for a in actual],
+    metrics, pairs = _reconcile_metrics(
+        [{"dir": a["direction"], "ts": a["entry_time"].timestamp(), "profit": a["profit"],
+          "entry": a["entry_time"].strftime("%m-%d %H:%M")} for a in actual],
         bt, TF_SECONDS.get(strat["timeframe"], 900))
-    out.update(window_from=wf, window_to=wt, bt_trades=len(bt), metrics=metrics)
+    out.update(window_from=wf, window_to=wt, bt_trades=len(bt), metrics=metrics, pairs=pairs)
     await pool.execute(
         "INSERT INTO reconciliations (strategy_id, scope, window_from, window_to,"
         "   actual_trades, bt_trades, match_score, metrics)"

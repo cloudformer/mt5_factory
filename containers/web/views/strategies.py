@@ -91,13 +91,17 @@ def generate_page():
 def analysis():
     """策略分析: 关2对账(输入策略id → 回测 vs 实盘 match%); v1.4 更多归因维度待建"""
     sid = request.args.get("strategy_id", type=int)
-    recon = None
+    recon, ana = None, None
     if sid:
         try:
             recon = api.get(f"/reconcile/{sid}")
         except api.ApiError as e:
             flash(f"对账失败: {e}", "error")
-    return render_template("strategy_analysis.html", recon=recon, sid=sid)
+        try:
+            ana = api.get(f"/analysis/{sid}")
+        except api.ApiError as e:
+            flash(f"分析失败: {e}", "error")
+    return render_template("strategy_analysis.html", recon=recon, ana=ana, sid=sid)
 
 
 @bp.get("/quality")

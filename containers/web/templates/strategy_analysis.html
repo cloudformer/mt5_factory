@@ -24,27 +24,58 @@
         <div class="stat-sub">满分100 · ≥90 = 回测可信</div>
       </div>
       <div class="stat">
-        <div class="stat-label">笔数一致率</div>
+        <div class="stat-label">笔数匹配率 · v1</div>
         <div class="stat-value">{{ (mt.count_match_rate * 100) | round | int }}%</div>
-        <div class="stat-sub">实盘 {{ recon.actual_trades }} · 回测 {{ recon.bt_trades }}</div>
+        <div class="stat-sub">配对 {{ mt.paired }} / 并集 {{ mt.union }}(实盘{{ recon.actual_trades }}·回测{{ recon.bt_trades }})</div>
       </div>
       <div class="stat">
-        <div class="stat-label">信号命中率</div>
-        <div class="stat-value">{{ (mt.signal_hit_rate * 100) | round | int }}%</div>
-        <div class="stat-sub">实盘有信号回测也有</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">方向一致</div>
+        <div class="stat-label">方向匹配率 · v1</div>
         <div class="stat-value">{{ (mt.dir_match_rate * 100) | round | int }}%</div>
-        <div class="stat-sub">配对内 买/卖 一致</div>
+        <div class="stat-sub">配对且方向对 / 并集</div>
       </div>
       <div class="stat">
-        <div class="stat-label">盈亏方向一致</div>
+        <div class="stat-label">涨跌率 · 记录</div>
         <div class="stat-value">{{ (mt.outcome_match_rate * 100) | round | int }}%</div>
-        <div class="stat-sub">配对内 是否盈利一致</div>
+        <div class="stat-sub">配对且盈亏对 / 并集(不评判)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">信号率 · 记录</div>
+        <div class="stat-value">{{ (mt.signal_hit_rate * 100) | round | int }}%</div>
+        <div class="stat-sub">实盘有信号回测也有(不评判)</div>
       </div>
     </div>
+    <p style="margin:8px 0"><b>回测质量 v1 验收(目标 ≥90%,分母=两边并集)</b>:
+      笔数 {{ (mt.count_match_rate * 100) | round | int }}% {{ '✅' if mt.count_match_rate >= 0.9 else '❌' }} ·
+      方向 {{ (mt.dir_match_rate * 100) | round | int }}% {{ '✅' if mt.dir_match_rate >= 0.9 else '❌' }}
+      → {% if mt.q10_pass %}<span class="pos">达标</span>{% else %}<span class="neg">未达标</span>{% endif %}
+      <span class="muted">　|　记录不评判:信号 {{ (mt.signal_hit_rate * 100) | round | int }}% · 涨跌 {{ (mt.outcome_match_rate * 100) | round | int }}%</span></p>
     <p class="muted">品种 {{ recon.symbol }} · 对比时间窗 {{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }}（取自实盘成交跨度）· scope={{ recon.scope }}</p>
+    {% if recon.pairs %}
+    <h3>逐笔对照(实盘 ↔ 回测:看实际交易 + 是否匹配)</h3>
+    <table class="subtable">
+      <tr><th>实盘入场</th><th>方向</th><th>胜负</th><th>回测入场</th><th>方向</th><th>胜负</th><th>方向一致</th><th>涨跌一致</th></tr>
+      {% for p in recon.pairs %}
+      <tr>
+        {% if p.actual %}
+        <td>{{ p.actual.entry }}</td>
+        <td>{{ '买' if (p.actual.dir or '') | upper == 'BUY' else '卖' }}</td>
+        <td>{% if p.actual.win %}<span class="pos">胜</span>{% else %}<span class="neg">负</span>{% endif %}</td>
+        {% else %}
+        <td class="muted">—</td><td class="muted">—</td><td class="neg" title="回测有信号、实盘没下单 — 疑似 runner 漏单">实盘无</td>
+        {% endif %}
+        {% if p.bt %}
+        <td>{{ p.bt.entry }}</td>
+        <td>{{ '买' if (p.bt.dir or '') | upper == 'BUY' else '卖' }}</td>
+        <td>{% if p.bt.win %}<span class="pos">胜</span>{% else %}<span class="neg">负</span>{% endif %}</td>
+        {% else %}
+        <td class="muted">—</td><td class="muted">—</td><td class="neg" title="实盘有成交、回测没信号 — 回测口径/数据对不上">回测无</td>
+        {% endif %}
+        <td>{% if p.actual and p.bt %}{{ '✅' if p.dir_match else '❌' }}{% else %}—{% endif %}</td>
+        <td>{% if p.actual and p.bt %}{{ '✅' if p.outcome_match else '❌' }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
     {% endif %}
   {% endif %}
 </section>
