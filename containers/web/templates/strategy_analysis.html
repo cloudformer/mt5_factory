@@ -90,7 +90,8 @@
         </td>
     {% endmacro %}
     <h3>逐笔对照(实盘 ↔ 回测;按运行窗口分组;匹配的点开看价/净点详情)</h3>
-    <table class="subtable">
+    {# 用全宽正表(subtable 是详情小表: 不撑满+首列锁90px, 五列表格会挤死) #}
+    <table>
       <tr><th title="一段连续对比窗口(运行区间±20分钟, 或单笔兜底小窗), 两边只在窗口内互相找对家">运行窗口</th>
           <th>时间</th><th>实盘(demo/live)</th><th>回测</th><th>描述</th></tr>
       {% set shown = namespace(n=0) %}
