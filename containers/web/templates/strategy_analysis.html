@@ -50,9 +50,14 @@
       → {% if mt.q10_pass %}<span class="pos">达标</span>{% else %}<span class="neg">未达标</span>{% endif %}
       <span class="muted">　|　记录不评判:信号 {{ (mt.signal_hit_rate * 100) | round | int }}% · 涨跌 {{ (mt.outcome_match_rate * 100) | round | int }}%</span></p>
     <p class="muted">品种 {{ recon.symbol }} · 对比时间窗 {{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }}（取自实盘成交跨度）· scope={{ recon.scope }}</p>
-    <p class="muted">回测覆盖 {{ m.lts(recon.bt_from) }} → {{ m.lts(recon.bt_to) }} · 共 <b>{{ recon.bt_total }}</b> 笔 · 本窗口内 {{ recon.bt_trades }} 笔
-      {% if recon.bt_stale %}<span class="neg">— 回测未覆盖到 demo 末尾:用最新数据重跑回测再对账</span>
-      {% elif recon.bt_total == 0 %}<span class="neg">— 该策略还没回测过:先去「策略回测」</span>{% endif %}</p>
+    <p class="muted">数据覆盖(库内M1 · {{ recon.symbol }}):到 <b>{{ m.lts(recon.data_to) if recon.data_to else '无数据' }}</b>
+      {% if recon.data_cover %}<span class="pos">✅ 已盖住实盘窗口 — 无需下载</span>
+      {% else %}<span class="neg">❌ 落后于实盘末尾({{ m.lts(recon.window_to) }})— 先去「数据下载」补到最新</span>{% endif %}</p>
+    <p class="muted">回测覆盖:{{ m.lts(recon.bt_from) }} → {{ m.lts(recon.bt_to) }} · 共 <b>{{ recon.bt_total }}</b> 笔 · 本窗口内 {{ recon.bt_trades }} 笔
+      {% if recon.bt_total == 0 %}<span class="neg">❌ 该策略还没回测过:先去「策略回测」</span>
+      {% elif recon.bt_stale and recon.data_cover %}<span class="neg">⚠ 回测未跑到实盘末尾,但数据已有 → 重跑回测即可再对账</span>
+      {% elif recon.bt_stale %}<span class="neg">⚠ 回测未跑到实盘末尾 → 先下载数据、再重跑回测</span>
+      {% else %}<span class="pos">✅ 已盖住实盘窗口</span>{% endif %}</p>
     {% if recon.pairs %}
     <h3>逐笔对照(实盘 ↔ 回测;匹配的点开看价/净点详情)</h3>
     <table class="subtable">
@@ -75,7 +80,11 @@
               净点:实盘 <b>{{ p.actual.net if p.actual.net is not none else '—' }}</b> / 回测 <b>{{ p.bt.points }}</b>
             </div>
           </details>
-          {% elif p.actual %}<span class="neg">回测无信号</span> — 回测未覆盖近期 或 未触发
+          {% elif p.actual %}
+            {% if p.gap == 'not_triggered' %}<span class="neg">✗ 回测未触发</span> — 该时间回测已覆盖仍无信号(真差异,计入不匹配)
+            {% elif p.gap == 'bt_stale' %}<span class="badge warn">回测未跑到</span> 库内数据已有 ✅ → 重跑回测即可
+            {% elif p.gap == 'data_missing' %}<span class="neg">数据未下载</span> — 库内 M1 未到该时间 → 先去「数据下载」
+            {% else %}<span class="neg">回测无信号</span>{% endif %}
           {% else %}<span class="neg">实盘未下单</span> — 疑似 runner 漏单 / 无报价
           {% endif %}
         </td>

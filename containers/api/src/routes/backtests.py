@@ -437,7 +437,8 @@ def _reconcile_metrics(actual: list, bt: list, tf_seconds: int):
         outcome_match = m is not None and (m["points"] > 0) == (a["profit"] > 0)
         pairs.append({
             "actual": {"entry": a["entry"], "dir": a["dir"], "win": a["profit"] > 0,
-                       "profit": round(a["profit"], 2), "price": a.get("price"), "net": a.get("net")},
+                       "profit": round(a["profit"], 2), "price": a.get("price"), "net": a.get("net"),
+                       "ts": a["ts"]},  # epoch, 供 reconcile() 判缺口原因后 pop 掉
             "bt": (None if m is None else
                    {"entry": datetime.fromtimestamp(m["entry_time"], tz=timezone.utc).strftime("%m-%d %H:%M"),
                     "dir": m["dir"], "win": m["points"] > 0, "points": m.get("points"),
@@ -509,15 +510,36 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
           "entry": a["entry_time"].strftime("%m-%d %H:%M"),
           "price": a["entry_price"], "net": a["net_points"]} for a in actual],
         bt, TF_SECONDS.get(strat["timeframe"], 900))
-    # 回测覆盖信息: 让人看清"回测总共几笔/覆盖到几号", 分辨低匹配是'回测没覆盖'还是'真没信号'
-    bt_to = bt_row["to_time"] if bt_row else None
-    if bt_to is not None and bt_to.tzinfo is None:   # naive→aware, 防与 wt(aware)比较 TypeError
+    # 覆盖信息两级: 行情数据(库内M1) / 回测窗口 — 分辨低匹配是'数据没下载'/'回测没跑到'/'真没信号'
+    bt_from, bt_to = (bt_row["from_time"], bt_row["to_time"]) if bt_row else (None, None)
+    if bt_from is not None and bt_from.tzinfo is None:  # naive→aware, 防与 wt(aware)比较 TypeError
+        bt_from = bt_from.replace(tzinfo=timezone.utc)
+    if bt_to is not None and bt_to.tzinfo is None:
         bt_to = bt_to.replace(tzinfo=timezone.utc)
+    data_to = await pool.fetchval(   # 该品种库内原始 M1 的最新时间(唯一原始数据, 回测的原料)
+        "SELECT max(time) FROM historical_bars WHERE symbol=$1 AND timeframe='M1'", strat["symbol"])
+    bt_from_ts = bt_from.timestamp() if bt_from else None
+    bt_to_ts = bt_to.timestamp() if bt_to else None
+    data_to_ts = data_to.timestamp() if data_to else None
+    for p in pairs:  # 实盘有、回测无的行: 按时间点归因缺口, 页面据此给不同修复提示
+        if p["actual"] is None:
+            continue
+        ts = p["actual"].pop("ts")
+        if p["bt"] is not None:
+            continue
+        if bt_to_ts is not None and (bt_from_ts is None or ts >= bt_from_ts) and ts <= bt_to_ts:
+            p["gap"] = "not_triggered"   # 回测已覆盖该时间仍无信号 = 真差异
+        elif data_to_ts is not None and ts <= data_to_ts:
+            p["gap"] = "bt_stale"        # 库内数据已到, 只是回测没重跑
+        else:
+            p["gap"] = "data_missing"    # 库内 M1 都没到该时间 → 先下载
     out.update(window_from=wf, window_to=wt, bt_trades=len(bt), metrics=metrics, pairs=pairs,
-               bt_total=len(bt_all),
-               bt_from=(bt_row["from_time"] if bt_row else None), bt_to=bt_to,
+               bt_total=len(bt_all), bt_from=bt_from, bt_to=bt_to,
                # 回测末尾早于 demo 末尾 = 回测没覆盖到近期 → 提示重跑
-               bt_stale=(bt_to is not None and bt_to < wt))
+               bt_stale=(bt_to is not None and bt_to < wt),
+               # 数据覆盖检查: 库内 M1 是否盖住实盘窗口末尾(✅=不用下载, 重跑回测即可)
+               data_to=data_to,
+               data_cover=(data_to_ts is not None and data_to_ts >= wt.timestamp()))
     await pool.execute(
         "INSERT INTO reconciliations (strategy_id, scope, window_from, window_to,"
         "   actual_trades, bt_trades, match_score, metrics)"
