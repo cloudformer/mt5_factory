@@ -33,9 +33,19 @@ def _who(magic: int, magic_map: dict) -> str:
 
 @bp.get("/")
 def index():
-    days = request.args.get("days", 30, type=int)
-    hosts, data, magic_map = [], None, {}
+    # 时间: 预设(近N天)或自定义起始日; 实时流水只"最近N天到现在", 故自定义只用"从"(to=现在)
+    win = request.args.get("win") or request.args.get("days") or "30"  # 兼容旧 days= 链接
+    frm = request.args.get("from") or ""
+    if win == "custom" and frm:
+        try:
+            days = max(1, (datetime.now().date() - datetime.strptime(frm, "%Y-%m-%d").date()).days)
+        except ValueError:
+            days = 30
+    else:
+        days = int(win) if str(win).isdigit() else 30
+    hosts, data, magic_map, presets = [], None, {}, [7, 30, 90]
     try:
+        presets = api.get("/config")["config"].get("mt5_trades_days") or [7, 30, 90]
         hosts = [h for h in api.get("/hosts")["hosts"] if h["enabled"]]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
@@ -84,6 +94,7 @@ def index():
                 d["reason_cn"] = REASON_CN.get(d["reason"], d["reason"])
             d["who"] = "入金/出金" if d["type"] == "balance" else _who(d["magic"], magic_map)
     return render_template("mt5.html", groups=groups, host_id=host_id, days=days,
+                           presets=presets, win=win, frm=frm,
                            data=data, broker=broker, account=account, acct_stale=acct_stale,
                            worker_name=(sel or {}).get("name"),
                            worker_role=(sel or {}).get("runner"))

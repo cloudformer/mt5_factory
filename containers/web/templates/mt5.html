@@ -15,7 +15,7 @@
       </optgroup>
       {% endif %}{% endfor %}
     </select>
-    <label>近 <input name="days" value="{{ days }}" size="3"> 天</label>
+    {{ m.time_range(presets, win, frm, to_enabled=False) }}
     <button class="small">查询</button>
     {% if broker %}<span class="badge">券商 {{ broker }}</span>{% endif %}
     {% if worker_name %}<span class="badge {{ 'warn' if worker_role == 'demo' else ('ok' if worker_role == 'live' else '') }}">{{ worker_name }}{% if worker_role %} · {{ worker_role }}{% endif %}</span>{% endif %}

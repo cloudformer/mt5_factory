@@ -17,4 +17,14 @@
     <span class="muted">成本 = 悲观撮合假设; 上限 = 单批保护值(排名取数跟它); OOS = 训练段选/留出段一票否决, 比例长期固定 7:3</span>
   </form>
 </section>
+
+<section>
+  <h2>MT5 流水天数预设</h2>
+  <form method="post" action="{{ url_for('symbols.save_mt5_days') }}" class="inline">
+    <label>天数选项 <input name="mt5_trades_days" value="{{ mt5_days | join(', ') }}" size="18"
+        title="逗号分隔的天数; 流水页(Worker/系统)据此渲染成『近N天』快捷 chips"></label>
+    <button class="small">保存</button>
+    <span class="muted">如 7, 30, 90 → 流水页出现「近7天/近30天/近90天」chips + 自定义区间</span>
+  </form>
+</section>
 {% endblock %}

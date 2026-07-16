@@ -499,6 +499,10 @@ async def trades_local(request: Request, account: Optional[int] = None,
     """读本地库 trades(MT5 已平仓的持久副本): 按 account + 平仓时间范围过滤。
     与 /hosts/{id}/trades(实时拉 MT5)互补 — 这个不限 90 天、离线也能查。"""
     pool = request.app.state.pool
+    if from_time and from_time.tzinfo is None:      # naive → 按 UTC(券商时间口径), 与 timestamptz 一致
+        from_time = from_time.replace(tzinfo=timezone.utc)
+    if to_time and to_time.tzinfo is None:
+        to_time = to_time.replace(tzinfo=timezone.utc)
     accounts = [r["account"] for r in await pool.fetch(
         "SELECT DISTINCT account FROM trades ORDER BY account")]
     q, args = "SELECT * FROM trades WHERE true", []
@@ -520,19 +524,27 @@ async def trades_consistency(request: Request, account: int,
     """按需一致性核对: 本时间段 库(trades)笔数 vs 该账号 worker 实时 MT5 已平仓笔数。
     两数相等 = 一致(库可信); 不等 = 库疑似漏存/多存。worker 离线则无法实时核对。"""
     pool = request.app.state.pool
+    # ① 归一时区: web 可能传 naive(datetime.now().isoformat()无tz) → 与 aware 运算会 TypeError。
+    #   trades.exit_time 存的是券商时间(按 UTC 标), 故 naive 一律按 UTC 处理。
+    if from_time.tzinfo is None:
+        from_time = from_time.replace(tzinfo=timezone.utc)
     to_time = to_time or datetime.now(timezone.utc)
-    db = await pool.fetchval(
-        "SELECT count(*) FROM trades WHERE account=$1 AND exit_time>=$2 AND exit_time<=$3",
-        account, from_time, to_time)
-    host = await pool.fetchrow(
-        "SELECT host, port FROM mt5_hosts WHERE mt5_login=$1 AND enabled", account)
-    if host is None:
-        return {"account": account, "db": db, "mt5": None, "consistent": None,
-                "note": "该账号当前无在线 worker 登录, 无法实时核对(库数据仍在)"}
-    ft, tt = from_time.timestamp(), to_time.timestamp()
-    days = max(1, int((datetime.now(timezone.utc) - from_time).total_seconds() // 86400) + 2)
-    headers = {"X-API-Key": os.getenv("BRIDGE_API_KEY", "")} if os.getenv("BRIDGE_API_KEY") else {}
-    try:
+    if to_time.tzinfo is None:
+        to_time = to_time.replace(tzinfo=timezone.utc)
+    db = None
+    try:  # ② 兜底: 任何异常都返回优雅结果, 绝不 500(核对是辅助功能, 不该拖垮页面)
+        db = await pool.fetchval(
+            "SELECT count(*) FROM trades WHERE account=$1 AND exit_time>=$2 AND exit_time<=$3",
+            account, from_time, to_time)
+        host = await pool.fetchrow(
+            "SELECT host, port FROM mt5_hosts WHERE mt5_login=$1 AND enabled", account)
+        if host is None:
+            return {"account": account, "db": db, "mt5": None, "consistent": None,
+                    "note": "该账号当前无在线 worker 登录, 无法实时核对(库数据仍在)"}
+        ft, tt = from_time.timestamp(), to_time.timestamp()
+        days = max(1, int((datetime.now(timezone.utc) - from_time).total_seconds() // 86400) + 2)
+        headers = ({"X-API-Key": os.getenv("BRIDGE_API_KEY", "")}
+                   if os.getenv("BRIDGE_API_KEY") else {})
         async with httpx.AsyncClient(timeout=15, headers=headers) as client:
             r = await client.get(f"http://{host['host']}:{host['port']}/trades",
                                  params={"days": days})
@@ -547,7 +559,8 @@ async def trades_consistency(request: Request, account: int,
             out = next((d for d in legs if d.get("entry") == "out"), None)
             if ins and out and ins.get("type") in ("buy", "sell") and ft <= out["time"] <= tt:
                 mt5 += 1
-    except (httpx.HTTPError, ValueError) as e:
+        return {"account": account, "db": db, "mt5": mt5, "consistent": db == mt5}
+    except Exception as e:
+        logger.warning("trades consistency %s failed: %s", account, e)
         return {"account": account, "db": db, "mt5": None, "consistent": None,
-                "note": f"实时核对失败(worker/bridge 不可达): {e}"}
-    return {"account": account, "db": db, "mt5": mt5, "consistent": db == mt5}
+                "note": f"核对暂不可用(worker/bridge 不可达或出错): {e}"}

@@ -24,16 +24,30 @@ def index():
 @bp.get("/backtest")
 def backtest_params():
     """配置·回测参数: 成本模型 + 单批上限 + OOS 切分"""
-    costs, batch_limit, oos_split = {}, 500, 0.7
+    costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
         batch_limit = cfg.get("backtest_batch_limit", 500)
         oos_split = cfg.get("backtest_oos_split", 0.7)
+        mt5_days = cfg.get("mt5_trades_days") or [7, 30, 90]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-    return render_template("config_backtest.html", costs=costs,
-                           batch_limit=batch_limit, oos_split=oos_split)
+    return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
+                           oos_split=oos_split, mt5_days=mt5_days)
+
+
+@bp.post("/config/mt5-days")
+def save_mt5_days():
+    """保存 MT5 流水天数预设(config: mt5_trades_days)— 流水页 chips 由它渲染"""
+    raw = request.form.get("mt5_trades_days", "").replace("，", ",")
+    try:
+        days = [int(x.strip()) for x in raw.split(",") if x.strip()]
+        api.put("/config/mt5_trades_days", {"value": days})
+        flash(f"流水天数预设已保存: {days}", "ok")
+    except (api.ApiError, ValueError) as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
 
 
 @bp.get("/ranking")
