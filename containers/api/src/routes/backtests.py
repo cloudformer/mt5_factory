@@ -425,11 +425,12 @@ def _reconcile_metrics(actual: list, bt: list, tf_seconds: int):
         dir_match = m is not None and m["dir"].upper() == a["dir"].upper()
         outcome_match = m is not None and (m["points"] > 0) == (a["profit"] > 0)
         pairs.append({
-            "actual": {"entry": a["entry"], "dir": a["dir"],
-                       "win": a["profit"] > 0, "profit": round(a["profit"], 2)},
+            "actual": {"entry": a["entry"], "dir": a["dir"], "win": a["profit"] > 0,
+                       "profit": round(a["profit"], 2), "price": a.get("price"), "net": a.get("net")},
             "bt": (None if m is None else
                    {"entry": datetime.fromtimestamp(m["entry_time"], tz=timezone.utc).strftime("%m-%d %H:%M"),
-                    "dir": m["dir"], "win": m["points"] > 0, "points": m.get("points")}),
+                    "dir": m["dir"], "win": m["points"] > 0, "points": m.get("points"),
+                    "price": m.get("entry")}),
             "dir_match": dir_match, "outcome_match": outcome_match})
     paired = sum(1 for p in pairs if p["bt"] is not None)
     dir_ok = sum(1 for p in pairs if p["dir_match"])
@@ -458,7 +459,8 @@ def _reconcile_metrics(actual: list, bt: list, tf_seconds: int):
             pairs.append({
                 "actual": None, "dir_match": False, "outcome_match": False,
                 "bt": {"entry": datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).strftime("%m-%d %H:%M"),
-                       "dir": t["dir"], "win": t["points"] > 0, "points": t.get("points")}})
+                       "dir": t["dir"], "win": t["points"] > 0, "points": t.get("points"),
+                       "price": t.get("entry")}})
     return metrics, pairs
 
 
@@ -493,7 +495,8 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
     bt = [t for t in bt_all if wf_ts <= t["entry_time"] <= wt_ts]  # 切到实际成交窗口
     metrics, pairs = _reconcile_metrics(
         [{"dir": a["direction"], "ts": a["entry_time"].timestamp(), "profit": a["profit"],
-          "entry": a["entry_time"].strftime("%m-%d %H:%M")} for a in actual],
+          "entry": a["entry_time"].strftime("%m-%d %H:%M"),
+          "price": a["entry_price"], "net": a["net_points"]} for a in actual],
         bt, TF_SECONDS.get(strat["timeframe"], 900))
     # 回测覆盖信息: 让人看清"回测总共几笔/覆盖到几号", 分辨低匹配是'回测没覆盖'还是'真没信号'
     bt_to = bt_row["to_time"] if bt_row else None

@@ -54,24 +54,37 @@
       {% if recon.bt_stale %}<span class="neg">— 回测未覆盖到 demo 末尾:用最新数据重跑回测再对账</span>
       {% elif recon.bt_total == 0 %}<span class="neg">— 该策略还没回测过:先去「策略回测」</span>{% endif %}</p>
     {% if recon.pairs %}
-    <h3>逐笔对照(实盘 ↔ 回测:看实际交易 + 是否匹配)</h3>
-    <table class="subtable">
-      <tr><th>实盘入场</th><th>方向</th><th>胜负</th><th>回测入场</th><th>方向</th><th>胜负</th><th>方向一致</th><th>涨跌一致</th></tr>
+    <h3>逐笔对照(实盘 ↔ 回测:对上的可细看 价/净点 差异)</h3>
+    <table class="subtable dense">
+      <tr>
+        <th colspan="5" style="text-align:center">实盘(demo/live)</th>
+        <th colspan="5" style="text-align:center">回测</th>
+        <th colspan="2" style="text-align:center">一致</th></tr>
+      <tr>
+        <th>入场</th><th>方向</th><th>价</th><th>净点</th><th>胜负</th>
+        <th>入场</th><th>方向</th><th>价</th><th>点</th><th>胜负</th>
+        <th>方向</th><th>涨跌</th></tr>
       {% for p in recon.pairs %}
       <tr>
         {% if p.actual %}
         <td>{{ p.actual.entry }}</td>
         <td>{{ '买' if (p.actual.dir or '') | upper == 'BUY' else '卖' }}</td>
+        <td class="muted">{{ p.actual.price }}</td>
+        <td class="{{ 'pos' if (p.actual.net or 0) >= 0 else 'neg' }}">{{ p.actual.net if p.actual.net is not none else '—' }}</td>
         <td>{% if p.actual.win %}<span class="pos">胜</span>{% else %}<span class="neg">负</span>{% endif %}</td>
         {% else %}
-        <td class="muted">—</td><td class="muted">—</td><td class="neg" title="回测有信号、实盘没下单 — 疑似 runner 漏单">实盘无</td>
+        <td class="muted">—</td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>
+        <td class="neg" title="回测有信号、实盘没下单 — 疑似 runner 漏单">实盘无</td>
         {% endif %}
         {% if p.bt %}
         <td>{{ p.bt.entry }}</td>
         <td>{{ '买' if (p.bt.dir or '') | upper == 'BUY' else '卖' }}</td>
+        <td class="muted">{{ p.bt.price }}</td>
+        <td class="{{ 'pos' if (p.bt.points or 0) >= 0 else 'neg' }}">{{ p.bt.points }}</td>
         <td>{% if p.bt.win %}<span class="pos">胜</span>{% else %}<span class="neg">负</span>{% endif %}</td>
         {% else %}
-        <td class="muted">—</td><td class="muted">—</td><td class="neg" title="实盘有成交、回测没信号 — 回测口径/数据对不上">回测无</td>
+        <td class="muted">—</td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>
+        <td class="neg" title="实盘有成交、回测没信号 — 回测口径/数据对不上">回测无</td>
         {% endif %}
         <td>{% if p.actual and p.bt %}{{ '✅' if p.dir_match else '❌' }}{% else %}—{% endif %}</td>
         <td>{% if p.actual and p.bt %}{{ '✅' if p.outcome_match else '❌' }}{% else %}—{% endif %}</td>
