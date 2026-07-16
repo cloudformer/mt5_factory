@@ -511,7 +511,7 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
     metrics, pairs = _reconcile_metrics(
         [{"dir": a["direction"], "ts": a["entry_time"].timestamp(), "profit": a["profit"],
           "entry": a["entry_time"].strftime("%m-%d %H:%M"),
-          "price": a["entry_price"], "net": a["net_points"]} for a in actual])
+          "price": a["entry_price"], "net": a["net_points"]} for a in actual], bt)
     # 覆盖信息两级: 行情数据(库内M1) / 回测窗口 — 分辨低匹配是'数据没下载'/'回测没跑到'/'真没信号'
     bt_from, bt_to = (bt_row["from_time"], bt_row["to_time"]) if bt_row else (None, None)
     if bt_from is not None and bt_from.tzinfo is None:  # naive→aware, 防与 wt(aware)比较 TypeError
