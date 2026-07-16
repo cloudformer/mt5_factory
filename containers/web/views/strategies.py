@@ -95,8 +95,15 @@ def analysis():
 
 @bp.get("/quality")
 def quality():
-    """回测质量(骨架页, v1.3: OOS/邻域/短样本等反过拟合工具箱)"""
-    return render_template("strategy_quality.html")
+    """回测质量分析: 关2对账(输入策略id → 回测vs实盘 match%) + 反过拟合工具箱概览"""
+    sid = request.args.get("strategy_id", type=int)
+    recon = None
+    if sid:
+        try:
+            recon = api.get(f"/reconcile/{sid}")
+        except api.ApiError as e:
+            flash(f"对账失败: {e}", "error")
+    return render_template("strategy_quality.html", recon=recon, sid=sid)
 
 
 @bp.post("/generate")
