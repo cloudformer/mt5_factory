@@ -8,7 +8,7 @@
 - 佣金按点数从每笔盈亏中扣除
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 
@@ -134,9 +134,21 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
             else:  # 卖在 bid - 滑点
                 entry = float(m1["open"][j] - slip)
             pos = {"dir": sig.direction, "entry": entry, "sl": sig.sl, "tp": sig.tp,
-                   "entry_time": int(m1["time"][j])}
+                   "entry_time": int(m1["time"][j]), "mae": 0.0, "mfe": 0.0}
 
         hit = _walk_exit(pos, j_from, j_to, m1, point, spread_points)
+        # MAE/MFE(点): 持仓期间最大浮亏/浮盈游程 — AI 调 SL/TP 的直接依据(bid 价近似)。
+        # 只扫到出场那根为止; M1 已在内存, min/max 零额外 IO
+        seg_end = (hit[1] + 1) if hit else j_to
+        if seg_end > j_from:
+            lo = float(m1["low"][j_from:seg_end].min())
+            hi = float(m1["high"][j_from:seg_end].max())
+            if pos["dir"] == "BUY":
+                pos["mae"] = max(pos["mae"], (pos["entry"] - lo) / point)
+                pos["mfe"] = max(pos["mfe"], (hi - pos["entry"]) / point)
+            else:
+                pos["mae"] = max(pos["mae"], (hi - pos["entry"]) / point)
+                pos["mfe"] = max(pos["mfe"], (pos["entry"] - lo) / point)
         if hit:
             exit_price, j, reason = hit
             sign = 1 if pos["dir"] == "BUY" else -1
@@ -145,6 +157,7 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
                 "dir": pos["dir"], "entry_time": pos["entry_time"],
                 "exit_time": int(m1["time"][j]), "entry": round(pos["entry"], 6),
                 "exit": round(exit_price, 6), "points": round(points, 1), "reason": reason,
+                "mae": round(pos["mae"], 1), "mfe": round(pos["mfe"], 1),
             })
             pos = None
 
@@ -176,7 +189,7 @@ def _metrics(trades: list) -> dict:
     gross_profit = float(pts[pts > 0].sum())
     gross_loss = float(-pts[pts < 0].sum())
     equity = np.cumsum(pts)
-    return {
+    out = {
         "trades": len(trades),
         "wins": int((pts > 0).sum()),
         "win_rate": round(float((pts > 0).mean()), 4),
@@ -185,3 +198,15 @@ def _metrics(trades: list) -> dict:
         "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss > 0 else None,
         "max_dd_points": round(float((np.maximum.accumulate(equity) - equity).max()), 1),
     }
+    # AI 成绩单补充(记录不评判): MAE/MFE 分位(调 SL/TP 依据) + 分年净点(识别时间集中)
+    maes = [t["mae"] for t in trades if t.get("mae") is not None]
+    if maes:
+        out["mae_p90"] = round(float(np.percentile(maes, 90)), 1)
+        out["mfe_p90"] = round(float(np.percentile(
+            [t["mfe"] for t in trades if t.get("mfe") is not None], 90)), 1)
+    by_year: dict = {}
+    for t in trades:
+        y = str(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).year)
+        by_year[y] = round(by_year.get(y, 0.0) + t["points"], 1)
+    out["by_year"] = by_year
+    return out

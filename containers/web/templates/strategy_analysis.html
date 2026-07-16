@@ -9,6 +9,10 @@
     <label>策略ID <input name="strategy_id" value="{{ sid or '' }}" size="8" required
         title="用该策略的实盘(demo+live)实际成交, 验证回测在同一时间段的一致性"></label>
     <button class="small">对账</button>
+    {% if sid %}
+    <a class="btn" href="{{ url_for('strategies.ai_report', strategy_id=sid) }}" target="_blank"
+       title="该策略的结构化成绩单(纯数字): 参数+回测(oos/分年/MAE/MFE)+跨品种+对账可信度+实盘+同模板尸体死因 — 未来 AI 调参训练的输入, 现在也可人工下载查看">AI成绩单 JSON</a>
+    {% endif %}
     <span class="muted">时间窗自动取自实盘成交跨度;综合匹配度 ≥90 = 该策略回测可信(纳入回测质量标准)</span>
   </form>
 
@@ -49,11 +53,12 @@
       笔数 {{ (mt.count_match_rate * 100) | round | int }}% {{ '✅' if mt.count_match_rate >= 0.9 else '❌' }} ·
       方向 {{ (mt.dir_match_rate * 100) | round | int }}% {{ '✅' if mt.dir_match_rate >= 0.9 else '❌' }}
       → {% if mt.q10_pass %}<span class="pos">达标</span>{% else %}<span class="neg">未达标</span>{% endif %}
-      <span class="muted">　|　记录不评判:信号 {{ (mt.signal_hit_rate * 100) | round | int }}% · 涨跌 {{ (mt.outcome_match_rate * 100) | round | int }}%</span></p>
-    <p class="muted">品种 {{ recon.symbol }} · 对比时间窗 {{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }} ·
+      <span class="muted">　|　记录不评判:信号 {{ (mt.signal_hit_rate * 100) | round | int }}% · 涨跌 {{ (mt.outcome_match_rate * 100) | round | int }}%
+      {%- if mt.net_bias_pct is defined and mt.net_bias_pct is not none %} · 精度:入场均差 {{ mt.entry_diff_avg }} · 净点均差 {{ mt.net_diff_avg }} · 总账偏 {{ '%+g' % mt.net_bias_pct }}%(正=回测乐观){% endif %}</span></p>
+    <p class="muted">品种 {{ recon.symbol }} · 实盘成交跨度 {{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }} ·
       实盘 <b>{{ recon.actual_trades }}</b> 笔 · 回测 <b>{{ recon.bt_trades }}</b> 笔 ·
-      {% if recon.mode == 'segments' %}<span class="badge ok" title="按 strategy_runtime 运行区间分段对账: 只比策略真实在跑的时段, 段内'回测有信号实盘没单'照样抓 runner 漏单">双边 · 运行区间 {{ recon.windows_total }} 段</span>
-      {% else %}<span class="badge warn" title="该策略还没有运行区间记录(表上线前的历史数据): 只在每笔实盘±20分钟内找回测信号, 仅验证'实盘每笔回测可复现', 抓不了漏单; 分母=实盘笔数">单边(降级) · 不抓漏单</span>{% endif %}</p>
+      {% if recon.mode == 'segments' %}<span class="badge ok" title="按运行区间(strategy_runtime, 策略真实在跑的时段)对账: 对比窗口 = 区间±20分钟(重叠合并); 窗口内'回测有信号实盘没单'照样抓 runner 漏单">双边(按运行区间) · 对比窗口 {{ recon.windows_total }} 段</span>
+      {% else %}<span class="badge warn" title="该策略还没有运行区间记录(表上线前的历史数据): 对比窗口 = 每笔实盘±20分钟, 仅验证'实盘每笔回测可复现', 抓不了漏单; 分母=实盘笔数">单边(降级) · 不抓漏单</span>{% endif %}</p>
     {# 覆盖检查: 正常不打扰, 有问题才出警告行 #}
     {% if recon.bt_total == 0 %}
     <p class="muted"><span class="neg">❌ 该策略还没回测过 — 先去「策略回测」</span></p>
@@ -89,10 +94,10 @@
           {% endif %}
         </td>
     {% endmacro %}
-    <h3>逐笔对照(实盘 ↔ 回测;按运行窗口分组;匹配的点开看价/净点详情)</h3>
+    <h3>逐笔对照(实盘 ↔ 回测;按对比窗口分组;匹配的点开看价/净点详情)</h3>
     {# 用全宽正表(subtable 是详情小表: 不撑满+首列锁90px, 五列表格会挤死) #}
     <table>
-      <tr><th title="一段连续对比窗口(运行区间±20分钟, 或单笔兜底小窗), 两边只在窗口内互相找对家">运行窗口</th>
+      <tr><th title="对比窗口 = 运行区间±20分钟(重叠合并); 无区间的实盘笔用单笔±20分钟兜底。两边只在窗口内互相找对家">对比窗口</th>
           <th>时间</th><th>实盘(demo/live)</th><th>回测</th><th>描述</th></tr>
       {% set shown = namespace(n=0) %}
       {% for w in recon.windows %}
@@ -120,7 +125,7 @@
     </table>
     {% set empty_w = recon.windows_total - shown.n %}
     {% if empty_w > 0 %}
-    <p class="muted">另有 {{ empty_w }} 段运行窗口两边均无成交(策略在跑、双方都没信号 = 一致,不占版面)。</p>
+    <p class="muted">另有 {{ empty_w }} 段对比窗口两边均无成交(策略在跑、双方都没信号 = 一致,不占版面)。</p>
     {% endif %}
     {% endif %}
     {% endif %}

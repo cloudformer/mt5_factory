@@ -293,7 +293,9 @@ async def set_status(strategy_id: int, req: StatusRequest, request: Request):
     row = await request.app.state.pool.fetchrow(
         "UPDATE strategies SET status=$2::text,"
         " magic_number = CASE WHEN $2::text IN ('DEMO','LIVE')"
-        "   THEN COALESCE(magic_number, 100000 + id) ELSE magic_number END"
+        "   THEN COALESCE(magic_number, 100000 + id) ELSE magic_number END,"
+        # 手动转入 ARCHIVED = 死因 manual; 转出归档则清死因(复活)
+        " archive_reason = CASE WHEN $2::text = 'ARCHIVED' THEN 'manual' ELSE NULL END"
         " WHERE id=$1 RETURNING id, name, status, magic_number",
         strategy_id, req.status)
     if row is None:
@@ -318,23 +320,87 @@ async def orphans(request: Request):
 async def archive_orphans(request: Request):
     """把孤儿策略批量归档(ARCHIVED, 可逆); 不删除, 留尸体避免重复生成"""
     rows = await request.app.state.pool.fetch(
-        f"UPDATE strategies SET status='ARCHIVED' WHERE {_ORPHAN_WHERE} RETURNING id")
+        f"UPDATE strategies SET status='ARCHIVED', archive_reason='orphan_symbol'"
+        f" WHERE {_ORPHAN_WHERE} RETURNING id")
     return {"archived": len(rows)}
+
+
+@router.get("/strategies/{strategy_id}/report")
+async def ai_report(strategy_id: int, request: Request):
+    """AI 成绩单(结构化 JSON, 纯数字无评语 — 事实只存一份, 表述现算):
+    身份/参数 + 主品种回测(含 oos/by_year/mae/mfe) + 跨品种 + 可信度(对账) + 实盘
+    + 同模板尸体(负样本: 参数+死因码)。喂给 AI 生成器做调参迭代的输入。"""
+    pool = request.app.state.pool
+    s = await pool.fetchrow(
+        "SELECT id, name, template, params, symbol, timeframe, status, magic_number,"
+        "       archive_reason FROM strategies WHERE id=$1", strategy_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    bts = await pool.fetch(
+        "SELECT symbol, broker, from_time, to_time, metrics FROM backtests"
+        " WHERE strategy_id=$1 ORDER BY (symbol = $2) DESC, symbol", strategy_id, s["symbol"])
+    recon = await pool.fetchrow(
+        "SELECT window_from, window_to, actual_trades, bt_trades, match_score, metrics,"
+        "       updated_at FROM reconciliations WHERE strategy_id=$1 AND scope='all'",
+        strategy_id)
+    actual = await pool.fetchrow(
+        "SELECT sum(trades) AS t, sum(wins) AS w, sum(profit) AS p"
+        " FROM strategy_stats WHERE strategy_id=$1", strategy_id)
+    dead = await pool.fetch(  # 同模板负样本: 已淘汰的参数 + 死因(AI 别再生成同类)
+        "SELECT params, archive_reason FROM strategies"
+        " WHERE template=$1 AND status='ARCHIVED' AND id<>$2"
+        " ORDER BY updated_at DESC LIMIT 20", s["template"], strategy_id)
+    # 归因细分(方向/出场/时段/星期/连亏/集中度): 聚合进成绩单, 逐笔明细不进(无增量信息白吃token)
+    from src.routes.backtests import _analyze_trades, actual_attribution
+    bt_trades = await pool.fetchval(
+        "SELECT trades FROM backtests WHERE strategy_id=$1 AND symbol=$2",
+        strategy_id, s["symbol"]) or []
+    attr_bt = _analyze_trades(bt_trades, {}, [])
+    attr_bt.pop("overfit", None)   # oos/跨品种已在 backtests 各行 metrics 里, 不重复
+    attr_actual = await actual_attribution(pool, strategy_id)
+    return {
+        "strategy": dict(s),
+        "attribution_backtest": attr_bt if attr_bt.get("has_data") else None,   # 主品种回测归因
+        "attribution_actual": attr_actual if attr_actual.get("has_data") else None,  # 实盘归因
+        "backtests": [{"symbol": b["symbol"], "broker": b["broker"],
+                       "from": b["from_time"], "to": b["to_time"],
+                       "is_main": b["symbol"] == s["symbol"], "metrics": b["metrics"]}
+                      for b in bts],
+        "reliability": (None if recon is None else
+                        {"match_score": float(recon["match_score"]),
+                         "actual_trades": recon["actual_trades"],
+                         "bt_trades": recon["bt_trades"],
+                         "window_from": recon["window_from"], "window_to": recon["window_to"],
+                         "updated_at": recon["updated_at"], **(recon["metrics"] or {})}),
+        "actual": ({"trades": actual["t"], "wins": actual["w"],
+                    "profit": float(actual["p"])} if actual and actual["t"] else None),
+        "failed_neighbors": [{"params": d["params"], "died_of": d["archive_reason"]}
+                             for d in dead],
+    }
+
+
+# 淘汰死因码(schema/022): AI 负样本("这类参数死于什么"), 页面按码翻中文, 不收自由文本
+ARCHIVE_REASONS = {"manual", "holdout_loss", "min_trades", "low_pf", "recon_fail",
+                   "orphan_symbol", "other"}
 
 
 class ArchiveRequest(BaseModel):
     strategy_ids: list[int]
+    reason: str = "manual"  # 死因码, 见 ARCHIVE_REASONS
 
 
 @router.post("/strategies/archive")
 async def archive_batch(req: ArchiveRequest, request: Request):
-    """按【明确列出的 ID】批量淘汰归档(标 ARCHIVED, 可逆); 不删除 — 留尸体避免重复生成/回测。
+    """按【明确列出的 ID】批量淘汰归档(标 ARCHIVED + 死因码, 可逆); 不删除 — 留尸体避免重复生成/回测。
     只处理请求里点名的 id, 不跟随任何查询过滤(防误伤全库)。
     LIVE(真钱在跑)不动, 需单独手动改, 防误杀; 已淘汰归档的跳过(幂等)。"""
     if not req.strategy_ids:
         raise HTTPException(status_code=400, detail="no strategy_ids")
+    if req.reason not in ARCHIVE_REASONS:
+        raise HTTPException(status_code=400,
+                            detail=f"invalid reason, allowed: {sorted(ARCHIVE_REASONS)}")
     rows = await request.app.state.pool.fetch(
-        "UPDATE strategies SET status='ARCHIVED', updated_at=now()"
+        "UPDATE strategies SET status='ARCHIVED', archive_reason=$2, updated_at=now()"
         " WHERE id = ANY($1) AND status NOT IN ('ARCHIVED', 'LIVE') RETURNING id",
-        req.strategy_ids)
+        req.strategy_ids, req.reason)
     return {"archived": len(rows), "requested": len(req.strategy_ids)}

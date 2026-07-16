@@ -119,6 +119,15 @@ def analysis_fragment():
     return render_template("_attribution_body.html", ana=ana)
 
 
+@bp.get("/<int:strategy_id>/report.json")
+def ai_report(strategy_id: int):
+    """AI 成绩单 JSON 透传(浏览器/未来 AI 训练脚本直接下载; api 内网名浏览器够不到)"""
+    try:
+        return api.get(f"/strategies/{strategy_id}/report")
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
 @bp.get("/quality")
 def quality():
     """回测质量分析: 反过拟合工具箱概览(OOS/健壮/邻域); 关2对账已移到「策略分析」页"""
@@ -164,7 +173,8 @@ def archive_batch():
         flash("请填入要淘汰归档的策略ID(逗号分隔)", "error")
         return redirect(request.referrer or url_for("strategies.index"))
     try:
-        r = api.post("/strategies/archive", {"strategy_ids": [int(s) for s in ids]})
+        r = api.post("/strategies/archive", {"strategy_ids": [int(s) for s in ids],
+                                             "reason": request.form.get("reason", "manual")})
         msg = f"已淘汰归档 {r['archived']} 条(可逆, 随时可改回)"
         skipped = r["requested"] - r["archived"]
         if skipped:

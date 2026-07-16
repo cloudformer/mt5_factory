@@ -496,6 +496,21 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
     }
     metrics["match_score"] = round(100 * (0.4 * signal_hit + 0.2 * count_rate
                                           + 0.2 * dir_rate + 0.2 * outcome_rate), 1)
+    # 精度偏差(记录不评判, AI 校准用): 配对笔的 入场价均差 / 净点均差 / 总账偏差%
+    md = [p for p in pairs if p["bt"] is not None
+          and p["actual"].get("price") is not None and p["bt"].get("price") is not None]
+    if md:
+        metrics["entry_diff_avg"] = round(
+            sum(abs(float(p["actual"]["price"]) - float(p["bt"]["price"])) for p in md) / len(md), 5)
+    mn = [p for p in pairs if p["bt"] is not None
+          and p["actual"].get("net") is not None and p["bt"].get("points") is not None]
+    if mn:
+        metrics["net_diff_avg"] = round(
+            sum(abs(float(p["actual"]["net"]) - float(p["bt"]["points"])) for p in mn) / len(mn), 1)
+        sum_a = sum(float(p["actual"]["net"]) for p in mn)
+        sum_b = sum(float(p["bt"]["points"]) for p in mn)
+        metrics["net_bias_pct"] = (round((sum_b - sum_a) / abs(sum_a) * 100, 1)
+                                   if sum_a else None)  # 正=回测偏乐观
     # 回测质量v1 达标: 只判 笔数(trade) & 方向(direction) 两率 ≥ 90%(阈值暂写死, 未来进config);
     # 信号(indicator)/涨跌(outcome) 照算照存, 记录/展示用, 不进 v1 考核
     metrics["q10_pass"] = (count_rate >= 0.9 and dir_rate >= 0.9)
@@ -792,8 +807,14 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
         "points": t.get("points"), "reason": t.get("reason"),
     } for t in st[:1000]]
     out["trades_capped"] = len(st) > 1000
-    # 实盘同款归因(demo/live 成交, trades 表): 与回测归因对照看"回测的赢法实盘还成立吗"。
-    # 笔数少时统计意义弱, 页面标注仅供参考; 净点缺失(老数据)时退化用盈亏金额判胜负。
+    # 实盘同款归因: 与回测归因对照看"回测的赢法实盘还成立吗"(共用函数, AI成绩单也用它)
+    out["actual"] = await actual_attribution(pool, strategy_id)
+    return out
+
+
+async def actual_attribution(pool, strategy_id: int) -> dict:
+    """实盘(trades 表)胜负归因 — 策略分析页与 AI 成绩单共用。
+    净点缺失(老数据)时退化用盈亏金额判胜负; 笔数少统计意义弱, 由调用方标注。"""
     act_rows = await pool.fetch(
         "SELECT direction, entry_time, profit, commission, swap, net_points, close_reason, env"
         " FROM trades WHERE strategy_id=$1 ORDER BY entry_time", strategy_id)
@@ -808,5 +829,4 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
                                     + float(r["swap"] or 0) for r in act_rows), 2)
         actual["envs"] = {e: sum(1 for r in act_rows if r["env"] == e)
                           for e in sorted({r["env"] for r in act_rows if r["env"]})}
-    out["actual"] = actual
-    return out
+    return actual

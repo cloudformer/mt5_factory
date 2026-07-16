@@ -81,6 +81,11 @@
     <span class="tag">淘汰归档</span>
     <input name="strategy_ids" size="32" placeholder="策略ID, 逗号分隔(可从『复制本页ID』粘贴)" required
            pattern="[0-9,\s]*" title="只填数字ID, 逗号分隔">
+    <select name="reason" title="死因码: 记录为什么杀 — AI 调参的负样本, 避免再生成同类">
+      {% for v, t in [('manual','手动'), ('holdout_loss','留出段亏'), ('min_trades','笔数不足'),
+                      ('low_pf','盈亏比差'), ('recon_fail','对账不达标'), ('other','其它')] %}
+      <option value="{{ v }}">{{ t }}</option>{% endfor %}
+    </select>
     <button class="small danger">淘汰归档这些ID</button>
     <span class="muted">只处理填入的ID, 与上方查看筛选无关 · 可逆 · 真金/已归档自动跳过</span>
   </form>
