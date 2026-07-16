@@ -151,44 +151,61 @@ async def heartbeat_loop(pool: asyncpg.Pool):
             await asyncio.sleep(30)
 
 
-TRADES_WINDOW_DAYS = 7  # 逐笔重拉的重叠窗口(去重靠主键, 多拉无害; 覆盖迟到平仓)
+TRADES_BACKFILL_DAYS = 90   # 首次/空库回填窗口(足够大, 保证历史完整)
+TRADES_OVERLAP_DAYS = 3     # 稳态重叠(补迟到平仓; 去重靠主键, 多拉无害)
 
 
 async def _persist_trades(pool: asyncpg.Pool, client: httpx.AsyncClient, h, account: int) -> None:
-    """拉 bridge /trades → 按 position_id 把 deal 腿配对成回合 → upsert trades(增量去重)。
-    只落: 已平仓(有 in+out 腿) 且 magic 归属策略(100000+id) 的回合; 持仓中/手动单不入。"""
+    """拉 bridge /trades → 按 position_id 配对回合 → upsert trades(增量去重, 与 MT5 已平仓一致)。
+    落【全部】已平仓回合(不按 magic 过滤, 与 MT5 100% 一致): strategy_id=magic-100000(策略区间)否则 NULL;
+    "只看策略单"的过滤放到对账/分析时。持仓中不入(铁律: 只存历史)。
+    窗口自适应: 空库回填 BACKFILL 天; 稳态只拉'最新平仓往前 OVERLAP 天', 大而不浪费。"""
+    last = await pool.fetchval("SELECT max(exit_time) FROM trades WHERE account=$1", account)
+    if last is None:
+        days = TRADES_BACKFILL_DAYS
+    else:
+        gap = (datetime.now(timezone.utc) - last).days
+        days = min(TRADES_BACKFILL_DAYS, max(TRADES_OVERLAP_DAYS, gap + TRADES_OVERLAP_DAYS))
     headers = {"X-API-Key": BRIDGE_API_KEY} if BRIDGE_API_KEY else {}
     r = await client.get(f"http://{h['host']}:{h['port']}/trades",
-                         params={"days": TRADES_WINDOW_DAYS}, headers=headers)
+                         params={"days": days}, headers=headers)
     if r.status_code != 200:
         return
     by_pos: dict = {}
     for d in r.json().get("deals", []):
-        by_pos.setdefault(d["position_id"], []).append(d)
+        pid = d.get("position_id")     # D1: 缺 position_id 的畸形 deal 直接跳过, 不进分组
+        if pid is not None:
+            by_pos.setdefault(pid, []).append(d)
     env = h["runner"].upper()
     points = {row["symbol"]: row["point"]
               for row in await pool.fetch("SELECT symbol, point FROM symbols")}
-    rows = []
+    rows, bad = [], 0
     for pos_id, legs in by_pos.items():
-        ins = next((d for d in legs if d["entry"] == "in"), None)
-        out = next((d for d in legs if d["entry"] == "out"), None)
-        if not ins or not out:                        # 未平仓 → 平仓后下次心跳再纳入
-            continue
-        magic = ins["magic"]
-        if not (100_000 <= magic < 200_000):          # 只落策略回合(手动0/测试999999跳过)
-            continue
-        if ins["type"] not in ("buy", "sell"):         # 跳过 balance 等非交易腿
-            continue
-        symbol = ins["symbol"] or out["symbol"]
-        pt = points.get(symbol) or 0
-        move = (out["price"] - ins["price"]) if ins["type"] == "buy" else (ins["price"] - out["price"])
-        rows.append((
-            account, pos_id, magic - 100_000, magic, env, symbol, ins["type"], ins["volume"],
-            datetime.fromtimestamp(ins["time"], tz=timezone.utc), ins["price"],
-            datetime.fromtimestamp(out["time"], tz=timezone.utc), out["price"],
-            out["reason"], out["profit"],
-            (ins.get("commission") or 0) + (out.get("commission") or 0), out.get("swap") or 0,
-            round(move / pt, 1) if pt else None))
+        try:  # D1: 单个回合坏数据只跳过它, 不让一条脏数据拖垮整批落库
+            ins = next((d for d in legs if d.get("entry") == "in"), None)
+            out = next((d for d in legs if d.get("entry") == "out"), None)
+            if not ins or not out:                     # 未平仓 → 平仓后下次心跳再纳入
+                continue
+            if ins.get("type") not in ("buy", "sell"):  # 跳过 balance(入金/出金非交易腿)
+                continue
+            magic = int(ins.get("magic") or 0)
+            strategy_id = magic - 100_000 if 100_000 <= magic < 200_000 else None  # 非策略单=NULL, 仍落库
+            symbol = ins.get("symbol") or out.get("symbol")
+            pt = points.get(symbol) or 0
+            move = ((out["price"] - ins["price"]) if ins["type"] == "buy"
+                    else (ins["price"] - out["price"]))
+            rows.append((
+                account, int(pos_id), strategy_id, magic, env, symbol, ins["type"], ins["volume"],
+                datetime.fromtimestamp(ins["time"], tz=timezone.utc), ins["price"],
+                datetime.fromtimestamp(out["time"], tz=timezone.utc), out["price"],
+                out.get("reason"), out.get("profit") or 0,
+                (ins.get("commission") or 0) + (out.get("commission") or 0), out.get("swap") or 0,
+                round(move / pt, 1) if pt else None))
+        except (KeyError, TypeError, ValueError) as e:
+            bad += 1
+            logger.warning("skip malformed round-trip pos=%s @ %s: %s", pos_id, h["name"], e)
+    if bad:
+        logger.warning("persist trades %s: %d 坏回合已跳过(其余照落)", h["name"], bad)
     if not rows:
         return
     await pool.executemany(
@@ -198,6 +215,15 @@ async def _persist_trades(pool: asyncpg.Pool, client: httpx.AsyncClient, h, acco
         " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)"
         " ON CONFLICT (account, position_id) DO NOTHING",   # 已平仓回合不可变, 去重即可
         rows)
+    # D2: 一致性自检 — 落库后核对本次 MT5 给的回合是否都进了库; 缺了=疑似漏存 → 告警 + 主机事件
+    stored = await pool.fetchval(
+        "SELECT count(*) FROM trades WHERE account=$1 AND position_id = ANY($2)",
+        account, [row[1] for row in rows])
+    if stored < len(rows):
+        logger.warning("trades consistency %s: MT5 给 %d 回合, DB 仅 %d — 疑似漏存",
+                       h["name"], len(rows), stored)
+        await log_host_event(pool, h["id"], "trades_mismatch",
+                             {"account": account, "mt5": len(rows), "db": stored})
 
 
 async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
