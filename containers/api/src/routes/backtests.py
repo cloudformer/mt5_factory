@@ -577,3 +577,84 @@ async def trades_consistency(request: Request, account: int, from_time: datetime
         logger.warning("trades consistency %s failed: %s", account, e)
         return {"account": account, "db": db, "mt5": None, "consistent": None,
                 "note": f"核对暂不可用(worker/bridge 不可达或出错): {e}"}
+
+
+# ---------- 策略分析·维度二实例级(期1): 单策略回测胜负归因 (v1.4) ----------
+def _analyze_trades(trades: list, oos: dict, breakdown: list) -> dict:
+    """从回测逐笔 + oos + 跨品种行 算单策略胜负归因(纯函数, 读 backtests.trades)。
+    trades 项: {dir(BUY/SELL), entry_time(epoch), points, reason, ...}"""
+    if not trades:
+        return {"has_data": False}
+    ts = sorted(trades, key=lambda t: t["entry_time"])
+    pts = [t.get("points", 0) for t in ts]
+    net = round(sum(pts), 1)
+    wins = [p for p in pts if p > 0]
+    gwin, gloss = sum(wins), -sum(p for p in pts if p < 0)
+    streak = mx = 0                                    # 最长连亏串
+    for p in pts:
+        streak = streak + 1 if p <= 0 else 0
+        mx = max(mx, streak)
+    summary = {
+        "trades": len(ts), "wins": len(wins),
+        "win_rate": round(len(wins) / len(ts), 3),
+        "net_points": net,
+        "profit_factor": round(gwin / gloss, 2) if gloss else None,
+        "max_consec_loss": mx,
+        # 单笔最大盈利占净利比: 越高=越靠个别几笔(脆, 拟合的另一种长相)
+        "top_trade_pct": round(max(wins) / net, 3) if wins and net > 0 else None,
+    }
+    direction = {}                                     # 方向不对称
+    for d in ("BUY", "SELL"):
+        dp = [t.get("points", 0) for t in ts if (t.get("dir") or "").upper() == d]
+        direction[d] = {"trades": len(dp), "net": round(sum(dp), 1),
+                        "win_rate": round(sum(1 for p in dp if p > 0) / len(dp), 3) if dp else None}
+    reasons: dict = {}                                 # 出场原因构成
+    for t in ts:
+        e = reasons.setdefault(t.get("reason") or "?", {"trades": 0, "net": 0.0})
+        e["trades"] += 1
+        e["net"] = round(e["net"] + t.get("points", 0), 1)
+    by_hour, by_wd = {}, {}                             # 时段 / 星期效应
+    for t in ts:
+        dt = datetime.fromtimestamp(t["entry_time"], tz=timezone.utc)
+        for bucket, key in ((by_hour, dt.hour), (by_wd, dt.weekday())):
+            e = bucket.setdefault(key, {"trades": 0, "net": 0.0})
+            e["trades"] += 1
+            e["net"] = round(e["net"] + t.get("points", 0), 1)
+    overfit = {"time": oos or {}, "symbol": [          # 拟合判别: 时间轴(oos) + 品种轴(跨品种)
+        {"symbol": b["symbol"], "net": (b["metrics"] or {}).get("net_points"),
+         "trades": (b["metrics"] or {}).get("trades")} for b in breakdown]}
+    return {"has_data": True, "summary": summary, "direction": direction, "reasons": reasons,
+            "by_hour": [{"hour": h, **v} for h, v in sorted(by_hour.items())],
+            "by_weekday": [{"wd": w, **v} for w, v in sorted(by_wd.items())],
+            "overfit": overfit}
+
+
+@router.get("/analysis/{strategy_id}")
+async def strategy_analysis(strategy_id: int, request: Request):
+    """单策略回测胜负归因(维度二期1): 读主品种 backtests.trades + oos + 跨品种行。
+    分析的是【整段回测】(不切窗口), 回答'这个策略为什么赢/输、是不是拟合'。"""
+    pool = request.app.state.pool
+    strat = await pool.fetchrow(
+        "SELECT name, symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
+    if strat is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    main = await pool.fetchrow(
+        "SELECT trades, metrics FROM backtests WHERE strategy_id=$1 AND symbol=$2",
+        strategy_id, strat["symbol"])
+    breakdown = await pool.fetch(
+        "SELECT symbol, metrics FROM backtests WHERE strategy_id=$1 ORDER BY symbol", strategy_id)
+    trades = (main["trades"] if main else []) or []
+    oos = ((main["metrics"] or {}).get("oos") if main and main["metrics"] else {}) or {}
+    out = {"strategy_id": strategy_id, "name": strat["name"],
+           "symbol": strat["symbol"], "timeframe": strat["timeframe"]}
+    out.update(_analyze_trades(trades, oos, [dict(b) for b in breakdown]))
+    # 逐笔明细(每笔下单 + 胜负): 按时间排, 上限 1000 防超大回测撑爆前端
+    st = sorted(trades, key=lambda t: t["entry_time"])
+    out["trades"] = [{
+        "entry": datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M"),
+        "exit": datetime.fromtimestamp(t["exit_time"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M"),
+        "dir": t.get("dir"), "entry_price": t.get("entry"), "exit_price": t.get("exit"),
+        "points": t.get("points"), "reason": t.get("reason"),
+    } for t in st[:1000]]
+    out["trades_capped"] = len(st) > 1000
+    return out

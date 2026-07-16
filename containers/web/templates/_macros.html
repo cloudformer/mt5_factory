@@ -25,6 +25,8 @@
   <form method="post" action="{{ url_for('strategies.run_backtest', strategy_id=s.id) }}" class="inline">
     <button class="small">回测</button>
   </form>
+  <a class="btn" href="{{ url_for('strategies.analysis', strategy_id=s.id) }}"
+     title="进单策略分析: 对账(回测vs实盘) + 胜负归因 + 逐笔明细">分析</a>
   <form method="post" action="{{ url_for('strategies.set_status', strategy_id=s.id) }}" class="inline">
     <select name="status" class="small" data-status-select>
       <option value="">状态 →</option>
