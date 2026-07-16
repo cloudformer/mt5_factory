@@ -97,6 +97,70 @@
 </section>
 
 <section>
+  <h2>胜负归因 · <span class="badge ok">实盘数据(demo/live)</span></h2>
+  {% if not sid %}
+  <p class="muted">输入上方策略ID → 用实际成交(trades 表)跑同一套归因,与下方回测版对照。</p>
+  {% elif not ana or not ana.actual or not ana.actual.has_data %}
+  <p class="muted">策略 #{{ sid }} 还没有 demo/live 成交 — 部署到 worker 跑一段时间后这里才有。</p>
+  {% else %}
+  {% set s = ana.actual.summary %}
+  {% set wdcn = ['周一','周二','周三','周四','周五','周六','周日'] %}
+  <p class="muted" style="margin:4px 0">
+    来源:{% for e, n in ana.actual.envs.items() %}{{ e }} {{ n }} 笔{{ '' if loop.last else ' · ' }}{% endfor %}
+    {% if s.trades < 30 %}　<span class="badge warn">样本仅 {{ s.trades }} 笔 — 统计意义有限,先对方向/时段是否与回测同向</span>{% endif %}</p>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">净点数</div>
+      <div class="stat-value {{ 'pos' if s.net_points >= 0 else 'neg' }}">{{ s.net_points }}</div>
+      <div class="stat-sub">{{ s.trades }} 笔 · 折合 {{ '%+.2f' % ana.actual.money }} 钱</div></div>
+    <div class="stat"><div class="stat-label">胜率</div>
+      <div class="stat-value">{{ (s.win_rate * 100) | round(1) }}%</div>
+      <div class="stat-sub">{{ s.wins }}/{{ s.trades }} 胜</div></div>
+    <div class="stat"><div class="stat-label">盈利因子 PF</div>
+      <div class="stat-value">{{ s.profit_factor if s.profit_factor is not none else '∞' }}</div>
+      <div class="stat-sub">毛利/毛损</div></div>
+    <div class="stat"><div class="stat-label">最大连亏</div>
+      <div class="stat-value">{{ s.max_consec_loss }}</div>
+      <div class="stat-sub">连续输单</div></div>
+    <div class="stat"><div class="stat-label">单笔集中度</div>
+      <div class="stat-value {{ 'neg' if s.top_trade_pct and s.top_trade_pct > 0.5 else '' }}">{{ (s.top_trade_pct * 100) | round | int if s.top_trade_pct is not none else '—' }}%</div>
+      <div class="stat-sub">最大单笔占净利</div></div>
+  </div>
+  <details style="margin-top:10px">
+  <summary class="muted">展开:实盘细分归因(方向/出场/时段/星期)—— 与下方回测版逐项对照</summary>
+  <h3>方向不对称</h3>
+  <table class="subtable"><tr><th>方向</th><th>笔数</th><th>净点</th><th>胜率</th></tr>
+    {% for d, v in ana.actual.direction.items() %}
+    <tr><td>{{ '买(多)' if d == 'BUY' else '卖(空)' }}</td><td>{{ v.trades }}</td>
+      <td class="{{ 'pos' if v.net >= 0 else 'neg' }}">{{ v.net }}</td>
+      <td>{{ (v.win_rate * 100) | round(1) ~ '%' if v.win_rate is not none else '—' }}</td></tr>
+    {% endfor %}
+  </table>
+  <h3>出场原因构成(MT5 close_reason)</h3>
+  <table class="subtable"><tr><th>原因</th><th>笔数</th><th>净点</th></tr>
+    {% for r, v in ana.actual.reasons.items() %}
+    <tr><td>{{ r }}</td><td>{{ v.trades }}</td>
+      <td class="{{ 'pos' if v.net >= 0 else 'neg' }}">{{ v.net }}</td></tr>
+    {% endfor %}
+  </table>
+  <h3>时段效应(按小时, 券商服务器时间)</h3>
+  <table class="subtable"><tr><th>小时</th><th>笔数</th><th>净点</th></tr>
+    {% for h in ana.actual.by_hour %}
+    <tr><td>{{ '%02d:00' % h.hour }}</td><td>{{ h.trades }}</td>
+      <td class="{{ 'pos' if h.net >= 0 else 'neg' }}">{{ h.net }}</td></tr>
+    {% endfor %}
+  </table>
+  <h3>星期效应</h3>
+  <table class="subtable"><tr><th>星期</th><th>笔数</th><th>净点</th></tr>
+    {% for w in ana.actual.by_weekday %}
+    <tr><td>{{ wdcn[w.wd] }}</td><td>{{ w.trades }}</td>
+      <td class="{{ 'pos' if w.net >= 0 else 'neg' }}">{{ w.net }}</td></tr>
+    {% endfor %}
+  </table>
+  </details>
+  {% endif %}
+</section>
+
+<section>
   <h2>胜负归因 · <span class="badge warn">回测数据</span></h2>
   {% if not sid %}
   <p class="muted">输入上方策略ID → 看它在<b>回测</b>里为什么赢/输:时段/方向/出场/连亏/拟合判别。先分析、再优化。</p>

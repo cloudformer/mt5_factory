@@ -721,4 +721,21 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
         "points": t.get("points"), "reason": t.get("reason"),
     } for t in st[:1000]]
     out["trades_capped"] = len(st) > 1000
+    # 实盘同款归因(demo/live 成交, trades 表): 与回测归因对照看"回测的赢法实盘还成立吗"。
+    # 笔数少时统计意义弱, 页面标注仅供参考; 净点缺失(老数据)时退化用盈亏金额判胜负。
+    act_rows = await pool.fetch(
+        "SELECT direction, entry_time, profit, commission, swap, net_points, close_reason, env"
+        " FROM trades WHERE strategy_id=$1 ORDER BY entry_time", strategy_id)
+    act = [{"dir": r["direction"], "entry_time": r["entry_time"].timestamp(),
+            "points": (float(r["net_points"]) if r["net_points"] is not None
+                       else float(r["profit"])),
+            "reason": r["close_reason"] or "?"} for r in act_rows]
+    actual = _analyze_trades(act, {}, [])
+    actual.pop("overfit", None)            # 实盘无 oos/跨品种概念
+    if actual.get("has_data"):
+        actual["money"] = round(sum(float(r["profit"]) + float(r["commission"] or 0)
+                                    + float(r["swap"] or 0) for r in act_rows), 2)
+        actual["envs"] = {e: sum(1 for r in act_rows if r["env"] == e)
+                          for e in sorted({r["env"] for r in act_rows if r["env"]})}
+    out["actual"] = actual
     return out
