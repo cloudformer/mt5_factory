@@ -63,8 +63,7 @@
     <p class="muted"><span class="neg">⚠ 回测未跑到实盘末尾:<b>{{ recon.symbol }}</b>{% if recon.broker %} @ <b>{{ recon.broker }}</b>{% endif %} 回测只到 {{ m.lts(recon.bt_to) }},数据已有 — 重跑回测即可</span></p>
     {% endif %}
     {% if recon.pairs %}
-    {% macro pair_row(p) %}
-      <tr>
+    {% macro pair_cells(p) %}
         <td>{{ p.actual.entry if p.actual else p.bt.entry }}</td>
         <td>{% if p.actual %}{{ '买' if (p.actual.dir or '') | upper == 'BUY' else '卖' }} ·
           {% if p.actual.win %}<span class="pos">胜</span>{% else %}<span class="neg">负</span>{% endif %}
@@ -89,26 +88,34 @@
           {% else %}<span class="neg">实盘未下单</span> — 疑似 runner 漏单 / 无报价
           {% endif %}
         </td>
-      </tr>
     {% endmacro %}
     <h3>逐笔对照(实盘 ↔ 回测;按运行窗口分组;匹配的点开看价/净点详情)</h3>
     <table class="subtable">
-      <tr><th>时间</th><th>实盘(demo/live)</th><th>回测</th><th>描述</th></tr>
+      <tr><th title="一段连续对比窗口(运行区间±20分钟, 或单笔兜底小窗), 两边只在窗口内互相找对家">运行窗口</th>
+          <th>时间</th><th>实盘(demo/live)</th><th>回测</th><th>描述</th></tr>
       {% set shown = namespace(n=0) %}
       {% for w in recon.windows %}
         {% set rows = recon.pairs | selectattr('win', 'equalto', loop.index0) | list %}
         {% if rows %}
         {% set shown.n = shown.n + 1 %}
-        <tr class="muted"><td colspan="4" title="一段连续运行窗口(±20分钟), 两边只在窗口内互相找对家">
-          ▸ 窗口{{ shown.n }}:{{ w.from }} → {{ w.to }} · 实盘 {{ w.actual }} 笔 · 回测 {{ w.bt }} 笔</td></tr>
-        {% for p in rows %}{{ pair_row(p) }}{% endfor %}
+        {% for p in rows %}
+        <tr>
+          {% if loop.first %}
+          <td class="muted nowrap" rowspan="{{ rows | length }}">{{ w.from }} → {{ w.to }}
+            {% if rows | length > 1 or w.actual != w.bt %}<br>实盘{{ w.actual }} · 回测{{ w.bt }}{% endif %}</td>
+          {% endif %}
+          {{ pair_cells(p) }}
+        </tr>
+        {% endfor %}
         {% endif %}
       {% endfor %}
       {% set orphans = recon.pairs | selectattr('win', 'none') | list %}
-      {% if orphans %}
-      <tr class="muted"><td colspan="4">▸ 窗口外(兜底)</td></tr>
-      {% for p in orphans %}{{ pair_row(p) }}{% endfor %}
-      {% endif %}
+      {% for p in orphans %}
+      <tr>
+        {% if loop.first %}<td class="muted" rowspan="{{ orphans | length }}">窗口外(兜底)</td>{% endif %}
+        {{ pair_cells(p) }}
+      </tr>
+      {% endfor %}
     </table>
     {% set empty_w = recon.windows_total - shown.n %}
     {% if empty_w > 0 %}
