@@ -105,6 +105,20 @@ def analysis():
     return render_template("strategy_analysis.html", recon=recon, ana=ana, sid=sid)
 
 
+@bp.get("/analysis/fragment")
+def analysis_fragment():
+    """AJAX 片段: 只渲染胜负归因 body(切换回测品种时不刷新整页)"""
+    sid = request.args.get("strategy_id", type=int)
+    a_symbol = request.args.get("symbol") or None
+    ana = None
+    if sid:
+        try:
+            ana = api.get(f"/analysis/{sid}", **({"symbol": a_symbol} if a_symbol else {}))
+        except api.ApiError:
+            ana = None
+    return render_template("_attribution_body.html", ana=ana)
+
+
 @bp.get("/quality")
 def quality():
     """回测质量分析: 反过拟合工具箱概览(OOS/健壮/邻域); 关2对账已移到「策略分析」页"""

@@ -85,15 +85,16 @@ document.addEventListener("change", async (e) => {
 
 /* 表格排序 (全站自动, 无需标记): 所有 table 点表头即可排序(再点反向); 个别列不想排标 data-nosort。
    数字列(含 %, +, — 空值)按数值排, 其余按文本; 空值(—)固定沉底 */
-document.addEventListener("DOMContentLoaded", () => {
-  document.querySelectorAll("table").forEach((table) => {
-    // 有配对详情行的表(如 Workers 主行+隐藏详情)排序会把两者拆散, 默认跳过;
-    // 标了 data-detail-sort 的表(回测结果排名)要排序: 排序只动主行, 结束后按 toggle id 把详情行粘回其后
-    const detailSort = table.hasAttribute("data-detail-sort");
-    if (table.querySelector(".detail-row") && !detailSort) return;
-    const headers = [...table.querySelectorAll("tr:first-child th")];
-    if (headers.length < 2) return;  // 单列表(如无表头的小结构)不处理
-    headers.forEach((th, col) => {
+function initTableSort(table) {
+  if (table.dataset.sortInit) return;  // 防重复绑定(支持 AJAX 换表后重入)
+  // 有配对详情行的表(如 Workers 主行+隐藏详情)排序会把两者拆散, 默认跳过;
+  // 标了 data-detail-sort 的表(回测结果排名)要排序: 排序只动主行, 结束后按 toggle id 把详情行粘回其后
+  const detailSort = table.hasAttribute("data-detail-sort");
+  if (table.querySelector(".detail-row") && !detailSort) return;
+  const headers = [...table.querySelectorAll("tr:first-child th")];
+  if (headers.length < 2) return;  // 单列表(如无表头的小结构)不处理
+  table.dataset.sortInit = "1";
+  headers.forEach((th, col) => {
       if (th.hasAttribute("data-nosort")) return;
       th.classList.add("sortable");
       th.addEventListener("click", (e) => {
@@ -127,8 +128,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (table.id) { table.dataset.page = "1"; applyTableFilters(table); }  // 排序后回到第1页
       });
     });
-  });
-});
+}
+window.initTableSort = initTableSort;
+document.addEventListener("DOMContentLoaded", () =>
+  document.querySelectorAll("table").forEach(initTableSort));
 
 /* 表格过滤+分页 (组合生效, 全部即时):
    - 文本搜索:  <input  data-table-filter="表id">        整行模糊匹配

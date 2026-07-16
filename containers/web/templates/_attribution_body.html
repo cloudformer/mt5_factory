@@ -1,0 +1,96 @@
+{% import "_macros.html" as m %}
+{% if not ana or not ana.has_data %}
+<p class="muted">{{ ana.symbol if ana else '' }} 无回测逐笔明细。</p>
+{% else %}
+{% set s = ana.summary %}
+{% set wdcn = ['周一','周二','周三','周四','周五','周六','周日'] %}
+<div class="stats">
+  <div class="stat"><div class="stat-label">净点数</div>
+    <div class="stat-value {{ 'pos' if s.net_points >= 0 else 'neg' }}">{{ s.net_points }}</div>
+    <div class="stat-sub">{{ ana.symbol }} · {{ s.trades }} 笔</div></div>
+  <div class="stat"><div class="stat-label">胜率</div>
+    <div class="stat-value">{{ (s.win_rate * 100) | round(1) }}%</div>
+    <div class="stat-sub">{{ s.wins }}/{{ s.trades }} 胜</div></div>
+  <div class="stat"><div class="stat-label">盈利因子 PF</div>
+    <div class="stat-value">{{ s.profit_factor if s.profit_factor is not none else '∞' }}</div>
+    <div class="stat-sub">毛利/毛损</div></div>
+  <div class="stat"><div class="stat-label">最大连亏</div>
+    <div class="stat-value">{{ s.max_consec_loss }}</div>
+    <div class="stat-sub">连续输单(实盘拿不拿得住)</div></div>
+  <div class="stat"><div class="stat-label">单笔集中度</div>
+    <div class="stat-value {{ 'neg' if s.top_trade_pct and s.top_trade_pct > 0.5 else '' }}">{{ (s.top_trade_pct * 100) | round | int if s.top_trade_pct is not none else '—' }}%</div>
+    <div class="stat-sub">最大单笔占净利(越高越脆)</div></div>
+</div>
+
+<details style="margin-top:10px">
+<summary class="muted">展开:回测细分归因(方向/出场/时段/星期/拟合/逐笔)—— 优化阶段用,样本够才有统计意义,不进 v1 判定</summary>
+
+<h3>方向不对称(多单赚空单亏 = 只骑了单边行情)</h3>
+<table class="subtable"><tr><th>方向</th><th>笔数</th><th>净点</th><th>胜率</th></tr>
+  {% for d, v in ana.direction.items() %}
+  <tr><td>{{ '买(多)' if d == 'BUY' else '卖(空)' }}</td><td>{{ v.trades }}</td>
+    <td class="{{ 'pos' if v.net >= 0 else 'neg' }}">{{ v.net }}</td>
+    <td>{{ (v.win_rate * 100) | round(1) ~ '%' if v.win_rate is not none else '—' }}</td></tr>
+  {% endfor %}
+</table>
+
+<h3>出场原因构成(gap 占比高 = 跳空风险大, 实盘更疼)</h3>
+<table class="subtable"><tr><th>原因</th><th>笔数</th><th>净点</th></tr>
+  {% for r, v in ana.reasons.items() %}
+  <tr><td>{{ r }}</td><td>{{ v.trades }}</td>
+    <td class="{{ 'pos' if v.net >= 0 else 'neg' }}">{{ v.net }}</td></tr>
+  {% endfor %}
+</table>
+
+<h3>时段效应(按小时, 券商服务器时间)</h3>
+<table class="subtable"><tr><th>小时</th><th>笔数</th><th>净点</th></tr>
+  {% for h in ana.by_hour %}
+  <tr><td>{{ '%02d:00' % h.hour }}</td><td>{{ h.trades }}</td>
+    <td class="{{ 'pos' if h.net >= 0 else 'neg' }}">{{ h.net }}</td></tr>
+  {% endfor %}
+</table>
+
+<h3>星期效应</h3>
+<table class="subtable"><tr><th>星期</th><th>笔数</th><th>净点</th></tr>
+  {% for w in ana.by_weekday %}
+  <tr><td>{{ wdcn[w.wd] }}</td><td>{{ w.trades }}</td>
+    <td class="{{ 'pos' if w.net >= 0 else 'neg' }}">{{ w.net }}</td></tr>
+  {% endfor %}
+</table>
+
+<h3>拟合判别</h3>
+{% set tr = ana.overfit.time.get('train') %}{% set ho = ana.overfit.time.get('holdout') %}
+<p class="muted" style="margin:4px 0">
+  <b>时间轴</b>(训练 vs 留出):
+  {% if tr and ho %}训练 <span class="{{ 'pos' if tr.net_points >= 0 else 'neg' }}">{{ tr.net_points }}</span>({{ tr.trades }}笔)
+    · 留出 <span class="{{ 'pos' if ho.net_points >= 0 else 'neg' }}">{{ ho.net_points }}</span>({{ ho.trades }}笔)
+    {% if ho.net_points is not none and ho.net_points <= 0 %}<span class="neg">← 留出崩=过拟合嫌疑</span>{% endif %}
+  {% else %}<span class="muted">老回测无 OOS, 重跑后出现</span>{% endif %}
+</p>
+<p class="muted" style="margin:4px 0"><b>品种轴</b>(本币 vs 他币, 跨品种验证):</p>
+<table class="subtable"><tr><th>品种</th><th>笔数</th><th>净点</th></tr>
+  {% for b in ana.overfit.symbol %}
+  <tr><td>{{ b.symbol }}{% if b.symbol == ana.main_symbol %} <span class="badge">主</span>{% endif %}{% if b.symbol == ana.symbol %} <span class="badge warn">看这个</span>{% endif %}</td>
+    <td>{{ b.trades if b.trades is not none else '—' }}</td>
+    <td class="{{ 'pos' if (b.net or 0) >= 0 else 'neg' }}">{{ b.net if b.net is not none else '—' }}</td></tr>
+  {% endfor %}
+</table>
+
+<h3>逐笔明细 · <span class="badge warn">回测</span> · {{ ana.symbol }}(每笔下单/胜负){% if ana.trades_capped %} <span class="muted">— 仅显示前 1000 笔</span>{% endif %}</h3>
+{{ m.table_toolbar('bt-trades', hint='本页即时过滤(方向/原因/胜负…)') }}
+<table id="bt-trades" class="dense">
+  <tr><th data-nosort>#</th><th>入场时间</th><th>出场时间</th><th>方向</th><th>入场价</th><th>出场价</th><th>净点</th><th>胜负</th><th>原因</th></tr>
+  {% for t in ana.trades %}
+  <tr>
+    <td class="rownum muted"></td>
+    <td>{{ t.entry }}</td><td class="muted">{{ t.exit }}</td>
+    <td>{{ '买' if (t.dir or '') | upper == 'BUY' else '卖' }}</td>
+    <td class="muted">{{ t.entry_price }}</td><td class="muted">{{ t.exit_price }}</td>
+    <td class="{{ 'pos' if (t.points or 0) >= 0 else 'neg' }}">{{ t.points }}</td>
+    <td>{% if (t.points or 0) > 0 %}<span class="pos">胜</span>{% else %}<span class="neg">负</span>{% endif %}</td>
+    <td>{{ t.reason or '—' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</details>
+{% endif %}
