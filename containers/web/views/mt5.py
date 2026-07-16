@@ -139,10 +139,13 @@ def system():
             cp = {"account": account, "from_time": from_iso}
             if to_iso:
                 cp["to_time"] = to_iso
+            if include_test:
+                cp["include_test"] = "true"
             cons = api.get("/trades/consistency", **cp)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     for t in trades:
         t["who"] = magic_map.get(t["magic"]) or _who(t["magic"], {})
     return render_template("mt5_system.html", presets=presets, win=win, frm=frm, to=to,
-                           account=account, accounts=accounts, trades=trades, cons=cons)
+                           account=account, accounts=accounts, trades=trades, cons=cons,
+                           include_test=include_test)

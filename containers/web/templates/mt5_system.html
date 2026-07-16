@@ -11,6 +11,7 @@
         {% for ac in accounts %}<option value="{{ ac }}" {% if account == ac %}selected{% endif %}>{{ ac }}</option>{% endfor %}
       </select></label>
     {{ m.time_range(presets, win, frm, to) }}
+    <label class="chk" title="默认不含: 过滤下单测试单(magic=999999)。核对时两边同口径生效"><input type="checkbox" name="include_test" value="1" {% if include_test %}checked{% endif %}> 含测试单</label>
     <button class="small">查询</button>
     <span class="muted">只含已平仓回合(持仓中看「Worker流水」实时)· 券商服务器时间</span>
   </form>
