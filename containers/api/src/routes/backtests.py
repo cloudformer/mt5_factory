@@ -658,23 +658,26 @@ def _analyze_trades(trades: list, oos: dict, breakdown: list) -> dict:
 
 
 @router.get("/analysis/{strategy_id}")
-async def strategy_analysis(strategy_id: int, request: Request):
-    """单策略回测胜负归因(维度二期1): 读主品种 backtests.trades + oos + 跨品种行。
-    分析的是【整段回测】(不切窗口), 回答'这个策略为什么赢/输、是不是拟合'。"""
+async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional[str] = None):
+    """单策略【回测】胜负归因(维度二期1): 读指定品种(默认主品种) backtests.trades + oos + 跨品种行。
+    分析的是【整段回测】(不切窗口)。symbol 可选 → 看该策略在不同货币对上的回测归因。"""
     pool = request.app.state.pool
     strat = await pool.fetchrow(
         "SELECT name, symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
     if strat is None:
         raise HTTPException(status_code=404, detail="strategy not found")
+    sym = symbol or strat["symbol"]        # 分析哪个品种的回测(默认主品种)
+    all_syms = [r["symbol"] for r in await pool.fetch(   # 该策略回测过的品种(下拉用)
+        "SELECT symbol FROM backtests WHERE strategy_id=$1 ORDER BY symbol", strategy_id)]
     main = await pool.fetchrow(
         "SELECT trades, metrics FROM backtests WHERE strategy_id=$1 AND symbol=$2",
-        strategy_id, strat["symbol"])
+        strategy_id, sym)
     breakdown = await pool.fetch(
         "SELECT symbol, metrics FROM backtests WHERE strategy_id=$1 ORDER BY symbol", strategy_id)
     trades = (main["trades"] if main else []) or []
     oos = ((main["metrics"] or {}).get("oos") if main and main["metrics"] else {}) or {}
-    out = {"strategy_id": strategy_id, "name": strat["name"],
-           "symbol": strat["symbol"], "timeframe": strat["timeframe"]}
+    out = {"strategy_id": strategy_id, "name": strat["name"], "symbol": sym,
+           "main_symbol": strat["symbol"], "symbols": all_syms, "timeframe": strat["timeframe"]}
     out.update(_analyze_trades(trades, oos, [dict(b) for b in breakdown]))
     # 逐笔明细(每笔下单 + 胜负): 按时间排, 上限 1000 防超大回测撑爆前端
     st = sorted(trades, key=lambda t: t["entry_time"])

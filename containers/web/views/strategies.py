@@ -91,14 +91,15 @@ def generate_page():
 def analysis():
     """策略分析: 关2对账(输入策略id → 回测 vs 实盘 match%); v1.4 更多归因维度待建"""
     sid = request.args.get("strategy_id", type=int)
+    a_symbol = request.args.get("symbol") or None   # 归因看哪个品种的回测(默认主品种)
     recon, ana = None, None
     if sid:
         try:
-            recon = api.get(f"/reconcile/{sid}")
+            recon = api.get(f"/reconcile/{sid}")     # 对账恒用主品种(实盘只在主品种交易)
         except api.ApiError as e:
             flash(f"对账失败: {e}", "error")
         try:
-            ana = api.get(f"/analysis/{sid}")
+            ana = api.get(f"/analysis/{sid}", **({"symbol": a_symbol} if a_symbol else {}))
         except api.ApiError as e:
             flash(f"分析失败: {e}", "error")
     return render_template("strategy_analysis.html", recon=recon, ana=ana, sid=sid)

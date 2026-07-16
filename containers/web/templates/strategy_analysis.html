@@ -88,11 +88,22 @@
 </section>
 
 <section>
-  <h2>胜负归因(回测逐笔)</h2>
+  <h2>胜负归因 · <span class="badge warn">回测数据</span></h2>
   {% if not sid %}
-  <p class="muted">输入上方策略ID → 看它在回测里<b>为什么赢/输</b>:时段/方向/出场/连亏/拟合判别。先分析、再优化。</p>
-  {% elif not ana or not ana.has_data %}
-  <p class="muted">策略 #{{ sid }} 暂无回测逐笔明细 — 先去「策略回测」跑一次(逐笔存进 backtests.trades 后这里才有)。</p>
+  <p class="muted">输入上方策略ID → 看它在<b>回测</b>里为什么赢/输:时段/方向/出场/连亏/拟合判别。先分析、再优化。</p>
+  {% elif not ana or not ana.symbols %}
+  <p class="muted">策略 #{{ sid }} 还没回测过 — 先去「策略回测」跑一次(逐笔存进 backtests.trades 后这里才有)。</p>
+  {% else %}
+  <form method="get" class="inline" style="margin-bottom:8px">
+    <input type="hidden" name="strategy_id" value="{{ sid }}">
+    <label>回测品种
+      <select name="symbol" onchange="this.form.submit()">
+        {% for sy in ana.symbols %}<option value="{{ sy }}" {% if sy == ana.symbol %}selected{% endif %}>{{ sy }}{% if sy == ana.main_symbol %}(主){% endif %}</option>{% endfor %}
+      </select></label>
+    <span class="muted">以下均为该品种的【回测】数据(不是实盘;实盘对账见上方「关2」)</span>
+  </form>
+  {% if not ana.has_data %}
+  <p class="muted">{{ ana.symbol }} 无回测逐笔明细。</p>
   {% else %}
   {% set s = ana.summary %}
   {% set wdcn = ['周一','周二','周三','周四','周五','周六','周日'] %}
@@ -159,13 +170,13 @@
   <p class="muted" style="margin:4px 0"><b>品种轴</b>(本币 vs 他币, 跨品种验证):</p>
   <table class="subtable"><tr><th>品种</th><th>笔数</th><th>净点</th></tr>
     {% for b in ana.overfit.symbol %}
-    <tr><td>{{ b.symbol }}{% if b.symbol == ana.symbol %} <span class="badge">主</span>{% endif %}</td>
+    <tr><td>{{ b.symbol }}{% if b.symbol == ana.main_symbol %} <span class="badge">主</span>{% endif %}{% if b.symbol == ana.symbol %} <span class="badge warn">看这个</span>{% endif %}</td>
       <td>{{ b.trades if b.trades is not none else '—' }}</td>
       <td class="{{ 'pos' if (b.net or 0) >= 0 else 'neg' }}">{{ b.net if b.net is not none else '—' }}</td></tr>
     {% endfor %}
   </table>
 
-  <h3>逐笔明细(每笔下单 · 胜负){% if ana.trades_capped %} <span class="muted">— 仅显示前 1000 笔</span>{% endif %}</h3>
+  <h3>逐笔明细 · <span class="badge warn">回测</span> · {{ ana.symbol }}(每笔下单/胜负){% if ana.trades_capped %} <span class="muted">— 仅显示前 1000 笔</span>{% endif %}</h3>
   {{ m.table_toolbar('bt-trades', hint='本页即时过滤(方向/原因/胜负…)') }}
   <table id="bt-trades" class="dense">
     <tr><th data-nosort>#</th><th>入场时间</th><th>出场时间</th><th>方向</th><th>入场价</th><th>出场价</th><th>净点</th><th>胜负</th><th>原因</th></tr>
@@ -181,7 +192,8 @@
     </tr>
     {% endfor %}
   </table>
-  {% endif %}
+  {% endif %}{# 该品种有回测数据 #}
+  {% endif %}{# sid 且 有回测品种 #}
 </section>
 
 {% endblock %}
