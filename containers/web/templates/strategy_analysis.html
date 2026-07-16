@@ -125,6 +125,9 @@
       <div class="stat-sub">最大单笔占净利(越高越脆)</div></div>
   </div>
 
+  <details style="margin-top:10px">
+  <summary class="muted">展开:回测细分归因(方向/出场/时段/星期/拟合/逐笔)—— 优化阶段用,样本够才有统计意义,不进 v1 判定</summary>
+
   <h3>方向不对称(多单赚空单亏 = 只骑了单边行情)</h3>
   <table class="subtable"><tr><th>方向</th><th>笔数</th><th>净点</th><th>胜率</th></tr>
     {% for d, v in ana.direction.items() %}
@@ -192,6 +195,7 @@
     </tr>
     {% endfor %}
   </table>
+  </details>
   {% endif %}{# 该品种有回测数据 #}
   {% endif %}{# sid 且 有回测品种 #}
 </section>
