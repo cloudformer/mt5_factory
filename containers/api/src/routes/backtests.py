@@ -398,10 +398,16 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         st = {s["strategy_id"]: s for s in await pool.fetch(
             "SELECT strategy_id, sum(trades) AS t, sum(wins) AS w, sum(profit) AS p"
             " FROM strategy_stats WHERE strategy_id = ANY($1) GROUP BY strategy_id", page_ids)}
+        # 实盘券商: strategy_stats(战绩快照)没存券商, 从 trades 逐笔里取实际成交过的券商
+        bk = {r["strategy_id"]: r["brokers"] for r in await pool.fetch(
+            "SELECT strategy_id, array_agg(DISTINCT broker)"
+            "       FILTER (WHERE broker IS NOT NULL) AS brokers"
+            " FROM trades WHERE strategy_id = ANY($1) GROUP BY strategy_id", page_ids)}
         for d in page_cands:
             s = st.get(d["strategy_id"])
             d["actual"] = ({"trades": s["t"], "wins": s["w"], "profit": round(float(s["p"]), 2),
-                            "win_rate": round(s["w"] / s["t"], 3) if s["t"] else None}
+                            "win_rate": round(s["w"] / s["t"], 3) if s["t"] else None,
+                            "broker": " / ".join(bk.get(d["strategy_id"]) or []) or None}
                            if s and s["t"] else None)
     return {"results": page_cands, "total": total, "page": page, "page_size": limit}
 

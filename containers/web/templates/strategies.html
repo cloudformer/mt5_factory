@@ -151,7 +151,7 @@
           <tr>
             <td><span class="badge warn">实盘</span></td>
             <td>demo/live 合并</td>
-            <td class="muted">—</td>
+            <td class="muted">{{ r.actual.broker or '—' }}</td>
             <td>{{ r.actual.trades }} ({{ r.actual.wins }}胜/{{ r.actual.trades - r.actual.wins }}负)</td>
             <td>{{ ('%.1f%%' % (r.actual.win_rate * 100)) if r.actual.win_rate is not none else '—' }}</td>
             <td class="{{ 'pos' if r.actual.profit >= 0 else 'neg' }}">{{ '%+.2f' % r.actual.profit }}<span class="muted"> 钱</span></td>
