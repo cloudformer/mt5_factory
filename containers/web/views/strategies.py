@@ -171,6 +171,27 @@ def ai_page():
                            prompt=prompt, family=family, meta=meta)
 
 
+@bp.get("/ai/prompt.txt")
+def ai_prompt_txt():
+    """纯文本提示词(scripts/ai_tune.py 自动化用: 拉这个喂 claude -p, 免复制粘贴)"""
+    import json as _json
+    sid = request.args.get("strategy_id", type=int)
+    count = request.args.get("count", 10, type=int)
+    try:
+        report = api.get(f"/strategies/{sid}/report")
+        meta = report["strategy"]
+        space = api.get("/strategies/templates")["templates"][meta["template"]]["random"]
+        prompt = _AI_PROMPT.format(
+            sid=sid, template=meta["template"],
+            space=_json.dumps(space, ensure_ascii=False),
+            params=_json.dumps(meta["params"], ensure_ascii=False),
+            count=count,
+            report=_json.dumps(report, ensure_ascii=False, default=str))
+        return prompt, 200, {"Content-Type": "text/plain; charset=utf-8"}
+    except (api.ApiError, KeyError) as e:
+        return f"error: {e}", 502, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @bp.post("/ai/submit")
 def ai_submit():
     """收货: 粘贴 AI 返回的参数 JSON → api 校验入库(parent_id 谱系)→ 自动按ID回测"""
@@ -182,7 +203,8 @@ def ai_submit():
         r = api.post(f"/strategies/{sid}/ai_candidates", {
             "combos": combos,
             "cross_symbol": request.form.get("cross_symbol") == "on"})
-        msg = f"已生成 {len(r['created'])} 个子代实例"
+        ids = r["created"]
+        msg = f"已生成 {len(ids)} 个子代实例" + (f": {', '.join(map(str, ids))}" if ids else "")
         if r["skipped"]:
             msg += f"；{r['skipped']} 组已存在跳过"
         if r["invalid"]:
