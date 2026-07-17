@@ -116,7 +116,14 @@ h3 {
 /* 专业做法: 表宽锁 100% 填满容器(auto 布局按内容比例分配列宽); 单元格内容过长时"折行",
    而不是把整表撑宽 → 永不出现横向滚动条。超长标识(策略名)用 .clip 单行省略号(悬停看全文)。
    列宽拖拽由 tables.js 统一处理(拖时切 table-layout:fixed)。 */
-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+/* 表格卡片化(2026-07-17 定): 与统计卡同质感 — 白底+边框+圆角+淡阴影。
+   border-collapse 用 separate(collapse 下圆角裁不掉), spacing=0 保持单元格边线不变 */
+table {
+  width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 4px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+table tr:last-child td { border-bottom: none; }  /* 末行底线与卡片边框不叠加 */
 th, td {
   text-align: left; padding: 8px 12px;
   border-bottom: 1px solid var(--border);
