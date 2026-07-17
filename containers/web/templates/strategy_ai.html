@@ -59,7 +59,20 @@
     catch (e) { box.innerHTML = '<p class="neg">不是合法 JSON: ' + e.message + '</p>'; return; }
     const combos = Array.isArray(payload) ? payload : (payload.combos || []);
     if (!combos.length) { box.innerHTML = '<p class="neg">没有找到 combos 数组</p>'; return; }
-    let html = '<h3>解析结果 · 模板 {{ meta.template if meta else "" }} · 共 ' + combos.length + ' 组</h3>'
+    // 协议头核对: AI 必须原样带回 strategy_id 与 template(第2步提示词约定的返回格式)
+    const wantSid = {{ sid }}, wantTpl = "{{ meta.template if meta else '' }}";
+    const okSid = payload.strategy_id === wantSid, okTpl = payload.template === wantTpl;
+    let head = '<h3>解析结果</h3><p>'
+      + '声明策略 ' + (payload.strategy_id !== undefined
+          ? ('#' + payload.strategy_id + (okSid ? ' <span class="pos">✓</span>'
+                                                : ' <span class="neg">✗ 应为 #' + wantSid + '</span>'))
+          : '<span class="neg">缺 strategy_id</span>')
+      + ' · 声明模板 ' + (payload.template
+          ? (payload.template + (okTpl ? ' <span class="pos">✓</span>'
+                                       : ' <span class="neg">✗ 应为 ' + wantTpl + '</span>'))
+          : '<span class="neg">缺 template</span>')
+      + ' · 共 ' + combos.length + ' 组</p>';
+    let html = head
       + '<table><tr><th style="width:40px">#</th><th>参数</th><th>依据(basis)</th><th style="width:200px">格式检查(仅提示)</th></tr>';
     combos.forEach((c, i) => {
       const p = (c && c.params) ? c.params : c;

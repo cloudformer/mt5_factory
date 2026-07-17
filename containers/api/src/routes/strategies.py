@@ -516,9 +516,18 @@ _AI_TUNE_PROMPT = """你是量化策略调参助手。下面给出策略 #{sid} 
 1. 每组相对当前参数({params})最多改 2 个维度, 且必须落在参数空间范围内、按步长对齐
 2. 每组必须附 "basis": 一句依据, 引用成绩单里的具体数字(如 MAE 分布/方向不对称/时段/留出段)
 3. 避开 failed_neighbors 里已死亡的参数区域
-4. 8~12 组之间, 宁少勿滥; 变化方向要聚焦(围绕最有证据的1~2个假设), 不要均匀撒网
-5. 只输出 JSON, 不要任何其他文字, 格式:
-{{"combos": [{{"params": {{...}}, "basis": "..."}}, ...]}}
+4. 共 {count} 组, 宁少勿滥; 变化方向要聚焦(围绕最有证据的1~2个假设), 不要均匀撒网
+
+返回格式(协议, 系统会机器解析; 只输出这一个 JSON 对象, 前后不要任何其他文字/代码围栏):
+{{
+  "strategy_id": {sid},
+  "template": "{template}",
+  "combos": [
+    {{"params": {params_schema}, "basis": "一句依据(引用成绩单数字)"}}
+  ]
+}}
+要求: combos 恰好 {count} 项; 每组 params 的键必须恰好是 {param_keys}, 值为具体数字(不是区间);
+strategy_id 与 template 原样带回(用于系统核对)。
 
 成绩单:
 {report}"""
@@ -533,10 +542,16 @@ async def ai_tune_prompt(strategy_id: int, request: Request, count: int = 10):
     meta = report["strategy"]
     cls = TEMPLATES[meta["template"]]
     space = cls.RANDOM_SPACE or cls.PARAM_GRID
+    # params 骨架: 逐键点名类型与范围, 让 AI 照抄键名只填数字
+    params_schema = "{" + ", ".join(
+        (f'"{k}": <{v[0]}~{v[1]}, 步长{v[2]}>' if isinstance(v, tuple) else f'"{k}": <候选 {v}>')
+        for k, v in space.items()) + "}"
     prompt = _AI_TUNE_PROMPT.format(
         sid=strategy_id, template=meta["template"],
         space=_json.dumps(space, ensure_ascii=False),
         params=_json.dumps(meta["params"], ensure_ascii=False),
+        params_schema=params_schema,
+        param_keys=_json.dumps(sorted(space), ensure_ascii=False),
         count=count,
         report=_json.dumps(report, ensure_ascii=False, default=str))
     return {"prompt": prompt, "space": space, "strategy": meta}
