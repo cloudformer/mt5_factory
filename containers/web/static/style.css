@@ -1,14 +1,16 @@
 /* MT5 Factory - 设计令牌 (色阶=slate系 / 间距=8pt网格 / 圆角8px / 阴影两级) */
 :root {
-  --bg: #eef1f4;             /* 带一点灰的底, 大面积不晃眼 */
-  --card: #fdfdfd;           /* 卡片微离纯白, 与底的层次靠阴影+边框 */
-  --border: #e3e8ee;
-  --border-strong: #cbd5e1;  /* 表头分隔线等需要更实的地方 */
-  --text: #16202e;
-  --muted: #64748b;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --ok-fg: #15803d;  --ok-bg: #ecfdf3;  --ok-bd: #bbf7d0;
+  --bg: #eef0f0;             /* Lucid 浅灰底 */
+  --card: #ffffff;           /* 纯白卡片(参考图) */
+  --border: #e2e7e9;
+  --border-strong: #c9d2d6;  /* 表头分隔线等需要更实的地方 */
+  --text: #2c3e50;           /* 深蓝灰正文(参考图) */
+  --muted: #7f8c9b;
+  --accent: #3193d6;         /* Lucid 蓝 */
+  --accent-hover: #2980ba;
+  --green: #2ecc71;          /* Lucid 绿(与蓝构成签名渐变) */
+  --grad: linear-gradient(115deg, #3193d6, #2ecc71);  /* 签名蓝绿渐变 */
+  --ok-fg: #27ae60;  --ok-bg: #eafaf1;  --ok-bd: #b8e6cd;
   --warn-fg: #92400e; --warn-bg: #fffbeb; --warn-bd: #fde68a;
   --err-fg: #b91c1c;  --err-bg: #fef2f2; --err-bd: #fecaca;
   --radius: 8px;
@@ -24,46 +26,46 @@ body {
   font: 14px/1.55 -apple-system, "SF Pro Text", "Segoe UI", "PingFang SC",
         "Microsoft YaHei", sans-serif;
   background: var(--bg);
-  background-image: linear-gradient(180deg, #f6f8fb 0, rgba(246, 248, 251, 0) 320px);
+  background-image: linear-gradient(180deg, #f7f9f9 0, rgba(247, 249, 249, 0) 320px);
   background-repeat: no-repeat; background-attachment: fixed;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---------- 导航(2026-07-17 重设计: 吸顶毛玻璃深色条, 内容与 main 同宽对齐,
-   活动项=品牌色药丸, 下拉=浮层卡片带渐入动画; 类名/结构零改动) ---------- */
+/* ---------- 导航(2026-07-17 重设计, Lucid 浅色系: 吸顶毛玻璃白条, 内容与 main 同宽对齐,
+   活动项=蓝绿渐变药丸, 下拉=白色浮层卡片带渐入动画; 类名/结构零改动) ---------- */
 nav {
   position: sticky; top: 0; z-index: 100;
   display: flex; gap: 2px; align-items: center;
   height: 54px;
   /* 内容对齐 main 的 1200px: 两侧留白 = max(24px, 视口多余宽度的一半) */
   padding: 0 max(24px, calc((100vw - 1200px) / 2));
-  background: rgba(15, 23, 42, .88);
-  backdrop-filter: saturate(1.5) blur(12px);
-  -webkit-backdrop-filter: saturate(1.5) blur(12px);
-  border-bottom: 1px solid rgba(255, 255, 255, .07);
-  box-shadow: 0 1px 12px rgba(2, 6, 23, .35);
+  background: rgba(255, 255, 255, .92);
+  backdrop-filter: saturate(1.4) blur(12px);
+  -webkit-backdrop-filter: saturate(1.4) blur(12px);
+  border-bottom: 1px solid #e2e7e9;
+  box-shadow: 0 1px 10px rgba(44, 62, 80, .07);
 }
 nav .brand {
-  color: #fff; font-weight: 700; font-size: 15px;
+  color: var(--text); font-weight: 700; font-size: 15px;
   letter-spacing: .4px; margin-right: 24px; white-space: nowrap;
 }
 nav .brand::before {
   content: "◆ ";
-  background: linear-gradient(135deg, #60a5fa, #2563eb);
+  background: var(--grad);
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 nav a {
-  color: #b6c2d4; text-decoration: none;
+  color: #64748b; text-decoration: none;
   font-size: 13.5px; font-weight: 550; letter-spacing: .2px;
   padding: 6px 13px; border-radius: 999px; white-space: nowrap;
   transition: color .15s ease, background .15s ease;
 }
-nav a:hover { color: #fff; background: rgba(255, 255, 255, .07); }
+nav a:hover { color: var(--text); background: #f0f4f5; }
 nav a.active {
   color: #fff;
-  background: linear-gradient(180deg, rgba(59, 130, 246, .30), rgba(37, 99, 235, .22));
-  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, .35);
+  background: var(--grad);          /* 签名蓝绿渐变药丸(参考图按钮) */
+  box-shadow: 0 1px 4px rgba(49, 147, 214, .35);
 }
 
 /* 导航下拉: 悬停渐入浮层卡片; 顶端 6px 透明桥接防悬停闪断 */
@@ -71,10 +73,9 @@ nav a.active {
 .navmenu-items {
   display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 120;
   min-width: 150px; padding: 6px;
-  background: rgba(17, 24, 39, .97);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, .10);
-  border-radius: 10px; box-shadow: 0 12px 32px rgba(2, 6, 23, .5);
+  background: #fff;
+  border: 1px solid #e2e7e9;
+  border-radius: 10px; box-shadow: 0 10px 28px rgba(44, 62, 80, .16);
   animation: navdrop .14s ease-out;
 }
 .navmenu-items::before {  /* 触发项与面板之间的透明桥, 鼠标斜穿不收起 */
@@ -85,7 +86,7 @@ nav a.active {
   display: block; padding: 7px 14px; border-radius: 7px;
   font-size: 13px; white-space: nowrap;
 }
-.navmenu-items a.active { box-shadow: inset 0 0 0 1px rgba(96, 165, 250, .35); }
+.navmenu-items a.active { background: var(--grad); color: #fff; box-shadow: none; }
 @keyframes navdrop {
   from { opacity: 0; transform: translateY(-5px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -168,11 +169,11 @@ table.dense th, table.dense td { white-space: nowrap; overflow-wrap: normal; }
 th {
   color: var(--muted); font-weight: 600; font-size: 12px;
   text-transform: uppercase; letter-spacing: .5px;
-  background: #f5f7fa;                             /* 表头浅底: 数据区界面感 */
+  background: #f4f7f7;                             /* 表头浅底(Lucid 灰) */
   border-bottom: 1px solid var(--border-strong);
 }
 tr:last-child td { border-bottom: 0; }
-tbody tr:hover, table tr:hover td { background: #f3f6fa; }
+tbody tr:hover, table tr:hover td { background: #f2f8f6; }  /* 悬停: 极浅蓝绿 */
 /* 行标记(tables.js 点行切换): 高亮当前查看的行, 宽表横滑时对着看; 盖过 hover 底色 */
 tr.row-marked td, tr.row-marked:hover td { background: #fff7e6; }
 tr.row-marked td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
@@ -226,11 +227,11 @@ td.mono {
 /* 链接按钮: 页面内醒目跳转入口 (如 MT5 原始流水) */
 a.btn {
   display: inline-block; padding: 4px 12px; margin-left: 8px;
-  border: 1px solid #bfdbfe; border-radius: var(--radius-sm);
+  border: 1px solid #bfe0f5; border-radius: var(--radius-sm);
   font-size: 12px; font-weight: 500; text-decoration: none;
-  color: #2563eb; background: #eff6ff; vertical-align: middle;
+  color: #2980ba; background: #eaf4fb; vertical-align: middle;
 }
-a.btn:hover { background: #dbeafe; }
+a.btn:hover { background: #d9ecf9; }
 .pos { color: var(--ok-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .neg { color: var(--err-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 
@@ -247,7 +248,7 @@ input, select {
 }
 input:focus, select:focus {
   outline: none; border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+  box-shadow: 0 0 0 3px rgba(49, 147, 214, .15);
 }
 
 button {
@@ -290,7 +291,8 @@ select.small:hover { color: var(--text); }
   text-transform: uppercase; letter-spacing: .6px; min-width: 32px;
 }
 .runbar .spacer { flex: 1 1 auto; }            /* 把按钮推到最右 */
-.runbar .go { padding: 8px 22px; }             /* 主操作按钮更醒目 */
+.runbar .go { padding: 8px 22px; background: var(--grad); }  /* 主操作: 签名蓝绿渐变 */
+.runbar .go:hover:not(:disabled) { filter: brightness(1.06); }
 
 /* 状态按钮 (点开看详情): 悬浮不改底色(覆盖全局 button:hover 的蓝底), 徽章微微加深即可 */
 .status-btn {
@@ -321,7 +323,7 @@ td { overflow: hidden; text-overflow: ellipsis; }
 /* 进度条(标准组件, 配 _macros.progress_bar 用; 下载/回测等长任务通用) */
 .pbar { display: inline-block; vertical-align: middle; width: 160px; height: 10px;
         background: var(--border); border-radius: 5px; overflow: hidden; }
-.pbar-fill { display: block; height: 100%; background: var(--ok-fg);
+.pbar-fill { display: block; height: 100%; background: var(--grad);
              border-radius: 5px; transition: width .5s ease; }
 
 /* 键值小表(标准组件, 如对账摘要): 左列窄且灰, 值列自适应 */
