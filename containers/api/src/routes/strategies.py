@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from src.services import backtest, verify
+from src.services import backtest, instances, verify
 from strategy_core import TEMPLATES, TF_SECONDS, grid_combos, random_combo
 
 logger = logging.getLogger("strategies")
@@ -75,17 +75,6 @@ async def _ai_combos(pool, template: str, symbol: str, timeframe: str, count: in
     return combos
 
 
-async def _insert_instance(pool, template, symbol, timeframe, params) -> int:
-    """写入一个策略实例; 重复组合返回 0 (唯一约束去重)"""
-    name = f"{template}-{symbol}-{timeframe}-" + "-".join(
-        f"{k}{params[k]}" for k in sorted(params))
-    result = await pool.execute(
-        "INSERT INTO strategies (name, template, symbol, timeframe, params)"
-        " VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
-        name, template, symbol, timeframe, params)
-    return int(result.split()[-1])
-
-
 @router.post("/strategies/generate")
 async def generate(req: GenerateRequest, request: Request):
     """批量生成 CANDIDATE 实例 (重复组合自动跳过)"""
@@ -106,29 +95,33 @@ async def generate(req: GenerateRequest, request: Request):
         raise HTTPException(
             status_code=400,
             detail=f"品种未登记: {', '.join(unknown)} — 先在下载页登记(会向券商校验)再生成策略")
+    # 三种模式只负责"生产参数"; 校验/入库/去重/反馈统一走 services.instances 收货管道
+    # (与 AI 调参页同一条路, 协议 = [{"params", "basis"}]) — 改规则只改管道一处
     created, total = 0, 0
     rng = random.Random()
     for symbol in symbols:
+        max_created = None
         if req.mode == "grid":
-            for params in grid_combos(req.template):
-                total += 1
-                created += await _insert_instance(pool, req.template, symbol, req.timeframe, params)
+            combos = [{"params": p, "basis": "grid"} for p in grid_combos(req.template)]
         elif req.mode == "ai":
-            for params in await _ai_combos(pool, req.template, symbol, req.timeframe, req.count):
-                total += 1
-                created += await _insert_instance(pool, req.template, symbol, req.timeframe, params)
-        else:  # random: 多抽一些抵消撞重, 直到凑够 count 个新实例
-            made = 0
-            for _ in range(req.count * 5):  # 上限防死循环
-                if made >= req.count:
+            combos = [{"params": p, "basis": "ai"} for p in
+                      await _ai_combos(pool, req.template, symbol, req.timeframe, req.count)]
+        else:  # random: 多采样抵消撞重(内存先去重), 管道里新建满 count 即停
+            seen, combos = set(), []
+            for _ in range(req.count * 5):
+                p = random_combo(req.template, rng)
+                if p is None:
                     break
-                params = random_combo(req.template, rng)
-                if params is None:
-                    break
-                total += 1
-                n = await _insert_instance(pool, req.template, symbol, req.timeframe, params)
-                created += n
-                made += n
+                key = tuple(sorted(p.items()))
+                if key in seen:
+                    continue
+                seen.add(key)
+                combos.append({"params": p, "basis": "random"})
+            max_created = req.count
+        r = await instances.create_instances(
+            pool, req.template, symbol, req.timeframe, combos, max_created=max_created)
+        created += len(r["created_ids"])
+        total += len(r["results"])
     logger.info("generated %d strategies (%s, mode=%s)", created, req.template, req.mode)
     return {"created": created, "skipped": total - created, "mode": req.mode,
             "template": req.template, "symbols": req.symbols}
@@ -431,53 +424,11 @@ async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Req
         "SELECT id, template, symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
     if parent is None:
         raise HTTPException(status_code=404, detail="strategy not found")
-    cls = TEMPLATES[parent["template"]]
-    space = cls.RANDOM_SPACE or cls.PARAM_GRID
-    keys = set(space)
-    results, created_ids = [], []
-    for i, item in enumerate(req.combos[:50]):   # 单批上限50, 防AI失控倾倒
-        basis = item.get("basis") if isinstance(item, dict) else None
-        params = item.get("params", item) if isinstance(item, dict) else None
-        out = {"i": i + 1, "params": params, "basis": basis}
-        if not isinstance(params, dict) or set(params) != keys:
-            out["error"] = f"参数键必须恰好是 {sorted(keys)}"
-            results.append(out); continue
-        bad = next((k for k, v in params.items()
-                    if isinstance(space.get(k), tuple)
-                    and not space[k][0] <= v <= space[k][1]), None)
-        if bad:
-            out["error"] = f"{bad}={params[bad]} 超出空间 {space[bad][:2]}"
-            results.append(out); continue
-        if not cls.valid_params(params):
-            out["error"] = "valid_params 不通过"
-            results.append(out); continue
-        name = f"{parent['template']}-{parent['symbol']}-{parent['timeframe']}-" + \
-               "-".join(f"{k}{params[k]}" for k in sorted(params))
-        row = await pool.fetchrow(
-            "INSERT INTO strategies (name, template, symbol, timeframe, params, parent_id)"
-            " VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING RETURNING id",
-            name, parent["template"], parent["symbol"], parent["timeframe"],
-            params, strategy_id)
-        if row is None:  # 撞唯一约束 = 该组合已存在(可能是死过的邻居) → 查出现有ID给用户看
-            existing = await pool.fetchrow(
-                "SELECT id, status, archive_reason FROM strategies"
-                " WHERE template=$1 AND symbol=$2 AND timeframe=$3 AND params=$4",
-                parent["template"], parent["symbol"], parent["timeframe"], params)
-            out["existing_id"] = existing["id"] if existing else None
-            out["existing_status"] = existing["status"] if existing else None
-            results.append(out); continue
-        # 回读核验: 库里存的 params 必须与请求逐字段一致(防序列化/精度意外)
-        stored = await pool.fetchval("SELECT params FROM strategies WHERE id=$1", row["id"])
-        out["id"] = row["id"]
-        out["verified"] = (stored == params)
-        if not out["verified"]:
-            out["stored_params"] = stored   # 极端情况暴露差异, 别静默
-        created_ids.append(row["id"])
-        results.append(out)
-    logger.info("ai candidates for #%d: %d combos → created=%d",
-                strategy_id, len(results), len(created_ids))
-    return {"results": results, "created_ids": created_ids,
-            "template": parent["template"], "symbol": parent["symbol"],
+    # 与生成页同一条收货管道(services.instances), 只多带 parent_id 谱系
+    r = await instances.create_instances(
+        pool, parent["template"], parent["symbol"], parent["timeframe"],
+        req.combos, parent_id=strategy_id)
+    return {**r, "template": parent["template"], "symbol": parent["symbol"],
             "timeframe": parent["timeframe"]}
 
 
