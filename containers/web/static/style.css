@@ -40,14 +40,14 @@ nav {
   height: 54px;
   /* 内容对齐 main 的 1200px: 两侧留白 = max(24px, 视口多余宽度的一半) */
   padding: 0 max(24px, calc((100vw - 1200px) / 2));
-  background: rgba(184, 222, 215, .94);   /* #b8ded7 薄荷青(2026-07-17 用户定) */
+  background: rgba(140, 156, 149, .96);   /* #8c9c95 灰绿(2026-07-17 用户定) */
   backdrop-filter: saturate(1.4) blur(12px);
   -webkit-backdrop-filter: saturate(1.4) blur(12px);
-  border-bottom: 1px solid #a3cfc6;
+  border-bottom: 1px solid #7d8d86;
   box-shadow: 0 1px 10px rgba(44, 62, 80, .10);
 }
 nav .brand {
-  color: var(--text); font-weight: 700; font-size: 15px;
+  color: #fff; font-weight: 700; font-size: 15px;
   letter-spacing: .4px; margin-right: 24px; white-space: nowrap;
 }
 nav .brand::before {
@@ -56,12 +56,12 @@ nav .brand::before {
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 nav a {
-  color: #3f5a55; text-decoration: none;   /* 青底上的墨绿灰 */
+  color: #eef3f1; text-decoration: none;   /* 灰绿底上的浅字 */
   font-size: 13.5px; font-weight: 550; letter-spacing: .2px;
   padding: 6px 13px; border-radius: 999px; white-space: nowrap;
   transition: color .15s ease, background .15s ease;
 }
-nav a:hover { color: var(--text); background: rgba(255, 255, 255, .5); }
+nav a:hover { color: #fff; background: rgba(255, 255, 255, .18); }
 nav a.active {
   color: #fff;
   background: var(--grad);          /* 签名蓝绿渐变药丸(参考图按钮) */
@@ -106,7 +106,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 24px 24px 64px; }
   gap: 16px; margin-bottom: 16px;
 }
 .stat {
-  background: #dce3e2;                     /* 大框底(2026-07-17 用户定) */
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
@@ -151,8 +151,7 @@ h3 {
    border-collapse 用 separate(collapse 下圆角裁不掉), spacing=0 保持单元格边线不变 */
 table {
   width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 4px;
-  background: #e6f2ed;                    /* 表格底(2026-07-17 用户定) */
-  border: 1px solid #d3e6de;
+  background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm);
 }
 table tr:last-child td { border-bottom: none; }  /* 末行底线与卡片边框不叠加 */
@@ -170,11 +169,11 @@ table.dense th, table.dense td { white-space: nowrap; overflow-wrap: normal; }
 th {
   color: var(--muted); font-weight: 600; font-size: 12px;
   text-transform: uppercase; letter-spacing: .5px;
-  background: #d9ece4;                             /* 表头: 比表底深一档的薄荷 */
+  background: #f4f7f7;                             /* 表头浅底(Lucid 灰) */
   border-bottom: 1px solid var(--border-strong);
 }
 tr:last-child td { border-bottom: 0; }
-tbody tr:hover, table tr:hover td { background: #d8ebe3; }  /* 悬停: 比表底深一档 */
+tbody tr:hover, table tr:hover td { background: #f2f8f6; }  /* 悬停: 极浅蓝绿 */
 /* 行标记(tables.js 点行切换): 高亮当前查看的行, 宽表横滑时对着看; 盖过 hover 底色 */
 tr.row-marked td, tr.row-marked:hover td { background: #fff7e6; }
 tr.row-marked td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
