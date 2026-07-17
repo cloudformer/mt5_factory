@@ -10,6 +10,8 @@
   --accent-hover: #2980ba;
   --green: #2ecc71;          /* Lucid 绿(与蓝构成签名渐变) */
   --grad: linear-gradient(115deg, #3193d6, #2ecc71);  /* 签名蓝绿渐变 */
+  --nav-bg: #5b6661;         /* 导航+下拉共用底色(2026-07-17 定: 两者永远同色, 改这里) */
+  --nav-bd: #4d5752;
   --ok-fg: #27ae60;  --ok-bg: #eafaf1;  --ok-bd: #b8e6cd;
   --warn-fg: #92400e; --warn-bg: #fffbeb; --warn-bd: #fde68a;
   --err-fg: #b91c1c;  --err-bg: #fef2f2; --err-bd: #fecaca;
@@ -40,14 +42,12 @@ nav {
   height: 54px;
   /* 内容对齐 main 的 1200px: 两侧留白 = max(24px, 视口多余宽度的一半) */
   padding: 0 max(24px, calc((100vw - 1200px) / 2));
-  background: rgba(140, 156, 149, .96);   /* #8c9c95 灰绿(2026-07-17 用户定) */
-  backdrop-filter: saturate(1.4) blur(12px);
-  -webkit-backdrop-filter: saturate(1.4) blur(12px);
-  border-bottom: 1px solid #7d8d86;
+  background: var(--nav-bg);
+  border-bottom: 1px solid var(--nav-bd);
   box-shadow: 0 1px 10px rgba(44, 62, 80, .10);
 }
 nav .brand {
-  color: #fff; font-weight: 700; font-size: 15px;
+  color: #fff; font-weight: 700; font-size: 16.5px;
   letter-spacing: .4px; margin-right: 24px; white-space: nowrap;
 }
 nav .brand::before {
@@ -57,8 +57,8 @@ nav .brand::before {
 }
 nav a {
   color: #eef3f1; text-decoration: none;   /* 灰绿底上的浅字 */
-  font-size: 13.5px; font-weight: 550; letter-spacing: .2px;
-  padding: 6px 13px; border-radius: 999px; white-space: nowrap;
+  font-size: 15px; font-weight: 550; letter-spacing: .2px;
+  padding: 7px 15px; border-radius: 999px; white-space: nowrap;
   transition: color .15s ease, background .15s ease;
 }
 nav a:hover { color: #fff; background: rgba(255, 255, 255, .18); }
@@ -73,8 +73,8 @@ nav a.active {
 .navmenu-items {
   display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 120;
   min-width: 150px; padding: 6px;
-  background: #5b6661;                   /* 下拉与一级菜单同族, 深一档(2026-07-17 用户定) */
-  border: 1px solid #4d5752;
+  background: var(--nav-bg);             /* 与一级菜单同一变量, 永远同色 */
+  border: 1px solid var(--nav-bd);
   border-radius: 10px; box-shadow: 0 10px 28px rgba(44, 62, 80, .30);
   animation: navdrop .14s ease-out;
 }
@@ -83,8 +83,8 @@ nav a.active {
 }
 .navmenu:hover .navmenu-items { display: block; }
 .navmenu-items a {
-  display: block; padding: 7px 14px; border-radius: 7px;
-  font-size: 13px; white-space: nowrap;
+  display: block; padding: 8px 15px; border-radius: 7px;
+  font-size: 14.5px; white-space: nowrap;
   color: #eef3f1;                        /* 深底浅字(与一级菜单一致) */
 }
 .navmenu-items a:hover { color: #fff; background: rgba(255, 255, 255, .16); }
