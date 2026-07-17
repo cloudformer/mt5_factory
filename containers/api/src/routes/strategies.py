@@ -97,7 +97,7 @@ async def generate(req: GenerateRequest, request: Request):
             detail=f"品种未登记: {', '.join(unknown)} — 先在下载页登记(会向券商校验)再生成策略")
     # 三种模式只负责"生产参数"; 校验/入库/去重/反馈统一走 services.instances 收货管道
     # (与 AI 调参页同一条路, 协议 = [{"params", "basis"}]) — 改规则只改管道一处
-    created, total = 0, 0
+    created, total, created_ids = 0, 0, []
     rng = random.Random()
     for symbol in symbols:
         max_created = None
@@ -121,10 +121,11 @@ async def generate(req: GenerateRequest, request: Request):
         r = await instances.create_instances(
             pool, req.template, symbol, req.timeframe, combos, max_created=max_created)
         created += len(r["created_ids"])
+        created_ids.extend(r["created_ids"])
         total += len(r["results"])
     logger.info("generated %d strategies (%s, mode=%s)", created, req.template, req.mode)
-    return {"created": created, "skipped": total - created, "mode": req.mode,
-            "template": req.template, "symbols": req.symbols}
+    return {"created": created, "skipped": total - created, "created_ids": created_ids,
+            "mode": req.mode, "template": req.template, "symbols": req.symbols}
 
 
 @router.get("/strategies/status")
