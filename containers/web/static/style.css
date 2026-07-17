@@ -73,9 +73,9 @@ nav a.active {
 .navmenu-items {
   display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 120;
   min-width: 150px; padding: 6px;
-  background: #fff;
-  border: 1px solid #e2e7e9;
-  border-radius: 10px; box-shadow: 0 10px 28px rgba(44, 62, 80, .16);
+  background: #5b6661;                   /* 下拉与一级菜单同族, 深一档(2026-07-17 用户定) */
+  border: 1px solid #4d5752;
+  border-radius: 10px; box-shadow: 0 10px 28px rgba(44, 62, 80, .30);
   animation: navdrop .14s ease-out;
 }
 .navmenu-items::before {  /* 触发项与面板之间的透明桥, 鼠标斜穿不收起 */
@@ -85,7 +85,9 @@ nav a.active {
 .navmenu-items a {
   display: block; padding: 7px 14px; border-radius: 7px;
   font-size: 13px; white-space: nowrap;
+  color: #eef3f1;                        /* 深底浅字(与一级菜单一致) */
 }
+.navmenu-items a:hover { color: #fff; background: rgba(255, 255, 255, .16); }
 .navmenu-items a.active { background: var(--grad); color: #fff; box-shadow: none; }
 @keyframes navdrop {
   from { opacity: 0; transform: translateY(-5px); }
