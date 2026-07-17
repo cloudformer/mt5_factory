@@ -49,21 +49,30 @@
         <div class="stat-sub">实盘有信号回测也有(不评判)</div>
       </div>
     </div>
-    <p style="margin:8px 0"><b>回测质量 v1 验收(目标 ≥90%,分母={{ denom_name }})</b>:
-      笔数 {{ (mt.count_match_rate * 100) | round | int }}% {{ '✅' if mt.count_match_rate >= 0.9 else '❌' }} ·
-      方向 {{ (mt.dir_match_rate * 100) | round | int }}% {{ '✅' if mt.dir_match_rate >= 0.9 else '❌' }}
-      → {% if mt.q10_pass %}<span class="pos">达标</span>{% else %}<span class="neg">未达标</span>{% endif %}
-      <span class="muted">　|　记录不评判:信号 {{ (mt.signal_hit_rate * 100) | round | int }}% · 涨跌 {{ (mt.outcome_match_rate * 100) | round | int }}%
-      {%- if mt.net_bias_pct is defined and mt.net_bias_pct is not none %} · 精度:入场均差 {{ mt.entry_diff_avg }} · 净点均差 {{ mt.net_diff_avg }} · 总账偏 {{ '%+g' % mt.net_bias_pct }}%(正=回测乐观)
-      {%- if mt.entry_diff_buy is defined or mt.entry_diff_sell is defined %} · 分方向:
-        {%- if mt.entry_diff_buy is defined %}买 {{ '%+g' % mt.entry_diff_buy }}({{ mt.entry_diff_buy_n }}笔){% endif %}
-        {%- if mt.entry_diff_sell is defined %} 卖 {{ '%+g' % mt.entry_diff_sell }}({{ mt.entry_diff_sell_n }}笔){% endif %}
-        <span title="带符号入场均差, 正=实盘吃亏(回测入场偏乐观)。库内bar为bid: 买按ask成交(偏差≈点差+滑点), 卖按bid(≈纯滑点) — 两组分开可拆出点差vs滑点, 供成本模型校准">(正=实盘吃亏)</span>{% endif %}{% endif %}</span></p>
+    <p style="margin:8px 0"><b>回测质量 v1 验收:
+      {% if mt.q10_pass %}<span class="pos">✅ 达标</span>{% else %}<span class="neg">❌ 未达标</span>{% endif %}</b>
+      <span class="muted">　笔数 {{ (mt.count_match_rate * 100) | round | int }}% {{ '✅' if mt.count_match_rate >= 0.9 else '❌' }} ·
+      方向 {{ (mt.dir_match_rate * 100) | round | int }}% {{ '✅' if mt.dir_match_rate >= 0.9 else '❌' }}(目标 ≥90%,分母={{ denom_name }})</span></p>
     {% set quiet_w = recon.windows_total - recon.windows_active if recon.windows_active is defined else 0 %}
-    <p class="muted">品种 {{ recon.symbol }} · 实盘成交跨度 {{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }} ·
-      实盘 <b>{{ recon.actual_trades }}</b> 笔 · 回测窗口内 <b>{{ recon.bt_trades }}</b> 笔<span class="muted">(全部 {{ recon.bt_total }} 笔)</span> ·
-      {% if recon.mode == 'segments' %}<span class="badge ok" title="按运行区间(strategy_runtime, 策略真实在跑的时段)对账: 对比窗口 = 区间±20分钟(重叠合并); 窗口内'回测有信号实盘没单'照样抓 runner 漏单">双边(按运行区间) · 对比窗口 {{ recon.windows_total }} 段{% if quiet_w > 0 %}({{ recon.windows_active }} 有成交 · {{ quiet_w }} 静默){% endif %}</span>
-      {% else %}<span class="badge warn" title="该策略还没有运行区间记录(表上线前的历史数据): 对比窗口 = 每笔实盘±20分钟, 仅验证'实盘每笔回测可复现', 抓不了漏单; 分母=实盘笔数">单边(降级) · 不抓漏单</span>{% endif %}</p>
+    <table class="kv">
+      <tr><td>品种 / 模式</td><td>{{ recon.symbol }} ·
+        {% if recon.mode == 'segments' %}<span class="badge ok" title="按运行区间(strategy_runtime, 策略真实在跑的时段)对账: 对比窗口 = 区间±20分钟(重叠合并); 窗口内'回测有信号实盘没单'照样抓 runner 漏单">双边(按运行区间)</span> · 对比窗口 {{ recon.windows_total }} 段{% if quiet_w > 0 %}({{ recon.windows_active }} 有成交 · {{ quiet_w }} 静默){% endif %}
+        {% else %}<span class="badge warn" title="该策略还没有运行区间记录(表上线前的历史数据): 对比窗口 = 每笔实盘±20分钟, 仅验证'实盘每笔回测可复现', 抓不了漏单; 分母=实盘笔数">单边(降级) · 不抓漏单</span>{% endif %}</td></tr>
+      <tr><td>实盘跨度</td><td>{{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }} · 实盘 <b>{{ recon.actual_trades }}</b> 笔</td></tr>
+      <tr><td>回测笔数</td><td>窗口内 <b>{{ recon.bt_trades }}</b> · 全部 {{ recon.bt_total }}</td></tr>
+      <tr><td>记录不评判</td><td>信号 {{ (mt.signal_hit_rate * 100) | round | int }}% · 涨跌 {{ (mt.outcome_match_rate * 100) | round | int }}%</td></tr>
+      {% if mt.entry_diff_avg is defined %}
+      <tr><td>入场精度</td><td>均差 {{ mt.entry_diff_avg }}
+        {%- if mt.entry_diff_buy is defined %} · 买 {{ '%+g' % mt.entry_diff_buy }}({{ mt.entry_diff_buy_n }}笔){% endif %}
+        {%- if mt.entry_diff_sell is defined %} · 卖 {{ '%+g' % mt.entry_diff_sell }}({{ mt.entry_diff_sell_n }}笔){% endif %}
+        <span class="muted" title="带符号入场均差(价格单位)。库内bar为bid: 买按ask成交(偏差≈点差+滑点), 卖按bid(≈纯滑点) — 两组分开可拆出点差vs滑点, 供成本模型校准">(正=实盘吃亏, 负=占便宜)</span></td></tr>
+      {% endif %}
+      {% if mt.net_bias_pct is defined and mt.net_bias_pct is not none %}
+      <tr><td>盈亏精度</td><td>净点均差 {{ mt.net_diff_avg }} · 总账偏
+        {{ '0' if mt.net_bias_pct == 0 else '%+.2f%%' % mt.net_bias_pct }}
+        <span class="muted">({{ '回测偏乐观' if mt.net_bias_pct > 0 else '回测偏悲观' }})</span></td></tr>
+      {% endif %}
+    </table>
     {# 覆盖检查: 正常不打扰, 有问题才出警告行 #}
     {% if recon.bt_total == 0 %}
     <p class="muted"><span class="neg">❌ 该策略还没回测过 — 先去「策略回测」</span></p>
@@ -86,8 +95,10 @@
           <details>
             <summary>{% if p.dir_match and p.outcome_match %}<span class="pos">✅ 匹配</span>{% else %}<span class="neg">⚠ 部分</span>(方向{{ '✓' if p.dir_match else '✗' }}·涨跌{{ '✓' if p.outcome_match else '✗' }}){% endif %} — 点开详情</summary>
             <div class="muted" style="padding:6px 0 0">
-              入场价:实盘 <b>{{ p.actual.price }}</b> / 回测 <b>{{ p.bt.price }}</b><br>
+              入场价:实盘 <b>{{ p.actual.price }}</b> / 回测 <b>{{ p.bt.price }}</b>
+              {%- if p.entry_diff_points is defined %} · 差 <b>{{ '0' if p.entry_diff_points == 0 else '%+d' % p.entry_diff_points }}</b> 点{% endif %}<br>
               净点:实盘 <b>{{ p.actual.net if p.actual.net is not none else '—' }}</b> / 回测 <b>{{ p.bt.points }}</b>
+              {%- if p.net_diff_pct is defined %} · 差 <b>{{ '0' if p.net_diff_pct == 0 else '%+.2f%%' % p.net_diff_pct }}</b>{% endif %}
             </div>
           </details>
           {% elif p.actual %}
