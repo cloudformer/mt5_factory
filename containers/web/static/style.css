@@ -10,8 +10,8 @@
   --accent-hover: #2980ba;
   --green: #2ecc71;          /* Lucid 绿(与蓝构成签名渐变) */
   --grad: linear-gradient(115deg, #3193d6, #2ecc71);  /* 签名蓝绿渐变 */
-  --nav-bg: #5b6661;         /* 导航+下拉共用底色(2026-07-17 定: 两者永远同色, 改这里) */
-  --nav-bd: #4d5752;
+  --nav-bg: #464d4a;         /* 导航+下拉共用底色(2026-07-17 定: 两者永远同色, 改这里) */
+  --nav-bd: #3a403d;
   --ok-fg: #27ae60;  --ok-bg: #eafaf1;  --ok-bd: #b8e6cd;
   --warn-fg: #92400e; --warn-bg: #fffbeb; --warn-bd: #fde68a;
   --err-fg: #b91c1c;  --err-bg: #fef2f2; --err-bd: #fecaca;
