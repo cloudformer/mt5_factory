@@ -330,3 +330,14 @@ td { overflow: hidden; text-overflow: ellipsis; }
 
 /* 键值小表(标准组件, 如对账摘要): 左列窄且灰, 值列自适应 */
 table.kv td:first-child { width: 130px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+
+/* 两端对齐行(标准工具类): 标题左 + 动作按钮右 */
+.flex-between { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+
+/* ID串展示卡(标准组件): 等宽可选中复制, 配复制按钮用 */
+.idbox {
+  background: #f4f7f7; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px 14px; margin-top: 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px;
+  overflow-wrap: anywhere; user-select: all;   /* 一点全选, 方便手动复制 */
+}

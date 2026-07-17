@@ -168,6 +168,21 @@ def ai_prompt_txt():
         return f"error: {e}", 502, {"Content-Type": "text/plain; charset=utf-8"}
 
 
+@bp.post("/ai/create")
+def ai_create_instances():
+    """第3步预览确认后的「创建策略」(AJAX): 解析过的 combos → api 统一收货管道
+    (ai_candidates: 三层校验/parent_id谱系/去重/回读核验) → 逐组回执 + created_ids"""
+    data = request.get_json(force=True, silent=True) or {}
+    sid = data.get("strategy_id")
+    combos = data.get("combos")
+    if not sid or not isinstance(combos, list) or not combos:
+        return {"error": "缺 strategy_id 或 combos"}, 400
+    try:
+        return api.post(f"/strategies/{sid}/ai_candidates", {"combos": combos})
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
 @bp.post("/ai/submit")
 def ai_submit():
     """步骤2 收货: 粘贴 AI 参数 JSON → api 逐组校验入库(parent_id) → 结果表就地渲染(不跳转)。

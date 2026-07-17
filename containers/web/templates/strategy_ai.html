@@ -70,7 +70,10 @@
     // 协议头核对: AI 必须原样带回 template(第2步提示词约定的返回格式; 不含 id)
     const wantTpl = "{{ meta.template if meta else '' }}";
     const okTpl = payload.template === wantTpl;
-    let head = '<h3>解析结果</h3><p>'
+    lastCombos = combos;   // 供右上角「创建策略」提交
+    let head = '<div class="flex-between"><h3>解析结果</h3>'
+      + '<button type="button" id="create-btn" ' + (okTpl ? '' : 'disabled title="模板不符, 禁止创建"')
+      + '>创建策略(' + combos.length + ' 组)</button></div><p>'
       + '声明模板 ' + (payload.template
           ? (payload.template + (okTpl ? ' <span class="pos">✓</span>'
                                        : ' <span class="neg">✗ 应为 ' + wantTpl + '</span>'))
@@ -94,8 +97,69 @@
         + "<td>" + (check.length ? "<span class='neg'>" + check.join("; ") + "</span>"
                                  : "<span class='pos'>✓</span>") + "</td></tr>";
     });
-    box.innerHTML = html + "</table>";
+    box.innerHTML = html + "</table><div id='create-result'></div>";
+    bindCreate();
   });
+
+  // 右上角「创建策略」: AJAX 走统一收货管道, 结果与ID串就地渲染(不刷新, 预览保留)
+  let lastCombos = null;
+  function bindCreate() {
+    const cbtn = document.getElementById("create-btn");
+    if (!cbtn || cbtn.disabled) return;
+    cbtn.addEventListener("click", async () => {
+      if (!lastCombos || !confirm("确认创建 " + lastCombos.length + " 组策略实例?\n\n统一管道校验: 不合格的组会被拒收并注明原因; 已存在的组返回现有ID。")) return;
+      cbtn.disabled = true; cbtn.textContent = "创建中…";
+      const out = document.getElementById("create-result");
+      try {
+        const resp = await fetch("{{ url_for('strategies.ai_create_instances') }}", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ strategy_id: {{ sid }}, combos: lastCombos }),
+        });
+        const r = await resp.json();
+        if (!resp.ok) { out.innerHTML = '<p class="neg">创建失败: ' + (r.error || resp.status) + '</p>'; cbtn.disabled = false; cbtn.textContent = "创建策略"; return; }
+        const made = r.created_ids || [];
+        const rows = r.results || [];
+        const nExist = rows.filter((x) => x.existing_id !== undefined).length;
+        const nBad = rows.filter((x) => x.error).length;
+        let h = '<h3>创建结果</h3><p>'
+          + '<span class="pos">新建 ' + made.length + '</span> · '
+          + '<span class="badge warn">已存在 ' + nExist + '</span> · '
+          + (nBad ? '<span class="neg">拒收 ' + nBad + '</span>' : '拒收 0') + '</p>'
+          + '<table><tr><th style="width:40px">#</th><th>参数</th><th style="width:200px">结果</th><th style="width:120px">参数核验</th></tr>';
+        rows.forEach((x) => {
+          const cells = x.params ? Object.entries(x.params).map(([k, v]) => k + "=" + v).join(" ") : "—";
+          let res, ver = "—";
+          if (x.id) {
+            res = '<span class="pos">新建 → ID ' + x.id + '</span>';
+            ver = x.verified ? '<span class="pos">✓ 与请求一致</span>'
+                             : '<span class="neg">✗ 不一致!</span>';
+          } else if (x.existing_id !== undefined) {
+            res = '<span class="badge warn">已存在 #' + (x.existing_id || "?") + '</span>'
+                + (x.existing_status ? ' <span class="muted">(' + x.existing_status + ')</span>' : '');
+          } else res = '<span class="neg">✗ ' + x.error + '</span>';
+          h += "<tr><td class='mono muted'>" + x.i + "</td><td class='mono'>" + cells + "</td><td>" + res + "</td><td>" + ver + "</td></tr>";
+        });
+        h += "</table>";
+        if (made.length) {
+          h += '<div class="flex-between" style="margin-top:12px"><h3>新策略 ID(' + made.length + ' 个)</h3>'
+            + '<button type="button" class="small" id="copy-ids-btn">复制ID串</button></div>'
+            + '<div class="idbox" id="idbox">' + made.join(",") + '</div>'
+            + '<p class="muted">可直接粘到「策略回测」的按ID框, 或本页后续回测步骤。</p>';
+        }
+        out.innerHTML = h;
+        cbtn.textContent = "已创建 ✓";
+        const copyBtn = document.getElementById("copy-ids-btn");
+        if (copyBtn) copyBtn.addEventListener("click", async () => {
+          const t = document.getElementById("idbox").textContent;
+          try { await navigator.clipboard.writeText(t); } catch (e) {}
+          copyBtn.textContent = "已复制 " + made.length + " 个";
+        });
+      } catch (e) {
+        out.innerHTML = '<p class="neg">创建失败: ' + e.message + '</p>';
+        cbtn.disabled = false; cbtn.textContent = "创建策略";
+      }
+    });
+  }
 })();
 </script>
 
