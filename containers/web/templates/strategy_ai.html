@@ -10,8 +10,8 @@
     <label>提议组数 <input name="count" value="{{ count }}" size="3" title="建议 8~12: 太多退化成随机撒网, 太少浪费轮次"></label>
     <button class="small">载入</button>
     {% if sid %}
-    <a class="btn" href="{{ url_for('strategies.ai_report', strategy_id=sid) }}" target="_blank">AI成绩单 JSON</a>
-    <a class="btn" href="{{ url_for('strategies.analysis', strategy_id=sid) }}">策略分析</a>
+    <a class="btn" href="{{ url_for('strategies.ai_report', strategy_id=sid) }}" target="_blank"
+       title="本页提示词里附带的那份原始成绩单(report), 供肉眼核对或脚本取用">AI成绩单 JSON</a>
     {% endif %}
     {% if meta %}<span class="muted">{{ meta.name }} · {{ m.strategy_status(meta.status) }}</span>{% endif %}
   </form>
