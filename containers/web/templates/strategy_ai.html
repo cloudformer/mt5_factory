@@ -4,28 +4,37 @@
 {{ m.page_header('AI 策略分析', '单策略调参迭代(v2.2 人桥版): 成绩单 → AI 提议 8~12 组参数 → 生成回测 → 父子对比 → 再迭代。准备工作(下载数据/重跑回测)先手动做好') }}
 
 <section>
-  <h2>第 1 步 · 选策略, 拿提示词</h2>
+  <h2>第 1 步 · 输入策略ID → 获取成绩单(report)</h2>
   <form method="get" class="inline">
     <label>策略ID <input name="strategy_id" value="{{ sid or '' }}" size="8" required></label>
-    <label>提议组数 <input name="count" value="{{ count }}" size="3" title="建议 8~12: 太多退化成随机撒网, 太少浪费轮次"></label>
+    <label>提议组数 <input name="count" value="{{ count }}" size="3" title="第2步提示词里要求 AI 给几组; 建议 8~12"></label>
     <button class="small">载入</button>
-    {% if sid %}
-    <a class="btn" href="{{ url_for('strategies.ai_report', strategy_id=sid) }}" target="_blank"
-       title="本页提示词里附带的那份原始成绩单(report), 供肉眼核对或脚本取用">AI成绩单 JSON</a>
-    {% endif %}
     {% if meta %}<span class="muted">{{ meta.name }} · {{ m.strategy_status(meta.status) }}</span>{% endif %}
   </form>
+  {% if report_json %}
+  <p class="muted" style="margin:8px 0 4px">成绩单与「策略分析」页的 AI成绩单 JSON 是<b>同一个接口</b>(/strategies/{{ sid }}/report)——
+    未来在那边改内容, 这里自动一致。
+    <a class="btn" href="{{ url_for('strategies.ai_report', strategy_id=sid) }}" target="_blank">新窗口打开 JSON</a></p>
+  <details>
+    <summary class="muted">查看成绩单 JSON({{ '{:,}'.format(report_json | length) }} 字符)</summary>
+    <textarea readonly rows="14" style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:11px">{{ report_json }}</textarea>
+  </details>
+  {% endif %}
+</section>
+
+{% if sid %}
+<section>
+  <h2>第 2 步 · 生成提示词(成绩单 + 调参纪律 → 给 AI 的题目)</h2>
   {% if prompt %}
-  <p class="muted" style="margin:8px 0 4px">复制下面整段喂给任何 AI(Claude/ChatGPT/本地模型)——成绩单和调参纪律已拼好:</p>
+  <p class="muted" style="margin:0 0 4px">复制下面整段喂给任何 AI(Claude/ChatGPT/本地模型); 它要求 AI 返回 {{ count }} 组参数的 JSON:</p>
   <textarea id="ai-prompt" readonly rows="6" style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:11px">{{ prompt }}</textarea>
   <button class="small" type="button" id="copy-prompt">复制提示词</button>
   <span class="muted" id="copy-hint"></span>
   {% endif %}
 </section>
 
-{% if sid %}
 <section>
-  <h2>第 2 步 · 粘贴 AI 返回的参数 → 解析预览(到此为止, 不入库)</h2>
+  <h2>第 3 步 · 粘贴 AI 返回的参数 → 解析预览(到此为止, 不入库)</h2>
   <p class="muted">当前策略 <b class="mono">#{{ sid }}</b> · 模板 <b>{{ meta.template if meta else '—' }}</b>
     · 当前参数 <span class="mono">{{ meta.params if meta else '' }}</span>
     · 参数空间 <span class="mono">{{ space }}</span></p>

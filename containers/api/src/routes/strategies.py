@@ -507,6 +507,41 @@ async def family(strategy_id: int, request: Request):
     return {"family": out}
 
 
+_AI_TUNE_PROMPT = """你是量化策略调参助手。下面给出策略 #{sid} 的完整成绩单(JSON, 含回测逐笔/实盘/对账校准/同模板尸体)。
+
+模板 {template} 的参数空间(每个参数: [最小, 最大, 步长]):
+{space}
+
+任务: 基于成绩单证据, 提出 {count} 组新参数做下一轮回测。纪律:
+1. 每组相对当前参数({params})最多改 2 个维度, 且必须落在参数空间范围内、按步长对齐
+2. 每组必须附 "basis": 一句依据, 引用成绩单里的具体数字(如 MAE 分布/方向不对称/时段/留出段)
+3. 避开 failed_neighbors 里已死亡的参数区域
+4. 8~12 组之间, 宁少勿滥; 变化方向要聚焦(围绕最有证据的1~2个假设), 不要均匀撒网
+5. 只输出 JSON, 不要任何其他文字, 格式:
+{{"combos": [{{"params": {{...}}, "basis": "..."}}, ...]}}
+
+成绩单:
+{report}"""
+
+
+@router.get("/strategies/{strategy_id}/ai_prompt")
+async def ai_tune_prompt(strategy_id: int, request: Request, count: int = 10):
+    """AI 调参提示词(单一来源): 指令纪律 + 参数空间 + 完整成绩单。
+    页面第1步展示/复制、prompt.txt、ai_propose(一键问AI) 都取这里, 三处永远同文。"""
+    import json as _json
+    report = await ai_report(strategy_id, request)
+    meta = report["strategy"]
+    cls = TEMPLATES[meta["template"]]
+    space = cls.RANDOM_SPACE or cls.PARAM_GRID
+    prompt = _AI_TUNE_PROMPT.format(
+        sid=strategy_id, template=meta["template"],
+        space=_json.dumps(space, ensure_ascii=False),
+        params=_json.dumps(meta["params"], ensure_ascii=False),
+        count=count,
+        report=_json.dumps(report, ensure_ascii=False, default=str))
+    return {"prompt": prompt, "space": space, "strategy": meta}
+
+
 # 淘汰死因码(schema/022): AI 负样本("这类参数死于什么"), 页面按码翻中文, 不收自由文本
 ARCHIVE_REASONS = {"manual", "holdout_loss", "min_trades", "low_pf", "recon_fail",
                    "orphan_symbol", "other"}

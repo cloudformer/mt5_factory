@@ -128,37 +128,16 @@ def ai_report(strategy_id: int):
         return {"error": str(e)}, 502
 
 
-_AI_PROMPT = """你是量化策略调参助手。下面给出策略 #{sid} 的完整成绩单(JSON, 含回测逐笔/实盘/对账校准/同模板尸体)。
-
-模板 {template} 的参数空间(每个参数: [最小, 最大, 步长]):
-{space}
-
-任务: 基于成绩单证据, 提出 {count} 组新参数做下一轮回测。纪律:
-1. 每组相对当前参数({params})最多改 2 个维度, 且必须落在参数空间范围内、按步长对齐
-2. 每组必须附 "basis": 一句依据, 引用成绩单里的具体数字(如 MAE 分布/方向不对称/时段/留出段)
-3. 避开 failed_neighbors 里已死亡的参数区域
-4. 8~12 组之间, 宁少勿滥; 变化方向要聚焦(围绕最有证据的1~2个假设), 不要均匀撒网
-5. 只输出 JSON, 不要任何其他文字, 格式:
-{{"combos": [{{"params": {{...}}, "basis": "..."}}, ...]}}
-
-成绩单:
-{report}"""
-
-
 def _ai_context(sid: int, count: int):
-    """AI 页公共上下文: 提示词(指令+参数空间+完整成绩单) + 家族表 + 策略身份 + 参数空间"""
+    """AI 页公共上下文。数据源全部复用, 无本页私货:
+    成绩单 = /strategies/{id}/report(与「策略分析」页 AI成绩单JSON 同一个, 那边改这里自动跟)
+    提示词 = api /strategies/{id}/ai_prompt(单一来源, prompt.txt 也取它)"""
     import json as _json
     report = api.get(f"/strategies/{sid}/report")
-    meta = report["strategy"]
-    space = api.get("/strategies/templates")["templates"][meta["template"]]["random"]
-    prompt = _AI_PROMPT.format(
-        sid=sid, template=meta["template"],
-        space=_json.dumps(space, ensure_ascii=False),
-        params=_json.dumps(meta["params"], ensure_ascii=False),
-        count=count,
-        report=_json.dumps(report, ensure_ascii=False, default=str))
+    report_json = _json.dumps(report, ensure_ascii=False, indent=1, default=str)
+    info = api.get(f"/strategies/{sid}/ai_prompt", count=count)
     family = api.get(f"/strategies/{sid}/family")["family"]
-    return prompt, family, meta, space
+    return info["prompt"], family, info["strategy"], info["space"], report_json
 
 
 @bp.get("/ai")
@@ -167,33 +146,24 @@ def ai_page():
     ③手动按ID回测 ④家族对比→用最优继续。准备工作(下载/重跑回测)先手动做好。"""
     sid = request.args.get("strategy_id", type=int)
     count = request.args.get("count", 10, type=int)
-    prompt, family, meta, space = "", [], None, {}
+    prompt, family, meta, space, report_json = "", [], None, {}, ""
     if sid:
         try:
-            prompt, family, meta, space = _ai_context(sid, count)
+            prompt, family, meta, space, report_json = _ai_context(sid, count)
         except (api.ApiError, KeyError) as e:
             flash(f"取成绩单失败: {e}", "error")
-    return render_template("strategy_ai.html", sid=sid, count=count,
-                           prompt=prompt, family=family, meta=meta, space=space)
+    return render_template("strategy_ai.html", sid=sid, count=count, prompt=prompt,
+                           family=family, meta=meta, space=space, report_json=report_json)
 
 
 @bp.get("/ai/prompt.txt")
 def ai_prompt_txt():
-    """纯文本提示词(scripts/ai_tune.py 自动化用: 拉这个喂 claude -p, 免复制粘贴)"""
-    import json as _json
+    """纯文本提示词透传(api 单一来源; scripts/ai_tune.py 等自动化取这里)"""
     sid = request.args.get("strategy_id", type=int)
     count = request.args.get("count", 10, type=int)
     try:
-        report = api.get(f"/strategies/{sid}/report")
-        meta = report["strategy"]
-        space = api.get("/strategies/templates")["templates"][meta["template"]]["random"]
-        prompt = _AI_PROMPT.format(
-            sid=sid, template=meta["template"],
-            space=_json.dumps(space, ensure_ascii=False),
-            params=_json.dumps(meta["params"], ensure_ascii=False),
-            count=count,
-            report=_json.dumps(report, ensure_ascii=False, default=str))
-        return prompt, 200, {"Content-Type": "text/plain; charset=utf-8"}
+        r = api.get(f"/strategies/{sid}/ai_prompt", count=count)
+        return r["prompt"], 200, {"Content-Type": "text/plain; charset=utf-8"}
     except (api.ApiError, KeyError) as e:
         return f"error: {e}", 502, {"Content-Type": "text/plain; charset=utf-8"}
 
@@ -220,13 +190,13 @@ def ai_submit():
         flash("粘贴内容不是合法 JSON — 确认 AI 只输出了 JSON 本体", "error")
     except (api.ApiError, KeyError, TypeError) as e:
         flash(f"提交失败: {e}", "error")
-    prompt, family, meta, space = "", [], None, {}
+    prompt, family, meta, space, report_json = "", [], None, {}, ""
     try:
-        prompt, family, meta, space = _ai_context(sid, count)
+        prompt, family, meta, space, report_json = _ai_context(sid, count)
     except (api.ApiError, KeyError):
         pass
-    return render_template("strategy_ai.html", sid=sid, count=count,
-                           prompt=prompt, family=family, meta=meta, space=space,
+    return render_template("strategy_ai.html", sid=sid, count=count, prompt=prompt,
+                           family=family, meta=meta, space=space, report_json=report_json,
                            step2=step2, ids_csv=ids_csv)
 
 
