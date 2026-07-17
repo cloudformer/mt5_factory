@@ -96,7 +96,7 @@
             <summary>{% if p.dir_match and p.outcome_match %}<span class="pos">✅ 匹配</span>{% else %}<span class="neg">⚠ 部分</span>(方向{{ '✓' if p.dir_match else '✗' }}·涨跌{{ '✓' if p.outcome_match else '✗' }}){% endif %} — 点开详情</summary>
             <div class="muted" style="padding:6px 0 0">
               入场价:实盘 <b>{{ p.actual.price }}</b> / 回测 <b>{{ p.bt.price }}</b>
-              {%- if p.entry_diff_points is defined %} · 差 <b>{{ '0' if p.entry_diff_points == 0 else '%+d' % p.entry_diff_points }}</b> 点{% endif %}<br>
+              {%- if p.entry_diff_pct is defined %} · 差 <b>{{ '0' if p.entry_diff_pct == 0 else '%+.2f%%' % p.entry_diff_pct }}</b>{% endif %}<br>
               净点:实盘 <b>{{ p.actual.net if p.actual.net is not none else '—' }}</b> / 回测 <b>{{ p.bt.points }}</b>
               {%- if p.net_diff_pct is defined %} · 差 <b>{{ '0' if p.net_diff_pct == 0 else '%+.2f%%' % p.net_diff_pct }}</b>{% endif %}
             </div>

@@ -617,8 +617,9 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
     for p in pairs:  # 配对行补每笔差值(页面详情显示): 入场差按点数, 净点差按%(2位)
         if p["actual"] is not None and p["bt"] is not None:
             if point and p["actual"].get("price") is not None and p["bt"].get("price") is not None:
-                p["entry_diff_points"] = round(
-                    (float(p["actual"]["price"]) - float(p["bt"]["price"])) / point)
+                a_pr, b_pr = float(p["actual"]["price"]), float(p["bt"]["price"])
+                p["entry_diff_points"] = round((a_pr - b_pr) / point)   # 点数留给AI成绩单
+                p["entry_diff_pct"] = round((a_pr - b_pr) / b_pr * 100, 2)  # 页面显示(与净点差同为%)
             if p["actual"].get("net") is not None and p["bt"].get("points"):
                 p["net_diff_pct"] = round(
                     (float(p["actual"]["net"]) - float(p["bt"]["points"]))
