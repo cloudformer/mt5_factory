@@ -502,6 +502,16 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
     if md:
         metrics["entry_diff_avg"] = round(
             sum(abs(float(p["actual"]["price"]) - float(p["bt"]["price"])) for p in md) / len(md), 5)
+        # 买/卖分开的带符号入场均差(正=实盘吃亏=回测入场偏乐观): 买=实盘-回测, 卖=回测-实盘。
+        # 库内bar是bid价: 买按ask成交(偏差≈点差+滑点), 卖按bid(≈纯滑点) → 两组分开可拆出
+        # 点差 vs 滑点, 攒够样本后精准校准成本模型(v1.2)
+        for d, key in (("buy", "entry_diff_buy"), ("sell", "entry_diff_sell")):
+            grp = [p for p in md if (p["actual"].get("dir") or "").lower() == d]
+            if grp:
+                sgn = 1 if d == "buy" else -1
+                metrics[key] = round(sum(sgn * (float(p["actual"]["price"]) - float(p["bt"]["price"]))
+                                         for p in grp) / len(grp), 5)
+                metrics[key + "_n"] = len(grp)
     mn = [p for p in pairs if p["bt"] is not None
           and p["actual"].get("net") is not None and p["bt"].get("points") is not None]
     if mn:
