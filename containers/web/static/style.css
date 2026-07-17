@@ -30,36 +30,66 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---------- 导航 ---------- */
+/* ---------- 导航(2026-07-17 重设计: 吸顶毛玻璃深色条, 内容与 main 同宽对齐,
+   活动项=品牌色药丸, 下拉=浮层卡片带渐入动画; 类名/结构零改动) ---------- */
 nav {
-  display: flex; gap: 4px; align-items: center;
-  padding: 0 28px; height: 52px;
-  background: #1f2937;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, .2);
+  position: sticky; top: 0; z-index: 100;
+  display: flex; gap: 2px; align-items: center;
+  height: 54px;
+  /* 内容对齐 main 的 1200px: 两侧留白 = max(24px, 视口多余宽度的一半) */
+  padding: 0 max(24px, calc((100vw - 1200px) / 2));
+  background: rgba(15, 23, 42, .88);
+  backdrop-filter: saturate(1.5) blur(12px);
+  -webkit-backdrop-filter: saturate(1.5) blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, .07);
+  box-shadow: 0 1px 12px rgba(2, 6, 23, .35);
 }
 nav .brand {
-  color: #fff; font-weight: 650; font-size: 15px;
-  letter-spacing: .3px; margin-right: 20px;
+  color: #fff; font-weight: 700; font-size: 15px;
+  letter-spacing: .4px; margin-right: 24px; white-space: nowrap;
 }
-nav .brand::before { content: "◆ "; color: var(--accent); }
+nav .brand::before {
+  content: "◆ ";
+  background: linear-gradient(135deg, #60a5fa, #2563eb);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
 nav a {
-  color: #cbd5e1; text-decoration: none;
-  padding: 5px 12px; border-radius: 6px;
-  transition: color .15s, background .15s;
+  color: #b6c2d4; text-decoration: none;
+  font-size: 13.5px; font-weight: 550; letter-spacing: .2px;
+  padding: 6px 13px; border-radius: 999px; white-space: nowrap;
+  transition: color .15s ease, background .15s ease;
 }
-nav a:hover { color: #fff; background: rgba(255, 255, 255, .08); }
-nav a.active { color: #fff; background: rgba(255, 255, 255, .12); }
+nav a:hover { color: #fff; background: rgba(255, 255, 255, .07); }
+nav a.active {
+  color: #fff;
+  background: linear-gradient(180deg, rgba(59, 130, 246, .30), rgba(37, 99, 235, .22));
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, .35);
+}
 
-/* 导航下拉(策略组): 悬停展开, 纯 CSS; 面板沿用深色导航风格 */
+/* 导航下拉: 悬停渐入浮层卡片; 顶端 6px 透明桥接防悬停闪断 */
 .navmenu { position: relative; display: inline-block; }
 .navmenu-items {
-  display: none; position: absolute; top: 100%; left: 0; z-index: 50;
-  min-width: 120px; padding: 6px;
-  background: #1f2937; border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 8px; box-shadow: var(--shadow-md);
+  display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 120;
+  min-width: 150px; padding: 6px;
+  background: rgba(17, 24, 39, .97);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 10px; box-shadow: 0 12px 32px rgba(2, 6, 23, .5);
+  animation: navdrop .14s ease-out;
+}
+.navmenu-items::before {  /* 触发项与面板之间的透明桥, 鼠标斜穿不收起 */
+  content: ""; position: absolute; top: -8px; left: 0; right: 0; height: 8px;
 }
 .navmenu:hover .navmenu-items { display: block; }
-.navmenu-items a { display: block; padding: 6px 12px; white-space: nowrap; }
+.navmenu-items a {
+  display: block; padding: 7px 14px; border-radius: 7px;
+  font-size: 13px; white-space: nowrap;
+}
+.navmenu-items a.active { box-shadow: inset 0 0 0 1px rgba(96, 165, 250, .35); }
+@keyframes navdrop {
+  from { opacity: 0; transform: translateY(-5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 /* ---------- 布局 (8pt 网格: 间距取 8 的倍数, 半步允许 4) ---------- */
 main { max-width: 1200px; margin: 0 auto; padding: 24px 24px 64px; }
