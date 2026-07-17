@@ -518,19 +518,20 @@ _AI_TUNE_PROMPT = """你是量化策略调参助手。下面给出策略 #{sid} 
 3. 避开 failed_neighbors 里已死亡的参数区域
 4. 共 {count} 组, 宁少勿滥; 变化方向要聚焦(围绕最有证据的1~2个假设), 不要均匀撒网
 
-返回格式(协议, 系统会机器解析; 只输出这一个 JSON 对象, 前后不要任何其他文字/代码围栏):
-{{
-  "strategy_id": {sid},
-  "template": "{template}",
-  "combos": [
-    {{"params": {params_schema}, "basis": "一句依据(引用成绩单数字)"}}
-  ]
-}}
-要求: combos 恰好 {count} 项; 每组 params 的键必须恰好是 {param_keys}, 值为具体数字(不是区间);
-strategy_id 与 template 原样带回(用于系统核对)。
+返回格式(协议, 系统会机器解析。严格遵守):
+- 只输出一个 JSON 对象: 第一个字符必须是 {{, 最后一个字符必须是 }}
+- 不要 markdown 代码围栏(```), 不要任何前言/解释/结尾文字
+- combos 恰好 {count} 项; 每组 params 的键必须恰好是 {param_keys}, 值为具体数字(不是区间/占位符)
+- template 按下面的值原样带回(系统核对用); 不要包含其他顶层字段
+- 标准 JSON: 双引号、无尾逗号、无注释
+
+结构(params 各键取值范围): {{"template": "{template}", "combos": [{{"params": {params_schema}, "basis": "一句依据"}}]}}
+已填好的单组示例(仅示范格式, 数值别照抄): {{"template": "{template}", "combos": [{{"params": {params_example}, "basis": "sl出场148笔合计-201874, 收窄止损换结构改善"}}]}}
 
 成绩单:
-{report}"""
+{report}
+
+(再次强调: 你的全部输出 = 一个 JSON 对象, 以 {{ 开头以 }} 结尾, combos 恰好 {count} 项, 无围栏无解释。)"""
 
 
 @router.get("/strategies/{strategy_id}/ai_prompt")
@@ -542,7 +543,7 @@ async def ai_tune_prompt(strategy_id: int, request: Request, count: int = 10):
     meta = report["strategy"]
     cls = TEMPLATES[meta["template"]]
     space = cls.RANDOM_SPACE or cls.PARAM_GRID
-    # params 骨架: 逐键点名类型与范围, 让 AI 照抄键名只填数字
+    # params 骨架: 逐键点名类型与范围, 让 AI 照抄键名只填数字; 另给一组当前参数当填好的示例
     params_schema = "{" + ", ".join(
         (f'"{k}": <{v[0]}~{v[1]}, 步长{v[2]}>' if isinstance(v, tuple) else f'"{k}": <候选 {v}>')
         for k, v in space.items()) + "}"
@@ -551,6 +552,7 @@ async def ai_tune_prompt(strategy_id: int, request: Request, count: int = 10):
         space=_json.dumps(space, ensure_ascii=False),
         params=_json.dumps(meta["params"], ensure_ascii=False),
         params_schema=params_schema,
+        params_example=_json.dumps(meta["params"], ensure_ascii=False),
         param_keys=_json.dumps(sorted(space), ensure_ascii=False),
         count=count,
         report=_json.dumps(report, ensure_ascii=False, default=str))

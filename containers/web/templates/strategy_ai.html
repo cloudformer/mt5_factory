@@ -54,20 +54,24 @@
   const keys = Object.keys(space).sort();
   btn.addEventListener("click", () => {
     const box = document.getElementById("combos-preview");
+    // 容错提取: AI 可能包 ```围栏 或加前后废话 — 截取首个 { 到末个 } 之间再解析
+    let raw = document.getElementById("combos-input").value;
+    const s = raw.indexOf("{"), e2 = raw.lastIndexOf("}");
+    if (s >= 0 && e2 > s) raw = raw.slice(s, e2 + 1);
     let payload;
-    try { payload = JSON.parse(document.getElementById("combos-input").value); }
-    catch (e) { box.innerHTML = '<p class="neg">不是合法 JSON: ' + e.message + '</p>'; return; }
+    try { payload = JSON.parse(raw); }
+    catch (e) {
+      box.innerHTML = '<p class="neg">不是合法 JSON: ' + e.message
+        + '</p><p class="muted">已尝试自动剥离围栏/前后文字仍失败 — 确认粘贴的是 AI 返回的 JSON 本体(以 { 开头 } 结尾)</p>';
+      return;
+    }
     const combos = Array.isArray(payload) ? payload : (payload.combos || []);
     if (!combos.length) { box.innerHTML = '<p class="neg">没有找到 combos 数组</p>'; return; }
-    // 协议头核对: AI 必须原样带回 strategy_id 与 template(第2步提示词约定的返回格式)
-    const wantSid = {{ sid }}, wantTpl = "{{ meta.template if meta else '' }}";
-    const okSid = payload.strategy_id === wantSid, okTpl = payload.template === wantTpl;
+    // 协议头核对: AI 必须原样带回 template(第2步提示词约定的返回格式; 不含 id)
+    const wantTpl = "{{ meta.template if meta else '' }}";
+    const okTpl = payload.template === wantTpl;
     let head = '<h3>解析结果</h3><p>'
-      + '声明策略 ' + (payload.strategy_id !== undefined
-          ? ('#' + payload.strategy_id + (okSid ? ' <span class="pos">✓</span>'
-                                                : ' <span class="neg">✗ 应为 #' + wantSid + '</span>'))
-          : '<span class="neg">缺 strategy_id</span>')
-      + ' · 声明模板 ' + (payload.template
+      + '声明模板 ' + (payload.template
           ? (payload.template + (okTpl ? ' <span class="pos">✓</span>'
                                        : ' <span class="neg">✗ 应为 ' + wantTpl + '</span>'))
           : '<span class="neg">缺 template</span>')
