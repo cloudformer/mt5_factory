@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from src.services import backtest, jobs, verify
+from src.services import backtest, verify
 from strategy_core import TEMPLATES, TF_SECONDS, grid_combos, random_combo
 
 logger = logging.getLogger("strategies")
@@ -418,14 +418,14 @@ async def ai_report(strategy_id: int, request: Request):
 
 class AiCandidatesRequest(BaseModel):
     combos: list        # [{"params": {...}, "basis": "..."}] 或裸参数dict列表
-    cross_symbol: bool = False   # 生成后回测是否带交叉(点名即信任, 不走门槛)
 
 
 @router.post("/strategies/{strategy_id}/ai_candidates")
 async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Request):
-    """AI 调参收货(v2.2 人桥版): 校验一批候选参数 → 以 parent_id 谱系入库 → 自动按ID回测。
-    校验: 键=模板参数空间 / 数值在空间范围内 / valid_params / 唯一约束去重。
-    纪律: 产物只是 CANDIDATE, 进 demo/live 照走漏斗。"""
+    """AI 调参收货(v2.2 步骤2, 只生成不回测 — 回测由用户手动按ID触发):
+    指定模板(=父策略的模板) + 参数list → 逐组校验 → parent_id 谱系入库 → 逐组反馈 + 回读核验。
+    每组返回: 新ID(created) / 已存在ID(existing) / 不合格原因(error);
+    created 的做"回读核验": 从库里读回 params 与请求逐字段比对, verified=true 才算数。"""
     pool = request.app.state.pool
     parent = await pool.fetchrow(
         "SELECT id, template, symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
@@ -434,21 +434,23 @@ async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Req
     cls = TEMPLATES[parent["template"]]
     space = cls.RANDOM_SPACE or cls.PARAM_GRID
     keys = set(space)
-    created, skipped, invalid = [], 0, []
+    results, created_ids = [], []
     for i, item in enumerate(req.combos[:50]):   # 单批上限50, 防AI失控倾倒
+        basis = item.get("basis") if isinstance(item, dict) else None
         params = item.get("params", item) if isinstance(item, dict) else None
+        out = {"i": i + 1, "params": params, "basis": basis}
         if not isinstance(params, dict) or set(params) != keys:
-            invalid.append(f"#{i+1}: 参数键必须恰好是 {sorted(keys)}")
-            continue
+            out["error"] = f"参数键必须恰好是 {sorted(keys)}"
+            results.append(out); continue
         bad = next((k for k, v in params.items()
                     if isinstance(space.get(k), tuple)
                     and not space[k][0] <= v <= space[k][1]), None)
         if bad:
-            invalid.append(f"#{i+1}: {bad}={params[bad]} 超出空间 {space[bad][:2]}")
-            continue
+            out["error"] = f"{bad}={params[bad]} 超出空间 {space[bad][:2]}"
+            results.append(out); continue
         if not cls.valid_params(params):
-            invalid.append(f"#{i+1}: valid_params 不通过")
-            continue
+            out["error"] = "valid_params 不通过"
+            results.append(out); continue
         name = f"{parent['template']}-{parent['symbol']}-{parent['timeframe']}-" + \
                "-".join(f"{k}{params[k]}" for k in sorted(params))
         row = await pool.fetchrow(
@@ -456,33 +458,27 @@ async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Req
             " VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING RETURNING id",
             name, parent["template"], parent["symbol"], parent["timeframe"],
             params, strategy_id)
-        if row:
-            created.append(row["id"])
-        else:
-            skipped += 1   # 撞唯一约束 = 该组合已存在(可能就是死过的邻居)
-    # 自动按ID点名回测(点名不走交叉门槛); 有批次在跑就不抢, 页面提示稍后手动跑
-    backtest_started = False
-    if created and not await jobs.has_active(pool):
-        cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
-        costs = {"slippage_points": cfg.get("slippage_points", backtest.DEFAULT_SLIPPAGE_POINTS),
-                 "commission_points": cfg.get("commission_points", backtest.DEFAULT_COMMISSION_POINTS),
-                 "spread_points": cfg.get("spread_points")}
-        t_from = datetime(2015, 1, 1, tzinfo=timezone.utc)
-        t_to = datetime.now(timezone.utc)
-        universe = (set(r["symbol"] for r in
-                        await pool.fetch("SELECT symbol FROM symbols WHERE download"))
-                    if req.cross_symbol else set())
-        rows = await pool.fetch(
-            "SELECT id, name, symbol FROM strategies WHERE id = ANY($1)", created)
-        items = [{"strategy_id": s["id"], "name": s["name"], "symbol": sym,
-                  "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs}
-                 for s in rows for sym in {s["symbol"]} | universe]
-        await jobs.submit_batch(pool, items)
-        backtest_started = True
-    logger.info("ai candidates for #%d: created=%d skipped=%d invalid=%d bt=%s",
-                strategy_id, len(created), skipped, len(invalid), backtest_started)
-    return {"created": created, "skipped": skipped, "invalid": invalid,
-            "backtest_started": backtest_started}
+        if row is None:  # 撞唯一约束 = 该组合已存在(可能是死过的邻居) → 查出现有ID给用户看
+            existing = await pool.fetchrow(
+                "SELECT id, status, archive_reason FROM strategies"
+                " WHERE template=$1 AND symbol=$2 AND timeframe=$3 AND params=$4",
+                parent["template"], parent["symbol"], parent["timeframe"], params)
+            out["existing_id"] = existing["id"] if existing else None
+            out["existing_status"] = existing["status"] if existing else None
+            results.append(out); continue
+        # 回读核验: 库里存的 params 必须与请求逐字段一致(防序列化/精度意外)
+        stored = await pool.fetchval("SELECT params FROM strategies WHERE id=$1", row["id"])
+        out["id"] = row["id"]
+        out["verified"] = (stored == params)
+        if not out["verified"]:
+            out["stored_params"] = stored   # 极端情况暴露差异, 别静默
+        created_ids.append(row["id"])
+        results.append(out)
+    logger.info("ai candidates for #%d: %d combos → created=%d",
+                strategy_id, len(results), len(created_ids))
+    return {"results": results, "created_ids": created_ids,
+            "template": parent["template"], "symbol": parent["symbol"],
+            "timeframe": parent["timeframe"]}
 
 
 @router.get("/strategies/{strategy_id}/family")

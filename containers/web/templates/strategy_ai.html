@@ -25,23 +25,59 @@
 
 {% if sid %}
 <section>
-  <h2>第 2 步 · 粘贴 AI 返回的参数 → 生成 + 回测</h2>
+  <h2>第 2 步 · 粘贴 AI 返回的参数 → 生成子代实例(只生成, 不回测)</h2>
   <form method="post" action="{{ url_for('strategies.ai_submit') }}">
     <input type="hidden" name="strategy_id" value="{{ sid }}">
+    <input type="hidden" name="count" value="{{ count }}">
     <textarea name="combos_json" rows="6" required style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:12px"
-      placeholder='{"combos": [{"params": {"fast": 10, "slow": 80, "sl_points": 900, "rr": 2.8}, "basis": "mae_p90=820 远小于 sl=1500"}, ...]}'></textarea>
+      placeholder='示例格式(灰字仅提示, 粘贴真实内容覆盖): {"combos": [{"params": {"fast": 10, "slow": 80, "sl_points": 900, "rr": 2.8}, "basis": "依据..."}, ...]}'></textarea>
     <p class="inline" style="margin:8px 0 0">
-      <label class="chk"><input type="checkbox" name="cross_symbol"> 回测带交叉品种(点名不走门槛)</label>
-      <button>校验并生成子代 + 启动回测</button>
-      <span class="muted">校验: 参数键/范围/valid_params/唯一去重; 子代记 parent_id 谱系, 全部 CANDIDATE</span>
+      <button>校验并生成子代</button>
+      <span class="muted">模板 = 父策略的模板; 逐组校验(参数键/范围/valid_params/去重), 子代记 parent_id, 全部 CANDIDATE;
+        每组结果和"库内参数回读核验"就地显示在下表</span>
     </p>
+  </form>
+  {% if step2 %}
+  <h3>本次提交结果(逐组反馈 + 核验)</h3>
+  <table>
+    <tr><th style="width:40px">#</th><th>参数</th><th>依据(basis)</th><th style="width:180px">结果</th><th style="width:110px">参数核验</th></tr>
+    {% for r in step2.results %}
+    <tr>
+      <td class="mono muted">{{ r.i }}</td>
+      <td class="mono">{% if r.params %}{% for k, v in r.params.items() %}{{ k }}={{ v }} {% endfor %}{% else %}—{% endif %}</td>
+      <td class="muted">{{ r.basis or '—' }}</td>
+      <td>
+        {% if r.id %}<span class="pos">新建 → ID {{ r.id }}</span>
+        {% elif r.existing_id %}<span class="badge warn">已存在 #{{ r.existing_id }}</span> <span class="muted">({{ r.existing_status }})</span>
+        {% elif r.existing_id is defined %}<span class="badge warn">已存在(撞唯一约束)</span>
+        {% else %}<span class="neg">✗ {{ r.error }}</span>{% endif %}
+      </td>
+      <td>{% if r.id %}{% if r.verified %}<span class="pos">✓ 与请求一致</span>
+          {% else %}<span class="neg">✗ 不一致!</span> <span class="muted">{{ r.stored_params }}</span>{% endif %}
+          {% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">本批新ID:<b class="mono">{{ ids_csv or '无' }}</b>(已自动填入第 3 步)· 此结果表仅本次提交显示, 刷新即清(子代已入库, 第 4 步可见)</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>第 3 步 · 手动回测这批ID</h2>
+  <form method="post" action="{{ url_for('strategies.ai_backtest') }}" class="inline">
+    <input type="hidden" name="strategy_id" value="{{ sid }}">
+    <label>策略ID(逗号分隔) <input name="ids" value="{{ ids_csv }}" size="48" required
+        pattern="[0-9,\s]*" placeholder="步骤2完成后自动填入, 也可手填"></label>
+    <label class="chk"><input type="checkbox" name="cross_symbol"> 带交叉品种(点名不走门槛)</label>
+    <button>启动回测</button>
+    <span class="muted">与「策略回测」页同一入口; 进度在回测页可见, 跑完回本页重新「载入」</span>
   </form>
 </section>
 
 <section>
-  <h2>第 3 步 · 家族对比(父 vs AI 子代, 主品种回测)</h2>
+  <h2>第 4 步 · 家族对比(父 vs AI 子代, 主品种回测)→ 给结论、选优、继续</h2>
   {% if family | length <= 1 %}
-  <p class="muted">还没有子代 — 完成第 2 步后刷新本页; 回测跑完成绩自动出现在这里。</p>
+  <p class="muted">还没有子代 — 走完第 2/3 步后重新「载入」; 回测成绩会逐个填进来。</p>
   {% else %}
   {% set parent = family[0] %}
   {{ m.table_toolbar('ai-family', hint='本页即时过滤') }}
