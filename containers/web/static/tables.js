@@ -252,7 +252,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const raw = el.getAttribute("data-utc");
     const d = new Date(raw);
     if (isNaN(d)) return;
-    el.textContent = `${p(d.getMonth() + 1)}-${p(d.getDate())} `
+    el.textContent = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
       + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
     el.title = "本地时间(存储为 UTC)";
   });

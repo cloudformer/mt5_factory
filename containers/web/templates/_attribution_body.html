@@ -9,7 +9,7 @@
     <div class="stat-value {{ 'pos' if s.net_points >= 0 else 'neg' }}">{{ s.net_points }}</div>
     <div class="stat-sub">{{ ana.symbol }} · {{ s.trades }} 笔</div></div>
   <div class="stat"><div class="stat-label">胜率</div>
-    <div class="stat-value">{{ (s.win_rate * 100) | round(1) }}%</div>
+    <div class="stat-value">{{ m.pct(s.win_rate * 100) }}</div>
     <div class="stat-sub">{{ s.wins }}/{{ s.trades }} 胜</div></div>
   <div class="stat"><div class="stat-label">盈利因子 PF</div>
     <div class="stat-value">{{ s.profit_factor if s.profit_factor is not none else '∞' }}</div>
@@ -18,7 +18,7 @@
     <div class="stat-value">{{ s.max_consec_loss }}</div>
     <div class="stat-sub">连续输单(实盘拿不拿得住)</div></div>
   <div class="stat"><div class="stat-label">单笔集中度</div>
-    <div class="stat-value {{ 'neg' if s.top_trade_pct and s.top_trade_pct > 0.5 else '' }}">{{ (s.top_trade_pct * 100) | round | int if s.top_trade_pct is not none else '—' }}%</div>
+    <div class="stat-value {{ 'neg' if s.top_trade_pct and s.top_trade_pct > 0.5 else '' }}">{{ m.pct(s.top_trade_pct * 100 if s.top_trade_pct is not none else none) }}</div>
     <div class="stat-sub">最大单笔占净利(越高越脆)</div></div>
 </div>
 
@@ -30,7 +30,7 @@
   {% for d, v in ana.direction.items() %}
   <tr><td>{{ '买(多)' if d == 'BUY' else '卖(空)' }}</td><td>{{ v.trades }}</td>
     <td class="{{ 'pos' if v.net >= 0 else 'neg' }}">{{ v.net }}</td>
-    <td>{{ (v.win_rate * 100) | round(1) ~ '%' if v.win_rate is not none else '—' }}</td></tr>
+    <td>{{ m.pct(v.win_rate * 100 if v.win_rate is not none else none) }}</td></tr>
   {% endfor %}
 </table>
 

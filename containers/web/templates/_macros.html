@@ -11,6 +11,15 @@
 {%- endmacro %}
 
 {# 策略状态中文名 (显示用; 存储/提交值仍是英文 CANDIDATE/DEMO/LIVE/ARCHIVED) #}
+{# 百分数唯一模板(2026-07-17 定): 两位小数四舍五入; 恰为0显示'0'; None显示'—';
+   signed=True 带正负号。全站百分数一律经此宏 — 改精度只改这一处 #}
+{% macro pct(v, signed=False) -%}
+{%- if v is none -%}—{%- else -%}
+{%- set r = v | round(2) -%}
+{%- if r == 0 -%}0{%- elif signed -%}{{ '%+.2f%%' % r }}{%- else -%}{{ '%.2f%%' % r }}{%- endif -%}
+{%- endif -%}
+{%- endmacro %}
+
 {# 进度条(标准组件): 长任务(下载/回测)通用; 配 data-pbar 让轮询 JS 按 id 更新 #}
 {% macro progress_bar(done, total, id='') -%}
 <span class="pbar" {% if id %}id="{{ id }}"{% endif %} title="{{ done }}/{{ total }}">
