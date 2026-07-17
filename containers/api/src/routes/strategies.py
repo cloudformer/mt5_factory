@@ -12,14 +12,14 @@
 import asyncio
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from src.services import backtest, verify
+from src.services import backtest, jobs, verify
 from strategy_core import TEMPLATES, TF_SECONDS, grid_combos, random_combo
 
 logger = logging.getLogger("strategies")
@@ -414,6 +414,101 @@ async def ai_report(strategy_id: int, request: Request):
         "failed_neighbors": [{"params": d["params"], "died_of": d["archive_reason"]}
                              for d in dead],
     }
+
+
+class AiCandidatesRequest(BaseModel):
+    combos: list        # [{"params": {...}, "basis": "..."}] 或裸参数dict列表
+    cross_symbol: bool = False   # 生成后回测是否带交叉(点名即信任, 不走门槛)
+
+
+@router.post("/strategies/{strategy_id}/ai_candidates")
+async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Request):
+    """AI 调参收货(v2.2 人桥版): 校验一批候选参数 → 以 parent_id 谱系入库 → 自动按ID回测。
+    校验: 键=模板参数空间 / 数值在空间范围内 / valid_params / 唯一约束去重。
+    纪律: 产物只是 CANDIDATE, 进 demo/live 照走漏斗。"""
+    pool = request.app.state.pool
+    parent = await pool.fetchrow(
+        "SELECT id, template, symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
+    if parent is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    cls = TEMPLATES[parent["template"]]
+    space = cls.RANDOM_SPACE or cls.PARAM_GRID
+    keys = set(space)
+    created, skipped, invalid = [], 0, []
+    for i, item in enumerate(req.combos[:50]):   # 单批上限50, 防AI失控倾倒
+        params = item.get("params", item) if isinstance(item, dict) else None
+        if not isinstance(params, dict) or set(params) != keys:
+            invalid.append(f"#{i+1}: 参数键必须恰好是 {sorted(keys)}")
+            continue
+        bad = next((k for k, v in params.items()
+                    if isinstance(space.get(k), tuple)
+                    and not space[k][0] <= v <= space[k][1]), None)
+        if bad:
+            invalid.append(f"#{i+1}: {bad}={params[bad]} 超出空间 {space[bad][:2]}")
+            continue
+        if not cls.valid_params(params):
+            invalid.append(f"#{i+1}: valid_params 不通过")
+            continue
+        name = f"{parent['template']}-{parent['symbol']}-{parent['timeframe']}-" + \
+               "-".join(f"{k}{params[k]}" for k in sorted(params))
+        row = await pool.fetchrow(
+            "INSERT INTO strategies (name, template, symbol, timeframe, params, parent_id)"
+            " VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING RETURNING id",
+            name, parent["template"], parent["symbol"], parent["timeframe"],
+            params, strategy_id)
+        if row:
+            created.append(row["id"])
+        else:
+            skipped += 1   # 撞唯一约束 = 该组合已存在(可能就是死过的邻居)
+    # 自动按ID点名回测(点名不走交叉门槛); 有批次在跑就不抢, 页面提示稍后手动跑
+    backtest_started = False
+    if created and not await jobs.has_active(pool):
+        cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
+        costs = {"slippage_points": cfg.get("slippage_points", backtest.DEFAULT_SLIPPAGE_POINTS),
+                 "commission_points": cfg.get("commission_points", backtest.DEFAULT_COMMISSION_POINTS),
+                 "spread_points": cfg.get("spread_points")}
+        t_from = datetime(2015, 1, 1, tzinfo=timezone.utc)
+        t_to = datetime.now(timezone.utc)
+        universe = (set(r["symbol"] for r in
+                        await pool.fetch("SELECT symbol FROM symbols WHERE download"))
+                    if req.cross_symbol else set())
+        rows = await pool.fetch(
+            "SELECT id, name, symbol FROM strategies WHERE id = ANY($1)", created)
+        items = [{"strategy_id": s["id"], "name": s["name"], "symbol": sym,
+                  "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs}
+                 for s in rows for sym in {s["symbol"]} | universe]
+        await jobs.submit_batch(pool, items)
+        backtest_started = True
+    logger.info("ai candidates for #%d: created=%d skipped=%d invalid=%d bt=%s",
+                strategy_id, len(created), skipped, len(invalid), backtest_started)
+    return {"created": created, "skipped": skipped, "invalid": invalid,
+            "backtest_started": backtest_started}
+
+
+@router.get("/strategies/{strategy_id}/family")
+async def family(strategy_id: int, request: Request):
+    """谱系对比: 父策略 + 全部 AI 子代, 各带主品种回测成绩(净点/PF/OOS留出/MAE) — AI分析页对比表"""
+    rows = await request.app.state.pool.fetch(
+        "SELECT s.id, s.name, s.params, s.status, s.archive_reason, s.parent_id,"
+        "       s.created_at, b.metrics"
+        " FROM strategies s"
+        " LEFT JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol"
+        " WHERE s.id = $1 OR s.parent_id = $1"
+        " ORDER BY (s.id = $1) DESC, s.id", strategy_id)
+    out = []
+    for r in rows:
+        m = r["metrics"] or {}
+        oos = (m.get("oos") or {}).get("holdout") or {}
+        out.append({
+            "id": r["id"], "name": r["name"], "params": r["params"], "status": r["status"],
+            "archive_reason": r["archive_reason"], "is_parent": r["id"] == strategy_id,
+            "created_at": r["created_at"],
+            "trades": m.get("trades"), "net_points": m.get("net_points"),
+            "profit_factor": m.get("profit_factor"), "max_dd_points": m.get("max_dd_points"),
+            "holdout_net": oos.get("net_points"), "holdout_trades": oos.get("trades"),
+            "mae_p90": m.get("mae_p90"), "mfe_p90": m.get("mfe_p90"),
+        })
+    return {"family": out}
 
 
 # 淘汰死因码(schema/022): AI 负样本("这类参数死于什么"), 页面按码翻中文, 不收自由文本

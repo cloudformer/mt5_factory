@@ -38,9 +38,10 @@
   {# 分析组: 看深度(单策略归因 / 回测体系质量) #}
   <div class="navmenu">
     <a href="{{ url_for('strategies.analysis') }}"
-       {% if ep in ('strategies.analysis', 'strategies.quality') %}class="active"{% endif %}>分析 ▾</a>
+       {% if ep in ('strategies.analysis', 'strategies.quality', 'strategies.ai_page') %}class="active"{% endif %}>分析 ▾</a>
     <div class="navmenu-items">
       <a href="{{ url_for('strategies.analysis') }}" {% if ep == 'strategies.analysis' %}class="active"{% endif %}>策略分析</a>
+      <a href="{{ url_for('strategies.ai_page') }}" {% if ep == 'strategies.ai_page' %}class="active"{% endif %}>AI 策略分析</a>
       <a href="{{ url_for('strategies.quality') }}" {% if ep == 'strategies.quality' %}class="active"{% endif %}>回测质量分析</a>
     </div>
   </div>

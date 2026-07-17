@@ -128,6 +128,74 @@ def ai_report(strategy_id: int):
         return {"error": str(e)}, 502
 
 
+_AI_PROMPT = """你是量化策略调参助手。下面给出策略 #{sid} 的完整成绩单(JSON, 含回测逐笔/实盘/对账校准/同模板尸体)。
+
+模板 {template} 的参数空间(每个参数: [最小, 最大, 步长]):
+{space}
+
+任务: 基于成绩单证据, 提出 {count} 组新参数做下一轮回测。纪律:
+1. 每组相对当前参数({params})最多改 2 个维度, 且必须落在参数空间范围内、按步长对齐
+2. 每组必须附 "basis": 一句依据, 引用成绩单里的具体数字(如 MAE 分布/方向不对称/时段/留出段)
+3. 避开 failed_neighbors 里已死亡的参数区域
+4. 8~12 组之间, 宁少勿滥; 变化方向要聚焦(围绕最有证据的1~2个假设), 不要均匀撒网
+5. 只输出 JSON, 不要任何其他文字, 格式:
+{{"combos": [{{"params": {{...}}, "basis": "..."}}, ...]}}
+
+成绩单:
+{report}"""
+
+
+@bp.get("/ai")
+def ai_page():
+    """AI 策略分析(v2.2 人桥版): ID → 提示词(含成绩单) → 粘回AI参数 → 生成+回测 → 家族对比。
+    准备工作(下载数据/重跑回测)手动在先; 本页只管调参迭代循环。"""
+    import json as _json
+    sid = request.args.get("strategy_id", type=int)
+    count = request.args.get("count", 10, type=int)
+    prompt, family, meta = "", [], None
+    if sid:
+        try:
+            report = api.get(f"/strategies/{sid}/report")
+            meta = report["strategy"]
+            space = api.get("/strategies/templates")["templates"][meta["template"]]["random"]
+            prompt = _AI_PROMPT.format(
+                sid=sid, template=meta["template"],
+                space=_json.dumps(space, ensure_ascii=False),
+                params=_json.dumps(meta["params"], ensure_ascii=False),
+                count=count,
+                report=_json.dumps(report, ensure_ascii=False, default=str))
+            family = api.get(f"/strategies/{sid}/family")["family"]
+        except (api.ApiError, KeyError) as e:
+            flash(f"取成绩单失败: {e}", "error")
+    return render_template("strategy_ai.html", sid=sid, count=count,
+                           prompt=prompt, family=family, meta=meta)
+
+
+@bp.post("/ai/submit")
+def ai_submit():
+    """收货: 粘贴 AI 返回的参数 JSON → api 校验入库(parent_id 谱系)→ 自动按ID回测"""
+    import json as _json
+    sid = request.form.get("strategy_id", type=int)
+    try:
+        payload = _json.loads(request.form.get("combos_json", ""))
+        combos = payload.get("combos", payload) if isinstance(payload, dict) else payload
+        r = api.post(f"/strategies/{sid}/ai_candidates", {
+            "combos": combos,
+            "cross_symbol": request.form.get("cross_symbol") == "on"})
+        msg = f"已生成 {len(r['created'])} 个子代实例"
+        if r["skipped"]:
+            msg += f"；{r['skipped']} 组已存在跳过"
+        if r["invalid"]:
+            msg += f"；{len(r['invalid'])} 组不合格: " + "; ".join(r["invalid"][:3])
+        msg += " · 回测" + ("已启动" if r["backtest_started"] else "未启动(有批次在跑, 稍后手动按ID跑)")
+        flash(msg, "ok" if r["created"] else "error")
+    except _json.JSONDecodeError:
+        flash("粘贴内容不是合法 JSON — 确认 AI 只输出了 JSON 本体", "error")
+    except (api.ApiError, KeyError, TypeError) as e:
+        flash(f"提交失败: {e}", "error")
+    return redirect(url_for("strategies.ai_page", strategy_id=sid))
+
+
 @bp.get("/quality")
 def quality():
     """回测质量分析: 反过拟合工具箱概览(OOS/健壮/邻域); 关2对账已移到「策略分析」页"""
