@@ -434,9 +434,9 @@ async def results(strategy_id: int, request: Request):
 
 # ---------- 关2 对账: 回测 vs 实盘(demo/live)逐笔匹配 (v1.6) ----------
 # 对账配对容差默认值(分钟): 实际值读 config recon_pair_tol_minutes(配置页"回测与实盘时间
-# 窗口差距"可随时调)。实测成交滞后仅 3~8 秒, 5 分钟已有几十倍余量; runner 错过收盘晚一根
+# 窗口差距"可随时调)。实测成交滞后仅 3~8 秒, 2 分钟余量足且<最小周期M5的一半; runner 错过收盘晚一根
 # bar 补单(M15=15分钟)将配不上 → 如实暴露为执行差异, 不宽恕。
-DEFAULT_PAIR_TOL_MINUTES = 5
+DEFAULT_PAIR_TOL_MINUTES = 2
 PAIR_TOL_SECONDS = DEFAULT_PAIR_TOL_MINUTES * 60  # 兜底(config 缺失时)
 
 

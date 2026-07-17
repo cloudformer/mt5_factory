@@ -25,7 +25,7 @@ def index():
 def backtest_params():
     """配置·回测参数: 成本模型 + 单批上限 + OOS 切分"""
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
-    runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 5
+    runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
@@ -35,7 +35,7 @@ def backtest_params():
         runtime_write = cfg.get("runtime_write_minutes", 5)
         runtime_gap = cfg.get("runtime_gap_minutes", 15)
         gate = cfg.get("cross_symbol_gate") or {}
-        recon_tol = cfg.get("recon_pair_tol_minutes", 5)
+        recon_tol = cfg.get("recon_pair_tol_minutes", 2)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
@@ -48,7 +48,7 @@ def backtest_params():
 def save_recon_tol():
     """保存对账配对容差(config: recon_pair_tol_minutes)— 回测与实盘时间窗口差距"""
     try:
-        v = int(request.form.get("recon_pair_tol_minutes", 5))
+        v = int(request.form.get("recon_pair_tol_minutes", 2))
         api.put("/config/recon_pair_tol_minutes", {"value": v})
         flash(f"对账时间窗口差距已保存: ±{v} 分钟(下次对账生效)", "ok")
     except (api.ApiError, ValueError) as e:
