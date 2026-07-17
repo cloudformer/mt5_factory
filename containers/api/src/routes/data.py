@@ -16,7 +16,8 @@ router = APIRouter()
 
 CONFIG_KEYS = {"ai_generator_url", "backtest_costs", "backtest_batch_limit",
                "ranking_templates", "backtest_oos_split", "mt5_trades_days",
-               "runtime_write_minutes", "runtime_gap_minutes", "cross_symbol_gate"}
+               "runtime_write_minutes", "runtime_gap_minutes", "cross_symbol_gate",
+               "recon_pair_tol_minutes"}
 
 
 # ---------- 数据同步 ----------
@@ -80,6 +81,10 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
         wr = req.value.get("min_win_rate")
         if wr is not None and not 0 <= wr <= 1:
             raise HTTPException(status_code=400, detail="min_win_rate must be 0~1 (e.g. 0.3)")
+    if key == "recon_pair_tol_minutes":  # 对账配对容差: 回测与实盘时间窗口差距(分钟)
+        if not isinstance(req.value, int) or not 1 <= req.value <= 120:
+            raise HTTPException(status_code=400,
+                                detail="recon_pair_tol_minutes must be 1~120 (minutes)")
     if key in ("runtime_write_minutes", "runtime_gap_minutes"):  # 运行区间节奏: 正整数分钟
         if not isinstance(req.value, int) or not 1 <= req.value <= 1440:
             raise HTTPException(status_code=400, detail=f"{key} must be 1~1440 (minutes)")

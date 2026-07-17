@@ -38,6 +38,16 @@
 </section>
 
 <section>
+  <h2>关2 对账参数</h2>
+  <form method="post" action="{{ url_for('symbols.save_recon_tol') }}" class="inline">
+    <label>回测与实盘时间窗口差距(分钟) <input name="recon_pair_tol_minutes" value="{{ recon_tol }}" size="3"
+        title="逐笔配对容差 ±N分钟(对比窗口边缘放宽同值)。实测成交滞后仅3~8秒, 默认5已有几十倍余量; 调大=更宽容(晚一根bar补单也算匹配), 调小=更严格(执行偏差如实暴露)"></label>
+    <button class="small">保存</button>
+    <span class="muted">实盘成交与回测信号入场时间差在 ±N 分钟内才算同一笔;有问题随时在此调整,立即生效(对账实时算)</span>
+  </form>
+</section>
+
+<section>
   <h2>策略运行状态(strategy_runtime 区间记录)</h2>
   <form method="post" action="{{ url_for('symbols.save_runtime') }}" class="inline">
     <label>写入间隔(分钟) <input name="runtime_write_minutes" value="{{ runtime_write }}" size="3"

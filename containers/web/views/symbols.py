@@ -25,7 +25,7 @@ def index():
 def backtest_params():
     """配置·回测参数: 成本模型 + 单批上限 + OOS 切分"""
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
-    runtime_write, runtime_gap, gate = 5, 15, {}
+    runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 5
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
@@ -35,11 +35,25 @@ def backtest_params():
         runtime_write = cfg.get("runtime_write_minutes", 5)
         runtime_gap = cfg.get("runtime_gap_minutes", 15)
         gate = cfg.get("cross_symbol_gate") or {}
+        recon_tol = cfg.get("recon_pair_tol_minutes", 5)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
                            oos_split=oos_split, mt5_days=mt5_days,
-                           runtime_write=runtime_write, runtime_gap=runtime_gap, gate=gate)
+                           runtime_write=runtime_write, runtime_gap=runtime_gap, gate=gate,
+                           recon_tol=recon_tol)
+
+
+@bp.post("/config/recon-tol")
+def save_recon_tol():
+    """保存对账配对容差(config: recon_pair_tol_minutes)— 回测与实盘时间窗口差距"""
+    try:
+        v = int(request.form.get("recon_pair_tol_minutes", 5))
+        api.put("/config/recon_pair_tol_minutes", {"value": v})
+        flash(f"对账时间窗口差距已保存: ±{v} 分钟(下次对账生效)", "ok")
+    except (api.ApiError, ValueError) as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
 
 
 @bp.post("/config/cross-gate")

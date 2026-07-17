@@ -433,7 +433,11 @@ async def results(strategy_id: int, request: Request):
 
 
 # ---------- 关2 对账: 回测 vs 实盘(demo/live)逐笔匹配 (v1.6) ----------
-PAIR_TOL_SECONDS = 20 * 60  # 对账配对容差 ±20分钟(2026-07-15 定): 吸收 runner 次开盘偏移/秒级成交延迟
+# 对账配对容差默认值(分钟): 实际值读 config recon_pair_tol_minutes(配置页"回测与实盘时间
+# 窗口差距"可随时调)。实测成交滞后仅 3~8 秒, 5 分钟已有几十倍余量; runner 错过收盘晚一根
+# bar 补单(M15=15分钟)将配不上 → 如实暴露为执行差异, 不宽恕。
+DEFAULT_PAIR_TOL_MINUTES = 5
+PAIR_TOL_SECONDS = DEFAULT_PAIR_TOL_MINUTES * 60  # 兜底(config 缺失时)
 
 
 def _merge_windows(windows: list) -> list:
@@ -575,7 +579,9 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
     #   区间没覆盖到的实盘笔(老数据/api停摆) → 逐笔±20分钟单窗兜底(单边, 抓不了漏单)
     # 全部窗口合并重叠后过滤回测池; 左端放宽容差: 回测入场=bar开盘, 实盘成交晚几秒,
     # 否则实盘第一笔对应的回测信号永远被切掉(2026-07-15 实测: #177 07-10 09:00 误报"未触发")
-    tol = PAIR_TOL_SECONDS
+    tol_min = await pool.fetchval(
+        "SELECT value FROM config WHERE key='recon_pair_tol_minutes'")
+    tol = int(tol_min or DEFAULT_PAIR_TOL_MINUTES) * 60
     segs = await pool.fetch(
         "SELECT run_from, run_to FROM strategy_runtime"
         " WHERE strategy_id=$1 AND run_to >= $2 AND run_from <= $3 ORDER BY run_from",
@@ -593,7 +599,7 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
         [{"dir": a["direction"], "ts": a["entry_time"].timestamp(), "profit": a["profit"],
           "entry": a["entry_time"].strftime("%m-%d %H:%M"),
           "price": a["entry_price"], "net": a["net_points"]} for a in actual],
-        bt, one_sided=(mode == "one_sided"))
+        bt, tol=tol, one_sided=(mode == "one_sided"))
     # 覆盖信息两级: 行情数据(库内M1) / 回测窗口 — 分辨低匹配是'数据没下载'/'回测没跑到'/'真没信号'
     bt_from, bt_to = (bt_row["from_time"], bt_row["to_time"]) if bt_row else (None, None)
     if bt_from is not None and bt_from.tzinfo is None:  # naive→aware, 防与 wt(aware)比较 TypeError
@@ -645,6 +651,7 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
             p["window"] = None
     out.update(window_from=wf, window_to=wt, bt_trades=len(bt), metrics=metrics, pairs=pairs,
                bt_total=len(bt_all), bt_from=bt_from, bt_to=bt_to,
+               tol_minutes=tol // 60,   # 页面文案用, 调容差不用改模板
                # 对账口径: segments=分段双边(有运行区间) / one_sided=逐笔小窗单边(降级)
                mode=mode, windows=win_view, windows_total=len(windows),
                # 有成交的窗口数(徽章"5段(4活跃·1静默)"用, 消除与两边笔数对不上的歧义)
