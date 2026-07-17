@@ -625,6 +625,8 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
                bt_total=len(bt_all), bt_from=bt_from, bt_to=bt_to,
                # 对账口径: segments=分段双边(有运行区间) / one_sided=逐笔小窗单边(降级)
                mode=mode, windows=win_view, windows_total=len(windows),
+               # 有成交的窗口数(徽章"5段(4活跃·1静默)"用, 消除与两边笔数对不上的歧义)
+               windows_active=sum(1 for w in win_view if w["actual"] or w["bt"]),
                # 回测末尾早于 demo 末尾 = 回测没覆盖到近期 → 提示重跑
                bt_stale=(bt_to is not None and bt_to < wt),
                # 数据覆盖检查: 库内 M1 是否盖住实盘窗口末尾(✅=不用下载, 重跑回测即可)

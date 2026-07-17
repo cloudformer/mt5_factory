@@ -55,9 +55,10 @@
       → {% if mt.q10_pass %}<span class="pos">达标</span>{% else %}<span class="neg">未达标</span>{% endif %}
       <span class="muted">　|　记录不评判:信号 {{ (mt.signal_hit_rate * 100) | round | int }}% · 涨跌 {{ (mt.outcome_match_rate * 100) | round | int }}%
       {%- if mt.net_bias_pct is defined and mt.net_bias_pct is not none %} · 精度:入场均差 {{ mt.entry_diff_avg }} · 净点均差 {{ mt.net_diff_avg }} · 总账偏 {{ '%+g' % mt.net_bias_pct }}%(正=回测乐观){% endif %}</span></p>
+    {% set quiet_w = recon.windows_total - recon.windows_active if recon.windows_active is defined else 0 %}
     <p class="muted">品种 {{ recon.symbol }} · 实盘成交跨度 {{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }} ·
-      实盘 <b>{{ recon.actual_trades }}</b> 笔 · 回测 <b>{{ recon.bt_trades }}</b> 笔 ·
-      {% if recon.mode == 'segments' %}<span class="badge ok" title="按运行区间(strategy_runtime, 策略真实在跑的时段)对账: 对比窗口 = 区间±20分钟(重叠合并); 窗口内'回测有信号实盘没单'照样抓 runner 漏单">双边(按运行区间) · 对比窗口 {{ recon.windows_total }} 段</span>
+      实盘 <b>{{ recon.actual_trades }}</b> 笔 · 回测窗口内 <b>{{ recon.bt_trades }}</b> 笔<span class="muted">(全部 {{ recon.bt_total }} 笔)</span> ·
+      {% if recon.mode == 'segments' %}<span class="badge ok" title="按运行区间(strategy_runtime, 策略真实在跑的时段)对账: 对比窗口 = 区间±20分钟(重叠合并); 窗口内'回测有信号实盘没单'照样抓 runner 漏单">双边(按运行区间) · 对比窗口 {{ recon.windows_total }} 段{% if quiet_w > 0 %}({{ recon.windows_active }} 有成交 · {{ quiet_w }} 静默){% endif %}</span>
       {% else %}<span class="badge warn" title="该策略还没有运行区间记录(表上线前的历史数据): 对比窗口 = 每笔实盘±20分钟, 仅验证'实盘每笔回测可复现', 抓不了漏单; 分母=实盘笔数">单边(降级) · 不抓漏单</span>{% endif %}</p>
     {# 覆盖检查: 正常不打扰, 有问题才出警告行 #}
     {% if recon.bt_total == 0 %}
