@@ -101,7 +101,7 @@
           <th>时间</th><th>实盘(demo/live)</th><th>回测</th><th>描述</th></tr>
       {% set shown = namespace(n=0) %}
       {% for w in recon.windows %}
-        {% set rows = recon.pairs | selectattr('win', 'equalto', loop.index0) | list %}
+        {% set rows = recon.pairs | selectattr('window', 'equalto', loop.index0) | list %}
         {% if rows %}
         {% set shown.n = shown.n + 1 %}
         {% for p in rows %}
@@ -115,7 +115,7 @@
         {% endfor %}
         {% endif %}
       {% endfor %}
-      {% set orphans = recon.pairs | selectattr('win', 'none') | list %}
+      {% set orphans = recon.pairs | selectattr('window', 'none') | list %}
       {% for p in orphans %}
       <tr>
         {% if loop.first %}<td class="muted" rowspan="{{ orphans | length }}">窗口外(兜底)</td>{% endif %}

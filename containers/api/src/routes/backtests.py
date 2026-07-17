@@ -597,7 +597,7 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
     data_to_ts = data_to.timestamp() if data_to else None
     for p in pairs:  # 每行: ①归属窗口(逐笔对照按窗口分组显示) ②缺口归因(实盘有回测无时)
         ts = (p["actual"] or p["bt"])["ts"]
-        p["win"] = next((k for k, (w0, w1) in enumerate(windows) if w0 <= ts <= w1), None)
+        p["window"] = next((k for k, (w0, w1) in enumerate(windows) if w0 <= ts <= w1), None)
         if p["bt"] is not None:
             p["bt"].pop("ts", None)
         if p["actual"] is None:
@@ -619,8 +619,8 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
         "bt": sum(1 for t in bt if w0 <= t["entry_time"] <= w1),
     } for w0, w1 in windows[:100]]
     for p in pairs:  # 超出显示上限的窗口归组会丢行 → 防御性归入"窗口外"兜底组
-        if p.get("win") is not None and p["win"] >= len(win_view):
-            p["win"] = None
+        if p.get("window") is not None and p["window"] >= len(win_view):
+            p["window"] = None
     out.update(window_from=wf, window_to=wt, bt_trades=len(bt), metrics=metrics, pairs=pairs,
                bt_total=len(bt_all), bt_from=bt_from, bt_to=bt_to,
                # 对账口径: segments=分段双边(有运行区间) / one_sided=逐笔小窗单边(降级)

@@ -353,14 +353,23 @@ async def ai_report(strategy_id: int, request: Request):
     attr_bt = _analyze_trades(main_trades, {}, [])
     attr_bt.pop("overfit", None)   # oos/跨品种已在 backtests 各行 metrics 里, 不重复
     attr_actual = await actual_attribution(pool, strategy_id)
-    act_rows = await pool.fetch(
-        "SELECT entry_time, direction, profit, net_points, close_reason, env FROM trades"
-        " WHERE strategy_id=$1 ORDER BY entry_time", strategy_id)
+    act_rows = await pool.fetch(  # 实盘逐笔全字段(单实例才几十笔, 全部信息不省略)
+        "SELECT entry_time, exit_time, direction, volume, entry_price, exit_price, sl, tp,"
+        "       profit, commission, swap, net_points, close_reason, env, broker, account"
+        " FROM trades WHERE strategy_id=$1 ORDER BY entry_time", strategy_id)
+    runtime = await pool.fetch(  # 运行区间原始数据(何时真实在跑; 对账窗口由它推导)
+        "SELECT run_from, run_to, host FROM strategy_runtime WHERE strategy_id=$1"
+        " ORDER BY run_from", strategy_id)
+    envs = await pool.fetch(     # 实盘按环境拆分(demo/live 各自战绩快照)
+        "SELECT env, trades, wins, profit, updated_at FROM strategy_stats"
+        " WHERE strategy_id=$1 ORDER BY env", strategy_id)
     recon = await compute_reconcile(pool, strategy_id)  # 现算最新对账(与分析页同口径)
 
-    def _cols(ts):  # 回测逐笔 → 紧凑列式
-        return {"cols": ["entry_time", "dir", "points", "reason", "mae", "mfe"],
-                "rows": [[t["entry_time"], t.get("dir"), t.get("points"), t.get("reason"),
+    def _cols(ts):  # 回测逐笔 → 紧凑列式(全字段: 出入场时间/价格/净点/原因/MAE/MFE)
+        return {"cols": ["entry_time", "exit_time", "dir", "entry", "exit",
+                         "points", "reason", "mae", "mfe"],
+                "rows": [[t["entry_time"], t.get("exit_time"), t.get("dir"),
+                          t.get("entry"), t.get("exit"), t.get("points"), t.get("reason"),
                           t.get("mae"), t.get("mfe")]
                          for t in sorted(ts, key=lambda x: x["entry_time"])]}
     return {
@@ -375,16 +384,33 @@ async def ai_report(strategy_id: int, request: Request):
                       for b in bts],
         "attribution_backtest": attr_bt if attr_bt.get("has_data") else None,   # 主品种回测归因
         "attribution_actual": attr_actual if attr_actual.get("has_data") else None,  # 实盘归因
-        "trades_actual": {   # 实盘全量逐笔
-            "cols": ["entry_time", "dir", "net_points", "profit", "reason", "env"],
-            "rows": [[int(r["entry_time"].timestamp()), r["direction"],
-                      (float(r["net_points"]) if r["net_points"] is not None else None),
-                      float(r["profit"]), r["close_reason"], r["env"]] for r in act_rows],
+        "trades_actual": {   # 实盘全量逐笔·全字段(含SL/TP/手数/佣金/库存费 — 调SL/TP的实证)
+            "cols": ["entry_time", "exit_time", "dir", "volume", "entry_price", "exit_price",
+                     "sl", "tp", "net_points", "profit", "commission", "swap",
+                     "reason", "env", "broker", "account"],
+            "rows": [[int(r["entry_time"].timestamp()),
+                      (int(r["exit_time"].timestamp()) if r["exit_time"] else None),
+                      r["direction"], float(r["volume"]) if r["volume"] is not None else None,
+                      float(r["entry_price"]) if r["entry_price"] is not None else None,
+                      float(r["exit_price"]) if r["exit_price"] is not None else None,
+                      float(r["sl"]) if r["sl"] is not None else None,
+                      float(r["tp"]) if r["tp"] is not None else None,
+                      float(r["net_points"]) if r["net_points"] is not None else None,
+                      float(r["profit"]),
+                      float(r["commission"]) if r["commission"] is not None else None,
+                      float(r["swap"]) if r["swap"] is not None else None,
+                      r["close_reason"], r["env"], r["broker"], r["account"]]
+                     for r in act_rows],
         },
         # 对账全量(可信度+校准): 匹配率/精度偏差/模式/对比窗口/逐笔对照(含缺口归因)
         "reconciliation": recon,
-        "actual": ({"trades": actual["t"], "wins": actual["w"],
-                    "profit": float(actual["p"])} if actual and actual["t"] else None),
+        "runtime": [{"from": r["run_from"], "to": r["run_to"], "host": r["host"]}
+                    for r in runtime],   # 运行区间原始段(何时真实在跑)
+        "actual": ({"trades": actual["t"], "wins": actual["w"], "profit": float(actual["p"]),
+                    "by_env": {r["env"]: {"trades": r["trades"], "wins": r["wins"],
+                                          "profit": float(r["profit"]),
+                                          "updated_at": r["updated_at"]} for r in envs}}
+                   if actual and actual["t"] else None),
         "failed_neighbors": [{"params": d["params"], "died_of": d["archive_reason"]}
                              for d in dead],
     }
