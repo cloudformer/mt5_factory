@@ -101,6 +101,24 @@
     bindCreate();
   });
 
+  // 回测进度轮询: 跑完自动重载本页 → 家族对比表(这批的回测汇总)直接出现
+  function pollBacktest(hint) {
+    const tick = async () => {
+      try {
+        const s = await fetch("{{ url_for('backtests.status') }}").then((r) => r.json());
+        if (!s.running) {
+          hint.innerHTML = '<span class="pos">✅ 回测完成 — 正在载入家族对比…</span>';
+          location.href = "{{ url_for('strategies.ai_page', strategy_id=sid, count=count) }}";
+          return;
+        }
+        hint.innerHTML = '<span class="pos">回测中 ' + s.done + '/' + s.total + '</span>'
+          + (s.current ? ' <span class="muted">' + s.current + '</span>' : '');
+      } catch (e) { /* 网络抖动忽略, 下一拍再试 */ }
+      setTimeout(tick, 2000);
+    };
+    setTimeout(tick, 1500);
+  }
+
   // 右上角「创建策略」: AJAX 走统一收货管道, 结果与ID串就地渲染(不刷新, 预览保留)
   let lastCombos = null;
   function bindCreate() {
@@ -166,7 +184,8 @@
             const bj = await br.json();
             if (br.ok) {
               btBtn.textContent = "回测已启动 ✓";
-              hint.innerHTML = '<span class="pos">已启动 ' + bj.started + ' 个</span> — 进度见「策略回测」页; 跑完重新「载入」看家族对比。';
+              hint.innerHTML = '<span class="pos">已启动 ' + bj.started + ' 个</span> — 回测中…';
+              pollBacktest(hint);   // 轮询进度, 跑完自动重载看家族对比(=这批的回测汇总)
             } else {
               btBtn.disabled = false; btBtn.textContent = "回测这批(" + made.length + ")";
               hint.innerHTML = '<span class="neg">启动失败: ' + (bj.error || br.status) + '</span>(可能有批次在跑, 稍后再点)';
