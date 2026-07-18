@@ -189,13 +189,12 @@
   </header>
 {%- endmacro %}
 
-{# 三态视图切换(标准组件): 放节标题右侧, 控制两块显隐。默认「收起」亮(都隐藏)。
-   收起=只看统计卡 · 汇总=显 {prefix}-sum(细分归因/拟合) · 详细=显 {prefix}-det(逐笔明细)。
+{# 两态视图切换(标准组件): 放节标题右侧。默认「汇总」亮 —— 顶部页签已选了看哪份数据,
+   这里不需要收起。汇总=显 {prefix}-sum(细分归因/拟合) · 详细=显 {prefix}-det(逐笔明细)。
    纯前端切换(delegated JS 在 strategy_analysis.html), 蓝绿点亮当前视图 #}
 {% macro view_toggle(prefix) -%}
 <span class="detail-toggle">
-  <button type="button" class="small live" data-view="none" data-vgroup="{{ prefix }}">收起</button>
-  <button type="button" class="small" data-view="sum" data-vgroup="{{ prefix }}">汇总</button>
+  <button type="button" class="small live" data-view="sum" data-vgroup="{{ prefix }}">汇总</button>
   <button type="button" class="small" data-view="det" data-vgroup="{{ prefix }}">详细</button>
 </span>
 {%- endmacro %}
