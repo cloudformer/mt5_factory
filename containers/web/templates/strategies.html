@@ -150,7 +150,13 @@
           {% else %}<span class="badge warn">未回测</span>{% endif %}
           <span class="caret">▾</span></button>
       </td>
-      <td>{{ m.strategy_actions({'id': r.strategy_id, 'status': r.status}) }}</td>
+      <td>{{ m.strategy_actions({'id': r.strategy_id, 'status': r.status}) }}
+        <form method="post" action="{{ url_for('strategies.set_volume', strategy_id=r.strategy_id) }}" class="inline"
+              {% if r.status == 'LIVE' %}onsubmit="return confirm('#{{ r.strategy_id }} 是 LIVE 真金策略, 改手数下一单即生效 — 确认?')"{% endif %}>
+          <input name="volume" size="3" value="{{ '%g' % r.volume if r.volume is not none else '' }}"
+                 placeholder="手数" title="每策略下单手数; 空=worker默认(env VOLUME, 现0.01); 改后 runner 下一轮拉取即生效, 不用重启. 回测不受影响(净点与手数无关)">
+          <button class="small">改</button>
+        </form></td>
     </tr>
     <tr id="st-bd-{{ r.strategy_id }}" class="detail-row" hidden>
       <td colspan="18">

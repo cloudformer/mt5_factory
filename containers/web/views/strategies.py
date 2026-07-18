@@ -87,6 +87,22 @@ def generate_page():
                            default_symbols=default_symbols)
 
 
+@bp.post("/<int:strategy_id>/set-volume")
+def set_volume(strategy_id: int):
+    """设置每策略下单手数(空=清除, runner 回落 env 默认); runner 下一轮拉取即生效"""
+    raw = request.form.get("volume", "").strip()
+    try:
+        vol = float(raw) if raw else None
+        r = api.post(f"/strategies/{strategy_id}/volume", {"volume": vol})
+        flash(f"#{strategy_id} 手数 → {r['volume'] if r['volume'] is not None else '默认(worker env)'}"
+              " — runner 下一轮生效", "ok")
+    except ValueError:
+        flash("手数必须是数字, 或留空=用默认", "error")
+    except api.ApiError as e:
+        flash(f"设置失败: {e}", "error")
+    return redirect(request.referrer or url_for("strategies.index"))
+
+
 @bp.get("/analysis")
 def analysis():
     """策略分析: 关2对账(输入策略id → 回测 vs 实盘 match%); v1.4 更多归因维度待建"""

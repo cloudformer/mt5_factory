@@ -155,6 +155,9 @@ def fetch_strategies(run_status: str) -> list:
             instances.append({
                 "id": s["id"], "name": s["name"], "symbol": s["symbol"],
                 "timeframe": s["timeframe"], "magic": s["magic_number"] or 100000 + s["id"],
+                # 每策略手数(strategies.volume): 空=用本机 env VOLUME 默认。
+                # 每轮拉取即刷新 → web 改手数下一单生效, 不用重启(runner 无状态)
+                "volume": float(s.get("volume") or VOLUME),
                 "strategy": make_strategy(s["template"], params, info.point),
             })
         except Exception as e:
@@ -183,9 +186,10 @@ def send_order(inst: dict, sig) -> None:
     # A: SL/TP 按券商 digits 取整 — 浮点原值(如 4083.8400000001)苛刻券商会拒 Invalid stops
     sl, tp = round(sig.sl, info.digits), round(sig.tp, info.digits)
     # B1: 手数不得低于品种最小手 (拒单前置成明确日志, 不留给券商猜)
-    if info.volume_min and VOLUME < info.volume_min:
+    volume = inst.get("volume") or VOLUME   # 每策略手数, 空=env 默认(兜底)
+    if info.volume_min and volume < info.volume_min:
         logger.error("%s volume %.2f < broker min %.2f, refused",
-                     inst["name"], VOLUME, info.volume_min)
+                     inst["name"], volume, info.volume_min)
         return
     # B2: SL/TP 距离不得小于券商最小停损距离 stops_level (小止损策略必须过这关)
     min_d = (info.trade_stops_level or 0) * info.point
@@ -196,7 +200,7 @@ def send_order(inst: dict, sig) -> None:
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": inst["symbol"],
-        "volume": VOLUME,
+        "volume": volume,
         "type": mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL,
         "price": price,
         "sl": sl,
@@ -216,7 +220,7 @@ def send_order(inst: dict, sig) -> None:
                      result._asdict() if result else mt5.last_error())
     else:
         logger.info("%s %s %.2f lots @ %.5f sl=%.5f tp=%.5f (magic=%d)",
-                    inst["name"], sig.direction, VOLUME, result.price,
+                    inst["name"], sig.direction, volume, result.price,
                     sig.sl, sig.tp, inst["magic"])
 
 

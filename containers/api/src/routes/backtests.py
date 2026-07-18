@@ -299,7 +299,7 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
     pool = request.app.state.pool
     q = """
         SELECT s.id AS strategy_id, s.name, s.template, s.symbol, s.timeframe, s.status,
-               s.params, s.magic_number,
+               s.params, s.magic_number, s.volume,
                COALESCE(b.broker, sy.broker) AS broker, b.metrics, b.created_at
           FROM strategies s
           LEFT JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol

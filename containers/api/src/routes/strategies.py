@@ -105,7 +105,7 @@ async def list_strategies(request: Request, status: Optional[str] = None,
       backtest: 最新一次回测指标 (backtests 表, 可能为 null)
       stats:    {"demo": {trades,wins,profit}, "live": {...}} (strategy_stats 表, 心跳快照)"""
     q = ("SELECT s.id, s.name, s.template, s.symbol, s.timeframe, s.params, s.status,"
-         "       s.magic_number, sy.broker, b.metrics AS backtest, st.stats"
+         "       s.magic_number, s.volume, sy.broker, b.metrics AS backtest, st.stats"
          "  FROM strategies s"
          "  LEFT JOIN symbols sy ON sy.symbol = s.symbol"  # 券商(来自品种主档)
          # 只取主品种回测 (symbol=s.symbol): 跨品种验证会写多品种行, 不能串到别品种成绩
@@ -263,6 +263,25 @@ async def set_status(strategy_id: int, req: StatusRequest, request: Request):
         strategy_id, req.status)
     if row is None:
         raise HTTPException(status_code=404, detail="strategy not found")
+    return dict(row)
+
+
+class VolumeRequest(BaseModel):
+    volume: Optional[float] = None  # None/空 = 清除, runner 回落到自己的 env 默认(0.01)
+
+
+@router.post("/strategies/{strategy_id}/volume")
+async def set_volume(strategy_id: int, req: VolumeRequest, request: Request):
+    """设置每策略下单手数(仓位管理最小版): runner 每轮从 DB 拉配置, 下一单即生效(不用重启)。
+    空 = 清除, 回落 worker env 默认。回测不受影响(净点与手数无关), 折算金额两边同一系数。"""
+    if req.volume is not None and not (0 < req.volume <= 100):
+        raise HTTPException(status_code=400, detail="volume 须在 (0, 100] 之间, 或留空=用默认")
+    row = await request.app.state.pool.fetchrow(
+        "UPDATE strategies SET volume=$2, updated_at=now()"
+        " WHERE id=$1 RETURNING id, name, volume, status", strategy_id, req.volume)
+    if row is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    logger.info("strategy #%d volume -> %s", strategy_id, req.volume)
     return dict(row)
 
 
