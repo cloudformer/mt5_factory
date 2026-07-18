@@ -217,7 +217,9 @@ def ai_submit():
 
 @bp.post("/ai/backtest")
 def ai_backtest():
-    """步骤3 手动回测: 把步骤2的新ID(可手改)按ID点名回测 — 与「策略回测」页同一 api 入口"""
+    """按ID回测(创建结果里的「回测这批」按钮/表单共用)— 与「策略回测」页同一 api 入口。
+    AJAX(X-Requested-With: fetch)返回 JSON 就地显示; 表单提交走 flash+重定向。"""
+    is_fetch = request.headers.get("X-Requested-With") == "fetch"
     sid = request.form.get("strategy_id", type=int)
     ids = [s.strip() for s in request.form.get("ids", "").split(",") if s.strip()]
     try:
@@ -225,8 +227,12 @@ def ai_backtest():
         if request.form.get("cross_symbol") == "on":
             payload["cross_symbol"] = True
         api.post("/backtest/run", payload)
-        flash(f"回测已启动: {len(ids)} 个策略 — 跑完后重新「载入」看第4步家族对比", "ok")
+        if is_fetch:
+            return {"started": len(ids)}
+        flash(f"回测已启动: {len(ids)} 个策略 — 跑完后重新「载入」看家族对比", "ok")
     except (api.ApiError, ValueError) as e:
+        if is_fetch:
+            return {"error": str(e)}, 502
         flash(f"回测启动失败: {e}", "error")
     return redirect(url_for("strategies.ai_page", strategy_id=sid))
 

@@ -142,9 +142,10 @@
         h += "</table>";
         if (made.length) {
           h += '<div class="flex-between" style="margin-top:12px"><h3>新策略 ID(' + made.length + ' 个)</h3>'
-            + '<button type="button" class="small" id="copy-ids-btn">复制ID串</button></div>'
+            + '<span><button type="button" class="small" id="copy-ids-btn">复制ID串</button> '
+            + '<button type="button" id="bt-ids-btn">回测这批(' + made.length + ')</button></span></div>'
             + '<div class="idbox" id="idbox">' + made.join(",") + '</div>'
-            + '<p class="muted">可直接粘到「策略回测」的按ID框, 或本页后续回测步骤。</p>';
+            + '<span class="muted" id="bt-hint">回测按ID点名(只跑主品种, 不走门槛); 进度见「策略回测」页, 跑完重新「载入」看家族对比。</span>';
         }
         out.innerHTML = h;
         cbtn.textContent = "已创建 ✓";
@@ -153,6 +154,27 @@
           const t = document.getElementById("idbox").textContent;
           try { await navigator.clipboard.writeText(t); } catch (e) {}
           copyBtn.textContent = "已复制 " + made.length + " 个";
+        });
+        const btBtn = document.getElementById("bt-ids-btn");
+        if (btBtn) btBtn.addEventListener("click", async () => {
+          btBtn.disabled = true; btBtn.textContent = "启动中…";
+          const hint = document.getElementById("bt-hint");
+          try {
+            const fd = new URLSearchParams({ strategy_id: "{{ sid }}", ids: made.join(",") });
+            const br = await fetch("{{ url_for('strategies.ai_backtest') }}", {
+              method: "POST", headers: { "X-Requested-With": "fetch" }, body: fd });
+            const bj = await br.json();
+            if (br.ok) {
+              btBtn.textContent = "回测已启动 ✓";
+              hint.innerHTML = '<span class="pos">已启动 ' + bj.started + ' 个</span> — 进度见「策略回测」页; 跑完重新「载入」看家族对比。';
+            } else {
+              btBtn.disabled = false; btBtn.textContent = "回测这批(" + made.length + ")";
+              hint.innerHTML = '<span class="neg">启动失败: ' + (bj.error || br.status) + '</span>(可能有批次在跑, 稍后再点)';
+            }
+          } catch (e) {
+            btBtn.disabled = false; btBtn.textContent = "回测这批(" + made.length + ")";
+            hint.innerHTML = '<span class="neg">启动失败: ' + e.message + '</span>';
+          }
         });
       } catch (e) {
         out.innerHTML = '<p class="neg">创建失败: ' + e.message + '</p>';
