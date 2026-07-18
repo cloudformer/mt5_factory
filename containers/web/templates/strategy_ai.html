@@ -60,6 +60,10 @@
   let lastCombos = null;   // 解析通过的参数组 — 「创建策略」提交这个
   let madeIds = [];        // 本次创建的新ID — 「回测这批」点名这些
 
+  // 流水线点亮: 粘了内容 → 解析亮; 解析通过 → 创建亮; 创建有新建 → 回测亮(.live 类, 禁用时自动回灰)
+  const ta = document.getElementById("combos-input");
+  ta.addEventListener("input", () => btn.classList.toggle("live", ta.value.trim().length > 0));
+
   // 流水线回灰: 解析失败/重新解析时, 后续两步都退回初始灰态
   function resetPipeline() {
     lastCombos = null; madeIds = [];
@@ -90,6 +94,7 @@
       lastCombos = combos;
       cbtn.disabled = false; cbtn.title = "";
       cbtn.textContent = "创建策略(" + combos.length + " 组)";
+      cbtn.classList.add("live");
     } else cbtn.title = "模板不符, 禁止创建";
     let head = '<h3>解析结果</h3><p>'
       + '声明模板 ' + (payload.template
@@ -211,6 +216,7 @@
         madeIds = made;
         btBtn.disabled = false; btBtn.title = "";
         btBtn.textContent = "回测这批(" + made.length + ")";
+        btBtn.classList.add("live");
         hint.innerHTML = '回测按ID点名(只跑主品种, 不走门槛); 跑完本页自动重载, 家族对比直接出现。';
       } else hint.innerHTML = '没有新建实例(全部已存在/拒收) — 回测保持灰色; 已存在的用下方家族对比区补跑。';
       const copyBtn = document.getElementById("copy-ids-btn");

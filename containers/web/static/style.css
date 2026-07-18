@@ -272,6 +272,10 @@ button.small {
 button.small:hover { background: #f8fafc; color: var(--text); border-color: #9ca3af; }
 button.danger { background: #fff; color: var(--err-fg); border: 1px solid var(--err-bd); }
 button.danger:hover { background: var(--err-bg); border-color: #f87171; }
+/* 流水线点亮(AI调参页 解析→创建→回测): 轮到/已激活的步骤 = 蓝绿底;
+   禁用时不上色(走默认灰), 重新满足条件自动亮回来 — 类加上后无需摘除 */
+button.small.live:not(:disabled) { background: #0d9488; color: #fff; border-color: #0d9488; }
+button.small.live:not(:disabled):hover { background: #0f766e; color: #fff; border-color: #0f766e; }
 /* 运维三件套高亮: 比左边角色切换按钮更醒目(深字重边) */
 button.small.hl { color: var(--text); border-color: #9ca3af; font-weight: 600; }
 button.small.hl.danger { color: var(--err-fg); border-color: var(--err-bd); }
