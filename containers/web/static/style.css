@@ -363,12 +363,14 @@ table.kv td:first-child { width: 130px; color: var(--muted); font-weight: 600; w
    不写死行数、无分隔线格子。少几个控件就一行, 多了自动折行。任意页面直接套:
    <form class="filter-panel"> …控件… </form>   (label 走全局样式, 无需额外类)
    可选分组: 用 <div class="filter-row"> 让一组控件独占一行(仍无分隔线, 轻量) */
-.filter-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+.filter-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
                 background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
-                padding: 12px 16px; margin-bottom: 12px; }
-.filter-row { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+                padding: 8px 14px; margin-bottom: 12px; }
+.filter-row { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+/* 控件收紧: 上下 padding 只比字略高, 行不虚高 */
+.filter-panel input, .filter-panel select { padding: 3px 8px; }
 /* 组间横向分隔线(竖向不加): 每组一行, 行间细横线分隔, 视觉分组更清晰 */
-.filter-row + .filter-row { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.filter-row + .filter-row { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
 
 /* ID串展示卡(标准组件): 等宽可选中复制, 配复制按钮用 */
 .idbox {
