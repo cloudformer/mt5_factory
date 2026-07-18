@@ -47,20 +47,6 @@
 </table>
 
 <h3>逐笔明细 · <span class="badge warn">回测</span> · {{ ana.symbol }}(每笔下单/胜负){% if ana.trades_capped %} <span class="muted">— 仅显示前 1000 笔</span>{% endif %}</h3>
-{{ m.table_toolbar('bt-trades', hint='本页即时过滤(方向/原因/胜负…)') }}
-<table id="bt-trades" class="dense">
-  <tr><th data-nosort>#</th><th>入场时间</th><th>出场时间</th><th>方向</th><th>入场价</th><th>出场价</th><th>净点</th><th>胜负</th><th>原因</th></tr>
-  {% for t in ana.trades %}
-  <tr>
-    <td class="rownum muted"></td>
-    <td>{{ t.entry }}</td><td class="muted">{{ t.exit }}</td>
-    <td>{{ '买' if (t.dir or '') | upper == 'BUY' else '卖' }}</td>
-    <td class="muted">{{ t.entry_price }}</td><td class="muted">{{ t.exit_price }}</td>
-    <td class="{{ 'pos' if (t.points or 0) >= 0 else 'neg' }}">{{ t.points }}</td>
-    <td>{% if (t.points or 0) > 0 %}<span class="pos">胜</span>{% else %}<span class="neg">负</span>{% endif %}</td>
-    <td>{{ t.reason or '—' }}</td>
-  </tr>
-  {% endfor %}
-</table>
+{{ m.trade_table(ana.trades, 'bt-trades') }}
 </details>
 {% endif %}

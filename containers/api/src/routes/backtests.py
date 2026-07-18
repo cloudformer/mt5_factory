@@ -852,7 +852,8 @@ async def actual_attribution(pool, strategy_id: int) -> dict:
     """实盘(trades 表)胜负归因 — 策略分析页与 AI 成绩单共用。
     净点缺失(老数据)时退化用盈亏金额判胜负; 笔数少统计意义弱, 由调用方标注。"""
     act_rows = await pool.fetch(
-        "SELECT direction, entry_time, profit, commission, swap, net_points, close_reason, env"
+        "SELECT direction, entry_time, exit_time, entry_price, exit_price,"
+        "       profit, commission, swap, net_points, close_reason, env"
         " FROM trades WHERE strategy_id=$1 ORDER BY entry_time", strategy_id)
     act = [{"dir": r["direction"], "entry_time": r["entry_time"].timestamp(),
             "points": (float(r["net_points"]) if r["net_points"] is not None
@@ -865,4 +866,15 @@ async def actual_attribution(pool, strategy_id: int) -> dict:
                                     + float(r["swap"] or 0) for r in act_rows), 2)
         actual["envs"] = {e: sum(1 for r in act_rows if r["env"] == e)
                           for e in sorted({r["env"] for r in act_rows if r["env"]})}
+        # 逐笔明细(实盘): 与回测逐笔同款字段 + env 区分 demo/live — 前端复用 trade_table 宏
+        actual["trades"] = [{
+            "entry": r["entry_time"].strftime("%Y-%m-%d %H:%M"),
+            "exit": r["exit_time"].strftime("%Y-%m-%d %H:%M") if r["exit_time"] else "—",
+            "dir": r["direction"],
+            "entry_price": float(r["entry_price"]) if r["entry_price"] is not None else None,
+            "exit_price": float(r["exit_price"]) if r["exit_price"] is not None else None,
+            "points": (float(r["net_points"]) if r["net_points"] is not None
+                       else float(r["profit"])),
+            "reason": r["close_reason"] or "—", "env": r["env"],
+        } for r in act_rows]
     return actual

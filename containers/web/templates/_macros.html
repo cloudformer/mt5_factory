@@ -189,6 +189,29 @@
   </header>
 {%- endmacro %}
 
+{# 逐笔明细表(标准组件): 实盘与回测共用, 每笔下单+胜负。show_env=True 多一列账户(DEMO/LIVE)区分实盘。
+   rows 形状: [{entry, exit, dir, entry_price, exit_price, points, reason, (env)}] — 两边由 api 层归一 #}
+{% macro trade_table(rows, tid, hint='本页即时过滤(方向/原因/胜负…)', show_env=False) -%}
+{{ table_toolbar(tid, hint=hint) }}
+<table id="{{ tid }}" class="dense">
+  <tr><th data-nosort>#</th><th>入场时间</th><th>出场时间</th><th>方向</th>
+    {% if show_env %}<th>账户</th>{% endif %}
+    <th>入场价</th><th>出场价</th><th>净点</th><th>胜负</th><th>原因</th></tr>
+  {% for t in rows %}
+  <tr>
+    <td class="rownum muted"></td>
+    <td>{{ t.entry }}</td><td class="muted">{{ t.exit }}</td>
+    <td>{{ '买' if (t.dir or '') | upper == 'BUY' else '卖' }}</td>
+    {% if show_env %}<td><span class="badge {{ 'ok' if t.env == 'LIVE' else 'warn' }}">{{ t.env or '—' }}</span></td>{% endif %}
+    <td class="muted">{{ t.entry_price }}</td><td class="muted">{{ t.exit_price }}</td>
+    <td class="{{ 'pos' if (t.points or 0) >= 0 else 'neg' }}">{{ t.points }}</td>
+    <td>{% if (t.points or 0) > 0 %}<span class="pos">胜</span>{% else %}<span class="neg">负</span>{% endif %}</td>
+    <td>{{ t.reason or '—' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{%- endmacro %}
+
 {# 胜负归因四栏(标准组件): 方向/出场/时段/星期 — 卡片网格, 宽屏并排窄屏堆叠。
    实盘与回测共用此宏, 改归因样式只改这一处。数据形状: direction/reasons=dict, by_hour/by_weekday=list #}
 {% macro attr_grid(direction, reasons, by_hour, by_weekday) -%}

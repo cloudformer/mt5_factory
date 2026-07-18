@@ -181,6 +181,10 @@
   <summary class="muted">实盘细分归因(方向/出场/时段/星期)—— 与下方回测版逐项对照</summary>
   {{ m.attr_grid(ana.actual.direction, ana.actual.reasons, ana.actual.by_hour, ana.actual.by_weekday) }}
   </details>
+  {% if ana.actual.trades %}
+  <h3>逐笔明细 · <span class="badge ok">实盘</span> · {{ s.trades }} 笔(每笔下单/胜负 · DEMO/LIVE)</h3>
+  {{ m.trade_table(ana.actual.trades, 'act-trades', show_env=True) }}
+  {% endif %}
   {% endif %}
 </section>
 
