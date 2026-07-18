@@ -28,6 +28,7 @@ def index():
     rank = a.get("rank") or ""  # 排名参数模板名, 空=默认(净点数)
     page = max(a.get("page", 1, type=int), 1)  # 服务端分页页码(1起)
     results, rank_templates, brokers, symbols, templates = [], [], [], [], []
+    volume_presets = [0.01, 0.02, 0.05, 0.1, 0.5, 1]  # api 不可用时的兜底(与 schema/030 种子一致)
     oos_split = 0.7  # 样本外训练段占比(配置页可改), 供页面显示"训练:留出"比例
     total, page_size = 0, 100
     try:
@@ -35,6 +36,7 @@ def index():
         rank_templates = cfg.get("ranking_templates", [])
         oos_split = cfg.get("backtest_oos_split", 0.7)
         page_size = cfg.get("ranking_page_size", 100)  # 排名页每页条数(config可改, 缺省100)
+        volume_presets = cfg.get("volume_presets") or [0.01, 0.02, 0.05, 0.1, 0.5, 1]
         templates = sorted(api.get("/strategies/templates")["templates"].keys())
         params = {"min_trades": min_trades, "limit": page_size, "page": page}
         for k, v in (("template", template), ("symbol", symbol),
@@ -61,7 +63,8 @@ def index():
         flash(f"api 不可用: {e}", "error")
     total_pages = max((total + page_size - 1) // page_size, 1)  # 向上取整
     base_args = {k: v for k, v in a.items() if k != "page"}     # 翻页链接保留其它筛选
-    return render_template("strategies.html", results=results, symbol=symbol, broker=broker,
+    return render_template("strategies.html", results=results, volume_presets=volume_presets,
+                           symbol=symbol, broker=broker,
                            status=status, min_trades=min_trades, q_field=q_field, q_text=q_text,
                            filters=filters, positive=positive, oos=oos, rank=rank,
                            rank_templates=rank_templates, brokers=brokers, symbols=symbols,

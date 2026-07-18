@@ -27,11 +27,13 @@ def backtest_params():
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
     runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
     generate_limit = 500
+    volume_presets = [0.01, 0.02, 0.05, 0.1, 0.5, 1]  # 兜底(与 schema/030 种子一致)
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
         batch_limit = cfg.get("backtest_batch_limit", 500)
         generate_limit = cfg.get("generate_batch_limit", 500)
+        volume_presets = cfg.get("volume_presets") or volume_presets
         oos_split = cfg.get("backtest_oos_split", 0.7)
         mt5_days = cfg.get("mt5_trades_days") or [7, 30, 90]
         runtime_write = cfg.get("runtime_write_minutes", 5)
@@ -41,10 +43,23 @@ def backtest_params():
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
-                           generate_limit=generate_limit,
+                           generate_limit=generate_limit, volume_presets=volume_presets,
                            oos_split=oos_split, mt5_days=mt5_days,
                            runtime_write=runtime_write, runtime_gap=runtime_gap, gate=gate,
                            recon_tol=recon_tol)
+
+
+@bp.post("/config/volume-presets")
+def save_volume_presets():
+    """保存手数预设(config: volume_presets)— 策略列表手数下拉的选项; 校验在 api 侧把关"""
+    raw = request.form.get("volume_presets", "").replace("，", ",")
+    try:
+        vals = [float(x.strip()) for x in raw.split(",") if x.strip()]
+        api.put("/config/volume_presets", {"value": vals})
+        flash(f"手数预设已保存: {vals}", "ok")
+    except (api.ApiError, ValueError) as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
 
 
 @bp.post("/config/generate-limit")

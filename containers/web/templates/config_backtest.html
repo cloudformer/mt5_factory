@@ -14,6 +14,16 @@
 </section>
 
 <section>
+  <h2>策略手数预设</h2>
+  <form method="post" action="{{ url_for('symbols.save_volume_presets') }}" class="inline">
+    <label>预设值 <input name="volume_presets" value="{{ volume_presets | join(', ') }}" size="24"
+        title="逗号分隔的手数选项; 策略列表的手数下拉由此渲染(选预设防误输, 如 0.1 敲成 1)"></label>
+    <button class="small">保存</button>
+    <span class="muted">config: volume_presets — 策略列表下拉可选的手数; 「默认」= worker env VOLUME</span>
+  </form>
+</section>
+
+<section>
   <h2>回测参数-成本配置</h2>
   <form method="post" action="{{ url_for('backtests.save_costs') }}" class="inline">
     <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="单边滑点(点)"></label>
