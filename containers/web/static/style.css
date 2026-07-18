@@ -349,6 +349,7 @@ table.kv td:first-child { width: 130px; color: var(--muted); font-weight: 600; w
 
 /* 两端对齐行(标准工具类): 标题左 + 动作按钮右 */
 .flex-between { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.detail-toggle { display: inline-flex; gap: 6px; white-space: nowrap; }
 
 /* ID串展示卡(标准组件): 等宽可选中复制, 配复制按钮用 */
 .idbox {

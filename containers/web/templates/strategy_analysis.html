@@ -149,7 +149,10 @@
 </section>
 
 <section>
-  <h2>胜负归因 · <span class="badge ok">实盘数据(demo/live)</span></h2>
+  <div class="flex-between">
+    <h2 style="margin:0">胜负归因 · <span class="badge ok">实盘数据(demo/live)</span></h2>
+    {% if sid and ana and ana.actual and ana.actual.has_data %}{{ m.detail_toggle('act-detail') }}{% endif %}
+  </div>
   {% if not sid %}
   <p class="muted">输入上方策略ID → 用实际成交(trades 表)跑同一套归因,与下方回测版对照。</p>
   {% elif not ana or not ana.actual or not ana.actual.has_data %}
@@ -177,19 +180,23 @@
       <div class="stat-value {{ 'neg' if s.top_trade_pct and s.top_trade_pct > 0.5 else '' }}">{{ m.pct(s.top_trade_pct * 100 if s.top_trade_pct is not none else none) }}</div>
       <div class="stat-sub">最大单笔占净利</div></div>
   </div>
-  <details style="margin-top:10px" open>
-  <summary class="muted">实盘细分归因(方向/出场/时段/星期)—— 与下方回测版逐项对照</summary>
+  <div id="act-detail" hidden>
+  <h3>细分归因(方向 / 出场 / 时段 / 星期)</h3>
   {{ m.attr_grid(ana.actual.direction, ana.actual.reasons, ana.actual.by_hour, ana.actual.by_weekday) }}
-  </details>
+  <p class="muted" style="margin:8px 0 0">实盘无拟合判别 —— 样本外(训练/测试)与跨品种是<b>回测专属</b>的反过拟合工具;实盘只跑一个品种、无法重切样本外。</p>
   {% if ana.actual.trades %}
   <h3>逐笔明细 · <span class="badge ok">实盘</span> · {{ s.trades }} 笔(每笔下单/胜负 · DEMO/LIVE)</h3>
   {{ m.trade_table(ana.actual.trades, 'act-trades', show_env=True) }}
   {% endif %}
+  </div>
   {% endif %}
 </section>
 
 <section>
-  <h2>胜负归因 · <span class="badge warn">回测数据</span></h2>
+  <div class="flex-between">
+    <h2 style="margin:0">胜负归因 · <span class="badge warn">回测数据</span></h2>
+    {% if sid and ana and ana.symbols %}{{ m.detail_toggle('bt-detail') }}{% endif %}
+  </div>
   {% if not sid %}
   <p class="muted">输入上方策略ID → 看它在<b>回测</b>里为什么赢/输:时段/方向/出场/连亏/拟合判别。先分析、再优化。</p>
   {% elif not ana or not ana.symbols %}
@@ -210,14 +217,15 @@
     const box = document.getElementById("attribution");
     if (!sel || !box) return;
     sel.addEventListener("change", async () => {
-      const det = box.querySelector("details");
-      const wasOpen = det ? det.open : false;            // 记住切换前的展开/收缩
+      // 当前是否在看详情(切换按钮在父层, 不随 innerHTML 重置) — 换品种后保留同一视图
+      const dbtn = document.querySelector('[data-detail-target="bt-detail"][data-detail-view="detail"]');
+      const showDetail = dbtn ? dbtn.classList.contains("live") : false;
       try {
         const url = "{{ url_for('strategies.analysis_fragment') }}?strategy_id="
           + sel.dataset.sid + "&symbol=" + encodeURIComponent(sel.value);
         box.innerHTML = await fetch(url).then((r) => r.text());
-        const d = box.querySelector("details");
-        if (d) d.open = wasOpen;                          // 还原展开态(展开切换还是展开)
+        const d = box.querySelector("#bt-detail");
+        if (d) d.hidden = !showDetail;                    // 还原详情显隐
         const bt = box.querySelector("#bt-trades");
         if (bt && window.initTableSort) window.initTableSort(bt);   // 重绑排序(委托的过滤/翻页自动生效)
         const flt = box.querySelector('[data-table-filter="bt-trades"]');
@@ -229,4 +237,18 @@
   {% endif %}
 </section>
 
+{# 汇总/详情切换(常驻, 委托): 覆盖静态实盘块(act-detail)+ AJAX换入的回测块(bt-detail) #}
+<script>
+(function () {
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-detail-view]");
+    if (!btn) return;
+    const showDetail = btn.dataset.detailView === "detail";
+    const el = document.getElementById(btn.dataset.detailTarget);
+    if (el) el.hidden = !showDetail;
+    document.querySelectorAll('[data-detail-target="' + btn.dataset.detailTarget + '"]')
+      .forEach((b) => b.classList.toggle("live", (b.dataset.detailView === "detail") === showDetail));
+  });
+})();
+</script>
 {% endblock %}
