@@ -107,9 +107,11 @@
             <summary>{% if p.dir_match and p.outcome_match %}<span class="pos">✅ 匹配</span>{% else %}<span class="neg">⚠ 部分</span>(方向{{ '✓' if p.dir_match else '✗' }}·涨跌{{ '✓' if p.outcome_match else '✗' }}){% endif %} — 点开详情</summary>
             <div class="muted" style="padding:6px 0 0">
               入场价:实盘 <b>{{ p.actual.price }}</b> / 回测 <b>{{ p.bt.price }}</b>
-              {%- if p.entry_diff_pct is defined %} · 差 <b>{{ m.pct(p.entry_diff_pct, signed=True) }}</b>{% endif %}<br>
+              {%- if p.entry_diff_points is defined %} · 差 <b>{{ '%+d' % p.entry_diff_points }}点</b>({{ m.pct(p.entry_diff_pct, signed=True) }}){% endif %}<br>
+              出场价:实盘 <b>{{ p.actual.exit_price if p.actual.exit_price is not none else '—' }}</b> / 回测 <b>{{ p.bt.exit_price if p.bt.exit_price is not none else '—' }}</b>
+              {%- if p.exit_diff_points is defined %} · 差 <b>{{ '%+d' % p.exit_diff_points }}点</b>({{ m.pct(p.exit_diff_pct, signed=True) }}){% endif %}<br>
               净点:实盘 <b>{{ p.actual.net if p.actual.net is not none else '—' }}</b> / 回测 <b>{{ p.bt.points }}</b>
-              {%- if p.net_diff_pct is defined %} · 差 <b>{{ m.pct(p.net_diff_pct, signed=True) }}</b>{% endif %}
+              {%- if p.net_diff_points is defined %} · 差 <b>{{ '%+d' % p.net_diff_points }}点</b>({{ m.pct(p.net_diff_pct, signed=True) }}){% endif %}
             </div>
           </details>
           {% elif p.actual %}

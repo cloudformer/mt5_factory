@@ -473,12 +473,13 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
         outcome_match = m is not None and (m["points"] > 0) == (a["profit"] > 0)
         pairs.append({
             "actual": {"entry": a["entry"], "dir": a["dir"], "win": a["profit"] > 0,
-                       "profit": round(a["profit"], 2), "price": a.get("price"), "net": a.get("net"),
+                       "profit": round(a["profit"], 2), "price": a.get("price"),
+                       "exit_price": a.get("exit_price"), "net": a.get("net"),
                        "ts": a["ts"]},  # epoch, 供 reconcile() 判缺口原因后 pop 掉
             "bt": (None if m is None else
                    {"entry": datetime.fromtimestamp(m["entry_time"], tz=timezone.utc).strftime("%m-%d %H:%M"),
                     "dir": m["dir"], "win": m["points"] > 0, "points": m.get("points"),
-                    "price": m.get("entry"), "ts": m["entry_time"]}),
+                    "price": m.get("entry"), "exit_price": m.get("exit"), "ts": m["entry_time"]}),
             "dir_match": dir_match, "outcome_match": outcome_match})
     paired = sum(1 for p in pairs if p["bt"] is not None)
     dir_ok = sum(1 for p in pairs if p["dir_match"])
@@ -554,8 +555,8 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
         " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
     if strat is None:
         raise HTTPException(status_code=404, detail="strategy not found")
-    q = ("SELECT direction, entry_time, exit_time, profit, entry_price, net_points FROM trades"
-         " WHERE strategy_id=$1")
+    q = ("SELECT direction, entry_time, exit_time, profit, entry_price, exit_price, net_points"
+         " FROM trades WHERE strategy_id=$1")
     args = [strategy_id]
     if scope != "all":
         args.append(scope.upper()); q += f" AND env = ${len(args)}"
@@ -598,7 +599,8 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
     metrics, pairs = _reconcile_metrics(
         [{"dir": a["direction"], "ts": a["entry_time"].timestamp(), "profit": a["profit"],
           "entry": a["entry_time"].strftime("%m-%d %H:%M"),
-          "price": a["entry_price"], "net": a["net_points"]} for a in actual],
+          "price": a["entry_price"], "exit_price": a["exit_price"], "net": a["net_points"]}
+         for a in actual],
         bt, tol=tol, one_sided=(mode == "one_sided"))
     # 覆盖信息两级: 行情数据(库内M1) / 回测窗口 — 分辨低匹配是'数据没下载'/'回测没跑到'/'真没信号'
     bt_from, bt_to = (bt_row["from_time"], bt_row["to_time"]) if bt_row else (None, None)
@@ -614,16 +616,20 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
     bt_to_ts = bt_to.timestamp() if bt_to else None
     data_to_ts = data_to.timestamp() if data_to else None
     point = float(strat["point"]) if strat["point"] else None
-    for p in pairs:  # 配对行补每笔差值(页面详情显示): 入场差按点数, 净点差按%(2位)
+    for p in pairs:  # 配对行补每笔差值(页面详情显示): 入场/出场价差(点+%), 净点差(点+%)
         if p["actual"] is not None and p["bt"] is not None:
             if point and p["actual"].get("price") is not None and p["bt"].get("price") is not None:
                 a_pr, b_pr = float(p["actual"]["price"]), float(p["bt"]["price"])
-                p["entry_diff_points"] = round((a_pr - b_pr) / point)   # 点数留给AI成绩单
-                p["entry_diff_pct"] = round((a_pr - b_pr) / b_pr * 100, 2)  # 页面显示(与净点差同为%)
+                p["entry_diff_points"] = round((a_pr - b_pr) / point)
+                p["entry_diff_pct"] = round((a_pr - b_pr) / b_pr * 100, 2)
+            if point and p["actual"].get("exit_price") is not None and p["bt"].get("exit_price") is not None:
+                a_ex, b_ex = float(p["actual"]["exit_price"]), float(p["bt"]["exit_price"])
+                p["exit_diff_points"] = round((a_ex - b_ex) / point)
+                p["exit_diff_pct"] = round((a_ex - b_ex) / b_ex * 100, 2)
             if p["actual"].get("net") is not None and p["bt"].get("points"):
-                p["net_diff_pct"] = round(
-                    (float(p["actual"]["net"]) - float(p["bt"]["points"]))
-                    / abs(float(p["bt"]["points"])) * 100, 2)
+                a_net, b_net = float(p["actual"]["net"]), float(p["bt"]["points"])
+                p["net_diff_points"] = round(a_net - b_net)               # 净点本就是点, 直接相减
+                p["net_diff_pct"] = round((a_net - b_net) / abs(b_net) * 100, 2)
     for p in pairs:  # 每行: ①归属窗口(逐笔对照按窗口分组显示) ②缺口归因(实盘有回测无时)
         ts = (p["actual"] or p["bt"])["ts"]
         p["window"] = next((k for k, (w0, w1) in enumerate(windows) if w0 <= ts <= w1), None)
