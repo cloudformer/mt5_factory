@@ -188,3 +188,48 @@
     {% if desc %}<p>{{ desc }}</p>{% endif %}
   </header>
 {%- endmacro %}
+
+{# 胜负归因四栏(标准组件): 方向/出场/时段/星期 — 卡片网格, 宽屏并排窄屏堆叠。
+   实盘与回测共用此宏, 改归因样式只改这一处。数据形状: direction/reasons=dict, by_hour/by_weekday=list #}
+{% macro attr_grid(direction, reasons, by_hour, by_weekday) -%}
+{% set wdcn = ['周一','周二','周三','周四','周五','周六','周日'] %}
+<div class="attr-grid">
+  <div class="attr-card">
+    <div class="attr-card-h">方向不对称 <span class="muted">多赚空亏=只骑单边</span></div>
+    <table class="attr-t"><tr><th>方向</th><th>笔</th><th>净点</th><th>胜率</th></tr>
+      {% for d, v in direction.items() %}
+      <tr><td>{{ '买(多)' if d == 'BUY' else '卖(空)' }}</td><td>{{ v.trades }}</td>
+        <td class="{{ 'pos' if v.net >= 0 else 'neg' }}">{{ v.net }}</td>
+        <td>{{ pct(v.win_rate * 100 if v.win_rate is not none else none) }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="attr-card">
+    <div class="attr-card-h">出场原因构成 <span class="muted">gap高=跳空风险</span></div>
+    <table class="attr-t"><tr><th>原因</th><th>笔</th><th>净点</th></tr>
+      {% for r, v in reasons.items() %}
+      <tr><td>{{ r }}</td><td>{{ v.trades }}</td>
+        <td class="{{ 'pos' if v.net >= 0 else 'neg' }}">{{ v.net }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="attr-card">
+    <div class="attr-card-h">时段效应 <span class="muted">券商服务器时间</span></div>
+    <table class="attr-t"><tr><th>小时</th><th>笔</th><th>净点</th></tr>
+      {% for h in by_hour %}
+      <tr><td>{{ '%02d:00' % h.hour }}</td><td>{{ h.trades }}</td>
+        <td class="{{ 'pos' if h.net >= 0 else 'neg' }}">{{ h.net }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="attr-card">
+    <div class="attr-card-h">星期效应</div>
+    <table class="attr-t"><tr><th>星期</th><th>笔</th><th>净点</th></tr>
+      {% for w in by_weekday %}
+      <tr><td>{{ wdcn[w.wd] }}</td><td>{{ w.trades }}</td>
+        <td class="{{ 'pos' if w.net >= 0 else 'neg' }}">{{ w.net }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{%- endmacro %}

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('策略分析', '单个策略深看：回测 vs 实盘对账(关2)+ 胜负归因(规划中)。为 AI 迭代做准备') }}
+{{ m.page_header('人工策略分析', '单个策略深看：回测 vs 实盘对账(关2)+ 胜负归因(实盘/回测双栏对照)。与「AI 策略分析」分工:这里人工深看, 那里喂 AI 迭代') }}
 
 <section>
   <h2>关2 对账:回测 vs 实盘(demo/live)</h2>
@@ -177,37 +177,9 @@
       <div class="stat-value {{ 'neg' if s.top_trade_pct and s.top_trade_pct > 0.5 else '' }}">{{ m.pct(s.top_trade_pct * 100 if s.top_trade_pct is not none else none) }}</div>
       <div class="stat-sub">最大单笔占净利</div></div>
   </div>
-  <details style="margin-top:10px">
-  <summary class="muted">展开:实盘细分归因(方向/出场/时段/星期)—— 与下方回测版逐项对照</summary>
-  <h3>方向不对称</h3>
-  <table class="subtable"><tr><th>方向</th><th>笔数</th><th>净点</th><th>胜率</th></tr>
-    {% for d, v in ana.actual.direction.items() %}
-    <tr><td>{{ '买(多)' if d == 'BUY' else '卖(空)' }}</td><td>{{ v.trades }}</td>
-      <td class="{{ 'pos' if v.net >= 0 else 'neg' }}">{{ v.net }}</td>
-      <td>{{ m.pct(v.win_rate * 100 if v.win_rate is not none else none) }}</td></tr>
-    {% endfor %}
-  </table>
-  <h3>出场原因构成(MT5 close_reason)</h3>
-  <table class="subtable"><tr><th>原因</th><th>笔数</th><th>净点</th></tr>
-    {% for r, v in ana.actual.reasons.items() %}
-    <tr><td>{{ r }}</td><td>{{ v.trades }}</td>
-      <td class="{{ 'pos' if v.net >= 0 else 'neg' }}">{{ v.net }}</td></tr>
-    {% endfor %}
-  </table>
-  <h3>时段效应(按小时, 券商服务器时间)</h3>
-  <table class="subtable"><tr><th>小时</th><th>笔数</th><th>净点</th></tr>
-    {% for h in ana.actual.by_hour %}
-    <tr><td>{{ '%02d:00' % h.hour }}</td><td>{{ h.trades }}</td>
-      <td class="{{ 'pos' if h.net >= 0 else 'neg' }}">{{ h.net }}</td></tr>
-    {% endfor %}
-  </table>
-  <h3>星期效应</h3>
-  <table class="subtable"><tr><th>星期</th><th>笔数</th><th>净点</th></tr>
-    {% for w in ana.actual.by_weekday %}
-    <tr><td>{{ wdcn[w.wd] }}</td><td>{{ w.trades }}</td>
-      <td class="{{ 'pos' if w.net >= 0 else 'neg' }}">{{ w.net }}</td></tr>
-    {% endfor %}
-  </table>
+  <details style="margin-top:10px" open>
+  <summary class="muted">实盘细分归因(方向/出场/时段/星期)—— 与下方回测版逐项对照</summary>
+  {{ m.attr_grid(ana.actual.direction, ana.actual.reasons, ana.actual.by_hour, ana.actual.by_weekday) }}
   </details>
   {% endif %}
 </section>
