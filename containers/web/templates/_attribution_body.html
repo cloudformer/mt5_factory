@@ -28,21 +28,30 @@
 
 <h3>拟合判别</h3>
 {% set tr = ana.overfit.time.get('train') %}{% set ho = ana.overfit.time.get('holdout') %}
-<p class="muted" style="margin:4px 0">
-  <b>时间轴</b>(训练 vs 留出):
-  {% if tr and ho %}训练 <span class="{{ 'pos' if tr.net_points >= 0 else 'neg' }}">{{ tr.net_points }}</span>({{ tr.trades }}笔)
-    · 留出 <span class="{{ 'pos' if ho.net_points >= 0 else 'neg' }}">{{ ho.net_points }}</span>({{ ho.trades }}笔)
-    {% if ho.net_points is not none and ho.net_points <= 0 %}<span class="neg">← 留出崩=过拟合嫌疑</span>{% endif %}
-  {% else %}<span class="muted">老回测无 OOS, 重跑后出现</span>{% endif %}
-</p>
-<p class="muted" style="margin:4px 0"><b>品种轴</b>(本币 vs 他币, 跨品种验证):</p>
-<table class="subtable"><tr><th>品种</th><th>笔数</th><th>净点</th></tr>
-  {% for b in ana.overfit.symbol %}
-  <tr><td>{{ b.symbol }}{% if b.symbol == ana.main_symbol %} <span class="badge">主</span>{% endif %}{% if b.symbol == ana.symbol %} <span class="badge warn">看这个</span>{% endif %}</td>
-    <td>{{ b.trades if b.trades is not none else '—' }}</td>
-    <td class="{{ 'pos' if (b.net or 0) >= 0 else 'neg' }}">{{ b.net if b.net is not none else '—' }}</td></tr>
-  {% endfor %}
-</table>
+<div class="attr-grid">
+  <div class="attr-card">
+    <div class="attr-card-h">时间轴 · 样本外(主货币 {{ ana.main_symbol }}) <span class="muted">训练/测试拆分</span></div>
+    <table class="attr-t"><tr><th>段</th><th>笔数</th><th>净点</th></tr>
+      {% if tr and ho %}
+      <tr><td>训练</td><td>{{ tr.trades }}</td>
+        <td class="{{ 'pos' if tr.net_points >= 0 else 'neg' }}">{{ tr.net_points }}</td></tr>
+      <tr><td>测试<span class="muted">·样本外</span></td><td>{{ ho.trades }}</td>
+        <td class="{{ 'pos' if ho.net_points >= 0 else 'neg' }}">{{ ho.net_points }}{% if ho.net_points is not none and ho.net_points <= 0 %} <span class="neg" title="测试段亏=过拟合嫌疑">⚠</span>{% endif %}</td></tr>
+      {% else %}<tr><td colspan="3" class="muted">老回测无 OOS, 重跑后出现</td></tr>{% endif %}
+    </table>
+  </div>
+  <div class="attr-card">
+    <div class="attr-card-h">品种轴 · 跨品种普适(其他货币) <span class="muted">全周期100%·不拆</span></div>
+    <table class="attr-t"><tr><th>品种</th><th>笔数</th><th>净点</th></tr>
+      {% for b in ana.overfit.symbol if b.symbol != ana.main_symbol %}
+      <tr><td>{{ b.symbol }}{% if b.symbol == ana.symbol %} <span class="badge warn">看这个</span>{% endif %}</td>
+        <td>{{ b.trades if b.trades is not none else '—' }}</td>
+        <td class="{{ 'pos' if (b.net or 0) >= 0 else 'neg' }}">{{ b.net if b.net is not none else '—' }}</td></tr>
+      {% else %}<tr><td colspan="3" class="muted">无其他品种回测(跨品种验证未跑)</td></tr>{% endfor %}
+    </table>
+  </div>
+</div>
+<p class="muted" style="margin:6px 0 0">测试段(后30%·样本外)为正 = 没过拟合;测试崩负 = 过拟合嫌疑。其他货币<b>不做训练/测试拆分</b> —— 跨品种验的是「换币种是否仍普适」而非样本外,拆分无意义,只看全周期总成绩。</p>
 
 </div>
 <div id="bt-det" hidden>
