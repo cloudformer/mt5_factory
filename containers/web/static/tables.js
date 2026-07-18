@@ -316,6 +316,7 @@ function initColPick(table) {
   let hidden;
   try { hidden = new Set(JSON.parse(localStorage.getItem(KEY) || "[]")); }
   catch { hidden = new Set(); }
+  hidden = new Set([...hidden].filter((i) => i >= 0 && i < headers.length));  // 清历史无效序号
   const styleEl = document.createElement("style");
   document.head.appendChild(styleEl);
   const apply = () => {
@@ -333,6 +334,7 @@ function initColPick(table) {
   btn.title = "定制显示哪些列(记在本浏览器)";
   const panel = document.createElement("div");
   panel.className = "colpick-panel"; panel.hidden = true;
+  const boxes = [];
   headers.forEach((th, i) => {
     const name = th.textContent.trim().replace(/\s+/g, " ");
     if (!name || name === "#") return;       // 序号列常显
@@ -340,10 +342,24 @@ function initColPick(table) {
     const cb = document.createElement("input");
     cb.type = "checkbox"; cb.checked = !hidden.has(i);
     cb.addEventListener("change", () => { cb.checked ? hidden.delete(i) : hidden.add(i); apply(); });
+    boxes.push({ cb, i });
     lab.appendChild(cb); lab.appendChild(document.createTextNode(" " + name));
     panel.appendChild(lab);
   });
-  btn.addEventListener("click", () => (panel.hidden = !panel.hidden));
+  const reset = document.createElement("button");
+  reset.type = "button"; reset.className = "small"; reset.textContent = "全部显示";
+  reset.addEventListener("click", () => {
+    hidden.clear(); boxes.forEach((b) => (b.cb.checked = true)); apply();
+  });
+  panel.appendChild(reset);
+  btn.addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) {   // fixed 定位到按钮下方 — 逃出 section 横向滚动容器的裁剪
+      const r = btn.getBoundingClientRect();
+      panel.style.left = Math.min(r.left, window.innerWidth - 200) + "px";
+      panel.style.top = r.bottom + 4 + "px";
+    }
+  });
   document.addEventListener("click", (e) => { if (!wrap.contains(e.target)) panel.hidden = true; });
   wrap.appendChild(btn); wrap.appendChild(panel);
   anchor.parentNode.insertBefore(wrap, anchor);
