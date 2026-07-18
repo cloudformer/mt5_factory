@@ -308,7 +308,10 @@ function initColPick(table) {
   if (!tid) return;
   const anchor = document.querySelector(`[data-table-filter="${tid}"]`);
   if (!anchor) return;                       // 需要配套 table_toolbar
-  const headers = [...table.querySelectorAll("tr:first-child th")];
+  // 只取本表直属第一行的表头 — 明细行里嵌套的 subtable 有自己的表头, 不能扫进来
+  const firstRow = table.querySelector(":scope > tbody > tr, :scope > tr");
+  if (!firstRow) return;
+  const headers = [...firstRow.children].filter((c) => c.tagName === "TH");
   const KEY = "cols:" + tid;
   let hidden;
   try { hidden = new Set(JSON.parse(localStorage.getItem(KEY) || "[]")); }
@@ -316,8 +319,10 @@ function initColPick(table) {
   const styleEl = document.createElement("style");
   document.head.appendChild(styleEl);
   const apply = () => {
+    // > 限定直属行: 不碰明细行里嵌套 subtable 的同序号列
     styleEl.textContent = [...hidden].map((i) =>
-      `#${tid} tr > th:nth-child(${i + 1}), #${tid} tr > td:nth-child(${i + 1}){display:none}`
+      `#${tid} > tbody > tr > th:nth-child(${i + 1}), #${tid} > tbody > tr > td:nth-child(${i + 1}),` +
+      `#${tid} > tr > th:nth-child(${i + 1}), #${tid} > tr > td:nth-child(${i + 1}){display:none}`
     ).join("\n");
     localStorage.setItem(KEY, JSON.stringify([...hidden]));
   };
