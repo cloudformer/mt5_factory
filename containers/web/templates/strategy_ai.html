@@ -58,6 +58,7 @@
   const btBtn = document.getElementById("bt-ids-btn");
   const hint = document.getElementById("step3-hint");
   let lastCombos = null;   // 解析通过的参数组 — 「创建策略」提交这个
+  let lastModel = null;    // AI 自报的模型名(协议顶层字段) — 随创建入库进生因备注
   let madeIds = [];        // 本次创建的新ID — 「回测这批」点名这些
 
   // 流水线点亮: 粘了内容 → 解析亮; 解析通过 → 创建亮; 创建有新建 → 回测亮(.live 类, 禁用时自动回灰)
@@ -92,6 +93,7 @@
     const okTpl = payload.template === wantTpl;
     if (okTpl) {
       lastCombos = combos;
+      lastModel = payload.model || null;
       cbtn.disabled = false; cbtn.title = "";
       cbtn.textContent = "创建策略(" + combos.length + " 组)";
       cbtn.classList.add("live");
@@ -101,6 +103,7 @@
           ? (payload.template + (okTpl ? ' <span class="pos">✓</span>'
                                        : ' <span class="neg">✗ 应为 ' + wantTpl + '</span>'))
           : '<span class="neg">缺 template</span>')
+      + ' · 模型 ' + (payload.model || '<span class="muted">未自报(备注只记方法)</span>')
       + ' · 共 ' + combos.length + ' 组</p>';
     let html = head
       + '<table><tr><th style="width:40px">#</th><th>参数</th><th>依据(basis)</th><th style="width:200px">格式检查(仅提示)</th></tr>';
@@ -175,7 +178,7 @@
     try {
       const resp = await fetch("{{ url_for('strategies.ai_create_instances') }}", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ strategy_id: {{ sid }}, combos: lastCombos }),
+        body: JSON.stringify({ strategy_id: {{ sid }}, combos: lastCombos, model: lastModel }),
       });
       const r = await resp.json();
       if (!resp.ok) { out.innerHTML = '<p class="neg">创建失败: ' + (r.error || resp.status) + '</p>'; undo(); return; }
@@ -261,7 +264,7 @@
     <tr {% if f.is_parent %}class="row-marked"{% endif %}>
       <td class="rownum muted"></td>
       <td class="mono">{{ f.id }}{% if f.is_parent %} <span class="badge">父</span>{% endif %}</td>
-      <td class="clip" title="{{ f.params }}{% if f.basis %} · 生因: {{ f.basis }}{% endif %}">{% for k, v in (f.params or {}).items() %}{{ k }}={{ v }} {% endfor %}</td>
+      <td class="clip" title="{{ f.params }}{% if f.basis %} · 生因: {{ f.basis }}{% endif %}{% if f.created_at %} · {{ f.created_at[:16] | replace('T', ' ') }}{% endif %}">{% for k, v in (f.params or {}).items() %}{{ k }}={{ v }} {% endfor %}</td>
       <td>{{ m.strategy_status(f.status) }}{% if f.archive_reason %} <span class="muted">({{ f.archive_reason }})</span>{% endif %}</td>
       <td>{{ f.trades if f.trades is not none else '—' }}</td>
       <td class="{{ 'pos' if f.net_points and parent.net_points and f.net_points > parent.net_points and not f.is_parent else ('neg' if (f.net_points or 0) < 0 else '') }}">{{ f.net_points if f.net_points is not none else '—' }}</td>

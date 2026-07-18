@@ -379,8 +379,14 @@ async def ai_report(strategy_id: int, request: Request):
     }
 
 
+# AI 调参的方法论标签: 追加进每个子代的生因备注(与 AI 自报的模型名一起) — 家族溯源用。
+# 方法由系统写死(提示词纪律本身就是这套打法), 不让 AI 自由发挥; 模型名 AI 自报, API 接入后改为服务端如实填。
+_AI_TUNE_METHOD = "局部搜索+证据驱动"
+
+
 class AiCandidatesRequest(BaseModel):
-    combos: list        # [{"params": {...}, "basis": "..."}] 或裸参数dict列表
+    combos: list                 # [{"params": {...}, "basis": "..."}] 或裸参数dict列表
+    model: Optional[str] = None  # AI 自报的模型名(协议顶层字段), 追加进生因备注
 
 
 @router.post("/strategies/{strategy_id}/ai_candidates")
@@ -399,10 +405,15 @@ async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Req
         raise HTTPException(
             status_code=400,
             detail=f"品种 {parent['symbol']} 已除名 — 先在下载页重新登记再生成子代")
+    # 生因备注统一加尾标〔方法 · 模型〕: AI 依据原句 + 谁按什么方法生成的, 一并入库
+    tag = f"〔{_AI_TUNE_METHOD}" + (f" · {req.model}" if req.model else "") + "〕"
+    combos = [{**c, "basis": f"{c['basis']} {tag}" if c.get("basis") else tag}
+              if isinstance(c, dict) and "params" in c else {"params": c, "basis": tag}
+              for c in req.combos]
     # 与生成页同一条收货管道(services.instances), 只多带 parent_id 谱系
     r = await instances.create_instances(
         pool, parent["template"], parent["symbol"], parent["timeframe"],
-        req.combos, parent_id=strategy_id)
+        combos, parent_id=strategy_id)
     return {**r, "template": parent["template"], "symbol": parent["symbol"],
             "timeframe": parent["timeframe"]}
 
@@ -449,11 +460,12 @@ _AI_TUNE_PROMPT = """你是量化策略调参助手。下面给出策略 #{sid} 
 - 只输出一个 JSON 对象: 第一个字符必须是 {{, 最后一个字符必须是 }}
 - 不要 markdown 代码围栏(```), 不要任何前言/解释/结尾文字
 - combos 恰好 {count} 项; 每组 params 的键必须恰好是 {param_keys}, 值为具体数字(不是区间/占位符)
-- template 按下面的值原样带回(系统核对用); 不要包含其他顶层字段
+- template 按下面的值原样带回(系统核对用); model 填你自己的准确模型名(如 claude-opus-4-8,
+  入库记在每个实例的生因备注里); 除 template/model/combos 外不要其他顶层字段
 - 标准 JSON: 双引号、无尾逗号、无注释
 
-结构(params 各键取值范围): {{"template": "{template}", "combos": [{{"params": {params_schema}, "basis": "一句依据"}}]}}
-已填好的单组示例(仅示范格式, 数值别照抄): {{"template": "{template}", "combos": [{{"params": {params_example}, "basis": "sl出场148笔合计-201874, 收窄止损换结构改善"}}]}}
+结构(params 各键取值范围): {{"template": "{template}", "model": "<你的模型名>", "combos": [{{"params": {params_schema}, "basis": "一句依据"}}]}}
+已填好的单组示例(仅示范格式, 数值别照抄): {{"template": "{template}", "model": "claude-opus-4-8", "combos": [{{"params": {params_example}, "basis": "sl出场148笔合计-201874, 收窄止损换结构改善"}}]}}
 
 成绩单:
 {report}

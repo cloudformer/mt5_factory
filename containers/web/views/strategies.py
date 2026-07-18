@@ -178,7 +178,8 @@ def ai_create_instances():
     if not sid or not isinstance(combos, list) or not combos:
         return {"error": "缺 strategy_id 或 combos"}, 400
     try:
-        return api.post(f"/strategies/{sid}/ai_candidates", {"combos": combos})
+        return api.post(f"/strategies/{sid}/ai_candidates",
+                        {"combos": combos, "model": data.get("model")})
     except api.ApiError as e:
         return {"error": str(e)}, 502
 
@@ -194,7 +195,9 @@ def ai_submit():
     try:
         payload = _json.loads(request.form.get("combos_json", ""))
         combos = payload.get("combos", payload) if isinstance(payload, dict) else payload
-        step2 = api.post(f"/strategies/{sid}/ai_candidates", {"combos": combos})
+        model = payload.get("model") if isinstance(payload, dict) else None
+        step2 = api.post(f"/strategies/{sid}/ai_candidates",
+                         {"combos": combos, "model": model})
         ids_csv = ",".join(map(str, step2["created_ids"]))
         n_ok = len(step2["created_ids"])
         n_bad = sum(1 for r in step2["results"] if r.get("error"))
