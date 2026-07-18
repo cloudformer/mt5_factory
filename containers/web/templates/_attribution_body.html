@@ -22,8 +22,7 @@
     <div class="stat-sub">最大单笔占净利(越高越脆)</div></div>
 </div>
 
-<div id="bt-detail" hidden>
-
+<div id="bt-sum" hidden>
 <h3>细分归因(方向 / 出场 / 时段 / 星期)</h3>
 {{ m.attr_grid(ana.direction, ana.reasons, ana.by_hour, ana.by_weekday) }}
 
@@ -45,6 +44,8 @@
   {% endfor %}
 </table>
 
+</div>
+<div id="bt-det" hidden>
 <h3>逐笔明细 · <span class="badge warn">回测</span> · {{ ana.symbol }}(每笔下单/胜负){% if ana.trades_capped %} <span class="muted">— 仅显示前 1000 笔</span>{% endif %}</h3>
 {{ m.trade_table(ana.trades, 'bt-trades') }}
 </div>

@@ -151,7 +151,7 @@
 <section>
   <div class="flex-between">
     <h2 style="margin:0">胜负归因 · <span class="badge ok">实盘数据(demo/live)</span></h2>
-    {% if sid and ana and ana.actual and ana.actual.has_data %}{{ m.detail_toggle('act-detail') }}{% endif %}
+    {% if sid and ana and ana.actual and ana.actual.has_data %}{{ m.view_toggle('act') }}{% endif %}
   </div>
   {% if not sid %}
   <p class="muted">输入上方策略ID → 用实际成交(trades 表)跑同一套归因,与下方回测版对照。</p>
@@ -180,14 +180,16 @@
       <div class="stat-value {{ 'neg' if s.top_trade_pct and s.top_trade_pct > 0.5 else '' }}">{{ m.pct(s.top_trade_pct * 100 if s.top_trade_pct is not none else none) }}</div>
       <div class="stat-sub">最大单笔占净利</div></div>
   </div>
-  <div id="act-detail" hidden>
+  <div id="act-sum" hidden>
   <h3>细分归因(方向 / 出场 / 时段 / 星期)</h3>
   {{ m.attr_grid(ana.actual.direction, ana.actual.reasons, ana.actual.by_hour, ana.actual.by_weekday) }}
   <p class="muted" style="margin:8px 0 0">实盘无拟合判别 —— 样本外(训练/测试)与跨品种是<b>回测专属</b>的反过拟合工具;实盘只跑一个品种、无法重切样本外。</p>
+  </div>
+  <div id="act-det" hidden>
   {% if ana.actual.trades %}
   <h3>逐笔明细 · <span class="badge ok">实盘</span> · {{ s.trades }} 笔(每笔下单/胜负 · DEMO/LIVE)</h3>
   {{ m.trade_table(ana.actual.trades, 'act-trades', show_env=True) }}
-  {% endif %}
+  {% else %}<p class="muted">无逐笔成交。</p>{% endif %}
   </div>
   {% endif %}
 </section>
@@ -195,7 +197,7 @@
 <section>
   <div class="flex-between">
     <h2 style="margin:0">胜负归因 · <span class="badge warn">回测数据</span></h2>
-    {% if sid and ana and ana.symbols %}{{ m.detail_toggle('bt-detail') }}{% endif %}
+    {% if sid and ana and ana.symbols %}{{ m.view_toggle('bt') }}{% endif %}
   </div>
   {% if not sid %}
   <p class="muted">输入上方策略ID → 看它在<b>回测</b>里为什么赢/输:时段/方向/出场/连亏/拟合判别。先分析、再优化。</p>
@@ -217,15 +219,16 @@
     const box = document.getElementById("attribution");
     if (!sel || !box) return;
     sel.addEventListener("change", async () => {
-      // 当前是否在看详情(切换按钮在父层, 不随 innerHTML 重置) — 换品种后保留同一视图
-      const dbtn = document.querySelector('[data-detail-target="bt-detail"][data-detail-view="detail"]');
-      const showDetail = dbtn ? dbtn.classList.contains("live") : false;
+      // 当前视图(收起/汇总/详细): 按钮在父层, 不随 innerHTML 重置 — 换品种后保留同一视图
+      const cur = document.querySelector('[data-vgroup="bt"].live');
+      const view = cur ? cur.dataset.view : "none";
       try {
         const url = "{{ url_for('strategies.analysis_fragment') }}?strategy_id="
           + sel.dataset.sid + "&symbol=" + encodeURIComponent(sel.value);
         box.innerHTML = await fetch(url).then((r) => r.text());
-        const d = box.querySelector("#bt-detail");
-        if (d) d.hidden = !showDetail;                    // 还原详情显隐
+        const sum = box.querySelector("#bt-sum"), det = box.querySelector("#bt-det");
+        if (sum) sum.hidden = view !== "sum";             // 还原三态显隐
+        if (det) det.hidden = view !== "det";
         const bt = box.querySelector("#bt-trades");
         if (bt && window.initTableSort) window.initTableSort(bt);   // 重绑排序(委托的过滤/翻页自动生效)
         const flt = box.querySelector('[data-table-filter="bt-trades"]');
@@ -237,17 +240,18 @@
   {% endif %}
 </section>
 
-{# 汇总/详情切换(常驻, 委托): 覆盖静态实盘块(act-detail)+ AJAX换入的回测块(bt-detail) #}
+{# 三态视图切换(常驻, 委托): 收起/汇总/详细 — 覆盖实盘(act-)与 AJAX换入的回测(bt-)两组 #}
 <script>
 (function () {
   document.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-detail-view]");
+    const btn = e.target.closest("[data-vgroup]");
     if (!btn) return;
-    const showDetail = btn.dataset.detailView === "detail";
-    const el = document.getElementById(btn.dataset.detailTarget);
-    if (el) el.hidden = !showDetail;
-    document.querySelectorAll('[data-detail-target="' + btn.dataset.detailTarget + '"]')
-      .forEach((b) => b.classList.toggle("live", (b.dataset.detailView === "detail") === showDetail));
+    const g = btn.dataset.vgroup, view = btn.dataset.view;
+    const sum = document.getElementById(g + "-sum"), det = document.getElementById(g + "-det");
+    if (sum) sum.hidden = view !== "sum";     // 汇总=细分归因/拟合
+    if (det) det.hidden = view !== "det";     // 详细=逐笔明细; 收起=都隐藏
+    document.querySelectorAll('[data-vgroup="' + g + '"]')
+      .forEach((b) => b.classList.toggle("live", b.dataset.view === view));
   });
 })();
 </script>
