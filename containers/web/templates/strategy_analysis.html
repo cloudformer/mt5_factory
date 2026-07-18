@@ -1,20 +1,31 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('人工策略分析', '单个策略深看：回测 vs 实盘对账(关2)+ 胜负归因(实盘/回测双栏对照)。与「AI 策略分析」分工:这里人工深看, 那里喂 AI 迭代') }}
+{{ m.page_header('人工策略分析', '单个策略深看：对账(回测 vs 实盘) + 胜负归因(实盘/回测)。与「AI 策略分析」分工:这里人工深看, 那里喂 AI 迭代') }}
 
-<section>
-  <h2>关2 对账:回测 vs 实盘(demo/live)</h2>
-  <form method="get" class="inline">
+{# 顶栏: 左输入ID+载入, 右三页签(载入后出现, 纯前端切换, 一屏一视图) #}
+<section class="analysis-bar">
+  <form method="get" class="inline" style="margin:0">
     <label>策略ID <input name="strategy_id" value="{{ sid or '' }}" size="8" required
-        title="用该策略的实盘(demo+live)实际成交, 验证回测在同一时间段的一致性"></label>
-    <button class="small">对账</button>
+        title="载入该策略的 对账/实盘/回测 三视图"></label>
+    <button class="small">载入</button>
     {% if sid %}
     <a class="btn" href="{{ url_for('strategies.ai_report', strategy_id=sid) }}" target="_blank"
        title="该策略的结构化成绩单(纯数字): 参数+回测(oos/分年/MAE/MFE)+跨品种+对账可信度+实盘+同模板尸体死因 — 未来 AI 调参训练的输入, 现在也可人工下载查看">AI成绩单 JSON</a>
     {% endif %}
-    <span class="muted">时间窗自动取自实盘成交跨度;综合匹配度 ≥90 = 该策略回测可信(纳入回测质量标准)</span>
   </form>
+  {% if sid %}
+  <span class="analysis-tabs">
+    <button type="button" class="small live" data-tab="recon">对账 · 回测vs实盘</button>
+    <button type="button" class="small" data-tab="actual">实盘分析</button>
+    <button type="button" class="small" data-tab="backtest">回测分析</button>
+  </span>
+  {% endif %}
+</section>
+
+<section id="tab-recon">
+  <h2>对账:回测 vs 实盘(demo/live)</h2>
+  <p class="muted" style="margin:0 0 12px">时间窗自动取自实盘成交跨度;综合匹配度 ≥90 = 该策略回测可信(纳入回测质量标准)。</p>
 
   {% if recon %}
     {% if recon.note %}
@@ -148,7 +159,7 @@
   {% endif %}
 </section>
 
-<section>
+<section id="tab-actual" hidden>
   <div class="flex-between">
     <h2 style="margin:0">胜负归因 · <span class="badge ok">实盘数据(demo/live)</span></h2>
     {% if sid and ana and ana.actual and ana.actual.has_data %}{{ m.view_toggle('act') }}{% endif %}
@@ -194,7 +205,7 @@
   {% endif %}
 </section>
 
-<section>
+<section id="tab-backtest" hidden>
   <div class="flex-between">
     <h2 style="margin:0">胜负归因 · <span class="badge warn">回测数据</span></h2>
     {% if sid and ana and ana.symbols %}{{ m.view_toggle('bt') }}{% endif %}
@@ -210,7 +221,7 @@
       <select name="symbol" id="ana-symbol" data-sid="{{ sid }}">
         {% for sy in ana.symbols %}<option value="{{ sy }}" {% if sy == ana.symbol %}selected{% endif %}>{{ sy }}{% if sy == ana.main_symbol %}(主){% endif %}</option>{% endfor %}
       </select></label>
-    <span class="muted">该品种的【回测】数据(非实盘;实盘对账见上方「关2」)· 切换不刷新</span>
+    <span class="muted">该品种的【回测】数据(非实盘;实盘对账见「对账」页签)· 切换不刷新</span>
   </form>
   <div id="attribution">{% include "_attribution_body.html" %}</div>
   <script>
@@ -239,6 +250,24 @@
   </script>
   {% endif %}
 </section>
+
+{# 顶栏页签: 对账/实盘/回测 一屏一视图(纯前端切换, 数据载入时已全取回) #}
+<script>
+(function () {
+  const bar = document.querySelector(".analysis-tabs");
+  if (!bar) return;
+  const tabs = ["recon", "actual", "backtest"];
+  bar.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-tab]");
+    if (!btn) return;
+    tabs.forEach((t) => {
+      const sec = document.getElementById("tab-" + t);
+      if (sec) sec.hidden = t !== btn.dataset.tab;
+    });
+    bar.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("live", b === btn));
+  });
+})();
+</script>
 
 {# 三态视图切换(常驻, 委托): 收起/汇总/详细 — 覆盖实盘(act-)与 AJAX换入的回测(bt-)两组 #}
 <script>
