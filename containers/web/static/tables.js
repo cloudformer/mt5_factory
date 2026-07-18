@@ -299,3 +299,50 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 });
+
+/* ===== 列定制(标准组件): <table id data-colpick> 的工具条出现「列 ▾」下拉 =====
+   勾选显隐列; 选择存 localStorage(键 cols:<表id>), 刷新/翻页/排序都保持。
+   # 序号列不给关; 明细行(单td colspan)不受影响(nth-child 匹配不到)。 */
+function initColPick(table) {
+  const tid = table.id;
+  if (!tid) return;
+  const anchor = document.querySelector(`[data-table-filter="${tid}"]`);
+  if (!anchor) return;                       // 需要配套 table_toolbar
+  const headers = [...table.querySelectorAll("tr:first-child th")];
+  const KEY = "cols:" + tid;
+  let hidden;
+  try { hidden = new Set(JSON.parse(localStorage.getItem(KEY) || "[]")); }
+  catch { hidden = new Set(); }
+  const styleEl = document.createElement("style");
+  document.head.appendChild(styleEl);
+  const apply = () => {
+    styleEl.textContent = [...hidden].map((i) =>
+      `#${tid} tr > th:nth-child(${i + 1}), #${tid} tr > td:nth-child(${i + 1}){display:none}`
+    ).join("\n");
+    localStorage.setItem(KEY, JSON.stringify([...hidden]));
+  };
+  const wrap = document.createElement("span");
+  wrap.className = "colpick";
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "small"; btn.textContent = "列 ▾";
+  btn.title = "定制显示哪些列(记在本浏览器)";
+  const panel = document.createElement("div");
+  panel.className = "colpick-panel"; panel.hidden = true;
+  headers.forEach((th, i) => {
+    const name = th.textContent.trim().replace(/\s+/g, " ");
+    if (!name || name === "#") return;       // 序号列常显
+    const lab = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = !hidden.has(i);
+    cb.addEventListener("change", () => { cb.checked ? hidden.delete(i) : hidden.add(i); apply(); });
+    lab.appendChild(cb); lab.appendChild(document.createTextNode(" " + name));
+    panel.appendChild(lab);
+  });
+  btn.addEventListener("click", () => (panel.hidden = !panel.hidden));
+  document.addEventListener("click", (e) => { if (!wrap.contains(e.target)) panel.hidden = true; });
+  wrap.appendChild(btn); wrap.appendChild(panel);
+  anchor.parentNode.insertBefore(wrap, anchor);
+  apply();
+}
+document.addEventListener("DOMContentLoaded", () =>
+  document.querySelectorAll("table[data-colpick]").forEach(initColPick));

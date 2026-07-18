@@ -99,7 +99,7 @@
     　训练段(前 {{ (oos_split * 100) | round | int }}% 时间)用来选，留出段(后 {{ ((1 - oos_split) * 100) | round | int }}%，策略没见过)只用来一票否决；比例在配置页可改。</p>
   {{ m.table_toolbar('strat-table', hint='本页即时过滤已加载行(整行模糊)') }}
   {# data-detail-sort: 带展开明细行仍要能排序 — tables.js 排序只动主行, 明细行按 toggle id 跟随 #}
-  <table id="strat-table" class="dense" data-detail-sort>
+  <table id="strat-table" class="dense" data-detail-sort data-colpick>
     <tr><th data-nosort title="动态序号: 随排序/筛选/翻页变, 只为看行, 非策略ID">#</th>
         <th title="策略在数据库的固定唯一 ID, 用于批量回测的『策略ID』框点名">ID</th>
         <th title="排名参数模板的综合分(0~100, 四维百分位加权); 默认排序下无">评分</th>

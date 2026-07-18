@@ -353,6 +353,14 @@ table.kv td:first-child { width: 130px; color: var(--muted); font-weight: 600; w
 /* 两端对齐行(标准工具类): 标题左 + 动作按钮右 */
 .flex-between { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .detail-toggle { display: inline-flex; gap: 6px; white-space: nowrap; }
+/* 列定制下拉(标准组件, tables.js initColPick): <table data-colpick> 工具条的「列 ▾」 */
+.colpick { position: relative; display: inline-block; }
+.colpick-panel { position: absolute; left: 0; top: calc(100% + 4px); z-index: 50;
+  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: var(--shadow-sm); padding: 8px 12px;
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 320px; overflow-y: auto; white-space: nowrap; }
+.colpick-panel label { font-size: 12px; gap: 6px; }
 /* 人工策略分析顶栏: 左输入ID / 右三页签, 一个框 */
 .analysis-bar { display: flex; justify-content: space-between; align-items: center; gap: 16px;
                 flex-wrap: wrap; border: 1px solid var(--border); border-radius: 10px;
