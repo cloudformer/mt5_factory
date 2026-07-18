@@ -28,7 +28,7 @@
         <option value="">全部</option>
         {% for b in brokers %}<option value="{{ b }}" {% if b == broker %}selected{% endif %}>{{ b }}</option>{% endfor %}
       </select></label>
-    <label title="排名模板(配置页可增删改权重): 四维百分位加权综合分; 默认=按净点数">排序
+    <label title="排名参数模板(配置页可增删改权重): 四维百分位加权综合分; 默认=按净点数">排序
       <select name="rank" id="rank-sel">
         <option value="">默认(净点数)</option>
         {% for t in rank_templates %}
@@ -36,7 +36,7 @@
         {% endfor %}
       </select></label>
     <label>最少交易数 <input name="min_trades" id="min-trades" value="{{ min_trades }}" size="4"
-        title="选排名模板会自动填该模板的默认笔数, 可再手改; >0 时未回测的策略不显示"></label>
+        title="选排名参数模板会自动填该模板的默认笔数, 可再手改; >0 时未回测的策略不显示"></label>
     {# 多条件过滤: 空=不限, 全部查库; 有成绩门槛的过滤未回测策略一律不通过 #}
     <label title="主品种胜率 ≥ 此百分数; 空=不限">胜率≥ <input name="min_win_rate" size="3"
         value="{{ '%g' % filters.min_win_rate if filters.min_win_rate is not none else '' }}">%</label>
@@ -96,7 +96,7 @@
   <table id="strat-table" data-detail-sort>
     <tr><th data-nosort title="动态序号: 随排序/筛选/翻页变, 只为看行, 非策略ID">#</th>
         <th title="策略在数据库的固定唯一 ID, 用于批量回测的『策略ID』框点名">ID</th>
-        <th title="排名模板的综合分(0~100, 四维百分位加权); 默认排序下无">评分</th>
+        <th title="排名参数模板的综合分(0~100, 四维百分位加权); 默认排序下无">评分</th>
         <th>策略</th><th title="生成用的策略模板(逻辑代码)">策略模板</th><th>品种</th><th>券商</th><th>周期</th><th>状态</th>
         <th>笔数</th><th title="回测的胜率(跨所有测过品种合计)">回测胜率</th><th>净点数</th><th>PF</th><th>最大回撤</th>
         <th title="样本外两段净点(笔数): 训练段=前段用来选; 留出段=后段(策略没见过)一票否决。绿=盈利红=亏。留出崩=过拟合嫌疑。比例见表上说明">训练/留出段<br><span class="muted">(净点)</span></th>
@@ -220,7 +220,7 @@
 })();
 </script>
 
-{# 排名模板联动: 选模板自动填该模板的默认最少笔数(可再手改后点查询) #}
+{# 排名参数模板联动: 选模板自动填该模板的默认最少笔数(可再手改后点查询) #}
 <script>
 (function () {
   const sel = document.getElementById("rank-sel"), mt = document.getElementById("min-trades");

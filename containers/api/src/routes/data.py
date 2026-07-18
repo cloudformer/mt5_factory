@@ -14,7 +14,7 @@ from src.services import sync
 
 router = APIRouter()
 
-CONFIG_KEYS = {"ai_generator_url", "backtest_costs", "backtest_batch_limit",
+CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
                "ranking_templates", "backtest_oos_split", "mt5_trades_days",
                "runtime_write_minutes", "runtime_gap_minutes", "cross_symbol_gate",
                "recon_pair_tol_minutes"}
@@ -63,9 +63,9 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
         sp = req.value.get("spread_points")
         if sp is not None and not isinstance(sp, (int, float)):
             raise HTTPException(status_code=400, detail="spread_points must be number or null")
-    if key == "backtest_batch_limit":  # 单批回测上限(防失控保护)
+    if key in ("backtest_batch_limit", "generate_batch_limit"):  # 单批上限(防失控保护)
         if not isinstance(req.value, int) or req.value < 1:
-            raise HTTPException(status_code=400, detail="backtest_batch_limit must be a positive integer")
+            raise HTTPException(status_code=400, detail=f"{key} must be a positive integer")
     if key == "backtest_oos_split":  # OOS 训练段占比: (0,1) 开区间
         if not isinstance(req.value, (int, float)) or not 0 < req.value < 1:
             raise HTTPException(status_code=400, detail="backtest_oos_split must be between 0 and 1")

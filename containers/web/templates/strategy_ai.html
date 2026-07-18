@@ -42,7 +42,9 @@
     placeholder='示例格式(灰字仅提示, 粘贴真实内容覆盖): {"combos": [{"params": {"fast": 10, "slow": 80, "sl_points": 900, "rr": 2.8}, "basis": "依据..."}, ...]}'></textarea>
   <p style="margin:8px 0 0">
     <button class="small" type="button" id="parse-btn">解析预览</button>
-    <span class="muted">只解析显示, 不做任何写入 — 确认无误后, 生成实例是下一步(待定义)</span>
+    <button class="small" type="button" id="create-btn" disabled title="先解析且模板相符">创建策略</button>
+    <button class="small" type="button" id="bt-ids-btn" disabled title="先创建策略">回测这批</button>
+    <span class="muted" id="step3-hint">流水线: 解析(只读) → 创建(入库) → 回测(主品种) — 上一步满足条件, 下一步才亮起</span>
   </p>
   <div id="combos-preview"></div>
 </section>
@@ -52,8 +54,22 @@
   if (!btn) return;
   const space = {{ space | tojson }};          // 模板参数空间(服务端注入)
   const keys = Object.keys(space).sort();
+  const cbtn = document.getElementById("create-btn");
+  const btBtn = document.getElementById("bt-ids-btn");
+  const hint = document.getElementById("step3-hint");
+  let lastCombos = null;   // 解析通过的参数组 — 「创建策略」提交这个
+  let madeIds = [];        // 本次创建的新ID — 「回测这批」点名这些
+
+  // 流水线回灰: 解析失败/重新解析时, 后续两步都退回初始灰态
+  function resetPipeline() {
+    lastCombos = null; madeIds = [];
+    cbtn.disabled = true; cbtn.textContent = "创建策略"; cbtn.title = "先解析且模板相符";
+    btBtn.disabled = true; btBtn.textContent = "回测这批"; btBtn.title = "先创建策略";
+  }
+
   btn.addEventListener("click", () => {
     const box = document.getElementById("combos-preview");
+    resetPipeline();
     // 容错提取: AI 可能包 ```围栏 或加前后废话 — 截取首个 { 到末个 } 之间再解析
     let raw = document.getElementById("combos-input").value;
     const s = raw.indexOf("{"), e2 = raw.lastIndexOf("}");
@@ -70,10 +86,12 @@
     // 协议头核对: AI 必须原样带回 template(第2步提示词约定的返回格式; 不含 id)
     const wantTpl = "{{ meta.template if meta else '' }}";
     const okTpl = payload.template === wantTpl;
-    lastCombos = combos;   // 供右上角「创建策略」提交
-    let head = '<div class="flex-between"><h3>解析结果</h3>'
-      + '<button type="button" id="create-btn" ' + (okTpl ? '' : 'disabled title="模板不符, 禁止创建"')
-      + '>创建策略(' + combos.length + ' 组)</button></div><p>'
+    if (okTpl) {
+      lastCombos = combos;
+      cbtn.disabled = false; cbtn.title = "";
+      cbtn.textContent = "创建策略(" + combos.length + " 组)";
+    } else cbtn.title = "模板不符, 禁止创建";
+    let head = '<h3>解析结果</h3><p>'
       + '声明模板 ' + (payload.template
           ? (payload.template + (okTpl ? ' <span class="pos">✓</span>'
                                        : ' <span class="neg">✗ 应为 ' + wantTpl + '</span>'))
@@ -98,8 +116,31 @@
                                  : "<span class='pos'>✓</span>") + "</td></tr>";
     });
     box.innerHTML = html + "</table><div id='create-result'></div>";
-    bindCreate();
   });
+
+  // 按ID启动回测 → 轮询到完成自动重载 — 创建结果的「回测这批」与家族对比的补跑按钮共用
+  async function startBacktest(btn, hint, idsCsv) {
+    const n = idsCsv.split(",").length;
+    btn.disabled = true; btn.textContent = "启动中…";
+    try {
+      const fd = new URLSearchParams({ strategy_id: "{{ sid }}", ids: idsCsv });
+      const br = await fetch("{{ url_for('strategies.ai_backtest') }}", {
+        method: "POST", headers: { "X-Requested-With": "fetch" }, body: fd });
+      const bj = await br.json();
+      if (br.ok) {
+        btn.textContent = "回测已启动 ✓";
+        hint.innerHTML = '<span class="pos">已启动 ' + bj.started + ' 个</span> — 回测中…';
+        pollBacktest(hint);   // 轮询进度, 跑完自动重载看家族对比(=这批的回测汇总)
+      } else {
+        btn.disabled = false; btn.textContent = "回测这批(" + n + ")";
+        hint.innerHTML = '<span class="neg">启动失败: ' + (bj.error || br.status) + '</span>(可能有批次在跑, 稍后再点)';
+      }
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "回测这批(" + n + ")";
+      hint.innerHTML = '<span class="neg">启动失败: ' + e.message + '</span>';
+    }
+  }
+  window.aiStartBacktest = startBacktest;   // 家族对比区(另一个 script 块)复用
 
   // 回测进度轮询: 跑完自动重载本页 → 家族对比表(这批的回测汇总)直接出现
   function pollBacktest(hint) {
@@ -119,97 +160,92 @@
     setTimeout(tick, 1500);
   }
 
-  // 右上角「创建策略」: AJAX 走统一收货管道, 结果与ID串就地渲染(不刷新, 预览保留)
-  let lastCombos = null;
-  function bindCreate() {
-    const cbtn = document.getElementById("create-btn");
-    if (!cbtn || cbtn.disabled) return;
-    cbtn.addEventListener("click", async () => {
-      if (!lastCombos || !confirm("确认创建 " + lastCombos.length + " 组策略实例?\n\n统一管道校验: 不合格的组会被拒收并注明原因; 已存在的组返回现有ID。")) return;
-      cbtn.disabled = true; cbtn.textContent = "创建中…";
-      const out = document.getElementById("create-result");
-      try {
-        const resp = await fetch("{{ url_for('strategies.ai_create_instances') }}", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ strategy_id: {{ sid }}, combos: lastCombos }),
-        });
-        const r = await resp.json();
-        if (!resp.ok) { out.innerHTML = '<p class="neg">创建失败: ' + (r.error || resp.status) + '</p>'; cbtn.disabled = false; cbtn.textContent = "创建策略"; return; }
-        const made = r.created_ids || [];
-        const rows = r.results || [];
-        const nExist = rows.filter((x) => x.existing_id !== undefined).length;
-        const nBad = rows.filter((x) => x.error).length;
-        let h = '<h3>创建结果</h3><p>'
-          + '<span class="pos">新建 ' + made.length + '</span> · '
-          + '<span class="badge warn">已存在 ' + nExist + '</span> · '
-          + (nBad ? '<span class="neg">拒收 ' + nBad + '</span>' : '拒收 0') + '</p>'
-          + '<table><tr><th style="width:40px">#</th><th>参数</th><th style="width:200px">结果</th><th style="width:120px">参数核验</th></tr>';
-        rows.forEach((x) => {
-          const cells = x.params ? Object.entries(x.params).map(([k, v]) => k + "=" + v).join(" ") : "—";
-          let res, ver = "—";
-          if (x.id) {
-            res = '<span class="pos">新建 → ID ' + x.id + '</span>';
-            ver = x.verified ? '<span class="pos">✓ 与请求一致</span>'
-                             : '<span class="neg">✗ 不一致!</span>';
-          } else if (x.existing_id !== undefined) {
-            res = '<span class="badge warn">已存在 #' + (x.existing_id || "?") + '</span>'
-                + (x.existing_status ? ' <span class="muted">(' + x.existing_status + ')</span>' : '');
-          } else res = '<span class="neg">✗ ' + x.error + '</span>';
-          h += "<tr><td class='mono muted'>" + x.i + "</td><td class='mono'>" + cells + "</td><td>" + res + "</td><td>" + ver + "</td></tr>";
-        });
-        h += "</table>";
-        if (made.length) {
-          h += '<div class="flex-between" style="margin-top:12px"><h3>新策略 ID(' + made.length + ' 个)</h3>'
-            + '<span><button type="button" class="small" id="copy-ids-btn">复制ID串</button> '
-            + '<button type="button" id="bt-ids-btn">回测这批(' + made.length + ')</button></span></div>'
-            + '<div class="idbox" id="idbox">' + made.join(",") + '</div>'
-            + '<span class="muted" id="bt-hint">回测按ID点名(只跑主品种, 不走门槛); 进度见「策略回测」页, 跑完重新「载入」看家族对比。</span>';
-        }
-        out.innerHTML = h;
-        cbtn.textContent = "已创建 ✓";
-        const copyBtn = document.getElementById("copy-ids-btn");
-        if (copyBtn) copyBtn.addEventListener("click", async () => {
-          const t = document.getElementById("idbox").textContent;
-          try { await navigator.clipboard.writeText(t); } catch (e) {}
-          copyBtn.textContent = "已复制 " + made.length + " 个";
-        });
-        const btBtn = document.getElementById("bt-ids-btn");
-        if (btBtn) btBtn.addEventListener("click", async () => {
-          btBtn.disabled = true; btBtn.textContent = "启动中…";
-          const hint = document.getElementById("bt-hint");
-          try {
-            const fd = new URLSearchParams({ strategy_id: "{{ sid }}", ids: made.join(",") });
-            const br = await fetch("{{ url_for('strategies.ai_backtest') }}", {
-              method: "POST", headers: { "X-Requested-With": "fetch" }, body: fd });
-            const bj = await br.json();
-            if (br.ok) {
-              btBtn.textContent = "回测已启动 ✓";
-              hint.innerHTML = '<span class="pos">已启动 ' + bj.started + ' 个</span> — 回测中…';
-              pollBacktest(hint);   // 轮询进度, 跑完自动重载看家族对比(=这批的回测汇总)
-            } else {
-              btBtn.disabled = false; btBtn.textContent = "回测这批(" + made.length + ")";
-              hint.innerHTML = '<span class="neg">启动失败: ' + (bj.error || br.status) + '</span>(可能有批次在跑, 稍后再点)';
-            }
-          } catch (e) {
-            btBtn.disabled = false; btBtn.textContent = "回测这批(" + made.length + ")";
-            hint.innerHTML = '<span class="neg">启动失败: ' + e.message + '</span>';
-          }
-        });
-      } catch (e) {
-        out.innerHTML = '<p class="neg">创建失败: ' + e.message + '</p>';
-        cbtn.disabled = false; cbtn.textContent = "创建策略";
+  // 「创建策略」(流水线第2键, 一次绑定): AJAX 走统一收货管道, 结果与ID串就地渲染;
+  // 有新建 → 点亮「回测这批」
+  cbtn.addEventListener("click", async () => {
+    if (!lastCombos || !confirm("确认创建 " + lastCombos.length + " 组策略实例?\n\n统一管道校验: 不合格的组会被拒收并注明原因; 已存在的组返回现有ID。")) return;
+    cbtn.disabled = true; cbtn.textContent = "创建中…";
+    const out = document.getElementById("create-result");
+    const undo = () => { cbtn.disabled = false; cbtn.textContent = "创建策略(" + lastCombos.length + " 组)"; };
+    try {
+      const resp = await fetch("{{ url_for('strategies.ai_create_instances') }}", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ strategy_id: {{ sid }}, combos: lastCombos }),
+      });
+      const r = await resp.json();
+      if (!resp.ok) { out.innerHTML = '<p class="neg">创建失败: ' + (r.error || resp.status) + '</p>'; undo(); return; }
+      const made = r.created_ids || [];
+      const rows = r.results || [];
+      const nExist = rows.filter((x) => x.existing_id !== undefined).length;
+      const nBad = rows.filter((x) => x.error).length;
+      let h = '<h3>创建结果</h3><p>'
+        + '<span class="pos">新建 ' + made.length + '</span> · '
+        + '<span class="badge warn">已存在 ' + nExist + '</span> · '
+        + (nBad ? '<span class="neg">拒收 ' + nBad + '</span>' : '拒收 0')
+        + (r.truncated ? ' · <span class="neg">超出单批收货上限 ' + r.batch_limit + ', 截断 '
+            + r.truncated + ' 组未处理</span> <span class="muted">— 去「配置·策略参数」调大上限后重新创建(已建的会自动去重)</span>' : '')
+        + '</p>'
+        + '<table><tr><th style="width:40px">#</th><th>参数</th><th style="width:200px">结果</th><th style="width:120px">参数核验</th></tr>';
+      rows.forEach((x) => {
+        const cells = x.params ? Object.entries(x.params).map(([k, v]) => k + "=" + v).join(" ") : "—";
+        let res, ver = "—";
+        if (x.id) {
+          res = '<span class="pos">新建 → ID ' + x.id + '</span>';
+          ver = x.verified ? '<span class="pos">✓ 与请求一致</span>'
+                           : '<span class="neg">✗ 不一致!</span>';
+        } else if (x.existing_id !== undefined) {
+          res = '<span class="badge warn">已存在 #' + (x.existing_id || "?") + '</span>'
+              + (x.existing_status ? ' <span class="muted">(' + x.existing_status + ')</span>' : '');
+        } else res = '<span class="neg">✗ ' + x.error + '</span>';
+        h += "<tr><td class='mono muted'>" + x.i + "</td><td class='mono'>" + cells + "</td><td>" + res + "</td><td>" + ver + "</td></tr>";
+      });
+      h += "</table>";
+      if (made.length) {
+        h += '<div class="flex-between" style="margin-top:12px"><h3>新策略 ID(' + made.length + ' 个)</h3>'
+          + '<span><button type="button" class="small" id="copy-ids-btn">复制ID串</button></span></div>'
+          + '<div class="idbox" id="idbox">' + made.join(",") + '</div>';
       }
-    });
-  }
+      out.innerHTML = h;
+      cbtn.textContent = "已创建 ✓";
+      if (made.length) {
+        madeIds = made;
+        btBtn.disabled = false; btBtn.title = "";
+        btBtn.textContent = "回测这批(" + made.length + ")";
+        hint.innerHTML = '回测按ID点名(只跑主品种, 不走门槛); 跑完本页自动重载, 家族对比直接出现。';
+      } else hint.innerHTML = '没有新建实例(全部已存在/拒收) — 回测保持灰色; 已存在的用下方家族对比区补跑。';
+      const copyBtn = document.getElementById("copy-ids-btn");
+      if (copyBtn) copyBtn.addEventListener("click", async () => {
+        const t = document.getElementById("idbox").textContent;
+        try { await navigator.clipboard.writeText(t); } catch (e) {}
+        copyBtn.textContent = "已复制 " + made.length + " 个";
+      });
+    } catch (e) {
+      out.innerHTML = '<p class="neg">创建失败: ' + e.message + '</p>';
+      undo();
+    }
+  });
+
+  // 「回测这批」(流水线第3键, 一次绑定): 点名本次新建的ID, 进度就地显示
+  btBtn.addEventListener("click", () => startBacktest(btBtn, hint, madeIds.join(",")));
 })();
 </script>
 
 <section>
-  <h2>家族对比(父 vs 已有 AI 子代, 主品种回测)— 后续步骤定义后接入</h2>
+  <h2>家族对比(父 vs 已有 AI 子代, 主品种回测)</h2>
   {% if family | length <= 1 %}
-  <p class="muted">还没有子代 — 生成/回测步骤走通后, 子代和成绩会出现在这里。</p>
+  <p class="muted">还没有子代 — 用上面第 2/3 步生成回测后, 子代和成绩会出现在这里。</p>
   {% else %}
   {% set parent = family[0] %}
+  {% set missing = family | selectattr('trades', 'none') | map(attribute='id') | list %}
+  {% if missing %}
+  <div class="flex-between">
+    <h3>未回测({{ missing | length }} 个)— 表中成绩为 — 的成员, 补跑后才能进对比</h3>
+    <span><button type="button" class="small" id="fam-copy-btn">复制ID串</button>
+      <button type="button" id="fam-bt-btn">回测这批({{ missing | length }})</button></span>
+  </div>
+  <div class="idbox" id="fam-idbox">{{ missing | join(',') }}</div>
+  <p class="muted" id="fam-bt-hint">回测按ID点名(只跑主品种, 不走门槛); 跑完本页自动重载。</p>
+  {% endif %}
   {{ m.table_toolbar('ai-family', hint='本页即时过滤') }}
   <table id="ai-family" class="dense">
     <tr><th data-nosort>#</th><th>ID</th><th>参数</th><th>状态</th><th>笔数</th><th>净点</th>
@@ -219,7 +255,7 @@
     <tr {% if f.is_parent %}class="row-marked"{% endif %}>
       <td class="rownum muted"></td>
       <td class="mono">{{ f.id }}{% if f.is_parent %} <span class="badge">父</span>{% endif %}</td>
-      <td class="clip" title="{{ f.params }}">{% for k, v in (f.params or {}).items() %}{{ k }}={{ v }} {% endfor %}</td>
+      <td class="clip" title="{{ f.params }}{% if f.basis %} · 生因: {{ f.basis }}{% endif %}">{% for k, v in (f.params or {}).items() %}{{ k }}={{ v }} {% endfor %}</td>
       <td>{{ m.strategy_status(f.status) }}{% if f.archive_reason %} <span class="muted">({{ f.archive_reason }})</span>{% endif %}</td>
       <td>{{ f.trades if f.trades is not none else '—' }}</td>
       <td class="{{ 'pos' if f.net_points and parent.net_points and f.net_points > parent.net_points and not f.is_parent else ('neg' if (f.net_points or 0) < 0 else '') }}">{{ f.net_points if f.net_points is not none else '—' }}</td>
@@ -246,6 +282,20 @@
     catch (e) { ta.select(); document.execCommand("copy"); }
     document.getElementById("copy-hint").textContent = "已复制 " + ta.value.length + " 字符";
   });
+})();
+
+// 家族对比区「未回测补跑」(常驻, 服务端算出缺成绩的ID — 页面重载后也能补跑)
+(function () {
+  const btn = document.getElementById("fam-bt-btn");
+  if (!btn) return;
+  const ids = document.getElementById("fam-idbox").textContent.trim();
+  const copyBtn = document.getElementById("fam-copy-btn");
+  copyBtn.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(ids); } catch (e) {}
+    copyBtn.textContent = "已复制 " + ids.split(",").length + " 个";
+  });
+  btn.addEventListener("click", () =>
+    window.aiStartBacktest(btn, document.getElementById("fam-bt-hint"), ids));
 })();
 </script>
 {% endblock %}

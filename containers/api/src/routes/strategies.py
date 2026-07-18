@@ -1,20 +1,18 @@
 """/strategies — 策略实例的生成与生命周期 + MQ5 转化流水线
 
-职责: 模板清单、批量生成(grid/random/ai)、列表筛选、状态流转(准入漏斗)、
-     MQ5 提交与跟踪(评估→翻译→纳入)。
+职责: 模板清单、批量生成(grid/random)、AI 调参收货(ai_candidates)、列表筛选、
+     状态流转(准入漏斗)、MQ5 提交与跟踪(评估→翻译→纳入)。
 策略逻辑本体在 strategy_core/ (回测与 Windows runner 共用同一份)。
 
 扩展点:
 - 新策略模板 = strategy_core/templates/ 加文件 + 注册 TEMPLATES (本文件不用改)
-- AI 生成器 = 实现 POST {ai_generator_url}/propose 协议 (见 _ai_combos),
-  在 web 下载页/config 表配置 ai_generator_url 即接入, 默认不配置走 random
+- 新参数来源 = 生产 combos 后走 services.instances 统一收货管道 (见 ai_candidates)
 """
 import asyncio
 import logging
 import random
 from datetime import datetime, timezone
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
@@ -42,37 +40,8 @@ class GenerateRequest(BaseModel):
     template: str
     symbols: list[str]
     timeframe: str = "M15"
-    mode: str = "random"  # grid=固定网格(有限) | random=随机采样(默认) | ai=外部AI生成器
-    count: int = 50       # random/ai 模式下每个品种生成的数量
-
-
-async def _ai_combos(pool, template: str, symbol: str, timeframe: str, count: int) -> list[dict]:
-    """调外部 AI 生成器取参数组合。协议:
-    POST {ai_generator_url}/propose
-      请求: {template, symbol, timeframe, count, param_space}
-      响应: {"combos": [{参数dict}, ...]}
-    返回的组合会经过 valid_params + 参数键校验, 非法的丢弃。"""
-    url = await pool.fetchval("SELECT value FROM config WHERE key='ai_generator_url'")
-    if not url:
-        raise HTTPException(status_code=400,
-                            detail="ai_generator_url 未配置 (config 表), AI 模式不可用; 可先用 random")
-    cls = TEMPLATES[template]
-    space = cls.RANDOM_SPACE or cls.PARAM_GRID
-    async with httpx.AsyncClient(timeout=60) as client:
-        try:
-            r = await client.post(f"{str(url).rstrip('/')}/propose", json={
-                "template": template, "symbol": symbol, "timeframe": timeframe,
-                "count": count, "param_space": space,
-            })
-            r.raise_for_status()
-        except httpx.HTTPError as e:
-            raise HTTPException(status_code=502, detail=f"AI generator 不可达: {e}")
-    keys = set(space)
-    combos = []
-    for params in r.json().get("combos", []):
-        if isinstance(params, dict) and set(params) == keys and cls.valid_params(params):
-            combos.append(params)
-    return combos
+    mode: str = "random"  # grid=固定网格(有限) | random=随机采样(默认)
+    count: int = 50       # random 模式下每个品种生成的数量
 
 
 @router.post("/strategies/generate")
@@ -82,12 +51,14 @@ async def generate(req: GenerateRequest, request: Request):
         raise HTTPException(status_code=400, detail=f"unknown template, available: {list(TEMPLATES)}")
     if req.timeframe not in TF_SECONDS:
         raise HTTPException(status_code=400, detail=f"invalid timeframe, available: {list(TF_SECONDS)}")
-    if req.mode not in ("grid", "random", "ai"):
-        raise HTTPException(status_code=400, detail="mode must be grid, random or ai")
+    if req.mode not in ("grid", "random"):
+        raise HTTPException(status_code=400, detail="mode must be grid or random")
 
     pool = request.app.state.pool
     # 品种唯一数据源: 只能给已登记(经券商校验)的品种生成策略, 根治"给券商没有的品种生成"
-    symbols = [s.strip().upper() for s in req.symbols]
+    symbols = [s.strip().upper() for s in req.symbols if s.strip()]
+    if not symbols:
+        raise HTTPException(status_code=400, detail="symbols 不能为空")
     known = {r["symbol"] for r in await pool.fetch(
         "SELECT symbol FROM symbols WHERE symbol = ANY($1::text[])", symbols)}
     unknown = [s for s in symbols if s not in known]
@@ -97,15 +68,12 @@ async def generate(req: GenerateRequest, request: Request):
             detail=f"品种未登记: {', '.join(unknown)} — 先在下载页登记(会向券商校验)再生成策略")
     # 三种模式只负责"生产参数"; 校验/入库/去重/反馈统一走 services.instances 收货管道
     # (与 AI 调参页同一条路, 协议 = [{"params", "basis"}]) — 改规则只改管道一处
-    created, total = 0, 0
+    created, total, truncated = 0, 0, 0
     rng = random.Random()
     for symbol in symbols:
         max_created = None
         if req.mode == "grid":
             combos = [{"params": p, "basis": "grid"} for p in grid_combos(req.template)]
-        elif req.mode == "ai":
-            combos = [{"params": p, "basis": "ai"} for p in
-                      await _ai_combos(pool, req.template, symbol, req.timeframe, req.count)]
         else:  # random: 多采样抵消撞重(内存先去重), 管道里新建满 count 即停
             seen, combos = set(), []
             for _ in range(req.count * 5):
@@ -122,8 +90,10 @@ async def generate(req: GenerateRequest, request: Request):
             pool, req.template, symbol, req.timeframe, combos, max_created=max_created)
         created += len(r["created_ids"])
         total += len(r["results"])
+        truncated += r["truncated"]
     logger.info("generated %d strategies (%s, mode=%s)", created, req.template, req.mode)
-    return {"created": created, "skipped": total - created, "mode": req.mode,
+    return {"created": created, "skipped": total - created, "truncated": truncated,
+            "batch_limit": r["batch_limit"], "mode": req.mode,
             "template": req.template, "symbols": req.symbols}
 
 
@@ -335,8 +305,8 @@ async def ai_report(strategy_id: int, request: Request):
     actual = await pool.fetchrow(
         "SELECT sum(trades) AS t, sum(wins) AS w, sum(profit) AS p"
         " FROM strategy_stats WHERE strategy_id=$1", strategy_id)
-    dead = await pool.fetch(  # 同模板负样本: 已淘汰的参数 + 死因(AI 别再生成同类)
-        "SELECT params, archive_reason FROM strategies"
+    dead = await pool.fetch(  # 同模板负样本: 已淘汰的参数 + 生因 + 死因(AI 别再生成同类)
+        "SELECT params, basis, archive_reason FROM strategies"
         " WHERE template=$1 AND status='ARCHIVED' AND id<>$2"
         " ORDER BY updated_at DESC LIMIT 20", s["template"], strategy_id)
     # 单策略深分析是低频、单条的闭环动作 → 详细度优先, 不截断不省略(2026-07-16 定):
@@ -404,8 +374,8 @@ async def ai_report(strategy_id: int, request: Request):
                                           "profit": float(r["profit"]),
                                           "updated_at": r["updated_at"]} for r in envs}}
                    if actual and actual["t"] else None),
-        "failed_neighbors": [{"params": d["params"], "died_of": d["archive_reason"]}
-                             for d in dead],
+        "failed_neighbors": [{"params": d["params"], "basis": d["basis"],
+                              "died_of": d["archive_reason"]} for d in dead],
     }
 
 
@@ -424,6 +394,11 @@ async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Req
         "SELECT id, template, symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
     if parent is None:
         raise HTTPException(status_code=404, detail="strategy not found")
+    # 与生成入口同一守门: 品种必须仍在登记中(父创建后可能被除名, 不给孤儿品种生子代)
+    if not await pool.fetchval("SELECT 1 FROM symbols WHERE symbol=$1", parent["symbol"]):
+        raise HTTPException(
+            status_code=400,
+            detail=f"品种 {parent['symbol']} 已除名 — 先在下载页重新登记再生成子代")
     # 与生成页同一条收货管道(services.instances), 只多带 parent_id 谱系
     r = await instances.create_instances(
         pool, parent["template"], parent["symbol"], parent["timeframe"],
@@ -437,7 +412,7 @@ async def family(strategy_id: int, request: Request):
     """谱系对比: 父策略 + 全部 AI 子代, 各带主品种回测成绩(净点/PF/OOS留出/MAE) — AI分析页对比表"""
     rows = await request.app.state.pool.fetch(
         "SELECT s.id, s.name, s.params, s.status, s.archive_reason, s.parent_id,"
-        "       s.created_at, b.metrics"
+        "       s.basis, s.created_at, b.metrics"
         " FROM strategies s"
         " LEFT JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol"
         " WHERE s.id = $1 OR s.parent_id = $1"
@@ -448,7 +423,8 @@ async def family(strategy_id: int, request: Request):
         oos = (m.get("oos") or {}).get("holdout") or {}
         out.append({
             "id": r["id"], "name": r["name"], "params": r["params"], "status": r["status"],
-            "archive_reason": r["archive_reason"], "is_parent": r["id"] == strategy_id,
+            "archive_reason": r["archive_reason"], "basis": r["basis"],
+            "is_parent": r["id"] == strategy_id,
             "created_at": r["created_at"],
             "trades": m.get("trades"), "net_points": m.get("net_points"),
             "profit_factor": m.get("profit_factor"), "max_dd_points": m.get("max_dd_points"),

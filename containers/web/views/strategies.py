@@ -12,7 +12,7 @@ TIMEFRAMES = ["M5", "M15", "M30", "H1", "H4", "D1"]
 @bp.get("/")
 def index():
     """策略列表排名(唯一工作台): 全部策略(含未回测, 成绩为空沉底) + 成绩/评分/健壮性
-    + 筛选(品种/券商/状态/多条件)/搜索/排名模板。数据走 /backtest/top(LEFT JOIN 版)。"""
+    + 筛选(品种/券商/状态/多条件)/搜索/排名参数模板。数据走 /backtest/top(LEFT JOIN 版)。"""
     a = request.args
     template = a.get("template") or None
     symbol = a.get("symbol") or None
@@ -25,7 +25,7 @@ def index():
                for k in ("min_win_rate", "min_pf", "max_dd", "min_robust")}
     positive = a.get("positive") == "1"
     oos = a.get("oos") == "1"  # 留出段盈利过滤(OOS 一票否决)
-    rank = a.get("rank") or ""  # 排名模板名, 空=默认(净点数)
+    rank = a.get("rank") or ""  # 排名参数模板名, 空=默认(净点数)
     page = max(a.get("page", 1, type=int), 1)  # 服务端分页页码(1起)
     results, rank_templates, brokers, symbols, templates = [], [], [], [], []
     oos_split = 0.7  # 样本外训练段占比(配置页可改), 供页面显示"训练:留出"比例
@@ -256,6 +256,9 @@ def generate():
         msg = f"已生成 {result['created']} 个策略实例"
         if result.get("skipped"):
             msg += f"（跳过 {result['skipped']} 个已存在的相同组合）"
+        if result.get("truncated"):
+            msg += (f"；超出单批收货上限 {result['batch_limit']}，截断 {result['truncated']} 组未处理"
+                    f" — 需要更大批量去「配置·策略参数」调大上限")
         flash(msg, "ok" if result["created"] else "error")
     except (api.ApiError, KeyError) as e:
         flash(f"生成失败: {e}", "error")

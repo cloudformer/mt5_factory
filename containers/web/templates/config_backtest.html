@@ -1,7 +1,17 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('配置 · 回测参数', '悲观撮合成本 + 单批上限 + 样本外(OOS)切分。改比例后需「范围=全部」重跑一次全量收敛') }}
+{{ m.page_header('配置 · 策略参数', '生成收货上限 + 悲观撮合成本 + 回测单批上限 + 样本外(OOS)切分。改OOS比例后需「范围=全部」重跑一次全量收敛') }}
+
+<section>
+  <h2>生成参数</h2>
+  <form method="post" action="{{ url_for('symbols.save_generate_limit') }}" class="inline">
+    <label>单批收货上限 <input name="generate_limit" value="{{ generate_limit }}" size="5"
+        title="所有生成入口(批量生成 / AI调参创建)单次最多收多少组参数, 超出的组不处理; 防失控倾倒"></label>
+    <button class="small">保存</button>
+    <span class="muted">config: generate_batch_limit — 生成页与 AI 调参页共用此上限</span>
+  </form>
+</section>
 
 <section>
   <h2>回测参数 (成本模型)</h2>
@@ -9,7 +19,7 @@
     <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="单边滑点(点)"></label>
     <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="往返佣金(点数等值)"></label>
     <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="固定点差(点); 留空=用每根bar记录的真实点差"></label>
-    <label>单批上限 <input name="batch_limit" value="{{ batch_limit }}" size="5"
+    <label>回测单批上限 <input name="batch_limit" value="{{ batch_limit }}" size="5"
         title="一次批量回测最多跑多少个策略(防失控保护)。策略总数超过它时'全部'跑不全 — 调大到不小于策略总数"></label>
     <label>OOS训练占比 <input name="oos_split" value="{{ '%g' % oos_split }}" size="4"
         title="样本外切分: 0.7=训练7:留出3(推荐, 长期固定)。纪律: 换比例后必须'范围=全部'跑一次全量收敛, 否则库里新旧口径混着不可比"></label>

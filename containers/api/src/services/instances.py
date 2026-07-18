@@ -4,9 +4,10 @@
     combos = [{"params": {...}, "basis": "依据/来源"}, ...]   (裸参数 dict 列表也接受)
 
 来源与管道的关系:
-    随机采样 / 网格展开 / AI调参(parent_id 谱系) / 旧AI协议 / 未来DSL
+    随机采样 / 网格展开 / AI调参(parent_id 谱系) / 未来DSL
         → 全部生产 combos → create_instances() 逐组校验→入库→逐组反馈
 改校验规则、改插入行为 = 只改这里一处。
+basis(生因)随实例入库, 与死因 archive_reason 对偶 — 家族溯源/成绩单负样本用。
 """
 import logging
 from typing import Optional
@@ -15,7 +16,7 @@ from strategy_core import TEMPLATES
 
 logger = logging.getLogger("instances")
 
-MAX_BATCH = 500  # 单次收货上限(防失控倾倒; 随机模式按 count*5 采样也在此之下)
+DEFAULT_BATCH_LIMIT = 500  # 单批收货上限兜底; 实际值读 config 表 generate_batch_limit(生成页可改)
 
 
 def combo_error(cls, space: dict, params) -> Optional[str]:
@@ -42,11 +43,15 @@ async def create_instances(pool, template: str, symbol: str, timeframe: str,
       合格新建:   {"i", "params", "basis", "id", "verified"}   verified=库内params与请求逐字段一致
       已存在:     {"i", "params", "basis", "existing_id", "existing_status"}
       不合格:     {"i", "params", "basis", "error"}
-    max_created: 新建满 N 个即停(随机模式"凑够 count 个新实例"用)。"""
+    max_created: 新建满 N 个即停(随机模式"凑够 count 个新实例"用)。
+    超上限不报错: 照收前 limit 组, 返回 truncated=被截断组数(调用方提示用户去配置页调大)。"""
     cls = TEMPLATES[template]
     space = cls.RANDOM_SPACE or cls.PARAM_GRID
+    # 单批收货上限(防失控倾倒; 随机模式按 count*5 采样也在此之下): config 可改, 兜底 500
+    limit = await pool.fetchval(
+        "SELECT value FROM config WHERE key='generate_batch_limit'") or DEFAULT_BATCH_LIMIT
     results, created_ids = [], []
-    for i, item in enumerate(combos[:MAX_BATCH]):
+    for i, item in enumerate(combos[:limit]):
         if max_created is not None and len(created_ids) >= max_created:
             break
         params = item.get("params", item) if isinstance(item, dict) else None
@@ -60,9 +65,9 @@ async def create_instances(pool, template: str, symbol: str, timeframe: str,
         name = f"{template}-{symbol}-{timeframe}-" + \
                "-".join(f"{k}{params[k]}" for k in sorted(params))
         row = await pool.fetchrow(
-            "INSERT INTO strategies (name, template, symbol, timeframe, params, parent_id)"
-            " VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING RETURNING id",
-            name, template, symbol, timeframe, params, parent_id)
+            "INSERT INTO strategies (name, template, symbol, timeframe, params, parent_id, basis)"
+            " VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING RETURNING id",
+            name, template, symbol, timeframe, params, parent_id, basis)
         if row is None:  # 撞唯一约束 = 组合已存在(可能是死过的邻居) → 查现有ID给调用方
             existing = await pool.fetchrow(
                 "SELECT id, status FROM strategies"
@@ -80,6 +85,8 @@ async def create_instances(pool, template: str, symbol: str, timeframe: str,
             out["stored_params"] = stored  # 极端情况暴露差异, 别静默
         created_ids.append(row["id"])
         results.append(out)
-    logger.info("create_instances %s@%s/%s: %d combos → created=%d parent=%s",
-                template, symbol, timeframe, len(results), len(created_ids), parent_id)
-    return {"results": results, "created_ids": created_ids}
+    truncated = max(0, len(combos) - limit)
+    logger.info("create_instances %s@%s/%s: %d combos → created=%d truncated=%d parent=%s",
+                template, symbol, timeframe, len(results), len(created_ids), truncated, parent_id)
+    return {"results": results, "created_ids": created_ids,
+            "truncated": truncated, "batch_limit": limit}

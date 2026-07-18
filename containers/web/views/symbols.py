@@ -23,13 +23,15 @@ def index():
 
 @bp.get("/backtest")
 def backtest_params():
-    """配置·回测参数: 成本模型 + 单批上限 + OOS 切分"""
+    """配置·策略参数: 生成收货上限 + 成本模型 + 回测单批上限 + OOS 切分"""
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
     runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
+    generate_limit = 500
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
         batch_limit = cfg.get("backtest_batch_limit", 500)
+        generate_limit = cfg.get("generate_batch_limit", 500)
         oos_split = cfg.get("backtest_oos_split", 0.7)
         mt5_days = cfg.get("mt5_trades_days") or [7, 30, 90]
         runtime_write = cfg.get("runtime_write_minutes", 5)
@@ -39,9 +41,22 @@ def backtest_params():
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
+                           generate_limit=generate_limit,
                            oos_split=oos_split, mt5_days=mt5_days,
                            runtime_write=runtime_write, runtime_gap=runtime_gap, gate=gate,
                            recon_tol=recon_tol)
+
+
+@bp.post("/config/generate-limit")
+def save_generate_limit():
+    """保存生成单批收货上限(config: generate_batch_limit; 所有生成入口共用, 校验在 api 侧)"""
+    try:
+        api.put("/config/generate_batch_limit",
+                {"value": int(request.form["generate_limit"])})
+        flash("生成单批收货上限已保存", "ok")
+    except (api.ApiError, ValueError, KeyError) as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
 
 
 @bp.post("/config/recon-tol")
@@ -113,7 +128,7 @@ def save_mt5_days():
 
 @bp.get("/ranking")
 def ranking():
-    """配置·排名模板: 四维加权评分模板(增删改)"""
+    """配置·排名参数模板: 四维加权评分模板(增删改)"""
     rank_templates = []
     try:
         rank_templates = api.get("/config")["config"].get("ranking_templates", [])
@@ -122,20 +137,9 @@ def ranking():
     return render_template("config_ranking.html", rank_templates=rank_templates)
 
 
-@bp.get("/ai")
-def ai():
-    """配置·AI 生成器: 外部 AI 服务地址(可选)"""
-    ai_url = ""
-    try:
-        ai_url = api.get("/config")["config"].get("ai_generator_url") or ""
-    except api.ApiError as e:
-        flash(f"api 不可用: {e}", "error")
-    return render_template("config_ai.html", ai_url=ai_url)
-
-
 @bp.post("/config/ranks")
 def save_ranks():
-    """保存排名模板(config: ranking_templates)。UI 可增删改:
+    """保存排名参数模板(config: ranking_templates)。UI 可增删改:
     删除=勾『删』或清空名称; 新增=填底部空白行; 校验在 api 侧把关"""
     tpls, i = [], 0
     while f"rt_name_{i}" in request.form:
@@ -156,22 +160,10 @@ def save_ranks():
         i += 1
     try:
         api.put("/config/ranking_templates", {"value": tpls})
-        flash(f"排名模板已保存({len(tpls)} 个)", "ok")
+        flash(f"排名参数模板已保存({len(tpls)} 个)", "ok")
     except api.ApiError as e:
         flash(f"保存失败: {e}", "error")
     return redirect(url_for("symbols.ranking"))
-
-
-@bp.post("/config/ai")
-def save_ai():
-    """保存 AI 生成器地址(config: ai_generator_url; 空=不用)"""
-    try:
-        api.put("/config/ai_generator_url",
-                {"value": request.form.get("ai_generator_url", "").strip()})
-        flash("AI 生成器地址已保存", "ok")
-    except api.ApiError as e:
-        flash(f"保存失败: {e}", "error")
-    return redirect(url_for("symbols.ai"))
 
 
 @bp.post("/add")
