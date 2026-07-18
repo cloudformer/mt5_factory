@@ -5,67 +5,73 @@
 
 <section>
   <h2>策略列表排名</h2>
-  <form method="get" class="inline">
-    <label>状态
-      <select name="status">
-        <option value="">全部</option>
-        {% for s in ['CANDIDATE','DEMO','LIVE','ARCHIVED'] %}
-        <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ m.status_label(s) }}</option>
-        {% endfor %}
-      </select></label>
-    <label title="策略模板(生成时选的逻辑, 代码进git); 空=不限">策略模板
-      <select name="template">
-        <option value="">全部</option>
-        {% for t in templates %}<option value="{{ t }}" {% if t == template %}selected{% endif %}>{{ t }}</option>{% endfor %}
-      </select></label>
-    <label>货币对
-      <select name="symbol">
-        <option value="">全部</option>
-        {% for s in symbols %}<option value="{{ s }}" {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
-      </select></label>
-    <label>券商
-      <select name="broker">
-        <option value="">全部</option>
-        {% for b in brokers %}<option value="{{ b }}" {% if b == broker %}selected{% endif %}>{{ b }}</option>{% endfor %}
-      </select></label>
-    <label title="排名参数模板(配置页可增删改权重): 四维百分位加权综合分; 默认=按净点数">排序
-      <select name="rank" id="rank-sel">
-        <option value="">默认(净点数)</option>
-        {% for t in rank_templates %}
-        <option value="{{ t.name }}" data-mt="{{ t.min_trades or 0 }}" {% if t.name == rank %}selected{% endif %}>{{ t.name }}</option>
-        {% endfor %}
-      </select></label>
-    <label>最少交易数 <input name="min_trades" id="min-trades" value="{{ min_trades }}" size="4"
-        title="选排名参数模板会自动填该模板的默认笔数, 可再手改; >0 时未回测的策略不显示"></label>
-    {# 多条件过滤: 空=不限, 全部查库; 有成绩门槛的过滤未回测策略一律不通过 #}
-    <label title="主品种胜率 ≥ 此百分数; 空=不限">胜率≥ <input name="min_win_rate" size="3"
-        value="{{ '%g' % filters.min_win_rate if filters.min_win_rate is not none else '' }}">%</label>
-    <label title="盈利因子 ≥ 此值(毛利/毛损); 空=不限。无亏损(PF=∞)视为通过">PF≥ <input name="min_pf" size="3"
-        value="{{ '%g' % filters.min_pf if filters.min_pf is not none else '' }}"></label>
-    <label title="最大回撤(点) ≤ 此值; 空=不限">回撤≤ <input name="max_dd" size="6"
-        value="{{ '%g' % filters.max_dd if filters.max_dd is not none else '' }}"></label>
-    <label title="跨品种盈利比例 ≥ 此百分数; 空=不限。设了则没跑过跨品种的策略不通过">健壮≥ <input name="min_robust" size="3"
-        value="{{ '%g' % filters.min_robust if filters.min_robust is not none else '' }}">%</label>
-    <label title="净点数: 全部=不限; 仅盈利=只看净点数>0">净点
-      <select name="positive">
-        <option value="">全部</option>
-        <option value="1" {% if positive %}selected{% endif %}>仅盈利</option>
-      </select></label>
-    <label title="样本外一票否决: 留出段(策略没见过的最近30%数据)也盈利才通过 — 过滤靠运气拟合历史的策略。老回测结果没有OOS字段, 需重跑后才能通过">OOS
-      <select name="oos">
-        <option value="">不限</option>
-        <option value="1" {% if oos %}selected{% endif %}>留出段盈利</option>
-      </select></label>
-    <label>搜索
-      <select name="q_field" title="策略名=模糊; ID/周期/状态=精准">
-        {% for v, t in [('name','策略名(模糊)'), ('id','ID'), ('timeframe','周期'), ('status','状态')] %}
-        <option value="{{ v }}" {% if v == q_field %}selected{% endif %}>{{ t }}</option>{% endfor %}
-      </select></label>
-    <input name="q_text" value="{{ q_text or '' }}" size="14" placeholder="关键词(空=不搜)">
-    <button class="small">查询</button>
-    <button class="small" type="button" id="copy-ids"
-        title="复制【当前这一页】已加载策略的ID串到剪贴板(服务端已分页, 只含本页) — 粘进「策略回测」的按ID框">复制本页ID</button>
-    <span class="muted">↑ 查库(分页, 空=不限); ↓ 当页即时过滤/排序/翻页</span>
+  <form method="get" class="filter-panel">
+    <div class="filter-row">
+      <label>状态
+        <select name="status">
+          <option value="">全部</option>
+          {% for s in ['CANDIDATE','DEMO','LIVE','ARCHIVED'] %}
+          <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ m.status_label(s) }}</option>
+          {% endfor %}
+        </select></label>
+      <label title="策略模板(生成时选的逻辑, 代码进git); 空=不限">策略模板
+        <select name="template">
+          <option value="">全部</option>
+          {% for t in templates %}<option value="{{ t }}" {% if t == template %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select></label>
+      <label>货币对
+        <select name="symbol">
+          <option value="">全部</option>
+          {% for s in symbols %}<option value="{{ s }}" {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select></label>
+      <label>券商
+        <select name="broker">
+          <option value="">全部</option>
+          {% for b in brokers %}<option value="{{ b }}" {% if b == broker %}selected{% endif %}>{{ b }}</option>{% endfor %}
+        </select></label>
+    </div>
+    <div class="filter-row">
+      <label title="排名参数模板(配置页可增删改权重): 四维百分位加权综合分; 默认=按净点数">排序
+        <select name="rank" id="rank-sel">
+          <option value="">默认(净点数)</option>
+          {% for t in rank_templates %}
+          <option value="{{ t.name }}" data-mt="{{ t.min_trades or 0 }}" {% if t.name == rank %}selected{% endif %}>{{ t.name }}</option>
+          {% endfor %}
+        </select></label>
+      <label>最少交易数 <input name="min_trades" id="min-trades" value="{{ min_trades }}" size="4"
+          title="选排名参数模板会自动填该模板的默认笔数, 可再手改; >0 时未回测的策略不显示"></label>
+      <label title="净点数: 全部=不限; 仅盈利=只看净点数>0">净点
+        <select name="positive">
+          <option value="">全部</option>
+          <option value="1" {% if positive %}selected{% endif %}>仅盈利</option>
+        </select></label>
+      <label title="样本外一票否决: 留出段(策略没见过的最近30%数据)也盈利才通过 — 过滤靠运气拟合历史的策略。老回测结果没有OOS字段, 需重跑后才能通过">OOS
+        <select name="oos">
+          <option value="">不限</option>
+          <option value="1" {% if oos %}selected{% endif %}>留出段盈利</option>
+        </select></label>
+    </div>
+    {# 成绩门槛: 空=不限, 全部查库; 有成绩门槛的过滤未回测策略一律不通过 #}
+    <div class="filter-row">
+      <label title="主品种胜率 ≥ 此百分数; 空=不限">胜率≥ <input name="min_win_rate" size="3"
+          value="{{ '%g' % filters.min_win_rate if filters.min_win_rate is not none else '' }}">%</label>
+      <label title="盈利因子 ≥ 此值(毛利/毛损); 空=不限。无亏损(PF=∞)视为通过">PF≥ <input name="min_pf" size="3"
+          value="{{ '%g' % filters.min_pf if filters.min_pf is not none else '' }}"></label>
+      <label title="最大回撤(点) ≤ 此值; 空=不限">回撤≤ <input name="max_dd" size="6"
+          value="{{ '%g' % filters.max_dd if filters.max_dd is not none else '' }}"></label>
+      <label title="跨品种盈利比例 ≥ 此百分数; 空=不限。设了则没跑过跨品种的策略不通过">健壮≥ <input name="min_robust" size="3"
+          value="{{ '%g' % filters.min_robust if filters.min_robust is not none else '' }}">%</label>
+    </div>
+    <div class="filter-row">
+      <label>搜索
+        <select name="q_field" title="策略名=模糊; ID/周期/状态=精准">
+          {% for v, t in [('name','策略名(模糊)'), ('id','ID'), ('timeframe','周期'), ('status','状态')] %}
+          <option value="{{ v }}" {% if v == q_field %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select></label>
+      <input name="q_text" value="{{ q_text or '' }}" size="14" placeholder="关键词(空=不搜)">
+      <button class="small">查询</button>
+      <span class="muted">↑ 查库(分页, 空=不限); ↓ 当页即时过滤/排序/翻页</span>
+    </div>
   </form>
   {# 服务端分页: 查库按页取(每页 page_size 条), 本页内再用下方工具条即时排序/过滤/翻页 #}
   <p class="pager muted" style="margin:6px 0">
@@ -79,7 +85,7 @@
   <form method="post" action="{{ url_for('strategies.archive_batch') }}" class="inline" style="margin:6px 0"
         onsubmit="return confirm('把填入的这些策略ID淘汰归档(标 ARCHIVED)?\n\n可逆 — 之后不再参与回测/排名, 随时可改回。\n真金(LIVE)和已淘汰归档的会自动跳过。')">
     <span class="tag">淘汰归档</span>
-    <input name="strategy_ids" size="32" placeholder="策略ID, 逗号分隔(可从『复制本页ID』粘贴)" required
+    <input name="strategy_ids" size="32" placeholder="策略ID, 逗号分隔(从表格 ID 列填入)" required
            pattern="[0-9,\s]*" title="只填数字ID, 逗号分隔">
     <select name="reason" title="死因码: 记录为什么杀 — AI 调参的负样本, 避免再生成同类">
       {% for v, t in [('manual','手动'), ('holdout_loss','留出段亏'), ('min_trades','笔数不足'),
@@ -200,25 +206,6 @@
   </table>
 </section>
 
-{# 复制ID: 当前查询结果(服务端已筛)的全部策略ID → 剪贴板, 喂给回测的按ID框(漏斗第三步) #}
-<script>
-(function () {
-  const btn = document.getElementById("copy-ids");
-  if (!btn) return;
-  btn.addEventListener("click", async () => {
-    // 当前查询结果的策略ID(服务端已筛; ID 在第2列 index 1, 排除表头/明细行/空态行)
-    const ids = [...document.querySelectorAll("#strat-table tr")]
-      .filter((r) => !r.querySelector("th") && !r.classList.contains("detail-row")
-                     && !r.querySelector("td[colspan]"))
-      .map((r) => r.children[1].textContent.trim()).filter(Boolean);
-    try {
-      await navigator.clipboard.writeText(ids.join(","));
-      btn.textContent = `已复制 ${ids.length} 个ID`;
-    } catch { btn.textContent = "复制失败(需HTTPS或localhost)"; }
-    setTimeout(() => (btn.textContent = "复制本页ID"), 2500);
-  });
-})();
-</script>
 
 {# 排名参数模板联动: 选模板自动填该模板的默认最少笔数(可再手改后点查询) #}
 <script>

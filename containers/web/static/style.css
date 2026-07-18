@@ -356,6 +356,14 @@ table.kv td:first-child { width: 130px; color: var(--muted); font-weight: 600; w
                 padding: 12px 16px; background: #fff; margin-bottom: 16px; }
 .analysis-tabs { display: inline-flex; gap: 8px; }
 
+/* 筛选面板(标准组件, 全局复用): 浅灰卡片 + 分行控件, 多控件筛选栏专用 —— 任意页面直接套:
+   <form class="filter-panel"><div class="filter-row">…</div><div class="filter-row">…</div></form>
+   每个 filter-row 一组控件(自动换行), 行间细分隔线; label 走全局样式无需额外类 */
+.filter-panel { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
+                padding: 12px 16px; margin-bottom: 12px; }
+.filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.filter-row + .filter-row { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+
 /* ID串展示卡(标准组件): 等宽可选中复制, 配复制按钮用 */
 .idbox {
   background: #f4f7f7; border: 1px solid var(--border); border-radius: var(--radius-sm);
