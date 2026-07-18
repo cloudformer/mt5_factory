@@ -214,7 +214,7 @@
   <table id="ai-family" class="dense">
     <tr><th data-nosort>#</th><th>ID</th><th>参数</th><th>状态</th><th>笔数</th><th>净点</th>
         <th>PF</th><th title="样本外留出段净点 — 一票否决位">留出净点</th>
-        <th title="第90分位最大浮亏(点) — 调SL依据">MAE p90</th><th>回撤</th><th data-nosort>操作</th></tr>
+        <th title="第90分位最大浮亏(点) — 调SL依据">MAE p90</th><th>回撤</th></tr>
     {% for f in family %}
     <tr {% if f.is_parent %}class="row-marked"{% endif %}>
       <td class="rownum muted"></td>
@@ -227,9 +227,6 @@
       <td class="{{ 'neg' if f.holdout_net is not none and f.holdout_net <= 0 else '' }}">{{ f.holdout_net if f.holdout_net is not none else '—' }}{% if f.holdout_trades %} <span class="muted">({{ f.holdout_trades }})</span>{% endif %}</td>
       <td class="muted">{{ f.mae_p90 if f.mae_p90 is not none else '—' }}</td>
       <td class="muted">{{ f.max_dd_points if f.max_dd_points is not none else '—' }}</td>
-      <td>{% if not f.is_parent %}
-        <a class="btn" href="{{ url_for('strategies.ai_page', strategy_id=f.id, count=count) }}" title="以它为新的父策略, 拉最新成绩单继续下一轮">用它继续 ▸</a>
-        {% endif %}</td>
     </tr>
     {% endfor %}
   </table>
