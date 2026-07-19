@@ -27,13 +27,13 @@ def backtest_params():
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
     runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
     generate_limit = 500
-    volume_presets = [0.01, 0.02, 0.05, 0.1, 0.5, 1]  # 兜底(与 schema/030 种子一致)
+    volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空(铁律欠账4)
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
         batch_limit = cfg.get("backtest_batch_limit", 500)
         generate_limit = cfg.get("generate_batch_limit", 500)
-        volume_presets = cfg.get("volume_presets") or volume_presets
+        volume_presets = cfg.get("volume_presets") or []
         oos_split = cfg.get("backtest_oos_split", 0.7)
         mt5_days = cfg.get("mt5_trades_days") or [7, 30, 90]
         runtime_write = cfg.get("runtime_write_minutes", 5)

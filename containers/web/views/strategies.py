@@ -29,7 +29,7 @@ def index():
     rank = a.get("rank") or ""  # 排名参数模板名, 空=默认(净点数)
     page = max(a.get("page", 1, type=int), 1)  # 服务端分页页码(1起)
     results, rank_templates, brokers, symbols, templates = [], [], [], [], []
-    volume_presets = [0.01, 0.02, 0.05, 0.1, 0.5, 1]  # api 不可用时的兜底(与 schema/030 种子一致)
+    volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空, 不用写死值顶(铁律欠账4)
     oos_split = 0.7  # 样本外训练段占比(配置页可改), 供页面显示"训练:留出"比例
     total, page_size = 0, 100
     try:
@@ -37,7 +37,7 @@ def index():
         rank_templates = cfg.get("ranking_templates", [])
         oos_split = cfg.get("backtest_oos_split", 0.7)
         page_size = cfg.get("ranking_page_size", 100)  # 排名页每页条数(config可改, 缺省100)
-        volume_presets = cfg.get("volume_presets") or [0.01, 0.02, 0.05, 0.1, 0.5, 1]
+        volume_presets = cfg.get("volume_presets") or []
         templates = sorted(api.get("/strategies/templates")["templates"].keys())
         params = {"min_trades": min_trades, "limit": page_size, "page": page}
         if min_actual_trades:
