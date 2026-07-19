@@ -16,10 +16,13 @@
 <section>
   <h2>策略手数预设</h2>
   <form method="post" action="{{ url_for('symbols.save_volume_presets') }}" class="inline">
+    <label>默认手数 <input name="volume_default" size="5"
+        value="{{ '%g' % volume_default if volume_default is not none else '' }}"
+        title="没设每策略手数的策略统一用这个下单; runner 每轮拉取即生效, 下拉显示「X(默认)」"></label>
     <label>预设值 <input name="volume_presets" value="{{ volume_presets | join(', ') }}" size="24"
         title="逗号分隔的手数选项; 策略列表的手数下拉由此渲染(选预设防误输, 如 0.1 敲成 1)"></label>
     <button class="small">保存</button>
-    <span class="muted">config: volume_presets — 策略列表下拉可选的手数; 「默认」= worker env VOLUME</span>
+    <span class="muted">config: volume_default / volume_presets — 默认给没单独设手数的策略; 预设是下拉可选项</span>
   </form>
 </section>
 

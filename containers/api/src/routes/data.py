@@ -17,7 +17,7 @@ router = APIRouter()
 CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
                "ranking_templates", "backtest_oos_split", "mt5_trades_days",
                "runtime_write_minutes", "runtime_gap_minutes", "cross_symbol_gate",
-               "recon_pair_tol_minutes", "volume_presets"}
+               "recon_pair_tol_minutes", "volume_presets", "volume_default"}
 
 
 # ---------- 数据同步 ----------
@@ -66,6 +66,10 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
     if key in ("backtest_batch_limit", "generate_batch_limit"):  # 单批上限(防失控保护)
         if not isinstance(req.value, int) or req.value < 1:
             raise HTTPException(status_code=400, detail=f"{key} must be a positive integer")
+    if key == "volume_default":  # 默认下单手数(没设每策略手数时 runner 用它)
+        if not isinstance(req.value, (int, float)) or not 0 < req.value <= 100:
+            raise HTTPException(status_code=400,
+                                detail="volume_default must be a number in (0, 100]")
     if key == "volume_presets":  # 手数预设(策略列表下拉选项): 正数列表, 升序不强制
         if (not isinstance(req.value, list) or not req.value
                 or not all(isinstance(v, (int, float)) and 0 < v <= 100 for v in req.value)):

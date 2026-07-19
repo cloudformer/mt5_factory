@@ -47,12 +47,14 @@ def _runner_report(hosts: list) -> tuple:
 
 def _render(mode: str):
     cfg = MODES[mode]
-    hosts, strategies, volume_presets = [], [], []
+    hosts, strategies, volume_presets, volume_default = [], [], [], None
     try:
         hosts = api.get("/hosts")["hosts"]
         strategies = api.get("/strategies/status", status=cfg["status"], limit=200)["strategies"]
-        # 手数预设(唯一源=config表): 本页手数下拉与策略列表同款
-        volume_presets = api.get("/config")["config"].get("volume_presets") or []
+        # 手数预设/默认(唯一源=config表): 本页手数下拉与策略列表同款
+        c = api.get("/config")["config"]
+        volume_presets = c.get("volume_presets") or []
+        volume_default = c.get("volume_default")
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     assigned = [h for h in hosts if h["runner"] == cfg["role"]]
@@ -62,7 +64,8 @@ def _render(mode: str):
     return render_template("execution.html", mode=mode, cfg=cfg, assigned=assigned,
                            assignable=assignable, strategies=strategies,
                            accounts=accounts, stats=stats_by_magic, skipped=skipped_by_id,
-                           stale=stale, volume_presets=volume_presets)
+                           stale=stale, volume_presets=volume_presets,
+                           volume_default=volume_default)
 
 
 @bp.get("/demo/")

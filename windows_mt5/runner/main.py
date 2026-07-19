@@ -137,8 +137,11 @@ def fetch_strategies(run_status: str) -> list:
     r = requests.get(f"{API_URL}/strategies/status",
                      params={"status": run_status, "limit": 500}, timeout=10)
     r.raise_for_status()
+    data = r.json()
+    # 默认手数唯一源=config表(接口随策略带回); env VOLUME 只在 api 没给时兜底
+    default_vol = float(data.get("volume_default") or VOLUME)
     instances, skipped = [], []
-    for s in r.json()["strategies"]:
+    for s in data["strategies"]:
         try:
             if s["timeframe"] not in TF_MT5:  # 脏 timeframe: 加载时就跳过, 不进主循环每轮 KeyError 刷屏
                 logger.warning("unsupported timeframe %s, skip %s", s["timeframe"], s["name"])
@@ -158,9 +161,9 @@ def fetch_strategies(run_status: str) -> list:
             instances.append({
                 "id": s["id"], "name": s["name"], "symbol": s["symbol"],
                 "timeframe": s["timeframe"], "magic": s["magic_number"] or 100000 + s["id"],
-                # 每策略手数(strategies.volume): 空=用本机 env VOLUME 默认。
+                # 每策略手数(strategies.volume): 空=用默认(config.volume_default)。
                 # 每轮拉取即刷新 → web 改手数下一单生效, 不用重启(runner 无状态)
-                "volume": float(s.get("volume") or VOLUME),
+                "volume": float(s.get("volume") or default_vol),
                 "strategy": make_strategy(s["template"], params, info.point),
             })
         except Exception as e:
@@ -172,7 +175,7 @@ def fetch_strategies(run_status: str) -> list:
             logger.info("volume change #%d %s: %.2f -> %.2f (next order)",
                         inst["id"], inst["name"], prev, inst["volume"])
         _vol_seen[inst["id"]] = inst["volume"]
-    customs = [i for i in instances if abs(i["volume"] - VOLUME) > 1e-9]
+    customs = [i for i in instances if abs(i["volume"] - default_vol) > 1e-9]
     logger.info("loaded %d strategies, skipped %d (role=%s)%s",
                 len(instances), len(skipped), run_status or "idle",
                 " | custom volume: " + ", ".join(

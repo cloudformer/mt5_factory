@@ -28,12 +28,14 @@ def backtest_params():
     runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
     generate_limit = 500
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空(铁律欠账4)
+    volume_default = None
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
         batch_limit = cfg.get("backtest_batch_limit", 500)
         generate_limit = cfg.get("generate_batch_limit", 500)
         volume_presets = cfg.get("volume_presets") or []
+        volume_default = cfg.get("volume_default")
         oos_split = cfg.get("backtest_oos_split", 0.7)
         mt5_days = cfg.get("mt5_trades_days") or [7, 30, 90]
         runtime_write = cfg.get("runtime_write_minutes", 5)
@@ -44,6 +46,7 @@ def backtest_params():
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
                            generate_limit=generate_limit, volume_presets=volume_presets,
+                           volume_default=volume_default,
                            oos_split=oos_split, mt5_days=mt5_days,
                            runtime_write=runtime_write, runtime_gap=runtime_gap, gate=gate,
                            recon_tol=recon_tol)
@@ -51,12 +54,15 @@ def backtest_params():
 
 @bp.post("/config/volume-presets")
 def save_volume_presets():
-    """保存手数预设(config: volume_presets)— 策略列表手数下拉的选项; 校验在 api 侧把关"""
+    """保存默认手数+手数预设(config: volume_default / volume_presets); 校验在 api 侧把关"""
     raw = request.form.get("volume_presets", "").replace("，", ",")
+    d_raw = request.form.get("volume_default", "").strip()
     try:
         vals = [float(x.strip()) for x in raw.split(",") if x.strip()]
         api.put("/config/volume_presets", {"value": vals})
-        flash(f"手数预设已保存: {vals}", "ok")
+        if d_raw:
+            api.put("/config/volume_default", {"value": float(d_raw)})
+        flash(f"手数已保存: 默认 {d_raw or '(未改)'} · 预设 {vals}", "ok")
     except (api.ApiError, ValueError) as e:
         flash(f"保存失败: {e}", "error")
     return redirect(url_for("symbols.backtest_params"))

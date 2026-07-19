@@ -126,7 +126,11 @@ async def list_strategies(request: Request, status: Optional[str] = None,
     args.append(limit)
     q += f" ORDER BY s.id LIMIT ${len(args)}"
     rows = await request.app.state.pool.fetch(q, *args)
-    return {"count": len(rows), "strategies": [dict(r) for r in rows]}
+    # 默认手数(config 唯一源): runner 对 volume 为空的策略用它; web 下拉显示「X(默认)」
+    vol_default = await request.app.state.pool.fetchval(
+        "SELECT value FROM config WHERE key='volume_default'")
+    return {"count": len(rows), "strategies": [dict(r) for r in rows],
+            "volume_default": vol_default}
 
 
 # ---------- MQ5 转化流水线 ----------

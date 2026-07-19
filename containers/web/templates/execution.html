@@ -80,7 +80,7 @@
                 {% if s.status == 'LIVE' %}onsubmit="return confirm('#{{ s.id }} 是 LIVE 真金策略, 改手数下一单即生效 — 确认?')"{% endif %}>
         <select name="volume" class="small" data-volume-select
                 title="每策略下单手数 — 选完即提交; 默认=worker env VOLUME(0.01); runner 下一轮拉取即生效">
-          <option value="">默认</option>
+          <option value="">{% if volume_default %}{{ '%g' % volume_default }}(默认){% else %}默认{% endif %}</option>
           {% if s.volume is not none and s.volume not in volume_presets %}
           <option value="{{ '%g' % s.volume }}" selected>{{ '%g' % s.volume }}(旧值)</option>
           {% endif %}
