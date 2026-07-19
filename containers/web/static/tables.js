@@ -57,7 +57,8 @@ document.addEventListener("change", async (e) => {
     if (badge) {
       // 行内有状态列(策略页/回测页): 原地更新
       // 状态中文名 (显示用; 提交值仍英文, 与 _macros.status_label 一致)
-      const ZH = { CANDIDATE: "候选", DEMO: "模拟", LIVE: "实盘", ARCHIVED: "淘汰归档" };
+      // 与 status_label 同名(铁律2: LIVE=真金; "实盘"专指 demo+live 汇总概念, 不单指 LIVE)
+      const ZH = { CANDIDATE: "候选", DEMO: "模拟", LIVE: "真金", ARCHIVED: "淘汰归档" };
       badge.textContent = ZH[data.status] || data.status;
       badge.className = "badge " + ({ LIVE: "ok", DEMO: "warn" }[data.status] || "");
       const magic = row.querySelector(".cell-magic");
@@ -367,3 +368,10 @@ function initColPick(table) {
 }
 document.addEventListener("DOMContentLoaded", () =>
   document.querySelectorAll("table[data-colpick]").forEach(initColPick));
+
+/* 手数下拉: 选完即提交(与状态下拉同交互, 不用再点「改」);
+   走原生表单提交 → LIVE 行的 onsubmit 二次确认照常拦截, flash 照常显示 */
+document.addEventListener("change", (e) => {
+  const sel = e.target.closest("select[data-volume-select]");
+  if (sel && sel.form) sel.form.requestSubmit();
+});
