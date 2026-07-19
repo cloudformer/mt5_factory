@@ -361,6 +361,7 @@ table.kv td:first-child { width: 130px; color: var(--muted); font-weight: 600; w
   box-shadow: var(--shadow-sm); padding: 8px 12px;
   display: flex; flex-direction: column; gap: 4px;
   max-height: 60vh; overflow-y: auto; white-space: nowrap; }
+.colpick-panel[hidden] { display: none; }  /* 显式 display:flex 会盖过 hidden 属性, 必须补这条 */
 .colpick-panel label { font-size: 12px; gap: 6px; }
 .colpick-panel button { margin-top: 6px; }
 /* 人工策略分析顶栏: 左输入ID / 右三页签, 一个框 */
