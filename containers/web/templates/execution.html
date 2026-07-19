@@ -61,6 +61,7 @@
   </h2>
   <table class="dense">
     <tr><th>ID</th><th>名称</th><th>品种</th><th>券商</th><th>周期</th><th>magic</th>
+        <th title="每策略下单手数 — 选完即提交; 默认=worker env VOLUME(0.01); runner 下一轮拉取即生效">手数</th>
         <th title="最新一次回测的成绩 (悲观撮合); 悬停看净点数/PF/回撤">回测 笔(胜/负)</th>
         <th title="demo 账户实际战绩 (近90天窗口, 心跳快照入库) — 与回测列比 = 回测质量">Demo 实跑</th>
         <th title="live 账户实际战绩 — 与 Demo 列比 = 券商执行是否一致 (代码两边完全相同)">Live 实跑</th>
@@ -75,6 +76,19 @@
       <td class="muted">{{ s.broker or '—' }}</td>
       <td>{{ s.timeframe }}</td>
       <td class="muted cell-magic">{{ s.magic_number or '—' }}</td>
+      <td><form method="post" action="{{ url_for('strategies.set_volume', strategy_id=s.id) }}" class="inline"
+                {% if s.status == 'LIVE' %}onsubmit="return confirm('#{{ s.id }} 是 LIVE 真金策略, 改手数下一单即生效 — 确认?')"{% endif %}>
+        <select name="volume" class="small" data-volume-select
+                title="每策略下单手数 — 选完即提交; 默认=worker env VOLUME(0.01); runner 下一轮拉取即生效">
+          <option value="">默认</option>
+          {% if s.volume is not none and s.volume not in volume_presets %}
+          <option value="{{ '%g' % s.volume }}" selected>{{ '%g' % s.volume }}(旧值)</option>
+          {% endif %}
+          {% for v in volume_presets %}
+          <option value="{{ '%g' % v }}" {% if s.volume == v %}selected{% endif %}>{{ '%g' % v }}</option>
+          {% endfor %}
+        </select>
+      </form></td>
       <td class="muted">
         {% if s.backtest %}{% set btw = (s.backtest.trades * s.backtest.win_rate) | round | int %}
         <span title="净点数 {{ s.backtest.net_points }} · PF {{ s.backtest.profit_factor or '—' }} · 最大回撤 {{ s.backtest.max_dd_points }}">

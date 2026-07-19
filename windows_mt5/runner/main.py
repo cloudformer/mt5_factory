@@ -126,6 +126,9 @@ def detect_run_status() -> str:
     return RUN_STATUS
 
 
+_vol_seen: dict = {}   # 上一轮各策略手数(仅日志比对用, 丢了无害 — 状态仍只在DB)
+
+
 def fetch_strategies(run_status: str) -> list:
     """从 api 拉取本 worker 应运行的策略实例"""
     if not run_status:
@@ -162,8 +165,18 @@ def fetch_strategies(run_status: str) -> list:
             })
         except Exception as e:
             logger.error("build strategy %s failed: %s", s.get("name"), e)
-    logger.info("loaded %d strategies, skipped %d (role=%s)",
-                len(instances), len(skipped), run_status or "idle")
+    # 手数可观测: 与上一轮比对, 变了打一行(web 改手数 → 这里确认已生效); 自定义手数随加载汇总
+    for inst in instances:
+        prev = _vol_seen.get(inst["id"])
+        if prev is not None and abs(prev - inst["volume"]) > 1e-9:
+            logger.info("volume change #%d %s: %.2f -> %.2f (next order)",
+                        inst["id"], inst["name"], prev, inst["volume"])
+        _vol_seen[inst["id"]] = inst["volume"]
+    customs = [i for i in instances if abs(i["volume"] - VOLUME) > 1e-9]
+    logger.info("loaded %d strategies, skipped %d (role=%s)%s",
+                len(instances), len(skipped), run_status or "idle",
+                " | custom volume: " + ", ".join(
+                    f"#{i['id']}={i['volume']:g}" for i in customs) if customs else "")
     return instances, skipped
 
 
