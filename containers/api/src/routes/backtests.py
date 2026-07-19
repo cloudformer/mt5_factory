@@ -237,47 +237,9 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
             "est_pass_pct": EST_CROSS_PASS_PCT}
 
 
-def _pct_scores(values: list) -> list:
-    """排名百分位归一: 值→0~100(打赢了百分之几的对手)。None=没证据→0分; 并列取平均名次。
-    消除量纲差异(净点几万 vs PF小数), 加权前的统一刻度。"""
-    idx = [i for i, v in enumerate(values) if v is not None]
-    scores = [0.0] * len(values)
-    if not idx:
-        return scores
-    if len(idx) == 1:
-        scores[idx[0]] = 100.0
-        return scores
-    order = sorted(idx, key=lambda i: values[i])
-    n = len(idx)
-    i = 0
-    while i < n:  # 并列段取平均名次
-        j = i
-        while j + 1 < n and values[order[j + 1]] == values[order[i]]:
-            j += 1
-        pct = (i + j) / 2 / (n - 1) * 100
-        for k in range(i, j + 1):
-            scores[order[k]] = pct
-        i = j + 1
-    return scores
-
-
-def _apply_template_scores(cands: list, tpl: dict) -> None:
-    """按模板四维权重给每个候选算综合分(0~100), 写入 d['score']。
-    稳定=PF(∞=无亏损按最大) / 盈利=净点 / 风险=回撤(小=好, 取负) / 健壮=跨品种盈利比。
-    未回测(has_bt=False)与未跨品种: 该维没证据 → None → 0分(不冒充好成绩)"""
-    def _bt(m, f):
-        return f(m["metrics"]) if m.get("has_bt", True) else None
-    stable = _pct_scores([_bt(m, lambda x: x.get("profit_factor")
-                              if x.get("profit_factor") is not None else float("inf"))
-                          for m in cands])
-    profit = _pct_scores([_bt(m, lambda x: x.get("net_points", 0)) for m in cands])
-    risk = _pct_scores([_bt(m, lambda x: -(x.get("max_dd_points") or 0)) for m in cands])
-    robust = _pct_scores([(m["profitable"] / m["tested"]) if m["tested"] else None for m in cands])
-    w = {k: tpl.get(k, 0) for k in ("stable", "profit", "risk", "robust")}
-    total = sum(w.values()) or 1
-    for i, d in enumerate(cands):
-        d["score"] = round((stable[i] * w["stable"] + profit[i] * w["profit"]
-                            + risk[i] * w["risk"] + robust[i] * w["robust"]) / total, 1)
+# 排名百分位打分(原 _pct_scores/_apply_template_scores)已下推为 top() 里的 SQL 窗口函数(v1.3):
+# 语义不变 — None=没证据0分 / 全集单值100 / 并列取平均名次 / 四维加权 round(,1)。
+# 2026-07-19 用 60 合成策略临时表对拍, 新旧分数逐一相等后删除 Python 版(git 历史留底)。
 
 
 @router.get("/backtest/top")
@@ -298,62 +260,129 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
     q_field/q_text: 服务端搜索, 策略名模糊(ILIKE), ID/周期/状态精准。
     """
     pool = request.app.state.pool
-    q = """
-        SELECT s.id AS strategy_id, s.name, s.template, s.symbol, s.timeframe, s.status,
-               s.params, s.magic_number, s.volume,
-               COALESCE(b.broker, sy.broker) AS broker, b.metrics, b.created_at
-          FROM strategies s
-          LEFT JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol
-          LEFT JOIN symbols sy ON sy.symbol = s.symbol
-         WHERE (b.id IS NOT NULL AND (b.metrics->>'trades')::int >= $1
-                OR b.id IS NULL AND $1 <= 0)
-    """
-    args = [min_trades]  # 未回测: min_trades=0 时显示(成绩为空), >0 时不通过(没证据)
+    # ---- 过滤条件(所有路径共用) ----
+    conds = ["(b.id IS NOT NULL AND (b.metrics->>'trades')::int >= $1"
+             " OR b.id IS NULL AND $1 <= 0)"]
+    args: list = [min_trades]  # 未回测: min_trades=0 时显示(成绩为空), >0 时不通过(没证据)
+
+    def _and(cond: str, val) -> None:
+        args.append(val)
+        conds.append(cond.replace("{n}", str(len(args))))
+
     if symbol:
-        args.append(symbol)
-        q += f" AND s.symbol = ${len(args)}"
+        _and("s.symbol = ${n}", symbol)
     if template:
-        args.append(template)
-        q += f" AND s.template = ${len(args)}"
+        _and("s.template = ${n}", template)
     if broker:
-        args.append(broker)
-        q += f" AND COALESCE(b.broker, sy.broker) = ${len(args)}"
+        _and("COALESCE(b.broker, sy.broker) = ${n}", broker)
     if status:
-        args.append(status.upper())
-        q += f" AND s.status = ${len(args)}"
-    if min_win_rate:
-        args.append(min_win_rate / 100)  # 前端传百分数, metrics 存 0~1
-        q += f" AND b.id IS NOT NULL AND COALESCE((b.metrics->>'win_rate')::float, 0) >= ${len(args)}"
-    if min_pf:
-        args.append(min_pf)  # PF=null 表示无亏损(毛损为0) → 视为无穷大, 通过; 未回测不通过
-        q += f" AND b.id IS NOT NULL AND COALESCE((b.metrics->>'profit_factor')::float, 1e9) >= ${len(args)}"
+        _and("s.status = ${n}", status.upper())
+    if min_win_rate:  # 前端传百分数, metrics 存 0~1
+        _and("b.id IS NOT NULL AND COALESCE((b.metrics->>'win_rate')::float, 0) >= ${n}",
+             min_win_rate / 100)
+    if min_pf:  # PF=null 表示无亏损(毛损为0) → 视为无穷大, 通过; 未回测不通过
+        _and("b.id IS NOT NULL AND COALESCE((b.metrics->>'profit_factor')::float, 1e9) >= ${n}",
+             min_pf)
     if max_dd is not None:
-        args.append(max_dd)
-        q += f" AND b.id IS NOT NULL AND COALESCE((b.metrics->>'max_dd_points')::float, 0) <= ${len(args)}"
+        _and("b.id IS NOT NULL AND COALESCE((b.metrics->>'max_dd_points')::float, 0) <= ${n}",
+             max_dd)
     if min_actual_trades > 0:  # 实盘笔数≥(demo+live 合计, strategy_stats); 没实盘成交的不通过
-        args.append(min_actual_trades)
-        q += (" AND (SELECT COALESCE(sum(st.trades), 0) FROM strategy_stats st"
-              f"      WHERE st.strategy_id = s.id) >= ${len(args)}")
+        _and("(SELECT COALESCE(sum(st.trades), 0) FROM strategy_stats st"
+             " WHERE st.strategy_id = s.id) >= ${n}", min_actual_trades)
     if positive_only:
-        q += " AND (b.metrics->>'net_points')::float > 0"
+        conds.append("(b.metrics->>'net_points')::float > 0")
     if oos_pass:  # 留出段一票否决: 留出净点>0 且有交易才通过(老结果没有oos字段=不通过)
-        q += (" AND COALESCE((b.metrics#>>'{oos,holdout,net_points}')::float, 0) > 0"
-              " AND COALESCE((b.metrics#>>'{oos,holdout,trades}')::int, 0) > 0")
+        conds.append("COALESCE((b.metrics#>>'{oos,holdout,net_points}')::float, 0) > 0"
+                     " AND COALESCE((b.metrics#>>'{oos,holdout,trades}')::int, 0) > 0")
     # 服务端搜索: 只有策略名模糊, 其余精准
     if q_text and q_text.strip() and q_field:
         t = q_text.strip()
         if q_field == "name":
-            args.append(f"%{t}%"); q += f" AND s.name ILIKE ${len(args)}"
+            _and("s.name ILIKE ${n}", f"%{t}%")
         elif q_field == "id" and t.isdigit():
-            args.append(int(t)); q += f" AND s.id = ${len(args)}"
+            _and("s.id = ${n}", int(t))
         elif q_field == "timeframe":
-            args.append(t.upper()); q += f" AND s.timeframe = ${len(args)}"
+            _and("s.timeframe = ${n}", t.upper())
         elif q_field == "status":
-            args.append(t.upper()); q += f" AND s.status = ${len(args)}"
-    rows = await pool.fetch(q, *args)
-    # 先全量排序(未回测按 -inf 沉底), 排名在完整集合上算, 最后才切页 — 保证分页不改排名语义
-    ranked = sorted(rows, key=lambda r: (r["metrics"] or {}).get("net_points", float("-inf")),
-                    reverse=True)
+            _and("s.status = ${n}", t.upper())
+
+    tpl = None
+    if rank_template:  # 排名模板不存在 → 回落默认净点排序(与旧行为一致)
+        tpl = next((t for t in (await pool.fetchval(
+            "SELECT value FROM config WHERE key='ranking_templates'") or [])
+            if t.get("name") == rank_template), None)
+
+    cols = ("s.id AS strategy_id, s.name, s.template, s.symbol, s.timeframe, s.status,"
+            " s.params, s.magic_number, s.volume,"
+            " COALESCE(b.broker, sy.broker) AS broker, b.metrics, b.created_at")
+    joins = (" FROM strategies s"
+             " LEFT JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol"
+             " LEFT JOIN symbols sy ON sy.symbol = s.symbol")
+    lo = max(page - 1, 0) * limit
+
+    # ---- v1.3: 排序/分页/评分全下推 SQL, 只搬回当页行; total 用窗口 count(*) ----
+    if tpl is None and min_robust is None:
+        # 默认净点排序: 未回测(NULL)沉底, s.id 定序保证翻页稳定
+        args += [limit, lo]
+        rows = await pool.fetch(
+            f"SELECT {cols}, count(*) OVER () AS _total{joins} WHERE {' AND '.join(conds)}"
+            f" ORDER BY (b.metrics->>'net_points')::float DESC NULLS LAST, s.id"
+            f" LIMIT ${len(args) - 1} OFFSET ${len(args)}", *args)
+        score_by_id: dict = {}
+    else:
+        # 健壮性聚合(跨品种: 有交易的品种数/其中盈利数) — min_robust 过滤与 robust 维度共用
+        joins += (" LEFT JOIN LATERAL ("
+                  "SELECT count(*) FILTER (WHERE (bb.metrics->>'trades')::int > 0) AS tested,"
+                  "       count(*) FILTER (WHERE (bb.metrics->>'trades')::int > 0"
+                  "         AND (bb.metrics->>'net_points')::float > 0) AS profitable"
+                  " FROM backtests bb WHERE bb.strategy_id = s.id) rb ON true")
+        if min_robust is not None:  # 健壮性≥: 没跑跨品种/没交易 → 不通过
+            _and("rb.tested > 0 AND rb.profitable * 100.0 / rb.tested >= ${n}", min_robust)
+        where = " AND ".join(conds)
+        if tpl is None:  # 只过滤健壮性, 仍按净点排序
+            args += [limit, lo]
+            rows = await pool.fetch(
+                f"SELECT {cols}, count(*) OVER () AS _total{joins} WHERE {where}"
+                f" ORDER BY (b.metrics->>'net_points')::float DESC NULLS LAST, s.id"
+                f" LIMIT ${len(args) - 1} OFFSET ${len(args)}", *args)
+            score_by_id = {}
+        else:
+            # 排名模板四维百分位加权(0~100), 窗口函数复刻 _pct_scores 语义:
+            #   无证据(NULL)=0分不参与排名; 全集只有1个有值=100; 并列段取平均名次。
+            #   排序键 = round(score,1) 再净点 — 与旧 Python 排序完全同口径。
+            def _pct_sql(v: str) -> str:
+                return (f"CASE WHEN {v} IS NULL THEN 0"
+                        f" WHEN count({v}) OVER () = 1 THEN 100"
+                        f" ELSE (2.0 * (rank() OVER (ORDER BY {v} NULLS LAST) - 1)"
+                        f"       + count(*) OVER (PARTITION BY {v}) - 1)"
+                        f"      / 2.0 / (count({v}) OVER () - 1) * 100 END")
+            w = {k: float(tpl.get(k, 0) or 0) for k in ("stable", "profit", "risk", "robust")}
+            args += [w["stable"], w["profit"], w["risk"], w["robust"],
+                     sum(w.values()) or 1.0, limit, lo]
+            k = len(args)
+            score_expr = (f"round(((p_stable * ${k - 6} + p_profit * ${k - 5}"
+                          f" + p_risk * ${k - 4} + p_robust * ${k - 3}) / ${k - 2})::numeric, 1)")
+            rows = await pool.fetch(
+                f"WITH cand AS (SELECT {cols}, rb.tested, rb.profitable,"
+                f"  CASE WHEN b.id IS NULL THEN NULL"
+                f"       WHEN b.metrics->>'profit_factor' IS NULL THEN 'Infinity'::float"
+                f"       ELSE (b.metrics->>'profit_factor')::float END AS v_stable,"
+                f"  CASE WHEN b.id IS NULL THEN NULL"
+                f"       ELSE COALESCE((b.metrics->>'net_points')::float, 0) END AS v_profit,"
+                f"  CASE WHEN b.id IS NULL THEN NULL"
+                f"       ELSE -COALESCE((b.metrics->>'max_dd_points')::float, 0) END AS v_risk,"
+                f"  CASE WHEN rb.tested > 0 THEN rb.profitable::float / rb.tested"
+                f"       ELSE NULL END AS v_robust"
+                f" {joins} WHERE {where}),"
+                f" pct AS (SELECT *, {_pct_sql('v_stable')} AS p_stable,"
+                f"  {_pct_sql('v_profit')} AS p_profit, {_pct_sql('v_risk')} AS p_risk,"
+                f"  {_pct_sql('v_robust')} AS p_robust FROM cand)"
+                f" SELECT *, {score_expr} AS score, count(*) OVER () AS _total FROM pct"
+                f" ORDER BY {score_expr} DESC,"
+                f"  (metrics->>'net_points')::float DESC NULLS LAST, strategy_id"
+                f" LIMIT ${k - 1} OFFSET ${k}", *args)
+            score_by_id = {r["strategy_id"]: float(r["score"]) for r in rows}
+    total = rows[0]["_total"] if rows else 0
 
     async def _breakdown(sids):
         """跨品种健壮性明细: strategy_id → 各品种行(按净点降序)。只为需要的策略拉(分页省算力)"""
@@ -379,34 +408,16 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         d["profitable"] = sum(1 for x in traded if x["metrics"].get("net_points", 0) > 0)
         return d
 
-    lo = max(page - 1, 0) * limit
-    # 排名模板打分 / 健壮性过滤 都要在"完整集合"上算(百分位、过滤后计数) → 这两种情况拉全量明细;
-    # 否则(默认净点排序)只切当页、只为当页拉明细 — 载荷与 DB 明细量随页大小而非总量, 大表也快
-    if rank_template or min_robust is not None:
-        bd_map = await _breakdown([r["strategy_id"] for r in ranked])
-        cands = []
-        for r in ranked:
-            d = _build(r, bd_map)
-            if min_robust is not None and (  # 健壮性≥: 没跑跨品种/没交易 → 不通过
-                    not d["tested"] or d["profitable"] / d["tested"] * 100 < min_robust):
-                continue
-            cands.append(d)
-        if rank_template:  # 四维百分位加权综合分排序; 并列/无模板按净点数
-            tpl = next((t for t in (await pool.fetchval(
-                "SELECT value FROM config WHERE key='ranking_templates'") or [])
-                if t.get("name") == rank_template), None)
-            if tpl:
-                _apply_template_scores(cands, tpl)
-                cands.sort(key=lambda d: (d["score"],
-                                          d["metrics"].get("net_points", float("-inf"))),
-                           reverse=True)
-        total = len(cands)
-        page_cands = cands[lo:lo + limit]
-    else:
-        total = len(ranked)
-        page_rows = ranked[lo:lo + limit]
-        bd_map = await _breakdown([r["strategy_id"] for r in page_rows])
-        page_cands = [_build(r, bd_map) for r in page_rows]
+    # 排序/过滤/评分已全部在 SQL 完成 — 这里只为【当页】拉跨品种明细并组装(载荷随页大小)
+    bd_map = await _breakdown([r["strategy_id"] for r in rows])
+    page_cands = []
+    for r in rows:
+        d = _build(r, bd_map)   # breakdown/tested/profitable 统一由明细口径重算
+        for aux in ("_total", "v_stable", "v_profit", "v_risk", "v_robust",
+                    "p_stable", "p_profit", "p_risk", "p_robust"):
+            d.pop(aux, None)
+        d["score"] = score_by_id.get(d["strategy_id"])
+        page_cands.append(d)
 
     # 实盘战绩(demo+live 合并, 来自 strategy_stats)—— 回测列不动, 仅附加实盘对比(胜率/笔数/盈亏)
     page_ids = [d["strategy_id"] for d in page_cands]
