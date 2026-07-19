@@ -38,8 +38,10 @@
           <option value="{{ t.name }}" data-mt="{{ t.min_trades or 0 }}" {% if t.name == rank %}selected{% endif %}>{{ t.name }}</option>
           {% endfor %}
         </select></label>
-      <label>最少交易数 <input name="min_trades" id="min-trades" value="{{ min_trades }}" size="4"
-          title="选排名参数模板会自动填该模板的默认笔数, 可再手改; >0 时未回测的策略不显示"></label>
+      <label title="回测成交笔数 ≥ 此值(主品种); >0 时未回测的策略不显示。选排名参数模板会自动填该模板默认值, 可再手改">回测笔数≥
+        <input name="min_trades" id="min-trades" value="{{ min_trades }}" size="4"></label>
+      <label title="实盘成交笔数 ≥ 此值(demo+live 合计, 心跳快照); >0 时没实盘成交的策略不显示">实盘笔数≥
+        <input name="min_actual_trades" value="{{ min_actual_trades or '' }}" size="4"></label>
       <label title="净点数: 全部=不限; 仅盈利=只看净点数>0">净点
         <select name="positive">
           <option value="">全部</option>

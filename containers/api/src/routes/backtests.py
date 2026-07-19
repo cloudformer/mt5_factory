@@ -282,7 +282,8 @@ def _apply_template_scores(cands: list, tpl: dict) -> None:
 
 @router.get("/backtest/top")
 async def top(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
-              min_trades: int = 0, limit: int = 20, status: Optional[str] = None,
+              min_trades: int = 0, min_actual_trades: int = 0,
+              limit: int = 20, status: Optional[str] = None,
               q_field: Optional[str] = None, q_text: Optional[str] = None,
               min_win_rate: float = 0, min_pf: float = 0,
               max_dd: Optional[float] = None, min_robust: Optional[float] = None,
@@ -329,6 +330,10 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
     if max_dd is not None:
         args.append(max_dd)
         q += f" AND b.id IS NOT NULL AND COALESCE((b.metrics->>'max_dd_points')::float, 0) <= ${len(args)}"
+    if min_actual_trades > 0:  # 实盘笔数≥(demo+live 合计, strategy_stats); 没实盘成交的不通过
+        args.append(min_actual_trades)
+        q += (" AND (SELECT COALESCE(sum(st.trades), 0) FROM strategy_stats st"
+              f"      WHERE st.strategy_id = s.id) >= ${len(args)}")
     if positive_only:
         q += " AND (b.metrics->>'net_points')::float > 0"
     if oos_pass:  # 留出段一票否决: 留出净点>0 且有交易才通过(老结果没有oos字段=不通过)

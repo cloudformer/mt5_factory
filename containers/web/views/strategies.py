@@ -21,6 +21,7 @@ def index():
     q_field = a.get("q_field") or "name"
     q_text = a.get("q_text") or None
     min_trades = a.get("min_trades", 0, type=int)
+    min_actual_trades = a.get("min_actual_trades", 0, type=int)  # 实盘笔数≥(demo+live合计)
     filters = {k: a.get(k, type=float)
                for k in ("min_win_rate", "min_pf", "max_dd", "min_robust")}
     positive = a.get("positive") == "1"
@@ -39,6 +40,8 @@ def index():
         volume_presets = cfg.get("volume_presets") or [0.01, 0.02, 0.05, 0.1, 0.5, 1]
         templates = sorted(api.get("/strategies/templates")["templates"].keys())
         params = {"min_trades": min_trades, "limit": page_size, "page": page}
+        if min_actual_trades:
+            params["min_actual_trades"] = min_actual_trades
         for k, v in (("template", template), ("symbol", symbol),
                      ("broker", broker), ("status", status)):
             if v:
@@ -64,7 +67,7 @@ def index():
     total_pages = max((total + page_size - 1) // page_size, 1)  # 向上取整
     base_args = {k: v for k, v in a.items() if k != "page"}     # 翻页链接保留其它筛选
     return render_template("strategies.html", results=results, volume_presets=volume_presets,
-                           symbol=symbol, broker=broker,
+                           symbol=symbol, broker=broker, min_actual_trades=min_actual_trades,
                            status=status, min_trades=min_trades, q_field=q_field, q_text=q_text,
                            filters=filters, positive=positive, oos=oos, rank=rank,
                            rank_templates=rank_templates, brokers=brokers, symbols=symbols,
