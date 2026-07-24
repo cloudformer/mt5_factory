@@ -130,6 +130,32 @@ def analysis():
     return render_template("strategy_analysis.html", recon=recon, ana=ana, sid=sid)
 
 
+@bp.get("/reconcile_stats")
+def reconcile_stats():
+    """对账统计: 全部有实盘成交的策略, 批量看 回测vs实盘 匹配率(顶部三卡 + 逐策略行)。
+    行数据 = api /reconcile/summary(纯读已存结果); 重算 = 页面循环调 reconcile_one。"""
+    rows = []
+    try:
+        rows = api.get("/reconcile/summary")["strategies"]
+    except api.ApiError as e:
+        flash(f"读取对账统计失败: {e}", "error")
+    return render_template("reconcile_stats.html", rows=rows)
+
+
+@bp.post("/<int:strategy_id>/reconcile")
+def reconcile_one(strategy_id: int):
+    """AJAX: 重算单个策略对账(对账统计页「全部重算」循环调它), 返回该行新数据"""
+    try:
+        r = api.get(f"/reconcile/{strategy_id}")
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+    m = r.get("metrics") or {}
+    return {"id": strategy_id, "score": m.get("match_score"), "paired": m.get("paired"),
+            "union": m.get("union"), "count_rate": m.get("count_match_rate"),
+            "dir_rate": m.get("dir_match_rate"), "q10": m.get("q10_pass"),
+            "net_bias_pct": m.get("net_bias_pct")}
+
+
 @bp.get("/analysis/fragment")
 def analysis_fragment():
     """AJAX 片段: 只渲染胜负归因 body(切换回测品种时不刷新整页)"""

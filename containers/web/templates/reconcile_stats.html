@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('对账统计', '全部有实盘成交的策略 · 回测vs实盘 批量匹配率(回测侧=实盘上线时刻空仓起跑重放);三卡随筛选实时重算') }}
+
+<section>
+  <div class="flex-between">
+    <h2 style="margin:0">回测 vs 实盘 · 逐策略</h2>
+    <span><span id="rs-prog" class="muted mono"></span>
+      <button type="button" id="rs-recalc" class="live" style="margin-left:8px">全部重算</button></span>
+  </div>
+
+  <div class="stats" style="margin-top:12px">
+    <div class="stat">
+      <div class="stat-label">总笔数匹配率</div>
+      <div class="stat-value" id="card-pooled">—</div>
+      <div class="stat-sub" id="card-pooled-sub">配对/并集(全部笔堆一起)</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">策略平均分</div>
+      <div class="stat-value" id="card-avg">—</div>
+      <div class="stat-sub" id="card-avg-sub">每策略等权 · 满分100</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">达标率 ≥90</div>
+      <div class="stat-value" id="card-pass">—</div>
+      <div class="stat-sub" id="card-pass-sub">回测可信的策略占比</div>
+    </div>
+  </div>
+
+  <div class="filter-panel" style="margin-top:12px">
+    <div class="filter-row">
+      <label>实盘笔数≥
+        <select id="f-trades">
+          <option value="0">全部</option>
+          {% for n in [1, 3, 5, 10] %}<option value="{{ n }}" {% if n == 3 %}selected{% endif %}>{{ n }}</option>{% endfor %}
+        </select></label>
+      <label>状态
+        <select id="f-status"><option value="">全部</option>
+          {% for s in rows|map(attribute='status')|unique|sort %}<option value="{{ s }}">{{ m.status_label(s) }}</option>{% endfor %}
+        </select></label>
+      <label>品种
+        <select id="f-symbol"><option value="">全部</option>
+          {% for s in rows|map(attribute='symbol')|unique|sort %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select></label>
+      <label>模板
+        <select id="f-template"><option value="">全部</option>
+          {% for t in rows|map(attribute='template')|unique|sort %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select></label>
+    </div>
+  </div>
+
+  <div style="overflow-x:auto">
+  <table id="rs-table" class="dense" data-colpick>
+    <thead>
+      <tr><th>ID</th><th>名称</th><th>品种</th><th>状态</th><th>模板</th>
+        <th title="trades 表该策略的 demo+live 回合数">实盘笔数</th>
+        <th title="窗口内 实盘和重放都出现且时间配上的笔数">配对</th>
+        <th>笔数率</th><th>方向率</th>
+        <th title="综合匹配度 0~100, ≥90=回测可信">匹配分</th><th>达标</th>
+        <th title="配对笔净点合计: 回测-实盘 相对偏差(正=回测偏乐观)">总账偏</th>
+        <th title="该行对账结果的计算时间(旧口径结果点[全部重算]刷新)">算于</th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr data-id="{{ r.id }}" data-trades="{{ r.live_trades }}" data-status="{{ r.status }}"
+          data-symbol="{{ r.symbol }}" data-template="{{ r.template }}"
+          data-score="{{ r.score if r.score is not none else -1 }}"
+          data-paired="{{ r.paired or 0 }}" data-union="{{ r.union or 0 }}">
+        <td class="mono"><a href="{{ url_for('strategies.analysis', strategy_id=r.id) }}"
+            title="打开人工策略分析(逐笔对照)">{{ r.id }}</a></td>
+        <td class="mono muted" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="{{ r.name }}">{{ r.name }}</td>
+        <td class="mono">{{ r.symbol }}</td>
+        <td>{{ m.status_label(r.status) }}</td>
+        <td class="mono muted">{{ r.template }}</td>
+        <td class="mono">{{ r.live_trades }}</td>
+        <td class="mono" data-c="paired">{{ r.paired if r.paired is not none else '—' }}{% if r.union %} / {{ r.union }}{% endif %}</td>
+        <td class="mono" data-c="count_rate">{{ (r.count_rate * 100)|round(1) ~ '%' if r.count_rate is not none else '—' }}</td>
+        <td class="mono" data-c="dir_rate">{{ (r.dir_rate * 100)|round(1) ~ '%' if r.dir_rate is not none else '—' }}</td>
+        <td class="mono" data-c="score">{% if r.score is not none %}<b>{{ r.score }}</b>{% else %}<span class="muted">未算</span>{% endif %}</td>
+        <td data-c="pass">{% if r.score is none %}<span class="muted">—</span>
+          {% elif r.score >= 90 %}<span class="pos">✅</span>{% else %}<span class="neg">❌</span>{% endif %}</td>
+        <td class="mono" data-c="bias">{{ ('%+.1f%%' % r.net_bias_pct) if r.net_bias_pct is not none else '—' }}</td>
+        <td class="mono muted" data-c="at">{{ r.updated_at[:16]|replace('T', ' ') if r.updated_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if not rows %}<p class="muted">还没有任何策略产生实盘成交。</p>{% endif %}
+</section>
+
+<script>
+(function () {
+  const tbody = document.querySelector('#rs-table tbody');
+  const rows = () => [...tbody.querySelectorAll('tr')];
+  const sels = ['f-trades', 'f-status', 'f-symbol', 'f-template'].map(id => document.getElementById(id));
+
+  function applyFilter() {
+    const [minT, st, sym, tpl] = sels.map(s => s.value);
+    let vis = [];
+    rows().forEach(tr => {
+      const ok = (+tr.dataset.trades >= +minT)
+        && (!st || tr.dataset.status === st)
+        && (!sym || tr.dataset.symbol === sym)
+        && (!tpl || tr.dataset.template === tpl);
+      tr.hidden = !ok;
+      if (ok) vis.push(tr);
+    });
+    // 三卡按可见行现算
+    let paired = 0, union = 0, scores = [], pass = 0;
+    vis.forEach(tr => {
+      paired += +tr.dataset.paired; union += +tr.dataset.union;
+      const s = +tr.dataset.score;
+      if (s >= 0) { scores.push(s); if (s >= 90) pass++; }
+    });
+    const set = (id, v) => document.getElementById(id).textContent = v;
+    set('card-pooled', union ? (100 * paired / union).toFixed(1) + '%' : '—');
+    set('card-pooled-sub', `配对 ${paired} / 并集 ${union} 笔(${vis.length} 策略)`);
+    set('card-avg', scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '—');
+    set('card-avg-sub', `${scores.length} 策略等权 · 满分100`);
+    set('card-pass', scores.length ? `${pass}/${scores.length} = ${(100 * pass / scores.length).toFixed(0)}%` : '—');
+  }
+  sels.forEach(s => s.addEventListener('change', applyFilter));
+  applyFilter();
+
+  function updateRow(tr, r) {
+    tr.dataset.score = r.score ?? -1;
+    tr.dataset.paired = r.paired ?? 0;
+    tr.dataset.union = r.union ?? 0;
+    const c = k => tr.querySelector(`[data-c="${k}"]`);
+    c('paired').textContent = r.paired != null ? `${r.paired}${r.union ? ' / ' + r.union : ''}` : '—';
+    c('count_rate').textContent = r.count_rate != null ? (r.count_rate * 100).toFixed(1) + '%' : '—';
+    c('dir_rate').textContent = r.dir_rate != null ? (r.dir_rate * 100).toFixed(1) + '%' : '—';
+    c('score').innerHTML = r.score != null ? `<b>${r.score}</b>` : '<span class="muted">未算</span>';
+    c('pass').innerHTML = r.score == null ? '<span class="muted">—</span>'
+      : (r.score >= 90 ? '<span class="pos">✅</span>' : '<span class="neg">❌</span>');
+    c('bias').textContent = r.net_bias_pct != null ? (r.net_bias_pct > 0 ? '+' : '') + r.net_bias_pct.toFixed(1) + '%' : '—';
+    c('at').textContent = '刚刚';
+  }
+
+  const btn = document.getElementById('rs-recalc'), prog = document.getElementById('rs-prog');
+  btn.addEventListener('click', async () => {
+    const all = rows();
+    if (!all.length || !confirm(`重算全部 ${all.length} 个策略的对账(每个约1秒)?`)) return;
+    btn.disabled = true;
+    let done = 0, fail = 0;
+    const queue = all.slice();
+    async function worker() {
+      while (queue.length) {
+        const tr = queue.shift();
+        try {
+          const r = await fetch(`/strategies/${tr.dataset.id}/reconcile`,
+            { method: 'POST', headers: { 'X-Requested-With': 'fetch' } }).then(x => x.json());
+          if (r.error) fail++; else updateRow(tr, r);
+        } catch (e) { fail++; }
+        done++;
+        prog.textContent = `↻ ${done}/${all.length}` + (fail ? ` (失败${fail})` : '');
+      }
+    }
+    await Promise.all([worker(), worker()]);   // 并发2: 不炸api, 42个约半分钟
+    prog.textContent = `✓ ${done - fail}/${all.length}` + (fail ? ` (失败${fail})` : '');
+    btn.disabled = false;
+    applyFilter();
+  });
+})();
+</script>
+{% endblock %}

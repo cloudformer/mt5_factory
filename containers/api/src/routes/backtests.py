@@ -558,6 +558,33 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
     return metrics, pairs
 
 
+@router.get("/reconcile/summary")
+async def reconcile_summary(request: Request):
+    """批量对账统计: 全部有实盘成交的策略 × 已存对账结果(reconciliations) — 纯读秒回。
+    顶部三卡(总笔数匹配率/策略平均分/达标率)由页面按筛选现算, 这里只出行数据;
+    重算走既有单策略端点(页面 AJAX 循环调), 本端点不触发任何计算。
+    注意: 必须注册在 /reconcile/{strategy_id} 之前, 否则 'summary' 会被当成 int 解析。"""
+    rows = await request.app.state.pool.fetch(
+        "SELECT s.id, s.name, s.symbol, s.status, s.template, t.n AS live_trades,"
+        "       r.match_score, r.metrics, r.updated_at"
+        "  FROM (SELECT strategy_id, count(*) AS n FROM trades"
+        "         WHERE strategy_id IS NOT NULL GROUP BY strategy_id) t"
+        "  JOIN strategies s ON s.id = t.strategy_id"
+        "  LEFT JOIN reconciliations r ON r.strategy_id = s.id AND r.scope = 'all'"
+        " ORDER BY r.match_score DESC NULLS LAST, s.id")
+    out = []
+    for r in rows:
+        m = r["metrics"] or {}
+        out.append({"id": r["id"], "name": r["name"], "symbol": r["symbol"],
+                    "status": r["status"], "template": r["template"],
+                    "live_trades": r["live_trades"], "score": r["match_score"],
+                    "paired": m.get("paired"), "union": m.get("union"),
+                    "count_rate": m.get("count_match_rate"), "dir_rate": m.get("dir_match_rate"),
+                    "q10": m.get("q10_pass"), "net_bias_pct": m.get("net_bias_pct"),
+                    "updated_at": r["updated_at"]})
+    return {"strategies": out}
+
+
 @router.get("/reconcile/{strategy_id}")
 async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
     """关2对账端点 — 计算逻辑在 compute_reconcile(策略分析页与 AI 成绩单共用)"""
