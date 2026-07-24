@@ -106,6 +106,10 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
     result = await asyncio.to_thread(
         backtest.run_backtest, cache["m1"], s["template"], s["params"],
         meta["point"], s["timeframe"], oos_split=oos_split, **payload["costs"])
+    # to_time 记"实际读到的最后一根 M1", 不用请求截止 t_to(默认=now)。
+    # 否则数据滞后于 now 时跑的回测会把 to_time 记成 now, 让对账 bt_stale 误判为"新鲜"、
+    # 把本该"重跑回测"的缺口错标成"真差异"(not_triggered) — 曾误导排查。
+    cov_to = datetime.fromtimestamp(int(cache["m1"]["time"][-1]), tz=timezone.utc)
     # 每"策略×品种"一行, upsert 覆盖(幂等 — job 重试安全, 铁律6)
     await pool.execute(
         "INSERT INTO backtests"
@@ -115,7 +119,7 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
         "   from_time=EXCLUDED.from_time, to_time=EXCLUDED.to_time,"
         "   broker=EXCLUDED.broker, metrics=EXCLUDED.metrics,"
         "   trades=EXCLUDED.trades, created_at=now()",
-        s["id"], t_from, t_to, sym, meta["broker"], result["metrics"], result["trades"])
+        s["id"], t_from, cov_to, sym, meta["broker"], result["metrics"], result["trades"])
 
 
 async def consumer_loop(pool: asyncpg.Pool):

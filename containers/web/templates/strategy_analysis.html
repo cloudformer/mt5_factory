@@ -25,7 +25,7 @@
 
 <section id="tab-recon">
   <h2>对账:回测 vs 实盘(demo/live)</h2>
-  <p class="muted" style="margin:0 0 12px">时间窗自动取自实盘成交跨度;综合匹配度 ≥90 = 该策略回测可信(纳入回测质量标准)。</p>
+  <p class="muted" style="margin:0 0 12px">时间窗自动取自实盘成交跨度;回测侧 = 从实盘上线时刻空仓起跑的重放(起点对齐,现算最新数据);综合匹配度 ≥90 = 该策略回测可信(纳入回测质量标准)。</p>
 
   {% if recon %}
     {% if recon.note %}
@@ -70,7 +70,7 @@
         {% if recon.mode == 'segments' %}<span class="badge ok" title="按运行区间(strategy_runtime, 策略真实在跑的时段)对账: 对比窗口 = 区间±{{ recon.tol_minutes }}分钟(重叠合并); 窗口内'回测有信号实盘没单'照样抓 runner 漏单">双边(按运行区间)</span> · 对比窗口 {{ recon.windows_total }} 段{% if quiet_w > 0 %}({{ recon.windows_active }} 有成交 · {{ quiet_w }} 静默){% endif %}
         {% else %}<span class="badge warn" title="该策略还没有运行区间记录(表上线前的历史数据): 对比窗口 = 每笔实盘±{{ recon.tol_minutes }}分钟, 仅验证'实盘每笔回测可复现', 抓不了漏单; 分母=实盘笔数">单边(降级) · 不抓漏单</span>{% endif %}</td></tr>
       <tr><td>实盘跨度</td><td>{{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }} · 实盘 <b>{{ recon.actual_trades }}</b> 笔</td></tr>
-      <tr><td>回测笔数</td><td>窗口内 <b>{{ recon.bt_trades }}</b> · 全部 {{ recon.bt_total }}</td></tr>
+      <tr><td>回测笔数</td><td>窗口内 <b>{{ recon.bt_trades }}</b> · 重放期内 {{ recon.bt_total }}</td></tr>
       <tr><td>记录不评判</td><td>信号 {{ m.pct(mt.signal_hit_rate * 100) }} · 涨跌 {{ m.pct(mt.outcome_match_rate * 100) }}</td></tr>
       {% if mt.entry_diff_avg is defined %}
       <tr><td>入场精度</td><td>均差 {{ mt.entry_diff_avg }}
@@ -85,12 +85,8 @@
       {% endif %}
     </table>
     {# 覆盖检查: 正常不打扰, 有问题才出警告行 #}
-    {% if recon.bt_total == 0 %}
-    <p class="muted"><span class="neg">❌ 该策略还没回测过 — 先去「策略回测」</span></p>
-    {% elif not recon.data_cover %}
-    <p class="muted"><span class="neg">❌ 库内M1数据落后:<b>{{ recon.symbol }}</b>{% if recon.broker %} @ <b>{{ recon.broker }}</b>{% endif %} 只到 {{ m.lts(recon.data_to) if recon.data_to else '无数据' }} — 先去「数据下载」补这个品种到最新,再重跑回测</span></p>
-    {% elif recon.bt_stale %}
-    <p class="muted"><span class="neg">⚠ 回测未跑到实盘末尾:<b>{{ recon.symbol }}</b>{% if recon.broker %} @ <b>{{ recon.broker }}</b>{% endif %} 回测只到 {{ m.lts(recon.bt_to) }},数据已有 — 重跑回测即可</span></p>
+    {% if not recon.data_cover %}
+    <p class="muted"><span class="neg">❌ 库内M1数据落后:<b>{{ recon.symbol }}</b>{% if recon.broker %} @ <b>{{ recon.broker }}</b>{% endif %} 只到 {{ m.lts(recon.data_to) if recon.data_to else '无数据' }} — 先去「数据下载」补这个品种到最新(对账重放自动用最新数据,无需重跑回测)</span></p>
     {% endif %}
     {% if recon.pairs %}
     {% macro pair_cells(p) %}
@@ -116,7 +112,6 @@
           </details>
           {% elif p.actual %}
             {% if p.gap == 'not_triggered' %}<span class="neg">✗ 回测未触发</span> — 该时间回测已覆盖仍无信号(真差异,计入不匹配)
-            {% elif p.gap == 'bt_stale' %}<span class="badge warn">回测未跑到</span> 库内数据已有 ✅ → 重跑回测即可
             {% elif p.gap == 'data_missing' %}<span class="neg">数据未下载</span> — 库内 M1 未到该时间 → 先去「数据下载」
             {% else %}<span class="neg">回测无信号</span>{% endif %}
           {% else %}<span class="neg">实盘未下单</span> — 疑似 runner 漏单 / 无报价

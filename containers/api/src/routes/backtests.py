@@ -6,6 +6,7 @@
 扩展点: 新增回测指标 = services/backtest.py 的 _metrics() 加字段
        (metrics 是 JSONB, 表结构不用动)。
 """
+import asyncio
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -567,7 +568,7 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
     """关2对账: 用该策略实盘/demo成交(scope: all=demo+live)验证回测 —
     自动取实际成交时间窗 → 切片回测同窗 → 4 个一致率 + 综合分, 落 reconciliations(覆盖)。"""
     strat = await pool.fetchrow(
-        "SELECT s.symbol, s.timeframe, sym.point FROM strategies s"
+        "SELECT s.symbol, s.timeframe, s.template, s.params, sym.point FROM strategies s"
         " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
     if strat is None:
         raise HTTPException(status_code=404, detail="strategy not found")
@@ -586,10 +587,6 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
         return out
     wf = min(a["entry_time"] for a in actual)
     wt = max(a["exit_time"] for a in actual)
-    bt_row = await pool.fetchrow(
-        "SELECT trades, from_time, to_time FROM backtests WHERE strategy_id=$1 AND symbol=$2",
-        strategy_id, strat["symbol"])
-    bt_all = (bt_row["trades"] if bt_row else []) or []
     wf_ts, wt_ts = wf.timestamp(), wt.timestamp()
     # 对比窗口(双模式, 2026-07-16 定):
     #   有运行区间(strategy_runtime) → 分段双边: 只比"策略真实在跑"的时段, 段内照样抓漏单
@@ -610,6 +607,35 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
             windows.append([a_ts - tol, a_ts + tol])
     windows = _merge_windows(windows)
     mode = "segments" if segs else "one_sided"
+    # 对账重放(2026-07-23 定): 比对不用库里全量回测的成交切片, 而是"从实盘上线时刻空仓起跑"
+    # 内存现算一遍 — 起点状态对齐。全量回测是连续模拟, 进窗口时可能正持着仓, 单仓互斥会
+    # 级联堵信号(#3533 实测 8 笔错 6 笔全是这种假差异)。重放不落库; 排名/成绩/回测分析
+    # 继续用全量回测(backtests 表), 两个口径各答各的问题。附带红利: 重放永远新鲜,
+    # "回测过期(bt_stale)"这一类缺口从此不存在。
+    cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
+    costs = {"slippage_points": cfg.get("slippage_points", backtest.DEFAULT_SLIPPAGE_POINTS),
+             "commission_points": cfg.get("commission_points", backtest.DEFAULT_COMMISSION_POINTS),
+             "spread_points": cfg.get("spread_points")}
+    bt_all, replay_to_ts = [], None
+    if strat["point"] and strat["timeframe"] in backtest.TF_SECONDS:
+        try:
+            tf_sec = backtest.TF_SECONDS[strat["timeframe"]]
+            warm = backtest.make_strategy(
+                strat["template"], strat["params"], strat["point"]).warmup
+            lead = warm * tf_sec * 3 + 2 * 86400   # 热身3倍余量+2天: 周末/缺分钟也够
+            m1 = await backtest.load_m1(
+                pool, strat["symbol"],
+                datetime.fromtimestamp(wf_ts - tol - lead, tz=timezone.utc),
+                datetime.fromtimestamp(wt_ts, tz=timezone.utc) + timedelta(days=5))
+            if m1 is not None and len(m1["time"]):
+                res = await asyncio.to_thread(
+                    backtest.run_backtest, m1, strat["template"], strat["params"],
+                    strat["point"], strat["timeframe"], oos_split=None,
+                    start_ts=int(wf_ts - tol), **costs)  # 左端同容差放宽, 首笔信号不被切
+                bt_all = res["trades"]
+                replay_to_ts = int(m1["time"][-1])
+        except Exception as e:  # 重放失败不挡对账页(降级为"回测侧无数据")
+            logger.warning("reconcile replay failed for #%s: %s", strategy_id, e)
     bt = [t for t in bt_all if wf_ts - tol <= t["entry_time"] <= wt_ts
           and any(w0 <= t["entry_time"] <= w1 for w0, w1 in windows)]
     metrics, pairs = _reconcile_metrics(
@@ -618,18 +644,13 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
           "price": a["entry_price"], "exit_price": a["exit_price"], "net": a["net_points"]}
          for a in actual],
         bt, tol=tol, one_sided=(mode == "one_sided"))
-    # 覆盖信息两级: 行情数据(库内M1) / 回测窗口 — 分辨低匹配是'数据没下载'/'回测没跑到'/'真没信号'
-    bt_from, bt_to = (bt_row["from_time"], bt_row["to_time"]) if bt_row else (None, None)
-    if bt_from is not None and bt_from.tzinfo is None:  # naive→aware, 防与 wt(aware)比较 TypeError
-        bt_from = bt_from.replace(tzinfo=timezone.utc)
-    if bt_to is not None and bt_to.tzinfo is None:
-        bt_to = bt_to.replace(tzinfo=timezone.utc)
+    # 覆盖信息: 回测侧=重放实际吃到的范围(重放现算, 永远新鲜; 只剩'数据没下载'/'真没信号'两类)
+    bt_from = datetime.fromtimestamp(wf_ts - tol, tz=timezone.utc) if replay_to_ts else None
+    bt_to = datetime.fromtimestamp(replay_to_ts, tz=timezone.utc) if replay_to_ts else None
     data_to = await pool.fetchval(   # 该品种库内原始 M1 的最新时间(唯一原始数据, 回测的原料)
         "SELECT max(time) FROM historical_bars WHERE symbol=$1 AND timeframe='M1'", strat["symbol"])
     out["broker"] = await pool.fetchval(  # 品种主档的券商 — 补数据提示里点名"下哪家的哪个品种"
         "SELECT broker FROM symbols WHERE symbol=$1", strat["symbol"])
-    bt_from_ts = bt_from.timestamp() if bt_from else None
-    bt_to_ts = bt_to.timestamp() if bt_to else None
     data_to_ts = data_to.timestamp() if data_to else None
     point = float(strat["point"]) if strat["point"] else None
     for p in pairs:  # 配对行补每笔差值(页面详情显示): 入场/出场价差(点+%), 净点差(点+%)
@@ -656,12 +677,10 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
         p["actual"].pop("ts", None)
         if p["bt"] is not None:
             continue
-        if bt_to_ts is not None and (bt_from_ts is None or ts >= bt_from_ts) and ts <= bt_to_ts:
-            p["gap"] = "not_triggered"   # 回测已覆盖该时间仍无信号 = 真差异
-        elif data_to_ts is not None and ts <= data_to_ts:
-            p["gap"] = "bt_stale"        # 库内数据已到, 只是回测没重跑
+        if replay_to_ts is not None and ts <= replay_to_ts:
+            p["gap"] = "not_triggered"   # 重放已覆盖该时间仍无信号 = 真差异
         else:
-            p["gap"] = "data_missing"    # 库内 M1 都没到该时间 → 先下载
+            p["gap"] = "data_missing"    # 库内 M1 未到该时间 → 先下载(重放现算, 无"回测过期")
     def _fmt(ts):
         return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%m-%d %H:%M")
     win_view = [{  # 每段窗口 + 两边笔数(逐笔对照的分组表头); 上限100段防撑爆
@@ -679,8 +698,8 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
                mode=mode, windows=win_view, windows_total=len(windows),
                # 有成交的窗口数(徽章"5段(4活跃·1静默)"用, 消除与两边笔数对不上的歧义)
                windows_active=sum(1 for w in win_view if w["actual"] or w["bt"]),
-               # 回测末尾早于 demo 末尾 = 回测没覆盖到近期 → 提示重跑
-               bt_stale=(bt_to is not None and bt_to < wt),
+               # 重放现算永远新鲜, 不存在"回测过期"(键保留=False, web 老模板兼容)
+               bt_stale=False,
                # 数据覆盖检查: 库内 M1 是否盖住实盘窗口末尾(✅=不用下载, 重跑回测即可)
                data_to=data_to,
                data_cover=(data_to_ts is not None and data_to_ts >= wt.timestamp()))

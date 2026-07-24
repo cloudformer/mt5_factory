@@ -100,7 +100,8 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
                  slippage_points: float = DEFAULT_SLIPPAGE_POINTS,
                  commission_points: float = DEFAULT_COMMISSION_POINTS,
                  spread_points: float | None = None,
-                 oos_split: float | None = 0.7) -> dict:
+                 oos_split: float | None = 0.7,
+                 start_ts: int | None = None) -> dict:
     """单个策略实例回测, 返回 {metrics, trades}
 
     成本模型参数:
@@ -108,6 +109,8 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
     - commission_points: 往返佣金(点数等值), 每笔盈亏中扣除
     - spread_points:     固定点差(点); None=用每根bar记录的真实点差(默认, 推荐)
     - oos_split:         样本外切分比例(训练段占比, 默认0.7; None=不切) → metrics["oos"]
+    - start_ts:          该时刻(epoch)之前只喂指标不开新仓 — 对账重放用, 复现"实盘空仓上线"
+                         (None=从头可开仓, 与历史行为逐字节一致)
     """
     strat = make_strategy(template, params, point)
     tf = aggregate(m1, TF_SECONDS[timeframe])
@@ -122,6 +125,8 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
         j_from, j_to = int(tf["m1_start"][i + 1]), int(tf["m1_end"][i + 1])
 
         if pos is None:
+            if start_ts is not None and m1["time"][j_from] < start_ts:
+                continue  # 起点对齐: 入场bar早于起点 → 空仓略过(指标窗口照常前进)
             sig = strat.on_bar(
                 tf["open"][i - w + 1:i + 1], tf["high"][i - w + 1:i + 1],
                 tf["low"][i - w + 1:i + 1], tf["close"][i - w + 1:i + 1],
