@@ -306,7 +306,7 @@ async def set_status(strategy_id: int, req: StatusRequest, request: Request):
 
 
 @router.get("/strategies/{strategy_id}/trail_compare")
-async def trail_compare(strategy_id: int, request: Request):
+async def trail_compare(strategy_id: int, request: Request, variant: Optional[str] = None):
     """移动止损四档对比(v0.9 第3步): 同一策略全量回测跑 关/固定/保本/ATR 四版,
     内存现算不落库(排名/成绩仍用 backtests 表, 两口径各答各的)。
     档位参数: 策略 params.trail 里有该类就用它, 否则用数据自适应探针
@@ -349,8 +349,11 @@ async def trail_compare(strategy_id: int, request: Request):
             v["keep_tp"] = own["keep_tp"]
         return v
 
+    # variant=某档: 只算那一档并附全量逐笔(点「明细」用) — 同样内存现算不落库
+    types = (variant,) if variant in ("off", "fixed", "breakeven", "atr") \
+        else ("off", "fixed", "breakeven", "atr")
     rows = []
-    for t in ("off", "fixed", "breakeven", "atr"):
+    for t in types:
         p = dict(s["params"] or {})
         p.pop("trail", None)
         tc = _variant(t)
@@ -360,12 +363,19 @@ async def trail_compare(strategy_id: int, request: Request):
             backtest.run_backtest, m1, s["template"], p, point, s["timeframe"],
             oos_split=None, **costs)
         mtr = res["metrics"]
-        rows.append({"type": t, "cfg": tc, "trades": mtr.get("trades"),
-                     "net_points": mtr.get("net_points"), "win_rate": mtr.get("win_rate"),
-                     "profit_factor": mtr.get("profit_factor"),
-                     "max_dd_points": mtr.get("max_dd_points"),
-                     "tsl": sum(1 for x in res["trades"]
-                                if str(x.get("reason", "")).startswith("tsl"))})
+        row = {"type": t, "cfg": tc, "trades": mtr.get("trades"),
+               "net_points": mtr.get("net_points"), "win_rate": mtr.get("win_rate"),
+               "profit_factor": mtr.get("profit_factor"),
+               "max_dd_points": mtr.get("max_dd_points"),
+               "tsl": sum(1 for x in res["trades"]
+                          if str(x.get("reason", "")).startswith("tsl"))}
+        if variant:  # 明细模式: 附逐笔(紧凑列式, 与成绩单同构)
+            row["detail"] = {"cols": ["entry_time", "exit_time", "dir", "entry", "exit",
+                                      "points", "reason"],
+                             "rows": [[x["entry_time"], x.get("exit_time"), x.get("dir"),
+                                       x.get("entry"), x.get("exit"), x.get("points"),
+                                       x.get("reason")] for x in res["trades"]]}
+        rows.append(row)
     return {"strategy_id": strategy_id, "current": own.get("active"),
             "probe_gap": probe_gap, "variants": rows}
 

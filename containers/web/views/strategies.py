@@ -166,9 +166,11 @@ def set_visibility(strategy_id: int):
 
 @bp.get("/<int:strategy_id>/trail_compare")
 def trail_compare(strategy_id: int):
-    """AJAX: 移动止损四档对比(api 内存现算 ×4, 不落库) — 透传"""
+    """AJAX: 移动止损四档对比(api 内存现算, 不落库) — 透传; variant=某档时附逐笔明细"""
+    variant = request.args.get("variant") or None
     try:
-        return api.get(f"/strategies/{strategy_id}/trail_compare")
+        return api.get(f"/strategies/{strategy_id}/trail_compare",
+                       **({"variant": variant} if variant else {}))
     except api.ApiError as e:
         return {"error": str(e)}, 502
 
