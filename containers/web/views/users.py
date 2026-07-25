@@ -12,6 +12,7 @@ bp = Blueprint("admin", __name__, url_prefix="/admin")
 @bp.get("/users")
 def users_page():
     users, keys, wkeys, hosts, overrides, cfg_keys = [], [], [], [], [], []
+    usage_view = {}   # {user_id: {metric: {"today": n, "total": n}}}
     try:
         users = api.get("/users")["users"]
         keys = api.get("/keys")["keys"]
@@ -19,10 +20,14 @@ def users_page():
         hosts = api.get("/hosts")["hosts"]
         overrides = api.get("/user_config")["overrides"]
         cfg_keys = sorted(api.get("/config")["config"].keys())
+        for r in api.get("/usage")["usage"]:
+            usage_view.setdefault(r["user_id"], {})[r["metric"]] = {
+                "today": r["today"], "total": r["used_total"]}
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("admin_users.html", users=users, keys=keys, wkeys=wkeys,
-                           hosts=hosts, overrides=overrides, cfg_keys=cfg_keys)
+                           hosts=hosts, overrides=overrides, cfg_keys=cfg_keys,
+                           usage_view=usage_view)
 
 
 @bp.post("/users/create")

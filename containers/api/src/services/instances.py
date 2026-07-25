@@ -14,6 +14,8 @@ from typing import Optional
 
 from strategy_core import TEMPLATES
 
+from src.services import usage
+
 logger = logging.getLogger("instances")
 
 DEFAULT_BATCH_LIMIT = 500  # 单批收货上限兜底; 实际值读 config 表 generate_batch_limit(生成页可改)
@@ -88,5 +90,6 @@ async def create_instances(pool, template: str, symbol: str, timeframe: str,
     truncated = max(0, len(combos) - limit)
     logger.info("create_instances %s@%s/%s: %d combos → created=%d truncated=%d parent=%s",
                 template, symbol, timeframe, len(results), len(created_ids), truncated, parent_id)
+    await usage.bump_by_owner(pool, "strategies_created", created_ids)  # 用量: 只记录不拦截
     return {"results": results, "created_ids": created_ids,
             "truncated": truncated, "batch_limit": limit}

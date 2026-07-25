@@ -72,6 +72,35 @@
 </section>
 
 <section>
+  <h2>用量(只记录不拦截)</h2>
+  <p class="muted" style="margin:0 0 8px">流量类(回测/AI成绩单/建策略)= usage_counters 单行计数(今日跨天自动翻篇);
+    存量类(策略数/worker数)= 现查现读(COUNT 即真相, 不复制)。quota_* 上限在配置里, 目前只对照观察不拦截。</p>
+  <table class="dense">
+    <thead><tr><th>用户</th>
+      <th title="回测 job 数(策略×品种每个算一次), 记给策略 owner">今日回测</th><th>累计回测</th>
+      <th title="AI成绩单/分析拉取次数">今日AI</th><th>累计AI</th>
+      <th title="新建策略实例数">今日建策略</th><th>累计建策略</th>
+      <th title="存量: 现查 strategies 表">策略总数</th>
+      <th title="存量: 现查 mt5_hosts 表">worker数</th></tr></thead>
+    <tbody>
+    {% for u in users %}
+      {% set uv = usage_view.get(u.id, {}) %}
+      <tr>
+        <td class="mono">{{ u.name }}</td>
+        {% for mkey in ['backtests', 'ai_reports', 'strategies_created'] %}
+        {% set mm = uv.get(mkey) %}
+        <td class="mono">{{ mm.today if mm else 0 }}</td>
+        <td class="mono muted">{{ mm.total if mm else 0 }}</td>
+        {% endfor %}
+        <td class="mono">{{ u.strategies }}</td>
+        <td class="mono">{{ u.workers }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
   <h2>worker 钥匙</h2>
   <p class="muted" style="margin:0 0 8px">发一把钥匙即扩容: 签发 → 写进该机 env 的 <span class="mono">WORKER_KEY</span> → 机器 announce 自动归钥主名下并与钥匙绑定(一机一钥);
     吊销=解绑(换钥匙=吊旧发新)。与上面的 API key 分开管: 这是真金通道的钥匙。</p>

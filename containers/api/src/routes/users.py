@@ -143,6 +143,18 @@ async def set_worker_key_enabled(key_id: int, req: EnabledRequest, request: Requ
     return dict(row)
 
 
+@router.get("/usage")
+async def usage_summary(request: Request):
+    """用量一览(usage_counters, 只记录不拦截): 每 user×指标 一行, 今日=day是今天才有效"""
+    rows = await request.app.state.pool.fetch(
+        "SELECT c.user_id, u.name AS user, c.metric, c.used_total,"
+        "       CASE WHEN c.day = CURRENT_DATE THEN c.day_used ELSE 0 END AS today,"
+        "       c.updated_at"
+        "  FROM usage_counters c JOIN users u ON u.id = c.user_id"
+        " ORDER BY c.user_id, c.metric")
+    return {"usage": [dict(r) for r in rows]}
+
+
 @router.get("/user_config")
 async def list_user_config(request: Request):
     """全部用户配置覆盖行(user_config); 没覆盖的键实时跟随全局默认"""

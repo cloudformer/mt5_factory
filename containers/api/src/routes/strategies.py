@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from src.services import backtest, instances, verify
+from src.services import backtest, instances, usage, verify
 from strategy_core import TEMPLATES, TF_SECONDS, grid_combos, random_combo
 
 logger = logging.getLogger("strategies")
@@ -443,6 +443,7 @@ async def ai_report(strategy_id: int, request: Request):
     身份/参数 + 主品种回测(含 oos/by_year/mae/mfe) + 跨品种 + 可信度(对账) + 实盘
     + 同模板尸体(负样本: 参数+死因码)。喂给 AI 生成器做调参迭代的输入。"""
     pool = request.app.state.pool
+    await usage.bump_by_owner(pool, "ai_reports", [strategy_id])  # 用量: 只记录不拦截
     s = await pool.fetchrow(
         "SELECT id, name, template, params, symbol, timeframe, status, magic_number,"
         "       archive_reason FROM strategies WHERE id=$1", strategy_id)

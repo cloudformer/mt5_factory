@@ -17,7 +17,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import backtest, jobs
+from src.services import backtest, jobs, usage
 
 logger = logging.getLogger("backtests")
 router = APIRouter()
@@ -163,6 +163,8 @@ async def run(req: BacktestRequest, request: Request):
              for sym in ({s["symbol"]} | universe
                          if (qualified is None or s["id"] in qualified) else {s["symbol"]})]
     await jobs.submit_batch(pool, items)
+    # 用量(只记录不拦截): 每个 job(策略×品种)算一次, 记给策略 owner
+    await usage.bump_by_owner(pool, "backtests", [it["strategy_id"] for it in items])
     return {"started": True, "total": len(items), "cross_symbol": req.cross_symbol,
             "cross_qualified": (len(qualified) if qualified is not None else None),
             "cross_gated_out": (len(rows) - len(qualified) if qualified is not None else 0),
