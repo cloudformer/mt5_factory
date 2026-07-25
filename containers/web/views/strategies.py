@@ -29,6 +29,7 @@ def index():
     rank = a.get("rank") or ""  # 排名参数模板名, 空=默认(净点数)
     page = max(a.get("page", 1, type=int), 1)  # 服务端分页页码(1起)
     results, rank_templates, brokers, symbols, templates = [], [], [], [], []
+    mounts_view = {}     # 挂载列: {sid: {rows: [启用挂载], addable: [可加挂的同角色主机]}}
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空, 不用写死值顶(铁律欠账4)
     volume_default = None
     oos_split = 0.7  # 样本外训练段占比(配置页可改), 供页面显示"训练:留出"比例
@@ -64,12 +65,28 @@ def index():
         syms = api.get("/symbols")["symbols"]
         symbols = [s["symbol"] for s in syms if s.get("download")]
         brokers = sorted({s["broker"] for s in syms if s.get("broker")})
+        # 挂载列(v5.0-B2): 整页一次取挂载 + 可加挂的同角色主机(在 python 组好, 模板零逻辑)
+        if results:
+            mnt = api.get("/strategies/mounts",
+                          ids=",".join(str(r["strategy_id"]) for r in results))["mounts"]
+            hosts = [h for h in api.get("/hosts")["hosts"]
+                     if h.get("enabled") and h.get("runner")]
+            for r in results:
+                rows_m = [x for x in mnt.get(str(r["strategy_id"]), []) if x["enabled"]]
+                role = (r.get("status") or "").lower()
+                used = {x["host_id"] for x in rows_m}
+                mounts_view[str(r["strategy_id"])] = {
+                    "rows": rows_m,
+                    "addable": ([h for h in hosts if h["runner"] == role
+                                 and h["id"] not in used]
+                                if role in ("demo", "live") else []),
+                }
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     total_pages = max((total + page_size - 1) // page_size, 1)  # 向上取整
     base_args = {k: v for k, v in a.items() if k != "page"}     # 翻页链接保留其它筛选
     return render_template("strategies.html", results=results, volume_presets=volume_presets,
-                           volume_default=volume_default,
+                           volume_default=volume_default, mounts_view=mounts_view,
                            symbol=symbol, broker=broker, min_actual_trades=min_actual_trades,
                            status=status, min_trades=min_trades, q_field=q_field, q_text=q_text,
                            filters=filters, positive=positive, oos=oos, rank=rank,
@@ -128,6 +145,42 @@ def analysis():
         except api.ApiError as e:
             flash(f"分析失败: {e}", "error")
     return render_template("strategy_analysis.html", recon=recon, ana=ana, sid=sid)
+
+
+@bp.post("/<int:strategy_id>/mount")
+def set_mount(strategy_id: int):
+    """挂载到某台 worker / 改某挂载点手数(host_id + 可选 volume; 选完即提交)"""
+    raw = request.form.get("volume", "").strip()
+    try:
+        payload = {"host_id": int(request.form["host_id"])}
+        if raw:
+            payload["volume"] = float(raw)
+        r = api.post(f"/strategies/{strategy_id}/mounts", payload)
+        flash(f"#{strategy_id} 挂载 @ {r['host']} · 手数 "
+              f"{('%g' % r['volume']) if r.get('volume') is not None else '默认'}"
+              " — runner 下一轮生效", "ok")
+    except (ValueError, KeyError):
+        flash("host_id/手数格式错误", "error")
+    except api.ApiError as e:
+        flash(f"挂载失败: {e}", "error")
+    return redirect(request.referrer or url_for("strategies.index"))
+
+
+@bp.post("/<int:strategy_id>/unmount")
+def unmount(strategy_id: int):
+    """卸载某挂载点(软停用, 保留手数记忆; 全卸=该策略停跑但状态不变)"""
+    try:
+        r = api.delete(f"/strategies/{strategy_id}/mounts/{int(request.form['host_id'])}")
+        if r["remaining"]:
+            flash(f"#{strategy_id} 已卸载该机, 其余 {r['remaining']} 个挂载点继续跑", "ok")
+        else:
+            flash(f"#{strategy_id} 已无任何挂载 — 停跑(状态不变); 重新挂载或状态切走再切回可恢复",
+                  "error")
+    except (ValueError, KeyError):
+        flash("host_id 格式错误", "error")
+    except api.ApiError as e:
+        flash(f"卸载失败: {e}", "error")
+    return redirect(request.referrer or url_for("strategies.index"))
 
 
 @bp.get("/reconcile_stats")

@@ -370,8 +370,9 @@ document.addEventListener("DOMContentLoaded", () =>
   document.querySelectorAll("table[data-colpick]").forEach(initColPick));
 
 /* 手数下拉: 选完即提交(与状态下拉同交互, 不用再点「改」);
-   走原生表单提交 → LIVE 行的 onsubmit 二次确认照常拦截, flash 照常显示 */
+   走原生表单提交 → LIVE 行的 onsubmit 二次确认照常拦截, flash 照常显示。
+   data-autosubmit = 同交互的通用版(挂载列的 加挂/挂载点手数 等新下拉一律用它) */
 document.addEventListener("change", (e) => {
-  const sel = e.target.closest("select[data-volume-select]");
+  const sel = e.target.closest("select[data-volume-select], select[data-autosubmit]");
   if (sel && sel.form) sel.form.requestSubmit();
 });

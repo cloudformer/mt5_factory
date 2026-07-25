@@ -324,6 +324,78 @@ async def set_volume(strategy_id: int, req: VolumeRequest, request: Request):
     return dict(row)
 
 
+class MountRequest(BaseModel):
+    host_id: int
+    volume: Optional[float] = None   # 空=该挂载点回落 策略手数→全局默认
+
+
+@router.get("/strategies/mounts")
+async def list_mounts(request: Request, ids: str):
+    """批量取挂载(策略列表页整页一次取; ids=逗号分隔的策略id)"""
+    try:
+        idl = [int(s) for s in ids.split(",") if s.strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="ids 须为逗号分隔的数字")
+    if not idl:
+        return {"mounts": {}}
+    rows = await request.app.state.pool.fetch(
+        "SELECT m.strategy_id, m.host_id, h.name AS host, h.runner, m.volume, m.enabled"
+        "  FROM strategy_mounts m JOIN mt5_hosts h ON h.id = m.host_id"
+        " WHERE m.strategy_id = ANY($1) ORDER BY h.name", idl)
+    out: dict = {}
+    for r in rows:
+        out.setdefault(str(r["strategy_id"]), []).append(dict(r))
+    return {"mounts": out}
+
+
+@router.post("/strategies/{strategy_id}/mounts")
+async def set_mount(strategy_id: int, req: MountRequest, request: Request):
+    """挂载/改挂载点手数(UPSERT enabled=true)。一策略可挂多台该角色 worker(多账户同时跑,
+    trades 按 account 天然分开)。两把钥匙防呆: host 角色必须匹配策略状态; owner 匹配。"""
+    if req.volume is not None and not (0 < req.volume <= 100):
+        raise HTTPException(status_code=400, detail="volume 须在 (0, 100] 之间, 或留空=用默认")
+    pool = request.app.state.pool
+    s = await pool.fetchrow(
+        "SELECT id, status, owner_id FROM strategies WHERE id=$1", strategy_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    if s["status"] not in ("DEMO", "LIVE"):
+        raise HTTPException(status_code=400,
+                            detail=f"策略状态 {s['status']} 不可挂载 — 先转 DEMO/LIVE")
+    h = await pool.fetchrow(
+        "SELECT id, name, runner, enabled, owner_id FROM mt5_hosts WHERE id=$1", req.host_id)
+    if h is None or not h["enabled"]:
+        raise HTTPException(status_code=404, detail="host 不存在或未启用")
+    if (h["runner"] or "") != s["status"].lower():
+        raise HTTPException(status_code=400,
+                            detail=f"角色不匹配: 策略是 {s['status']}, 主机 {h['name']} 职能是 {h['runner'] or '无'}")
+    if h["owner_id"] != s["owner_id"]:
+        raise HTTPException(status_code=400, detail="不能挂到别人的 worker")
+    await pool.execute(
+        "INSERT INTO strategy_mounts (strategy_id, host_id, volume) VALUES ($1, $2, $3)"
+        " ON CONFLICT (strategy_id, host_id) DO UPDATE SET"
+        "   volume = EXCLUDED.volume, enabled = true",
+        strategy_id, req.host_id, req.volume)
+    logger.info("mount #%d -> %s volume=%s", strategy_id, h["name"], req.volume)
+    return {"strategy_id": strategy_id, "host": h["name"], "volume": req.volume}
+
+
+@router.delete("/strategies/{strategy_id}/mounts/{host_id}")
+async def del_mount(strategy_id: int, host_id: int, request: Request):
+    """卸载 = 软停用(enabled=false): 保留手数记忆; 状态联动的 NOT EXISTS 不会自动复活它
+    (想复活: 挂载下拉重新挂, 或状态切走再切回=清空重挂)。"""
+    pool = request.app.state.pool
+    n = await pool.execute(
+        "UPDATE strategy_mounts SET enabled=false WHERE strategy_id=$1 AND host_id=$2",
+        strategy_id, host_id)
+    if n == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="mount not found")
+    remaining = await pool.fetchval(
+        "SELECT count(*) FROM strategy_mounts WHERE strategy_id=$1 AND enabled", strategy_id)
+    logger.info("unmount #%d host=%d remaining=%d", strategy_id, host_id, remaining)
+    return {"strategy_id": strategy_id, "host_id": host_id, "remaining": int(remaining)}
+
+
 # 孤儿策略: 品种已从主档删除、永远跑不了的策略(如旧 BTCUSD)。只算未归档的(归档=已处理)。
 _ORPHAN_WHERE = "symbol NOT IN (SELECT symbol FROM symbols) AND status <> 'ARCHIVED'"
 
