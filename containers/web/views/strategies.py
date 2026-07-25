@@ -164,6 +164,17 @@ def set_visibility(strategy_id: int):
     return redirect(request.referrer or url_for("strategies.index"))
 
 
+@bp.post("/<int:strategy_id>/basis")
+def set_basis(strategy_id: int):
+    """编辑备注(basis) — AJAX 失焦即存, 回 JSON; 当前版本唯一可编辑的注释"""
+    try:
+        r = api.post(f"/strategies/{strategy_id}/basis",
+                     {"basis": request.form.get("basis", "")})
+        return {"id": r["id"], "basis": r["basis"]}
+    except api.ApiError as e:
+        return {"error": str(e)}, 400
+
+
 @bp.get("/market")
 def market():
     """策略市场(v5.4 雏形, 只读): public/shared 策略的成绩摘要+实盘汇总。
@@ -246,6 +257,20 @@ def mount_cell(strategy_id: int):
         pass
     return render_template("_mount_cell.html", mc_sid=strategy_id, mc_status=status,
                            mc_mv=mv, volume_presets=volume_presets)
+
+
+@bp.post("/heal_points")
+def heal_points():
+    """point 漂移一键治愈(v0.7): 按原始价格×当前point 重算该品种全部 net_points(幂等)"""
+    try:
+        r = api.post("/trades/heal_points", {"symbol": request.form["symbol"]})
+        flash(f"{r['symbol']} 已按当前 point({'%g' % r['point']}) 重算 {r['updated']} 笔 net_points"
+              " — 刷新即可看到红条消失", "ok")
+    except KeyError:
+        flash("缺少品种参数", "error")
+    except api.ApiError as e:
+        flash(f"治愈失败: {e}", "error")
+    return redirect(request.referrer or url_for("strategies.analysis"))
 
 
 @bp.get("/reconcile_stats")

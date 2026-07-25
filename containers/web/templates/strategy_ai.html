@@ -255,13 +255,24 @@
   <div class="idbox" id="fam-idbox">{{ missing | join(',') }}</div>
   <p class="muted" id="fam-bt-hint">回测按ID点名(只跑主品种, 不走门槛); 跑完本页自动重载。</p>
   {% endif %}
-  {{ m.table_toolbar('ai-family', hint='本页即时过滤') }}
+  {# 人工关口(2026-07-25): 看完成绩就地留/汰, 不用再跳「策略列表排名」。
+     勾选框只在 非父+CANDIDATE 行; 留下=转DEMO(走漏斗正门, set_status 检查有demo机+分magic+挂载联动),
+     淘汰=归档(可逆, 留尸体防AI重复生成)。AJAX 逐个调 /status 端点复用全部逻辑 #}
+  <div class="flex-between" style="margin-top:8px">
+    {{ m.table_toolbar('ai-family', hint='本页即时过滤') }}
+    <span><span id="fam-sel-n" class="muted">未选</span>
+      <button type="button" class="small" id="fam-keep-btn" disabled>留下→转DEMO</button>
+      <button type="button" class="small" id="fam-arch-btn" disabled>淘汰→归档</button></span>
+  </div>
   <table id="ai-family" class="dense">
-    <tr><th data-nosort>#</th><th>ID</th><th>参数</th><th>状态</th><th>笔数</th><th>净点</th>
+    <tr><th data-nosort><input type="checkbox" id="fam-all" title="全选本页候选"></th>
+        <th data-nosort>#</th><th>ID</th><th>参数</th><th>状态</th><th>笔数</th><th>净点</th>
         <th>PF</th><th title="样本外留出段净点 — 一票否决位">留出净点</th>
-        <th title="第90分位最大浮亏(点) — 调SL依据">MAE p90</th><th>回撤</th></tr>
+        <th title="第90分位最大浮亏(点) — 调SL依据">MAE p90</th><th>回撤</th>
+        <th data-nosort title="备注(生成时是AI生因, 可就地改/补; 失焦即存)">备注</th></tr>
     {% for f in family %}
     <tr {% if f.is_parent %}class="row-marked"{% endif %}>
+      <td>{% if not f.is_parent and f.status == 'CANDIDATE' %}<input type="checkbox" class="fam-pick" value="{{ f.id }}">{% endif %}</td>
       <td class="rownum muted"></td>
       <td class="mono">{{ f.id }}{% if f.is_parent %} <span class="badge">父</span>{% endif %}</td>
       <td class="clip" title="{{ f.params }}{% if f.basis %} · 生因: {{ f.basis }}{% endif %}{% if f.created_at %} · {{ f.created_at[:16] | replace('T', ' ') }}{% endif %}">{% for k, v in (f.params or {}).items() %}{{ k }}={{ v }} {% endfor %}</td>
@@ -272,11 +283,13 @@
       <td class="{{ 'neg' if f.holdout_net is not none and f.holdout_net <= 0 else '' }}">{{ f.holdout_net if f.holdout_net is not none else '—' }}{% if f.holdout_trades %} <span class="muted">({{ f.holdout_trades }})</span>{% endif %}</td>
       <td class="muted">{{ f.mae_p90 if f.mae_p90 is not none else '—' }}</td>
       <td class="muted">{{ f.max_dd_points if f.max_dd_points is not none else '—' }}</td>
+      <td><input class="small basis-edit" data-id="{{ f.id }}" value="{{ f.basis or '' }}"
+             placeholder="备注…" title="失焦即存(AI生因可就地改/补)" style="width:150px"></td>
     </tr>
     {% endfor %}
   </table>
   <p class="muted">净点绿 = 胜过父策略 · 留出净点红 = 留出段亏(过拟合嫌疑, 候选淘汰位) ·
-    看完在「策略列表排名」用死因码归档淘汰者 · 晋级 demo/live 照走漏斗, AI 不开后门。</p>
+    勾选候选就地 留下(转DEMO 走漏斗正门)/ 淘汰(归档可逆) · 晋级 demo/live 照走漏斗, AI 不开后门。</p>
   {% endif %}
 </section>
 {% endif %}
@@ -305,6 +318,80 @@
   });
   btn.addEventListener("click", () =>
     window.aiStartBacktest(btn, document.getElementById("fam-bt-hint"), ids));
+})();
+
+// 人工关口: 勾选候选 → 留下(转DEMO)/淘汰(归档)。AJAX 逐个调 /status(复用漏斗全部逻辑), 完成重载
+(function () {
+  const keepBtn = document.getElementById("fam-keep-btn");
+  if (!keepBtn) return;
+  const archBtn = document.getElementById("fam-arch-btn");
+  const selN = document.getElementById("fam-sel-n");
+  const allBox = document.getElementById("fam-all");
+  const picks = () => [...document.querySelectorAll(".fam-pick:checked")];
+
+  function refresh() {
+    const n = picks().length;
+    selN.textContent = n ? `已选 ${n}` : "未选";
+    keepBtn.disabled = archBtn.disabled = !n;
+  }
+  document.addEventListener("change", (e) => {
+    if (e.target.classList.contains("fam-pick")) refresh();
+    if (e.target === allBox)
+      document.querySelectorAll(".fam-pick").forEach((c) => (c.checked = allBox.checked)), refresh();
+  });
+
+  async function apply(status, label) {
+    const ids = picks().map((c) => c.value);
+    if (!ids.length) return;
+    if (!confirm(`把选中的 ${ids.length} 个候选 ${label}?`)) return;
+    keepBtn.disabled = archBtn.disabled = true;
+    let done = 0, fail = 0;
+    const q = ids.slice();
+    async function worker() {
+      while (q.length) {
+        const id = q.shift();
+        try {
+          const r = await fetch(`/strategies/${id}/status`, {
+            method: "POST", headers: { "X-Requested-With": "fetch",
+              "Content-Type": "application/x-www-form-urlencoded" },
+            body: "status=" + status,
+          });
+          if (!r.ok) fail++;
+        } catch (e) { fail++; }
+        done++;
+        selN.textContent = `处理 ${done}/${ids.length}` + (fail ? ` (失败${fail})` : "");
+      }
+    }
+    await Promise.all([worker(), worker()]);
+    // 转DEMO若无demo机会失败(set_status 拦) → 提示; 完成后重载看家族表新状态
+    if (fail) alert(`${fail} 个失败(转DEMO需先有demo执行主机, 或去Workers页指派)`);
+    location.reload();
+  }
+  keepBtn.addEventListener("click", () => apply("DEMO", "留下→转入 DEMO 模拟验证"));
+  archBtn.addEventListener("click", () => apply("ARCHIVED", "淘汰→归档(可逆, 留尸体防重复生成)"));
+})();
+
+// 备注就地编辑(basis): 失焦即存, 值变了才发; 成功闪绿失败闪红并回退
+(function () {
+  document.addEventListener("focusin", (e) => {
+    if (e.target.classList.contains("basis-edit")) e.target.dataset.orig = e.target.value;
+  });
+  document.addEventListener("focusout", async (e) => {
+    const el = e.target;
+    if (!el.classList.contains("basis-edit") || el.value === el.dataset.orig) return;
+    try {
+      const r = await fetch(`/strategies/${el.dataset.id}/basis`, {
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "basis=" + encodeURIComponent(el.value),
+      });
+      if (!r.ok) throw 0;
+      el.dataset.orig = el.value;
+      el.style.background = "#ecfdf3"; setTimeout(() => (el.style.background = ""), 600);
+    } catch (_) {
+      el.value = el.dataset.orig; el.style.background = "#fde8e8";
+      setTimeout(() => (el.style.background = ""), 800);
+    }
+  });
 })();
 </script>
 {% endblock %}

@@ -305,6 +305,22 @@ async def set_status(strategy_id: int, req: StatusRequest, request: Request):
     return dict(row)
 
 
+class BasisRequest(BaseModel):
+    basis: str
+
+
+@router.post("/strategies/{strategy_id}/basis")
+async def set_basis(strategy_id: int, req: BasisRequest, request: Request):
+    """编辑备注(basis): 生成时是 AI 生因, 之后人工可就地改/补(当前版本唯一可编辑的注释)。"""
+    val = req.basis.strip() or None
+    row = await request.app.state.pool.fetchrow(
+        "UPDATE strategies SET basis=$2, updated_at=now() WHERE id=$1 RETURNING id, basis",
+        strategy_id, val)
+    if row is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    return dict(row)
+
+
 class VolumeRequest(BaseModel):
     volume: Optional[float] = None  # None/空 = 清除, runner 回落到自己的 env 默认(0.01)
 
