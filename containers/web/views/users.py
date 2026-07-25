@@ -1,7 +1,5 @@
-"""用户管理后台(v5.5): 建用户/启停/发key/配置覆盖/划worker 页面化 — 机制在 5.1~5.3 的表,
+"""用户管理后台(v5.5): 建用户/启停/发两类key/用量观察 — 机制在 5.1~5.3 的表,
 这里只是操作台。认证 v5.6 才接: 当前与全站同一安全水位(内网单人), 5.6 前不要暴露公网。"""
-import json as _json
-
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 import api_client as api
@@ -11,23 +9,20 @@ bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 @bp.get("/users")
 def users_page():
-    users, keys, wkeys, hosts, overrides, cfg_keys = [], [], [], [], [], []
+    users, keys, wkeys, hosts = [], [], [], []
     usage_view = {}   # {user_id: {metric: {"today": n, "total": n}}}
     try:
         users = api.get("/users")["users"]
         keys = api.get("/keys")["keys"]
         wkeys = api.get("/worker_keys")["worker_keys"]
         hosts = api.get("/hosts")["hosts"]
-        overrides = api.get("/user_config")["overrides"]
-        cfg_keys = sorted(api.get("/config")["config"].keys())
         for r in api.get("/usage")["usage"]:
             usage_view.setdefault(r["user_id"], {})[r["metric"]] = {
                 "today": r["today"], "total": r["used_total"]}
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("admin_users.html", users=users, keys=keys, wkeys=wkeys,
-                           hosts=hosts, overrides=overrides, cfg_keys=cfg_keys,
-                           usage_view=usage_view)
+                           hosts=hosts, usage_view=usage_view)
 
 
 @bp.post("/users/create")
@@ -98,34 +93,5 @@ def toggle_worker_key(key_id: int):
     return redirect(url_for("admin.users_page"))
 
 
-@bp.post("/user_config/set")
-def set_user_config():
-    raw = request.form.get("value", "").strip()
-    try:
-        value = _json.loads(raw)   # 数字/数组/对象照原样; 不是合法 JSON 就按字符串存
-    except ValueError:
-        value = raw
-    try:
-        uid = int(request.form["user_id"])
-        key = request.form["key"].strip()
-        api.put(f"/users/{uid}/config/{key}", {"value": value})
-        flash(f"用户 #{uid} 覆盖 {key} = {value}", "ok")
-    except (ValueError, KeyError):
-        flash("参数格式错误", "error")
-    except api.ApiError as e:
-        flash(f"写覆盖失败: {e}", "error")
-    return redirect(url_for("admin.users_page"))
-
-
-@bp.post("/user_config/del")
-def del_user_config():
-    try:
-        uid = int(request.form["user_id"])
-        key = request.form["key"]
-        api.delete(f"/users/{uid}/config/{key}")
-        flash(f"用户 #{uid} 的 {key} 覆盖已删 — 回落全局默认", "ok")
-    except (ValueError, KeyError):
-        flash("参数格式错误", "error")
-    except api.ApiError as e:
-        flash(f"删除失败: {e}", "error")
-    return redirect(url_for("admin.users_page"))
+# 配置覆盖(user_config)编辑路由已撤(2026-07-25): 原始JSON键值编辑不好用 —
+# 机制保留在库(034), 将来做成配置页式的按用户编辑(随 5.6)

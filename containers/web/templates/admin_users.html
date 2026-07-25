@@ -155,37 +155,6 @@
   </table>
 </section>
 
-<section>
-  <h2>配置覆盖(user_config)</h2>
-  <p class="muted" style="margin:0 0 8px">用户自己的行有→用, 没有→实时跟随全局默认(配置页); 删除覆盖=回落默认。quota_* 为配额键(v5.6 起用户自己不可改, 只有这里能设)。</p>
-  <form method="post" action="{{ url_for('admin.set_user_config') }}" class="inline" style="margin-bottom:8px">
-    <select name="user_id" class="small">
-      {% for u in users %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}
-    </select>
-    <select name="key" class="small">
-      {% for k in cfg_keys %}<option value="{{ k }}">{{ k }}</option>{% endfor %}
-    </select>
-    <input name="value" class="small" placeholder="值(JSON: 100 / [0.01,0.1] / &quot;text&quot;)" required style="width:220px">
-    <button class="small">写覆盖</button>
-  </form>
-  <table class="dense">
-    <thead><tr><th>用户</th><th>键</th><th>覆盖值</th><th data-nosort>操作</th></tr></thead>
-    <tbody>
-    {% for o in overrides %}
-      <tr>
-        <td class="mono">{{ o.user }}</td>
-        <td class="mono">{{ o.key }}</td>
-        <td class="mono">{{ o.value }}</td>
-        <td><form method="post" action="{{ url_for('admin.del_user_config') }}" class="inline"
-              onsubmit="return confirm('删除 {{ o.user }} 的 {{ o.key }} 覆盖 — 回落全局默认?')">
-          <input type="hidden" name="user_id" value="{{ o.user_id }}">
-          <input type="hidden" name="key" value="{{ o.key }}">
-          <button class="small">删</button>
-        </form></td>
-      </tr>
-    {% endfor %}
-    {% if not overrides %}<tr><td colspan="4" class="muted">没有任何覆盖 — 所有用户全部实时跟随全局默认</td></tr>{% endif %}
-    </tbody>
-  </table>
-</section>
+{# 配置覆盖(user_config)编辑 UI 已撤(2026-07-25 Frank: 原始JSON键值编辑不好用) —
+   机制(user_config 表, 空覆盖层+回落全局)保留; 将来做成配置页式的按用户编辑, 随 5.6 一起 #}
 {% endblock %}

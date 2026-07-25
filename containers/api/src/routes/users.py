@@ -155,39 +155,5 @@ async def usage_summary(request: Request):
     return {"usage": [dict(r) for r in rows]}
 
 
-@router.get("/user_config")
-async def list_user_config(request: Request):
-    """全部用户配置覆盖行(user_config); 没覆盖的键实时跟随全局默认"""
-    rows = await request.app.state.pool.fetch(
-        "SELECT c.user_id, u.name AS user, c.key, c.value"
-        "  FROM user_config c JOIN users u ON u.id = c.user_id ORDER BY c.user_id, c.key")
-    return {"overrides": [dict(r) for r in rows]}
-
-
-class ValueRequest(BaseModel):
-    value: object
-
-
-@router.put("/users/{user_id}/config/{key}")
-async def set_user_config(user_id: int, key: str, req: ValueRequest, request: Request):
-    """写覆盖行(UPSERT); key 外键=只能覆盖真实存在的全局键(数据库执法)"""
-    try:
-        await request.app.state.pool.execute(
-            "INSERT INTO user_config (user_id, key, value) VALUES ($1, $2, $3)"
-            " ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value",
-            user_id, key, req.value)
-    except asyncpg.ForeignKeyViolationError:
-        raise HTTPException(status_code=400,
-                            detail=f"键 {key} 不存在于全局 config, 或用户不存在")
-    logger.info("user_config #%d %s = %s", user_id, key, req.value)
-    return {"user_id": user_id, "key": key, "value": req.value}
-
-
-@router.delete("/users/{user_id}/config/{key}")
-async def del_user_config(user_id: int, key: str, request: Request):
-    """删覆盖行 = 该键回落全局默认(空覆盖层模型的"恢复默认")"""
-    n = await request.app.state.pool.execute(
-        "DELETE FROM user_config WHERE user_id=$1 AND key=$2", user_id, key)
-    if n == "DELETE 0":
-        raise HTTPException(status_code=404, detail="override not found")
-    return {"deleted": True, "user_id": user_id, "key": key}
+# user_config 的读写端点已撤(2026-07-25 Frank: 原始JSON键值编辑不好用) —
+# 表与"空覆盖层+回落全局"机制保留(schema/034), 读取路径与配置页式的按用户编辑随 v5.6 一起做
