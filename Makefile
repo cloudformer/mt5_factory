@@ -10,6 +10,10 @@ up:  # 启动(必要时重建镜像) → 等 healthcheck → 冒烟测试; schem
 test:  # 手动冒烟测试
 	@./scripts/smoke.sh
 
+test-engine:  # 引擎回归测试(v2.4): 撮合/聚合/指标/对账/集成 — 改引擎前后必跑
+	@pip install -q -r containers/api/requirements-dev.txt && \
+	  python -m pytest containers/api/tests -q
+
 down:
 	$(COMPOSE) down
 
