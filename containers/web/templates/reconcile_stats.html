@@ -53,8 +53,10 @@
   <div style="overflow-x:auto">
   <table id="rs-table" class="dense" data-colpick>
     <thead>
-      <tr><th>ID</th><th>名称</th><th>品种</th><th>状态</th><th>模板</th>
-        <th title="trades 表该策略的 demo+live 回合数">实盘笔数</th>
+      <tr><th>ID</th><th>名称</th><th>品种</th>
+        <th title="对账单位=策略×账户(v5.0-B2b): 同策略多账户各一行, 各自独立对账(券商记分卡)">账户</th>
+        <th>状态</th><th>模板</th>
+        <th title="trades 表该策略×该账户的回合数">实盘笔数</th>
         <th title="窗口内 实盘和重放都出现且时间配上的笔数">配对</th>
         <th>笔数率</th><th>方向率</th>
         <th title="综合匹配度 0~100, ≥90=回测可信">匹配分</th><th>达标</th>
@@ -63,15 +65,17 @@
     </thead>
     <tbody>
       {% for r in rows %}
-      <tr data-id="{{ r.id }}" data-trades="{{ r.live_trades }}" data-status="{{ r.status }}"
+      <tr data-id="{{ r.id }}" data-account="{{ r.account }}" data-trades="{{ r.live_trades }}"
+          data-status="{{ r.status }}"
           data-symbol="{{ r.symbol }}" data-template="{{ r.template }}"
           data-score="{{ r.score if r.score is not none else -1 }}"
           data-paired="{{ r.paired or 0 }}" data-union="{{ r.union or 0 }}">
-        <td class="mono"><a href="{{ url_for('strategies.analysis', strategy_id=r.id) }}"
-            title="打开人工策略分析(逐笔对照)">{{ r.id }}</a></td>
+        <td class="mono"><a href="{{ url_for('strategies.analysis', strategy_id=r.id, account=r.account) }}"
+            title="打开人工策略分析(该账户的逐笔对照)">{{ r.id }}</a></td>
         <td class="mono muted" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
             title="{{ r.name }}">{{ r.name }}</td>
         <td class="mono">{{ r.symbol }}</td>
+        <td class="mono">{{ r.account }}</td>
         <td>{{ m.status_label(r.status) }}</td>
         <td class="mono muted">{{ r.template }}</td>
         <td class="mono">{{ r.live_trades }}</td>
@@ -125,42 +129,50 @@
   sels.forEach(s => s.addEventListener('change', applyFilter));
   applyFilter();
 
-  function updateRow(tr, r) {
-    tr.dataset.score = r.score ?? -1;
-    tr.dataset.paired = r.paired ?? 0;
-    tr.dataset.union = r.union ?? 0;
+  function updateRow(tr, a) {   // a = accounts 列表里该账户那项(v5.0-B2b)
+    tr.dataset.score = a.match_score ?? -1;
+    tr.dataset.paired = a.paired ?? 0;
+    tr.dataset.union = a.union ?? 0;
     const c = k => tr.querySelector(`[data-c="${k}"]`);
-    c('paired').textContent = r.paired != null ? `${r.paired}${r.union ? ' / ' + r.union : ''}` : '—';
-    c('count_rate').textContent = r.count_rate != null ? (r.count_rate * 100).toFixed(1) + '%' : '—';
-    c('dir_rate').textContent = r.dir_rate != null ? (r.dir_rate * 100).toFixed(1) + '%' : '—';
-    c('score').innerHTML = r.score != null ? `<b>${r.score}</b>` : '<span class="muted">未算</span>';
-    c('pass').innerHTML = r.score == null ? '<span class="muted">—</span>'
-      : (r.score >= 90 ? '<span class="pos">✅</span>' : '<span class="neg">❌</span>');
-    c('bias').textContent = r.net_bias_pct != null ? (r.net_bias_pct > 0 ? '+' : '') + r.net_bias_pct.toFixed(1) + '%' : '—';
+    c('paired').textContent = a.paired != null ? `${a.paired}${a.union ? ' / ' + a.union : ''}` : '—';
+    c('count_rate').textContent = a.count_rate != null ? (a.count_rate * 100).toFixed(1) + '%' : '—';
+    c('dir_rate').textContent = a.dir_rate != null ? (a.dir_rate * 100).toFixed(1) + '%' : '—';
+    c('score').innerHTML = a.match_score != null ? `<b>${a.match_score}</b>` : '<span class="muted">未算</span>';
+    c('pass').innerHTML = a.match_score == null ? '<span class="muted">—</span>'
+      : (a.match_score >= 90 ? '<span class="pos">✅</span>' : '<span class="neg">❌</span>');
+    c('bias').textContent = a.net_bias_pct != null ? (a.net_bias_pct > 0 ? '+' : '') + a.net_bias_pct.toFixed(1) + '%' : '—';
     c('at').textContent = '刚刚';
   }
 
   const btn = document.getElementById('rs-recalc'), prog = document.getElementById('rs-prog');
   btn.addEventListener('click', async () => {
     const all = rows();
-    if (!all.length || !confirm(`重算全部 ${all.length} 个策略的对账(每个约1秒)?`)) return;
+    // 一次重算 = 一个策略全部账户(api 整组算) → 按策略去重, 响应按账户回填各行
+    const bySid = {};
+    all.forEach(tr => (bySid[tr.dataset.id] = bySid[tr.dataset.id] || []).push(tr));
+    const sids = Object.keys(bySid);
+    if (!sids.length || !confirm(`重算全部 ${sids.length} 个策略(${all.length} 个账户行, 每策略约1秒)?`)) return;
     btn.disabled = true;
     let done = 0, fail = 0;
-    const queue = all.slice();
+    const queue = sids.slice();
     async function worker() {
       while (queue.length) {
-        const tr = queue.shift();
+        const sid = queue.shift();
         try {
-          const r = await fetch(`/strategies/${tr.dataset.id}/reconcile`,
+          const r = await fetch(`/strategies/${sid}/reconcile`,
             { method: 'POST', headers: { 'X-Requested-With': 'fetch' } }).then(x => x.json());
-          if (r.error) fail++; else updateRow(tr, r);
+          if (r.error) fail++;
+          else bySid[sid].forEach(tr => {
+            const a = (r.accounts || []).find(x => String(x.account) === tr.dataset.account);
+            if (a) updateRow(tr, a);
+          });
         } catch (e) { fail++; }
         done++;
-        prog.textContent = `↻ ${done}/${all.length}` + (fail ? ` (失败${fail})` : '');
+        prog.textContent = `↻ ${done}/${sids.length}` + (fail ? ` (失败${fail})` : '');
       }
     }
-    await Promise.all([worker(), worker()]);   // 并发2: 不炸api, 42个约半分钟
-    prog.textContent = `✓ ${done - fail}/${all.length}` + (fail ? ` (失败${fail})` : '');
+    await Promise.all([worker(), worker()]);   // 并发2: 不炸api
+    prog.textContent = `✓ ${done - fail}/${sids.length}` + (fail ? ` (失败${fail})` : '');
     btn.disabled = false;
     applyFilter();
   });

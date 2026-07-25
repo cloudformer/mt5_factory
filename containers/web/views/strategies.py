@@ -134,10 +134,12 @@ def analysis():
     """策略分析: 关2对账(输入策略id → 回测 vs 实盘 match%); v1.4 更多归因维度待建"""
     sid = request.args.get("strategy_id", type=int)
     a_symbol = request.args.get("symbol") or None   # 归因看哪个品种的回测(默认主品种)
+    a_account = request.args.get("account", type=int)  # 看哪个账户的对账(缺省=主账户)
     recon, ana = None, None
     if sid:
         try:
-            recon = api.get(f"/reconcile/{sid}")     # 对账恒用主品种(实盘只在主品种交易)
+            recon = api.get(f"/reconcile/{sid}",     # 对账恒用主品种(实盘只在主品种交易)
+                            **({"account": a_account} if a_account else {}))
         except api.ApiError as e:
             flash(f"对账失败: {e}", "error")
         try:
@@ -149,19 +151,27 @@ def analysis():
 
 @bp.post("/<int:strategy_id>/mount")
 def set_mount(strategy_id: int):
-    """挂载到某台 worker / 改某挂载点手数(host_id + 可选 volume; 选完即提交)"""
+    """挂载到某台 worker / 改某挂载点手数(host_id + 可选 volume; 选完即提交)。
+    AJAX(X-Requested-With: fetch)= 回 JSON 由前端原地重取挂载格; 普通提交 = flash+跳回"""
+    is_fetch = request.headers.get("X-Requested-With") == "fetch"
     raw = request.form.get("volume", "").strip()
     try:
         payload = {"host_id": int(request.form["host_id"])}
         if raw:
             payload["volume"] = float(raw)
         r = api.post(f"/strategies/{strategy_id}/mounts", payload)
+        if is_fetch:
+            return {"ok": True}
         flash(f"#{strategy_id} 挂载 @ {r['host']} · 手数 "
               f"{('%g' % r['volume']) if r.get('volume') is not None else '默认'}"
               " — runner 下一轮生效", "ok")
     except (ValueError, KeyError):
+        if is_fetch:
+            return {"error": "host_id/手数格式错误"}, 400
         flash("host_id/手数格式错误", "error")
     except api.ApiError as e:
+        if is_fetch:
+            return {"error": str(e)}, 502
         flash(f"挂载失败: {e}", "error")
     return redirect(request.referrer or url_for("strategies.index"))
 
@@ -169,18 +179,46 @@ def set_mount(strategy_id: int):
 @bp.post("/<int:strategy_id>/unmount")
 def unmount(strategy_id: int):
     """卸载某挂载点(软停用, 保留手数记忆; 全卸=该策略停跑但状态不变)"""
+    is_fetch = request.headers.get("X-Requested-With") == "fetch"
     try:
         r = api.delete(f"/strategies/{strategy_id}/mounts/{int(request.form['host_id'])}")
+        if is_fetch:
+            return {"ok": True, "remaining": r["remaining"]}
         if r["remaining"]:
             flash(f"#{strategy_id} 已卸载该机, 其余 {r['remaining']} 个挂载点继续跑", "ok")
         else:
             flash(f"#{strategy_id} 已无任何挂载 — 停跑(状态不变); 重新挂载或状态切走再切回可恢复",
                   "error")
     except (ValueError, KeyError):
+        if is_fetch:
+            return {"error": "host_id 格式错误"}, 400
         flash("host_id 格式错误", "error")
     except api.ApiError as e:
+        if is_fetch:
+            return {"error": str(e)}, 502
         flash(f"卸载失败: {e}", "error")
     return redirect(request.referrer or url_for("strategies.index"))
+
+
+@bp.get("/<int:strategy_id>/mount_cell")
+def mount_cell(strategy_id: int):
+    """AJAX 片段: 只渲染一个策略的挂载格(挂载操作/状态切换后原地刷新, 不整页重载)"""
+    status = (request.args.get("status") or "").upper()
+    mv, volume_presets = {"rows": [], "addable": []}, []
+    try:
+        volume_presets = api.get("/config")["config"].get("volume_presets") or []
+        rows_m = [x for x in api.get("/strategies/mounts", ids=str(strategy_id))["mounts"]
+                  .get(str(strategy_id), []) if x["enabled"]]
+        role = status.lower()
+        hosts = [h for h in api.get("/hosts")["hosts"] if h.get("enabled") and h.get("runner")]
+        used = {x["host_id"] for x in rows_m}
+        mv = {"rows": rows_m,
+              "addable": ([h for h in hosts if h["runner"] == role and h["id"] not in used]
+                          if role in ("demo", "live") else [])}
+    except api.ApiError:
+        pass
+    return render_template("_mount_cell.html", mc_sid=strategy_id, mc_status=status,
+                           mc_mv=mv, volume_presets=volume_presets)
 
 
 @bp.get("/reconcile_stats")
@@ -197,16 +235,12 @@ def reconcile_stats():
 
 @bp.post("/<int:strategy_id>/reconcile")
 def reconcile_one(strategy_id: int):
-    """AJAX: 重算单个策略对账(对账统计页「全部重算」循环调它), 返回该行新数据"""
+    """AJAX: 重算单个策略对账(全部账户整组算), 返回 accounts 列表按账户回填各行"""
     try:
         r = api.get(f"/reconcile/{strategy_id}")
     except api.ApiError as e:
         return {"error": str(e)}, 502
-    m = r.get("metrics") or {}
-    return {"id": strategy_id, "score": m.get("match_score"), "paired": m.get("paired"),
-            "union": m.get("union"), "count_rate": m.get("count_match_rate"),
-            "dir_rate": m.get("dir_match_rate"), "q10": m.get("q10_pass"),
-            "net_bias_pct": m.get("net_bias_pct")}
+    return {"id": strategy_id, "accounts": r.get("accounts") or []}
 
 
 @bp.get("/analysis/fragment")

@@ -32,6 +32,15 @@
     <p class="muted" style="margin-top:12px">策略 #{{ recon.strategy_id }}（{{ recon.symbol }}）:{{ recon.note }}</p>
     {% else %}
     {% set mt = recon.metrics %}
+    {% if recon.accounts and recon.accounts|length > 1 %}
+    <p class="muted" style="margin:8px 0 0">账户:
+      {% for ac in recon.accounts %}
+      {% if ac.account == recon.account %}<b class="mono">{{ ac.account }}</b>{% else %}
+      <a class="mono" href="{{ url_for('strategies.analysis', strategy_id=recon.strategy_id, account=ac.account) }}">{{ ac.account }}</a>{% endif %}
+      ({{ ac.env }} · {{ ac.trades }}笔 · {{ ac.match_score if ac.match_score is not none else '—' }}分){% if not loop.last %} · {% endif %}
+      {% endfor %}
+      <span title="对账单位=策略×账户: 每个账户独立重放独立打分; 同一信号流在不同账户的分差=纯执行质量差(券商记分卡)">ⓘ</span></p>
+    {% endif %}
     <div class="stats" style="margin-top:12px">
       <div class="stat">
         <div class="stat-label">综合匹配度</div>

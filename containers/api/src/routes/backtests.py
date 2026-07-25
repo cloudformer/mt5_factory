@@ -565,18 +565,21 @@ async def reconcile_summary(request: Request):
     重算走既有单策略端点(页面 AJAX 循环调), 本端点不触发任何计算。
     注意: 必须注册在 /reconcile/{strategy_id} 之前, 否则 'summary' 会被当成 int 解析。"""
     rows = await request.app.state.pool.fetch(
-        "SELECT s.id, s.name, s.symbol, s.status, s.template, t.n AS live_trades,"
+        "SELECT s.id, s.name, s.symbol, s.status, s.template, t.account, t.n AS live_trades,"
         "       r.match_score, r.metrics, r.updated_at"
-        "  FROM (SELECT strategy_id, count(*) AS n FROM trades"
-        "         WHERE strategy_id IS NOT NULL GROUP BY strategy_id) t"
+        "  FROM (SELECT strategy_id, account, count(*) AS n FROM trades"
+        "         WHERE strategy_id IS NOT NULL GROUP BY strategy_id, account) t"
         "  JOIN strategies s ON s.id = t.strategy_id"
+        # 行=策略×账户(v5.0-B2b); 旧口径 account=0 行 join 不上=显示"未算", 重算即对齐
         "  LEFT JOIN reconciliations r ON r.strategy_id = s.id AND r.scope = 'all'"
-        " ORDER BY r.match_score DESC NULLS LAST, s.id")
+        "       AND r.account = t.account"
+        " ORDER BY r.match_score DESC NULLS LAST, s.id, t.account")
     out = []
     for r in rows:
         m = r["metrics"] or {}
         out.append({"id": r["id"], "name": r["name"], "symbol": r["symbol"],
                     "status": r["status"], "template": r["template"],
+                    "account": r["account"],
                     "live_trades": r["live_trades"], "score": r["match_score"],
                     "paired": m.get("paired"), "union": m.get("union"),
                     "count_rate": m.get("count_match_rate"), "dir_rate": m.get("dir_match_rate"),
@@ -586,32 +589,82 @@ async def reconcile_summary(request: Request):
 
 
 @router.get("/reconcile/{strategy_id}")
-async def reconcile(strategy_id: int, request: Request, scope: str = "all"):
-    """关2对账端点 — 计算逻辑在 compute_reconcile(策略分析页与 AI 成绩单共用)"""
-    return await compute_reconcile(request.app.state.pool, strategy_id, scope)
+async def reconcile(strategy_id: int, request: Request, scope: str = "all",
+                    account: Optional[int] = None):
+    """关2对账端点 — 计算逻辑在 compute_reconcile(策略分析页与 AI 成绩单共用);
+    account=看哪个账户的详情(缺省=笔数最多的主账户)"""
+    return await compute_reconcile(request.app.state.pool, strategy_id, scope, account)
 
 
-async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
-    """关2对账: 用该策略实盘/demo成交(scope: all=demo+live)验证回测 —
-    自动取实际成交时间窗 → 切片回测同窗 → 4 个一致率 + 综合分, 落 reconciliations(覆盖)。"""
+async def compute_reconcile(pool, strategy_id: int, scope: str = "all",
+                            account: Optional[int] = None) -> dict:
+    """关2对账(v5.0-B2b: 单位=策略×账户)。多挂载后同策略可在多账户同时跑, 混在一起配对
+    会互相冤枉(同一信号两账户各一单, 重放只有一笔) → 每个账户独立对账: 各自的成交、
+    各自的运行区间(host→账户映射)、各自起点的重放。全部账户的结果都落 reconciliations
+    (该策略×scope 整组删旧插新); 返回指定账户(缺省主账户)的完整详情 + accounts 汇总列表。
+    单账户时与旧口径逐字节等价。"""
     strat = await pool.fetchrow(
         "SELECT s.symbol, s.timeframe, s.template, s.params, sym.point FROM strategies s"
         " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
     if strat is None:
         raise HTTPException(status_code=404, detail="strategy not found")
-    q = ("SELECT direction, entry_time, exit_time, profit, entry_price, exit_price, net_points"
-         " FROM trades WHERE strategy_id=$1")
+    q = ("SELECT direction, entry_time, exit_time, profit, entry_price, exit_price,"
+         "       net_points, account, env FROM trades WHERE strategy_id=$1")
     args = [strategy_id]
     if scope != "all":
         args.append(scope.upper()); q += f" AND env = ${len(args)}"
     q += " ORDER BY entry_time"
     actual = await pool.fetch(q, *args)
+    if not actual:
+        return {"strategy_id": strategy_id, "scope": scope, "symbol": strat["symbol"],
+                "window_from": None, "window_to": None, "actual_trades": 0,
+                "bt_trades": 0, "metrics": {}, "note": "该策略暂无 demo/live 成交, 无法对账"}
+    tol_min = await pool.fetchval(
+        "SELECT value FROM config WHERE key='recon_pair_tol_minutes'")
+    tol = int(tol_min or DEFAULT_PAIR_TOL_MINUTES) * 60
+    by_acct: dict = {}
+    for a in actual:
+        by_acct.setdefault(a["account"], []).append(a)
+    accounts = sorted(by_acct, key=lambda k: -len(by_acct[k]))   # 主账户(笔数最多)在前
+    results = {a: await _reconcile_account(pool, strat, strategy_id, scope, a, by_acct[a], tol)
+               for a in accounts}
+    # 落库: 该(策略,scope)整组删旧插新 — 账户集合变化不留孤儿行(含旧口径 account=0 行)
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "DELETE FROM reconciliations WHERE strategy_id=$1 AND scope=$2",
+                strategy_id, scope)
+            for acct, r in results.items():
+                await conn.execute(
+                    "INSERT INTO reconciliations (strategy_id, scope, account, window_from,"
+                    "   window_to, actual_trades, bt_trades, match_score, metrics)"
+                    " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                    strategy_id, scope, acct, r["window_from"], r["window_to"],
+                    r["actual_trades"], r["bt_trades"],
+                    r["metrics"].get("match_score"), r["metrics"])
+    chosen = account if account in results else accounts[0]
+    out = results[chosen]
+    out["account"] = chosen
+    out["accounts"] = [
+        {"account": a, "trades": len(by_acct[a]),
+         "env": "+".join(sorted({t["env"] for t in by_acct[a]})),
+         "match_score": results[a]["metrics"].get("match_score"),
+         "q10_pass": results[a]["metrics"].get("q10_pass"),
+         "count_rate": results[a]["metrics"].get("count_match_rate"),
+         "dir_rate": results[a]["metrics"].get("dir_match_rate"),
+         "paired": results[a]["metrics"].get("paired"),
+         "union": results[a]["metrics"].get("union"),
+         "net_bias_pct": results[a]["metrics"].get("net_bias_pct")}
+        for a in accounts]
+    return out
+
+
+async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account: int,
+                             actual: list, tol: int) -> dict:
+    """单账户对账全流程(窗口→起点对齐重放→配对→缺口归因); actual=该账户成交, 已按时间排序"""
     out = {"strategy_id": strategy_id, "scope": scope, "symbol": strat["symbol"],
            "window_from": None, "window_to": None,
            "actual_trades": len(actual), "bt_trades": 0, "metrics": {}}
-    if not actual:
-        out["note"] = "该策略暂无 demo/live 成交, 无法对账"
-        return out
     wf = min(a["entry_time"] for a in actual)
     wt = max(a["exit_time"] for a in actual)
     wf_ts, wt_ts = wf.timestamp(), wt.timestamp()
@@ -620,13 +673,14 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
     #   区间没覆盖到的实盘笔(老数据/api停摆) → 逐笔±20分钟单窗兜底(单边, 抓不了漏单)
     # 全部窗口合并重叠后过滤回测池; 左端放宽容差: 回测入场=bar开盘, 实盘成交晚几秒,
     # 否则实盘第一笔对应的回测信号永远被切掉(2026-07-15 实测: #177 07-10 09:00 误报"未触发")
-    tol_min = await pool.fetchval(
-        "SELECT value FROM config WHERE key='recon_pair_tol_minutes'")
-    tol = int(tol_min or DEFAULT_PAIR_TOL_MINUTES) * 60
+    # 运行区间按账户过滤: runtime 记 host 名, host→账户经 mt5_hosts.mt5_login 映射
+    # (账户换机/改号的历史段映射不到 → 自然落到 one_sided 兜底, 不会误配到别的账户)
     segs = await pool.fetch(
-        "SELECT run_from, run_to FROM strategy_runtime"
-        " WHERE strategy_id=$1 AND run_to >= $2 AND run_from <= $3 ORDER BY run_from",
-        strategy_id, wf - timedelta(seconds=tol), wt + timedelta(seconds=tol))
+        "SELECT sr.run_from, sr.run_to FROM strategy_runtime sr"
+        "  JOIN mt5_hosts h ON h.name = sr.host"
+        " WHERE sr.strategy_id=$1 AND h.mt5_login=$4"
+        "   AND sr.run_to >= $2 AND sr.run_from <= $3 ORDER BY sr.run_from",
+        strategy_id, wf - timedelta(seconds=tol), wt + timedelta(seconds=tol), account)
     windows = [[s["run_from"].timestamp() - tol, s["run_to"].timestamp() + tol] for s in segs]
     for a in actual:  # 区间外的实盘笔(成交是事实, 必须参与对账) → 兜底小窗
         a_ts = a["entry_time"].timestamp()
@@ -730,16 +784,7 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all") -> dict:
                # 数据覆盖检查: 库内 M1 是否盖住实盘窗口末尾(✅=不用下载, 重跑回测即可)
                data_to=data_to,
                data_cover=(data_to_ts is not None and data_to_ts >= wt.timestamp()))
-    await pool.execute(
-        "INSERT INTO reconciliations (strategy_id, scope, window_from, window_to,"
-        "   actual_trades, bt_trades, match_score, metrics)"
-        " VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"
-        " ON CONFLICT (strategy_id, scope) DO UPDATE SET"
-        "   window_from=EXCLUDED.window_from, window_to=EXCLUDED.window_to,"
-        "   actual_trades=EXCLUDED.actual_trades, bt_trades=EXCLUDED.bt_trades,"
-        "   match_score=EXCLUDED.match_score, metrics=EXCLUDED.metrics, updated_at=now()",
-        strategy_id, scope, wf, wt, len(actual), len(bt), metrics["match_score"], metrics)
-    return out
+    return out   # 落库在 compute_reconcile 外壳(全账户整组删旧插新)
 
 
 # ---------- 系统流水: 本地库(trades)已持久化成交, 按账号 + 时间范围查(v1.6) ----------

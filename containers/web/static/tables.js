@@ -63,6 +63,9 @@ document.addEventListener("change", async (e) => {
       badge.className = "badge " + ({ LIVE: "ok", DEMO: "warn" }[data.status] || "");
       const magic = row.querySelector(".cell-magic");
       if (magic && data.magic_number) magic.textContent = data.magic_number;
+      // 状态切换会联动挂载(转DEMO/LIVE自动挂/归档清挂) → 本行挂载格跟着原地重取
+      const mc = row.querySelector("td.mount-cell");
+      if (mc) refreshMountCell(mc, data.status);
       sel.innerHTML = '<option value="">状态 →</option>' +
         ["CANDIDATE", "DEMO", "LIVE", "ARCHIVED"]
           .filter((s) => s !== data.status)
@@ -375,4 +378,36 @@ document.addEventListener("DOMContentLoaded", () =>
 document.addEventListener("change", (e) => {
   const sel = e.target.closest("select[data-volume-select], select[data-autosubmit]");
   if (sel && sel.form) sel.form.requestSubmit();
+});
+
+/* 挂载格 AJAX(v5.0-B2a): 格内表单(改手数/加挂/卸载)提交不整页刷新 —
+   fetch 后原地重取该格; 状态切换(上面的 AJAX)成功后也调 refreshMountCell 联动。
+   onsubmit 的 confirm 返回 false 时 e.defaultPrevented=true, 这里自动放行不处理 */
+async function refreshMountCell(td, status) {
+  if (status) td.dataset.status = status;
+  try {
+    const html = await fetch(
+      `/strategies/${td.dataset.sid}/mount_cell?status=${td.dataset.status || ""}`,
+    ).then((r) => r.text());
+    td.innerHTML = html;
+  } catch (err) { /* 刷新失败不打扰: 下次整页加载自然对齐 */ }
+}
+document.addEventListener("submit", async (e) => {
+  const td = e.target.closest("td.mount-cell");
+  if (!td || e.defaultPrevented) return;
+  e.preventDefault();
+  const f = e.target;
+  try {
+    const resp = await fetch(f.action, {
+      method: "POST", body: new FormData(f), headers: { "X-Requested-With": "fetch" },
+    });
+    if (!resp.ok) {
+      let msg = "HTTP " + resp.status;
+      try { msg = (await resp.json()).error || msg; } catch {}
+      alert("挂载操作失败: " + msg);
+    }
+  } catch (err) {
+    alert("挂载操作失败: " + err.message);
+  }
+  refreshMountCell(td);
 });
