@@ -32,6 +32,10 @@ load_dotenv(Path(__file__).resolve().parents[2] / "env" / ".dev.env")
 
 BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 与 api 注册 worker 的端口同源
 BRIDGE_API_KEY = os.getenv("BRIDGE_API_KEY", "")
+# worker 钥匙(schema/040): announce 带上它 → api 认钥知主(host 自动归该用户+一机一钥首绑)。
+# 未配置=照旧匿名注册(兼容期; v5.6 起强制)。与 BRIDGE_API_KEY 方向相反: 那把保护"api调我",
+# 这把证明"我是谁"。
+WORKER_KEY = os.getenv("WORKER_KEY", "").strip()
 DOCKER_COMPOSE_HOST = os.getenv("DOCKER_COMPOSE_HOST", "").strip()
 API_PORT = os.getenv("API_PORT", "8010")
 # mt5.initialize() 不给 path 时的自动定位常失效 (报 "MetaTrader 5 x64 not found" 但其实已装),
@@ -211,13 +215,16 @@ def _announce_loop():
             s.connect((DOCKER_COMPOSE_HOST, 1))
             my_ip = s.getsockname()[0]
             s.close()
-            r = requests.post(f"{api_base}/hosts/announce", timeout=10, json={
-                "name": hostname,
-                "host": my_ip,
-                "port": BRIDGE_PORT,
-            })
+            payload = {"name": hostname, "host": my_ip, "port": BRIDGE_PORT}
+            if WORKER_KEY:
+                payload["key"] = WORKER_KEY
+            r = requests.post(f"{api_base}/hosts/announce", timeout=10, json=payload)
             if r.status_code != 200:
                 logger.warning("announce rejected: %s %s", r.status_code, r.text[:100])
+            elif r.json().get("key_state") in ("invalid", "conflict"):
+                # 钥匙无效/被吊销/已绑别的机器(克隆机忘换钥匙的典型) — 大声说, 别静默
+                logger.warning("worker key %s — 去管理页检查(吊销了? 克隆机没换钥匙?)",
+                               r.json()["key_state"])
         except Exception as e:
             logger.warning("announce failed (api not up yet?): %s", e)
         time.sleep(60)

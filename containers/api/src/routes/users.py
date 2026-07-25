@@ -102,6 +102,47 @@ async def set_key_enabled(key_id: int, req: EnabledRequest, request: Request):
     return dict(row)
 
 
+@router.post("/users/{user_id}/worker_keys")
+async def issue_worker_key(user_id: int, req: KeyRequest, request: Request):
+    """签发 worker 钥匙(schema/040): 写进 Windows env(WORKER_KEY) → 机器 announce 带钥
+    → 自动归该用户 + 与机器首绑。明文只此一次。"""
+    u = await request.app.state.pool.fetchrow(
+        "SELECT id, name FROM users WHERE id=$1", user_id)
+    if u is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    token = "mt5wk_" + secrets.token_urlsafe(32)
+    row = await request.app.state.pool.fetchrow(
+        "INSERT INTO worker_keys (user_id, key_hash, name) VALUES ($1, $2, $3) RETURNING id",
+        user_id, hashlib.sha256(token.encode()).hexdigest(), (req.name or "").strip() or None)
+    logger.info("worker key #%d issued for user #%d", row["id"], user_id)
+    return {"id": row["id"], "user": u["name"], "key": token,
+            "note": "写进该机 env 的 WORKER_KEY; 明文只此一次; 首台 announce 的机器与它绑定"}
+
+
+@router.get("/worker_keys")
+async def list_worker_keys(request: Request):
+    rows = await request.app.state.pool.fetch(
+        "SELECT w.id, w.user_id, u.name AS user, w.name, w.enabled, w.last_used_at,"
+        "       w.created_at, w.host_id, h.name AS host"
+        "  FROM worker_keys w JOIN users u ON u.id = w.user_id"
+        "  LEFT JOIN mt5_hosts h ON h.id = w.host_id ORDER BY w.id")
+    return {"worker_keys": [dict(r) for r in rows]}
+
+
+@router.post("/worker_keys/{key_id}/enabled")
+async def set_worker_key_enabled(key_id: int, req: EnabledRequest, request: Request):
+    """吊销/恢复 worker 钥匙; 吊销自动解绑机器(轮换=吊旧发新, 新钥匙才能绑同一台机)"""
+    row = await request.app.state.pool.fetchrow(
+        "UPDATE worker_keys SET enabled=$2,"
+        "  host_id = CASE WHEN $2 THEN host_id ELSE NULL END"
+        " WHERE id=$1 RETURNING id, enabled",
+        key_id, req.enabled)
+    if row is None:
+        raise HTTPException(status_code=404, detail="worker key not found")
+    logger.info("worker key #%d enabled -> %s", key_id, req.enabled)
+    return dict(row)
+
+
 @router.get("/user_config")
 async def list_user_config(request: Request):
     """全部用户配置覆盖行(user_config); 没覆盖的键实时跟随全局默认"""

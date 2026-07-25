@@ -6,6 +6,7 @@
 职能模型 (约束靠数据库结构): download BOOLEAN 是否下载;
 runner = demo|live|NULL 跑什么策略 — 单字段天然保证 demo/live 互斥。
 """
+import hashlib
 import logging
 
 import asyncpg
@@ -107,23 +108,56 @@ class AnnounceRequest(BaseModel):
     name: str
     host: str
     port: int = 8020
+    key: str | None = None   # worker 钥匙(schema/040): 带钥=自动归钥主+首绑; 不带=照旧
 
 
 @router.post("/hosts/announce")
 async def announce_host(req: AnnounceRequest, request: Request):
     """worker 自动注册: bridge 启动后周期性自报家门。
     身份 = name(计算机名); IP:port 只是当前地址, 每次刷新 —— DHCP/换网都不影响身份。
-    新 worker 默认只承担下载 (runner 必须由人指派); 已存在则刷新地址+心跳, 不覆盖人工配置。"""
+    新 worker 默认只承担下载 (runner 必须由人指派); 已存在则刷新地址+心跳, 不覆盖人工配置。
+    带 worker 钥匙(env WORKER_KEY)时: 认钥知主 → host 归该用户 + 钥匙与本机首绑(一机一钥);
+    不带钥照旧(兼容期; 强制认钥在 v5.6)。"""
     pool = request.app.state.pool
     row = await pool.fetchrow(
         "INSERT INTO mt5_hosts (name, host, port, download, last_heartbeat)"
         " VALUES ($1, $2, $3, TRUE, now())"
         " ON CONFLICT (name) DO UPDATE SET host = $2, port = $3, last_heartbeat = now()"
-        " RETURNING id, name, download, runner, enabled, (xmax = 0) AS inserted",
+        " RETURNING id, name, download, runner, enabled, owner_id, (xmax = 0) AS inserted",
         req.name, req.host, req.port)
     if row["inserted"]:
         await sync.log_host_event(pool, row["id"], "REGISTERED", {"source": "announce"})
-    return {k: row[k] for k in ("id", "name", "download", "runner", "enabled")}
+    key_state = None
+    if req.key:
+        wk = await pool.fetchrow(
+            "SELECT id, user_id, host_id FROM worker_keys"
+            " WHERE key_hash=$1 AND enabled", hashlib.sha256(req.key.encode()).hexdigest())
+        if wk is None:
+            key_state = "invalid"          # 兼容期只记不拒(v5.6 起拒绝)
+            logger.warning("announce %s with invalid/revoked worker key", req.name)
+        elif wk["host_id"] in (None, row["id"]):
+            try:
+                await pool.execute(   # 首绑(或重复确认) + host 归钥主; last_used 顺带刷新
+                    "UPDATE worker_keys SET host_id=$2, last_used_at=now() WHERE id=$1",
+                    wk["id"], row["id"])
+                await pool.execute(
+                    "UPDATE mt5_hosts SET owner_id=$2 WHERE id=$1 AND owner_id <> $2",
+                    row["id"], wk["user_id"])
+                key_state = "bound"
+                if wk["host_id"] is None:
+                    await sync.log_host_event(pool, row["id"], "KEY_BOUND",
+                                              {"worker_key_id": wk["id"], "owner": wk["user_id"]})
+            except asyncpg.UniqueViolationError:   # 本机已被另一把钥匙绑定
+                key_state = "conflict"
+                logger.warning("announce %s: host already bound to another worker key", req.name)
+        else:
+            key_state = "conflict"         # 这把钥匙已绑别的机器(克隆机忘换钥匙的典型)
+            logger.warning("announce %s: worker key already bound to host #%s",
+                           req.name, wk["host_id"])
+    out = {k: row[k] for k in ("id", "name", "download", "runner", "enabled")}
+    if key_state:
+        out["key_state"] = key_state
+    return out
 
 
 class HostUpdate(BaseModel):

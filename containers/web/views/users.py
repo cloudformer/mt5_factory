@@ -11,17 +11,18 @@ bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 @bp.get("/users")
 def users_page():
-    users, keys, hosts, overrides, cfg_keys = [], [], [], [], []
+    users, keys, wkeys, hosts, overrides, cfg_keys = [], [], [], [], [], []
     try:
         users = api.get("/users")["users"]
         keys = api.get("/keys")["keys"]
+        wkeys = api.get("/worker_keys")["worker_keys"]
         hosts = api.get("/hosts")["hosts"]
         overrides = api.get("/user_config")["overrides"]
         cfg_keys = sorted(api.get("/config")["config"].keys())
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-    return render_template("admin_users.html", users=users, keys=keys, hosts=hosts,
-                           overrides=overrides, cfg_keys=cfg_keys)
+    return render_template("admin_users.html", users=users, keys=keys, wkeys=wkeys,
+                           hosts=hosts, overrides=overrides, cfg_keys=cfg_keys)
 
 
 @bp.post("/users/create")
@@ -62,6 +63,31 @@ def toggle_key(key_id: int):
         r = api.post(f"/keys/{key_id}/enabled",
                      {"enabled": request.form.get("enabled") == "1"})
         flash(f"key #{r['id']} → {'恢复' if r['enabled'] else '已吊销'}", "ok")
+    except api.ApiError as e:
+        flash(f"操作失败: {e}", "error")
+    return redirect(url_for("admin.users_page"))
+
+
+@bp.post("/worker_keys/issue")
+def issue_worker_key():
+    try:
+        r = api.post(f"/users/{int(request.form['user_id'])}/worker_keys",
+                     {"name": request.form.get("name", "").strip() or None})
+        flash(f"worker 钥匙已签发给 {r['user']}(明文只此一次): {r['key']}"
+              " — 写进该机 env 的 WORKER_KEY, 首台 announce 的机器与它绑定", "ok")
+    except (ValueError, KeyError):
+        flash("user_id 格式错误", "error")
+    except api.ApiError as e:
+        flash(f"签发失败: {e}", "error")
+    return redirect(url_for("admin.users_page"))
+
+
+@bp.post("/worker_keys/<int:key_id>/toggle")
+def toggle_worker_key(key_id: int):
+    try:
+        r = api.post(f"/worker_keys/{key_id}/enabled",
+                     {"enabled": request.form.get("enabled") == "1"})
+        flash(f"worker 钥匙 #{r['id']} → {'恢复(需机器重新 announce 绑定)' if r['enabled'] else '已吊销并解绑'}", "ok")
     except api.ApiError as e:
         flash(f"操作失败: {e}", "error")
     return redirect(url_for("admin.users_page"))

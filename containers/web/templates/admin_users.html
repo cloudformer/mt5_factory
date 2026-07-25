@@ -69,6 +69,40 @@
 </section>
 
 <section>
+  <h2>worker 钥匙</h2>
+  <p class="muted" style="margin:0 0 8px">发一把钥匙即扩容: 签发 → 写进该机 env 的 <span class="mono">WORKER_KEY</span> → 机器 announce 自动归钥主名下并与钥匙绑定(一机一钥);
+    吊销=解绑(换钥匙=吊旧发新)。与上面的 API key 分开管: 这是真金通道的钥匙。</p>
+  <form method="post" action="{{ url_for('admin.issue_worker_key') }}" class="inline" style="margin-bottom:8px">
+    <select name="user_id" class="small">
+      {% for u in users %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}
+    </select>
+    <input name="name" class="small" placeholder="备注(哪台机)" style="width:120px">
+    <button class="small">发 worker 钥匙</button>
+  </form>
+  <table class="dense">
+    <thead><tr><th>ID</th><th>用户</th><th>备注</th><th>绑定机器</th><th>状态</th><th>最近使用</th><th data-nosort>操作</th></tr></thead>
+    <tbody>
+    {% for k in wkeys %}
+      <tr>
+        <td class="mono">{{ k.id }}</td>
+        <td class="mono">{{ k.user }}</td>
+        <td class="muted">{{ k.name or '—' }}</td>
+        <td class="mono">{{ k.host or '未绑定(等首台机器 announce)' }}</td>
+        <td>{% if k.enabled %}<span class="pos">启用</span>{% else %}<span class="neg">已吊销</span>{% endif %}</td>
+        <td class="mono muted">{{ k.last_used_at[:16]|replace('T',' ') if k.last_used_at else '—' }}</td>
+        <td><form method="post" action="{{ url_for('admin.toggle_worker_key', key_id=k.id) }}" class="inline"
+              {% if k.enabled %}onsubmit="return confirm('吊销 worker 钥匙 #{{ k.id }}({{ k.user }} · {{ k.host or '未绑定' }})并解绑 — v5.6 起该机将失联。确认?')"{% endif %}>
+          <input type="hidden" name="enabled" value="{{ '0' if k.enabled else '1' }}">
+          <button class="small">{{ '吊销' if k.enabled else '恢复' }}</button>
+        </form></td>
+      </tr>
+    {% endfor %}
+    {% if not wkeys %}<tr><td colspan="7" class="muted">还没有签发过 worker 钥匙 — 老机器(env 无 WORKER_KEY)照旧匿名注册, 归 user 1</td></tr>{% endif %}
+    </tbody>
+  </table>
+</section>
+
+<section>
   <h2>worker 归属</h2>
   <p class="muted" style="margin:0 0 8px">一台 worker 属于且只属于一个用户(四位一体: 机器=终端=账户=worker); 划拨只是改标, "A 的 worker 只拉 A 的策略"的执法在 v5.6。</p>
   <table class="dense">
