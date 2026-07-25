@@ -34,6 +34,9 @@ DOCKER_COMPOSE_HOST = os.getenv("DOCKER_COMPOSE_HOST", "").strip()
 API_URL = f"http://{DOCKER_COMPOSE_HOST}:{os.getenv('API_PORT', '8010')}"
 RUN_STATUS = os.getenv("RUN_STATUS", "DEMO")
 VOLUME = float(os.getenv("VOLUME", "0.01"))
+# worker 钥匙(v5.6-A): 请求带上它 → api 日志能看出"是哪台机器/谁的"; 目前只识别不限制
+WORKER_KEY = os.getenv("WORKER_KEY", "").strip()
+API_HEADERS = {"X-API-Key": WORKER_KEY} if WORKER_KEY else {}
 # mt5.initialize() 不给 path 时的自动定位常失效 (报 "MetaTrader 5 x64 not found" 但其实已装),
 # setup.ps1 探测到终端后会自动写入这个变量
 MT5_PATH = os.getenv("MT5_PATH", "").strip()
@@ -117,7 +120,7 @@ def detect_run_status() -> str:
     找不到本机注册记录时退回 env 的 RUN_STATUS"""
     try:
         hostname = socket.gethostname()
-        r = requests.get(f"{API_URL}/hosts", timeout=10)
+        r = requests.get(f"{API_URL}/hosts", timeout=10, headers=API_HEADERS)
         for h in r.json()["hosts"]:
             if h["name"] == hostname and h["enabled"]:
                 return {"live": "LIVE", "demo": "DEMO"}.get(h["runner"], "")
@@ -138,7 +141,7 @@ def fetch_strategies(run_status: str) -> list:
     # 老 api 忽略该参数=角色全量 — 双向兼容, api 与 worker 谁先升级都安全
     r = requests.get(f"{API_URL}/strategies/status",
                      params={"status": run_status, "host": socket.gethostname(),
-                             "limit": 500}, timeout=10)
+                             "limit": 500}, timeout=10, headers=API_HEADERS)
     r.raise_for_status()
     data = r.json()
     # 默认手数唯一源=config表(接口随策略带回); env VOLUME 只在 api 没给时兜底

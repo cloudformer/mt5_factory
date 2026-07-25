@@ -6,6 +6,7 @@
 扩展点: 加新一组 API = routes/ 下新建文件 + 在 routes/__init__.py 注册。
 """
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -106,6 +107,38 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="MT5 Factory", version="2.0.0", lifespan=lifespan)
 for router in ROUTERS:
     app.include_router(router)
+
+
+@app.middleware("http")
+async def identify_caller(request, call_next):
+    """身份识别(v5.6-A 最小版, 2026-07-25 与 Frank 定: 只识别不限制) —
+    带 X-API-Key(用户钥匙或 worker 钥匙)则解析出"是谁"挂到 request.state 并记日志;
+    不带/无效照常放行, 对任何请求零拦截。将来通电(过滤/401)另起, 不在这里。"""
+    request.state.user_id, request.state.auth_kind = None, None
+    key = request.headers.get("X-API-Key")
+    pool = getattr(app.state, "pool", None)
+    if key and pool is not None:
+        h = hashlib.sha256(key.encode()).hexdigest()
+        row = await pool.fetchrow(
+            "SELECT k.id, k.user_id, u.name FROM api_keys k"
+            " JOIN users u ON u.id = k.user_id"
+            " WHERE k.key_hash=$1 AND k.enabled AND u.enabled", h)
+        kind = "user"
+        if row is None:
+            row = await pool.fetchrow(
+                "SELECT k.id, k.user_id, u.name FROM worker_keys k"
+                " JOIN users u ON u.id = k.user_id"
+                " WHERE k.key_hash=$1 AND k.enabled AND u.enabled", h)
+            kind = "worker"
+        if row is not None:
+            request.state.user_id, request.state.auth_kind = row["user_id"], kind
+            await pool.execute(
+                f"UPDATE {'api_keys' if kind == 'user' else 'worker_keys'}"
+                " SET last_used_at=now() WHERE id=$1", row["id"])
+            logger.debug("caller: user #%d %s (%s key) %s %s",
+                         row["user_id"], row["name"], kind,
+                         request.method, request.url.path)
+    return await call_next(request)
 
 
 def _human_bytes(n) -> str:
