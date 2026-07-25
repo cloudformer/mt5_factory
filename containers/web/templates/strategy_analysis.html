@@ -228,8 +228,14 @@
   <div class="flex-between">
     <h3 style="margin:0">移动止损对比 <span class="muted">(现算·不影响排名成绩)</span></h3>
     <span><span id="trail-hint" class="muted"></span>
+      gap<input id="trail-gap" class="small" type="number" style="width:70px" placeholder="探针"
+        title="SL 跟随距离(点); 空=自适应探针(M1波幅×2)。经验: 须匹配策略持仓尺度(如其SL的0.5~1倍)">
+      start<input id="trail-start" class="small" type="number" style="width:70px" placeholder="gap×2"
+        title="保本档启动阈值(点, 盈利达到才开始保护); 空=gap×2。经验: 这是命门 — 给行情展开空间">
+      k<input id="trail-k" class="small" type="number" step="0.1" style="width:50px" placeholder="2"
+        title="ATR 档系数(距离=M1 ATR14×k); 空=2">
       <button type="button" class="small" id="trail-cmp-btn"
-        title="同一策略全量回测跑四版: 关闭/固定/保本/ATR(策略没填参数时用数据自适应探针); 约几秒">四档对比</button></span>
+        title="同一策略全量回测跑四版(内存现算); 填了参数用你的, 空=探针; 约几秒">四档对比</button></span>
   </div>
   <div id="trail-cmp" style="margin:6px 0 14px"></div>
   {% endif %}
@@ -323,8 +329,13 @@
     if (!sid) return;
     btn.disabled = true;
     hint.textContent = "计算中(全量回测 ×4)…";
+    const q = new URLSearchParams();
+    ["gap", "start", "k"].forEach((n) => {
+      const v = document.getElementById("trail-" + n).value.trim();
+      if (v) q.set(n, v);
+    });
     try {
-      const d = await fetch(`/strategies/${sid}/trail_compare`).then((r) => r.json());
+      const d = await fetch(`/strategies/${sid}/trail_compare?` + q).then((r) => r.json());
       if (d.error) throw new Error(d.error);
       hint.textContent = `当前生效: ${ZH[d.current] || "关闭"} · 探针 gap=${d.probe_gap} 点`;
       const best = Math.max(...d.variants.map((v) => v.net_points ?? -1e18));
@@ -356,8 +367,13 @@
     const det = document.getElementById("trail-det-box");
     b.disabled = true;
     det.innerHTML = '<span class="muted">计算该档逐笔中…</span>';
+    const q = new URLSearchParams({ variant: b.dataset.type });
+    ["gap", "start", "k"].forEach((n) => {   // 与汇总同参: 手填了就用手填的
+      const v = document.getElementById("trail-" + n).value.trim();
+      if (v) q.set(n, v);
+    });
     try {
-      const d = await fetch(`/strategies/${sid}/trail_compare?variant=${b.dataset.type}`)
+      const d = await fetch(`/strategies/${sid}/trail_compare?` + q)
         .then((r) => r.json());
       if (d.error) throw new Error(d.error);
       const v = d.variants[0];

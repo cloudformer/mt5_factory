@@ -306,7 +306,9 @@ async def set_status(strategy_id: int, req: StatusRequest, request: Request):
 
 
 @router.get("/strategies/{strategy_id}/trail_compare")
-async def trail_compare(strategy_id: int, request: Request, variant: Optional[str] = None):
+async def trail_compare(strategy_id: int, request: Request, variant: Optional[str] = None,
+                        gap: Optional[int] = None, start: Optional[int] = None,
+                        k: Optional[float] = None):
     """移动止损四档对比(v0.9 第3步): 同一策略全量回测跑 关/固定/保本/ATR 四版,
     内存现算不落库(排名/成绩仍用 backtests 表, 两口径各答各的)。
     档位参数: 策略 params.trail 里有该类就用它, 否则用数据自适应探针
@@ -333,18 +335,22 @@ async def trail_compare(strategy_id: int, request: Request, variant: Optional[st
     probe_gap = max(int(round(float(np.mean(m1["high"] - m1["low"])) / point * 2)), 10)
     own = (s["params"] or {}).get("trail") or {}
 
+    # 参数优先级: 页面手填(gap/start/k, 调试试数值) > 策略自己的 params.trail > 自适应探针
+    g = gap or probe_gap
+    st = start or g * 2
+    kk = k or 2.0
+
     def _variant(t):
         if t == "off":
             return None
         v = {"active": t}
-        if own.get(t):
-            v[t] = own[t]                     # 策略自己填过该类参数 → 尊重
-        elif t == "fixed":
-            v["fixed"] = {"gap": probe_gap}
+        if t == "fixed":
+            v["fixed"] = {"gap": g} if (gap or not own.get(t)) else own[t]
         elif t == "breakeven":
-            v["breakeven"] = {"gap": probe_gap, "start": probe_gap * 2}
+            v["breakeven"] = ({"gap": g, "start": st}
+                              if (gap or start or not own.get(t)) else own[t])
         else:
-            v["atr"] = {"k": 2.0, "period": 14}
+            v["atr"] = {"k": kk, "period": 14} if (k or not own.get(t)) else own[t]
         if "keep_tp" in own:
             v["keep_tp"] = own["keep_tp"]
         return v
