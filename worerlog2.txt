@@ -1,4 +1,11 @@
-[2026/07/15 周三  8:00:17.82] starting runner...
+win-worker01 的 env\.dev.env 加一行
+
+  WORKER_KEY=mt5wk_36JzqS2xmw5WtlWoJps39zY5h8--1RWC4rOey-FVhGc
+
+  win-worker02 的 env\.dev.env 加一行
+
+  WORKER_KEY=mt5wk_weDkSGQ_9edjerO3KM9qLiSl1Oi3ov2BwycBf2MRqoM
+  [2026/07/15 周三  8:00:17.82] starting runner...
 {"time": "2026-07-15 08:00:21,076", "level": "INFO", "message": "runner is up (NOT stuck), waiting for local bridge to connect MT5 before attaching..."}
 {"time": "2026-07-15 08:01:43,535", "level": "INFO", "message": "still waiting: bridge not responding (starting/restarting?) (60s elapsed)"}
 {"time": "2026-07-15 08:01:58,602", "level": "INFO", "message": "bridge reports MT5 connected, runner attaching now"}
