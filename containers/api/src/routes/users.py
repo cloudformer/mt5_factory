@@ -50,9 +50,9 @@ class EnabledRequest(BaseModel):
 
 @router.post("/users/{user_id}/enabled")
 async def set_user_enabled(user_id: int, req: EnabledRequest, request: Request):
-    """停用=一刀切(v5.6 接认证后 key/登录/worker 全失效); user 1(超管)不可停"""
+    """停用=一刀切(v5.6 接认证后 key/登录/worker 全失效); user 1(owner)不可停"""
     if user_id == 1 and not req.enabled:
-        raise HTTPException(status_code=400, detail="user 1(超管)不可停用")
+        raise HTTPException(status_code=400, detail="user 1(owner)不可停用")
     row = await request.app.state.pool.fetchrow(
         "UPDATE users SET enabled=$2 WHERE id=$1 RETURNING id, name, enabled",
         user_id, req.enabled)

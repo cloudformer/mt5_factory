@@ -16,7 +16,7 @@
     <tbody>
     {% for u in users %}
       <tr>
-        <td class="mono">{{ u.id }}{% if u.id == 1 %} <span class="badge ok" title="超管: 不可停用; v5.6 起管理页只认它">超管</span>{% endif %}</td>
+        <td class="mono">{{ u.id }}{% if u.id == 1 %} <span class="badge ok" title="owner(平台主): 全量视角, 不可停用; v5.6 起本页只认它。其余都是 user: 管自己的策略/worker/报表">owner</span>{% endif %}</td>
         <td class="mono">{{ u.name }}</td>
         <td>{% if u.enabled %}<span class="pos">启用</span>{% else %}<span class="neg">停用</span>{% endif %}</td>
         <td class="mono">{{ u.strategies }}</td>
