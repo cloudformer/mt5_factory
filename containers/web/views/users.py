@@ -1,6 +1,6 @@
 """用户管理后台(v5.5): 建用户/启停/发两类key/用量观察 — 机制在 5.1~5.3 的表,
 这里只是操作台。认证 v5.6 才接: 当前与全站同一安全水位(内网单人), 5.6 前不要暴露公网。"""
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
 import api_client as api
 
@@ -23,6 +23,17 @@ def users_page():
         flash(f"api 不可用: {e}", "error")
     return render_template("admin_users.html", users=users, keys=keys, wkeys=wkeys,
                            hosts=hosts, usage_view=usage_view)
+
+
+@bp.post("/switch_user")
+def switch_user():
+    """开发模式身份切换(v5.6 登录前的过渡): 只改右上角标识, 不做任何过滤;
+    全部测试好了才加登录页(2026-07-25 与 Frank 定)"""
+    try:
+        session["dev_user_id"] = int(request.form["user_id"])
+    except (ValueError, KeyError):
+        flash("参数错误", "error")
+    return redirect(request.referrer or url_for("admin.users_page"))
 
 
 @bp.post("/users/create")

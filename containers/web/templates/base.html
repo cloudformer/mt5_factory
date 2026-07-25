@@ -56,6 +56,17 @@
       <a href="{{ url_for('admin.users_page') }}" {% if ep == 'admin.users_page' %}class="active"{% endif %}>用户管理</a>
     </div>
   </div>
+  {# 开发模式身份切换(v5.6 登录前过渡): 仅标识不过滤; 测试好了才上登录页 #}
+  {% if dev_users %}
+  <form method="post" action="{{ url_for('admin.switch_user') }}" class="inline" style="margin-left:auto"
+        title="当前身份(开发模式): 仅右上角标识, 不做任何过滤/权限 — 那是 v5.6 通电的事; 选完即切换">
+    <select name="user_id" class="small" data-autosubmit>
+      {% for u in dev_users %}
+      <option value="{{ u.id }}" {% if u.id == dev_user_id %}selected{% endif %}>{{ u.name }}{{ ' (owner)' if u.id == 1 else '' }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
   <div class="navmenu">
     <a href="{{ url_for('mt5.index') }}"
        {% if ep.startswith('mt5.') %}class="active"{% endif %}>MT5 ▾</a>
