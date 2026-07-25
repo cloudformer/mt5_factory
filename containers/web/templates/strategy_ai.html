@@ -255,14 +255,12 @@
   <div class="idbox" id="fam-idbox">{{ missing | join(',') }}</div>
   <p class="muted" id="fam-bt-hint">回测按ID点名(只跑主品种, 不走门槛); 跑完本页自动重载。</p>
   {% endif %}
-  {# 人工关口(2026-07-25): 看完成绩就地留/汰, 不用再跳「策略列表排名」。
-     勾选框只在 非父+CANDIDATE 行; 留下=转DEMO(走漏斗正门, set_status 检查有demo机+分magic+挂载联动),
-     淘汰=归档(可逆, 留尸体防AI重复生成)。AJAX 逐个调 /status 端点复用全部逻辑 #}
+  {# 人工关口(2026-07-25): 纯筛子 — 勾选=留下(留在候选池, 不动状态), 没勾的=淘汰(归档)。
+     "怎么上模拟"是策略页的事, 这里不碰。归档只作用于 非父+CANDIDATE 行 #}
   <div class="flex-between" style="margin-top:8px">
     {{ m.table_toolbar('ai-family', hint='本页即时过滤') }}
-    <span><span id="fam-sel-n" class="muted">未选</span>
-      <button type="button" class="small" id="fam-keep-btn" disabled>留下</button>
-      <button type="button" class="small" id="fam-arch-btn" disabled>归档</button></span>
+    <span><span id="fam-sel-n" class="muted">勾选=留下</span>
+      <button type="button" class="small" id="fam-arch-btn">淘汰未选中</button></span>
   </div>
   <table id="ai-family" class="dense">
     <tr><th data-nosort><input type="checkbox" id="fam-all" title="全选本页候选"></th>
@@ -289,7 +287,7 @@
     {% endfor %}
   </table>
   <p class="muted">净点绿 = 胜过父策略 · 留出净点红 = 留出段亏(过拟合嫌疑, 候选淘汰位) ·
-    勾选候选就地 留下(转DEMO 走漏斗正门)/ 淘汰(归档可逆) · 晋级 demo/live 照走漏斗, AI 不开后门。</p>
+    勾选=留下(留在候选池), 没勾的点「淘汰未选中」归档(防重复生成) · 之后上模拟/晋级去策略页配置(选worker), 这里只筛。</p>
   {% endif %}
 </section>
 {% endif %}
@@ -322,29 +320,29 @@
 
 // 人工关口: 勾选候选 → 留下(转DEMO)/淘汰(归档)。AJAX 逐个调 /status(复用漏斗全部逻辑), 完成重载
 (function () {
-  const keepBtn = document.getElementById("fam-keep-btn");
-  if (!keepBtn) return;
   const archBtn = document.getElementById("fam-arch-btn");
+  if (!archBtn) return;
   const selN = document.getElementById("fam-sel-n");
   const allBox = document.getElementById("fam-all");
-  const picks = () => [...document.querySelectorAll(".fam-pick:checked")];
+  const boxes = () => [...document.querySelectorAll(".fam-pick")];   // 全部候选(非父CANDIDATE)
 
   function refresh() {
-    const n = picks().length;
-    selN.textContent = n ? `已选 ${n}` : "未选";
-    keepBtn.disabled = archBtn.disabled = !n;
+    const keep = boxes().filter((c) => c.checked).length;
+    const drop = boxes().length - keep;
+    selN.textContent = `留下 ${keep} · 淘汰 ${drop}`;
   }
   document.addEventListener("change", (e) => {
     if (e.target.classList.contains("fam-pick")) refresh();
     if (e.target === allBox)
-      document.querySelectorAll(".fam-pick").forEach((c) => (c.checked = allBox.checked)), refresh();
+      (boxes().forEach((c) => (c.checked = allBox.checked)), refresh());
   });
+  refresh();
 
-  async function apply(status, label) {
-    const ids = picks().map((c) => c.value);
-    if (!ids.length) return;
-    if (!confirm(`把选中的 ${ids.length} 个候选 ${label}?`)) return;
-    keepBtn.disabled = archBtn.disabled = true;
+  archBtn.addEventListener("click", async () => {
+    const ids = boxes().filter((c) => !c.checked).map((c) => c.value);   // 没勾的 = 淘汰
+    if (!ids.length) { alert("没有要淘汰的 — 全部候选都已勾选留下"); return; }
+    if (!confirm(`把没勾选的 ${ids.length} 个候选归档(不影响勾选留下的)?`)) return;
+    archBtn.disabled = true;
     let done = 0, fail = 0;
     const q = ids.slice();
     async function worker() {
@@ -354,21 +352,17 @@
           const r = await fetch(`/strategies/${id}/status`, {
             method: "POST", headers: { "X-Requested-With": "fetch",
               "Content-Type": "application/x-www-form-urlencoded" },
-            body: "status=" + status,
+            body: "status=ARCHIVED",
           });
           if (!r.ok) fail++;
         } catch (e) { fail++; }
         done++;
-        selN.textContent = `处理 ${done}/${ids.length}` + (fail ? ` (失败${fail})` : "");
+        selN.textContent = `淘汰 ${done}/${ids.length}` + (fail ? ` (失败${fail})` : "");
       }
     }
     await Promise.all([worker(), worker()]);
-    // 转DEMO若无demo机会失败(set_status 拦) → 提示; 完成后重载看家族表新状态
-    if (fail) alert(`${fail} 个失败(留下需先有 demo 执行主机, 或去 Workers 页指派)`);
-    location.reload();
-  }
-  keepBtn.addEventListener("click", () => apply("DEMO", "留下(进策略池)"));
-  archBtn.addEventListener("click", () => apply("ARCHIVED", "归档(防下次重复生成同类)"));
+    location.reload();   // 留下的原样留在候选, 淘汰的变归档
+  });
 })();
 
 // 备注就地编辑(basis): 失焦即存, 值变了才发; 成功闪绿失败闪红并回退
