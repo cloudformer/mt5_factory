@@ -43,6 +43,7 @@ async def _claim_account(pool, host_id: int, login: int, server: str):
 async def list_hosts(request: Request):
     rows = await request.app.state.pool.fetch(
         "SELECT id, name, host, port, download, runner, account_type, enabled, status,"
+        "       owner_id, mt5_login, mt5_server,"   # 归属与账户: 管理页划拨下拉/账户列要显示
         "       created_at, online_at, offline_at, last_heartbeat, last_health"
         "  FROM mt5_hosts ORDER BY id")
     return {"hosts": [dict(r) for r in rows]}
