@@ -97,6 +97,16 @@
     {% if not recon.data_cover %}
     <p class="muted"><span class="neg">❌ 库内M1数据落后:<b>{{ recon.symbol }}</b>{% if recon.broker %} @ <b>{{ recon.broker }}</b>{% endif %} 只到 {{ m.lts(recon.data_to) if recon.data_to else '无数据' }} — 先去「数据下载」补这个品种到最新(对账重放自动用最新数据,无需重跑回测)</span></p>
     {% endif %}
+    {% if recon.point_drift %}
+    <p class="muted"><span class="neg">⚠ point 漂移:<b>{{ recon.symbol }}</b> 存量 net_points 与当前 point({{ '%g' % recon.point_drift.point }})复算不符
+      (抽样: {% for d in recon.point_drift.samples %}{{ d.entry }} 存 {{ d.stored }} ≠ 算 {{ d.expected }}{% if not loop.last %}; {% endif %}{% endfor %})
+      — 新老不同尺, 对账/归因失真</span>
+      <form method="post" action="{{ url_for('strategies.heal_points') }}" class="inline"
+            onsubmit="return confirm('按当前 point 重算 {{ recon.symbol }} 全部 net_points(幂等, 原始价格不动)?')">
+        <input type="hidden" name="symbol" value="{{ recon.symbol }}">
+        <button class="small">一键治愈</button>
+      </form></p>
+    {% endif %}
     {% if recon.pairs %}
     {% macro pair_cells(p) %}
         <td>{{ p.actual.entry if p.actual else p.bt.entry }}</td>

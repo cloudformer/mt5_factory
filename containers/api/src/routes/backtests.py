@@ -651,6 +651,24 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all",
     chosen = account if account in results else accounts[0]
     out = results[chosen]
     out["account"] = chosen
+    # point 漂移哨兵(v0.7): net_points 是"按入库当时 point 缓存的换算结果", point 变了
+    # 新老不同尺, 对账/归因全失真且无报错。每行自带审计材料(原始价格+存量net_points),
+    # 抽 首/中/末 三笔现算现比(内存里已有, 3次乘法零开销, 不存任何对比数据),
+    # 偏差 >1 点亮红条; 治愈=按原始价格×当前point 批量刷新缓存值(幂等, 原始价格永不动)。
+    if strat["point"]:
+        pt = float(strat["point"])
+        drift = []
+        for i in sorted({0, len(actual) // 2, len(actual) - 1}):
+            a = actual[i]
+            if a["entry_price"] is None or a["exit_price"] is None or a["net_points"] is None:
+                continue
+            sign = 1 if (a["direction"] or "").lower() == "buy" else -1
+            expect = sign * (a["exit_price"] - a["entry_price"]) / pt
+            if abs(expect - float(a["net_points"])) > 1:
+                drift.append({"entry": a["entry_time"].strftime("%m-%d %H:%M"),
+                              "stored": a["net_points"], "expected": round(expect, 1)})
+        if drift:
+            out["point_drift"] = {"point": pt, "samples": drift}
     out["accounts"] = [
         {"account": a, "trades": len(by_acct[a]),
          "env": "+".join(sorted({t["env"] for t in by_acct[a]})),
@@ -791,6 +809,29 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
                data_to=data_to,
                data_cover=(data_to_ts is not None and data_to_ts >= wt.timestamp()))
     return out   # 落库在 compute_reconcile 外壳(全账户整组删旧插新)
+
+
+class HealPointsRequest(BaseModel):
+    symbol: str
+
+
+@router.post("/trades/heal_points")
+async def heal_points(req: HealPointsRequest, request: Request):
+    """point 漂移治愈(v0.7): 按原始价格 × 当前 point 批量重算该品种全部 net_points。
+    net_points 只是缓存的换算结果, 原始价格才是账本(永不改动); 重算幂等, 重复执行结果相同。"""
+    pool = request.app.state.pool
+    pt = await pool.fetchval("SELECT point FROM symbols WHERE symbol=$1", req.symbol)
+    if not pt:
+        raise HTTPException(status_code=404, detail=f"{req.symbol} 未登记或 point 缺失")
+    n = await pool.execute(
+        "UPDATE trades SET net_points = round(((CASE WHEN lower(direction) = 'buy'"
+        "   THEN exit_price - entry_price ELSE entry_price - exit_price END) / $2)::numeric, 1),"
+        "   updated_at = now()"
+        " WHERE symbol=$1 AND entry_price IS NOT NULL AND exit_price IS NOT NULL",
+        req.symbol, float(pt))
+    updated = int(n.split()[-1])
+    logger.info("heal_points %s point=%s updated=%d", req.symbol, pt, updated)
+    return {"symbol": req.symbol, "point": float(pt), "updated": updated}
 
 
 # ---------- 系统流水: 本地库(trades)已持久化成交, 按账号 + 时间范围查(v1.6) ----------

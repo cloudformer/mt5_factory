@@ -261,8 +261,8 @@
   <div class="flex-between" style="margin-top:8px">
     {{ m.table_toolbar('ai-family', hint='本页即时过滤') }}
     <span><span id="fam-sel-n" class="muted">未选</span>
-      <button type="button" class="small" id="fam-keep-btn" disabled>留下→转DEMO</button>
-      <button type="button" class="small" id="fam-arch-btn" disabled>淘汰→归档</button></span>
+      <button type="button" class="small" id="fam-keep-btn" disabled>留下</button>
+      <button type="button" class="small" id="fam-arch-btn" disabled>归档</button></span>
   </div>
   <table id="ai-family" class="dense">
     <tr><th data-nosort><input type="checkbox" id="fam-all" title="全选本页候选"></th>
@@ -364,11 +364,11 @@
     }
     await Promise.all([worker(), worker()]);
     // 转DEMO若无demo机会失败(set_status 拦) → 提示; 完成后重载看家族表新状态
-    if (fail) alert(`${fail} 个失败(转DEMO需先有demo执行主机, 或去Workers页指派)`);
+    if (fail) alert(`${fail} 个失败(留下需先有 demo 执行主机, 或去 Workers 页指派)`);
     location.reload();
   }
-  keepBtn.addEventListener("click", () => apply("DEMO", "留下→转入 DEMO 模拟验证"));
-  archBtn.addEventListener("click", () => apply("ARCHIVED", "淘汰→归档(可逆, 留尸体防重复生成)"));
+  keepBtn.addEventListener("click", () => apply("DEMO", "留下(进策略池)"));
+  archBtn.addEventListener("click", () => apply("ARCHIVED", "归档(防下次重复生成同类)"));
 })();
 
 // 备注就地编辑(basis): 失焦即存, 值变了才发; 成功闪绿失败闪红并回退
