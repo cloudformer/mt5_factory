@@ -270,7 +270,9 @@
         <th data-nosort title="备注(生成时是AI生因, 可就地改/补; 失焦即存)">备注</th></tr>
     {% for f in family %}
     <tr {% if f.is_parent %}class="row-marked"{% endif %}>
-      <td>{% if not f.is_parent and f.status == 'CANDIDATE' %}<input type="checkbox" class="fam-pick" value="{{ f.id }}">{% endif %}</td>
+      {# 还在筛选中的行(候选/已归档)给勾选框: 勾=留下候选, 不勾=归档; 归档的默认不勾, 可勾回来纠错。
+         已进 DEMO/LIVE 的(含父)= 已越过筛选关, 无框不受影响 #}
+      <td>{% if not f.is_parent and f.status in ['CANDIDATE', 'ARCHIVED'] %}<input type="checkbox" class="fam-pick" value="{{ f.id }}" data-cur="{{ f.status }}" {% if f.status == 'CANDIDATE' %}checked{% endif %}>{% endif %}</td>
       <td class="rownum muted"></td>
       <td class="mono">{{ f.id }}{% if f.is_parent %} <span class="badge">父</span>{% endif %}</td>
       <td class="clip" title="{{ f.params }}{% if f.basis %} · 生因: {{ f.basis }}{% endif %}{% if f.created_at %} · {{ f.created_at[:16] | replace('T', ' ') }}{% endif %}">{% for k, v in (f.params or {}).items() %}{{ k }}={{ v }} {% endfor %}</td>
@@ -287,7 +289,7 @@
     {% endfor %}
   </table>
   <p class="muted">净点绿 = 胜过父策略 · 留出净点红 = 留出段亏(过拟合嫌疑, 候选淘汰位) ·
-    勾选=留下(留在候选池), 没勾的点「淘汰未选中」归档(防重复生成) · 之后上模拟/晋级去策略页配置(选worker), 这里只筛。</p>
+    勾选=留下(候选)· 不勾=淘汰(归档, 防重复生成)· 归档的可勾回来纠错 · 点「确认」双向落定 · 之后上模拟/晋级去策略页(选worker), 这里只筛。</p>
   {% endif %}
 </section>
 {% endif %}
@@ -320,16 +322,15 @@
 
 // 人工关口: 勾选候选 → 留下(转DEMO)/淘汰(归档)。AJAX 逐个调 /status(复用漏斗全部逻辑), 完成重载
 (function () {
-  const archBtn = document.getElementById("fam-arch-btn");
-  if (!archBtn) return;
+  const okBtn = document.getElementById("fam-arch-btn");
+  if (!okBtn) return;
   const selN = document.getElementById("fam-sel-n");
   const allBox = document.getElementById("fam-all");
-  const boxes = () => [...document.querySelectorAll(".fam-pick")];   // 全部候选(非父CANDIDATE)
+  const boxes = () => [...document.querySelectorAll(".fam-pick")];
 
   function refresh() {
     const keep = boxes().filter((c) => c.checked).length;
-    const drop = boxes().length - keep;
-    selN.textContent = `留下 ${keep} · 淘汰 ${drop}`;
+    selN.textContent = `留下 ${keep} · 淘汰 ${boxes().length - keep}`;
   }
   document.addEventListener("change", (e) => {
     if (e.target.classList.contains("fam-pick")) refresh();
@@ -338,30 +339,35 @@
   });
   refresh();
 
-  archBtn.addEventListener("click", async () => {
-    const ids = boxes().filter((c) => !c.checked).map((c) => c.value);   // 没勾的 = 淘汰
-    if (!ids.length) { alert("没有要淘汰的 — 全部候选都已勾选留下"); return; }
-    if (!confirm(`把没勾选的 ${ids.length} 个候选归档(不影响勾选留下的)?`)) return;
-    archBtn.disabled = true;
+  okBtn.addEventListener("click", async () => {
+    // 确认 = 双向落定: 勾→CANDIDATE(候选, 归档的可勾回来纠错), 不勾→ARCHIVED; 只发状态需变的
+    const changes = boxes().map((c) => ({
+      id: c.value, want: c.checked ? "CANDIDATE" : "ARCHIVED", cur: c.dataset.cur,
+    })).filter((x) => x.want !== x.cur);
+    if (!changes.length) { alert("没有变化 — 勾选状态与当前一致"); return; }
+    const keep = changes.filter((x) => x.want === "CANDIDATE").length;
+    const drop = changes.length - keep;
+    if (!confirm(`确认: 留下 ${keep} 个(转/留候选) · 淘汰 ${drop} 个(归档)?`)) return;
+    okBtn.disabled = true;
     let done = 0, fail = 0;
-    const q = ids.slice();
+    const q = changes.slice();
     async function worker() {
       while (q.length) {
-        const id = q.shift();
+        const c = q.shift();
         try {
-          const r = await fetch(`/strategies/${id}/status`, {
+          const r = await fetch(`/strategies/${c.id}/status`, {
             method: "POST", headers: { "X-Requested-With": "fetch",
               "Content-Type": "application/x-www-form-urlencoded" },
-            body: "status=ARCHIVED",
+            body: "status=" + c.want,
           });
           if (!r.ok) fail++;
         } catch (e) { fail++; }
         done++;
-        selN.textContent = `淘汰 ${done}/${ids.length}` + (fail ? ` (失败${fail})` : "");
+        selN.textContent = `处理 ${done}/${changes.length}` + (fail ? ` (失败${fail})` : "");
       }
     }
     await Promise.all([worker(), worker()]);
-    location.reload();   // 留下的原样留在候选, 淘汰的变归档
+    location.reload();
   });
 })();
 
