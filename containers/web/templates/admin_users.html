@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('用户管理', '建用户/发key/配置覆盖/划worker 页面化(v5.5)。认证在 v5.6 才接通: 此页当前与全站同一安全水位, 5.6 验收前不要暴露公网; key 明文只在签发时显示一次') }}
+
+<section>
+  <div class="flex-between">
+    <h2 style="margin:0">用户</h2>
+    <form method="post" action="{{ url_for('admin.create_user') }}" class="inline">
+      <input name="name" class="small" placeholder="新用户名" required maxlength="64">
+      <button class="live">建用户</button>
+    </form>
+  </div>
+  <table class="dense" style="margin-top:8px">
+    <thead><tr><th>ID</th><th>用户名</th><th>状态</th><th>策略</th><th>worker</th><th>启用key</th><th>创建</th><th data-nosort>操作</th></tr></thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td class="mono">{{ u.id }}{% if u.id == 1 %} <span class="badge ok" title="超管: 不可停用; v5.6 起管理页只认它">超管</span>{% endif %}</td>
+        <td class="mono">{{ u.name }}</td>
+        <td>{% if u.enabled %}<span class="pos">启用</span>{% else %}<span class="neg">停用</span>{% endif %}</td>
+        <td class="mono">{{ u.strategies }}</td>
+        <td class="mono">{{ u.workers }}</td>
+        <td class="mono">{{ u.keys }}</td>
+        <td class="mono muted">{{ u.created_at[:10] if u.created_at else '—' }}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin.issue_key', user_id=u.id) }}" class="inline">
+            <input name="name" class="small" placeholder="key备注" style="width:90px">
+            <button class="small" title="签发 api key: 明文只显示一次(flash 消息里), 库里只存哈希">发key</button>
+          </form>
+          {% if u.id != 1 %}
+          <form method="post" action="{{ url_for('admin.toggle_user', user_id=u.id) }}" class="inline"
+                onsubmit="return confirm('{{ '停用' if u.enabled else '启用' }} {{ u.name }} — v5.6 接认证后停用=key/登录/worker 全失效。确认?')">
+            <input type="hidden" name="enabled" value="{{ '0' if u.enabled else '1' }}">
+            <button class="small">{{ '停用' if u.enabled else '启用' }}</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>API keys</h2>
+  <p class="muted" style="margin:0 0 8px">一人可多把(网页/脚本各一把, 泄露吊销单把不殃及其余); 库里只有 sha256 哈希, 明文丢了只能重发。</p>
+  <table class="dense">
+    <thead><tr><th>ID</th><th>用户</th><th>备注</th><th>状态</th><th>最近使用</th><th>创建</th><th data-nosort>操作</th></tr></thead>
+    <tbody>
+    {% for k in keys %}
+      <tr>
+        <td class="mono">{{ k.id }}</td>
+        <td class="mono">{{ k.user }}</td>
+        <td class="muted">{{ k.name or '—' }}</td>
+        <td>{% if k.enabled %}<span class="pos">启用</span>{% else %}<span class="neg">已吊销</span>{% endif %}</td>
+        <td class="mono muted">{{ k.last_used_at[:16]|replace('T',' ') if k.last_used_at else '未用过(v5.6 接认证后记录)' }}</td>
+        <td class="mono muted">{{ k.created_at[:10] if k.created_at else '—' }}</td>
+        <td><form method="post" action="{{ url_for('admin.toggle_key', key_id=k.id) }}" class="inline"
+              {% if k.enabled %}onsubmit="return confirm('吊销 key #{{ k.id }}({{ k.user }} · {{ k.name or '无备注' }})?')"{% endif %}>
+          <input type="hidden" name="enabled" value="{{ '0' if k.enabled else '1' }}">
+          <button class="small">{{ '吊销' if k.enabled else '恢复' }}</button>
+        </form></td>
+      </tr>
+    {% endfor %}
+    {% if not keys %}<tr><td colspan="7" class="muted">还没有签发过 key</td></tr>{% endif %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>worker 归属</h2>
+  <p class="muted" style="margin:0 0 8px">一台 worker 属于且只属于一个用户(四位一体: 机器=终端=账户=worker); 划拨只是改标, "A 的 worker 只拉 A 的策略"的执法在 v5.6。</p>
+  <table class="dense">
+    <thead><tr><th>ID</th><th>名字</th><th>职能</th><th>MT5账户</th><th>状态</th><th data-nosort title="选完即提交">归属用户</th></tr></thead>
+    <tbody>
+    {% for h in hosts %}
+      <tr>
+        <td class="mono">{{ h.id }}</td>
+        <td class="mono">{{ h.name }}</td>
+        <td>{{ h.runner or '—' }}{% if h.download %} <span class="muted">+下载</span>{% endif %}</td>
+        <td class="mono muted">{{ h.mt5_login or '—' }}</td>
+        <td>{{ h.status }}</td>
+        <td><form method="post" action="{{ url_for('admin.set_host_owner', host_id=h.id) }}" class="inline"
+              onsubmit="return confirm('把 worker {{ h.name }} 划拨给所选用户 — 该机(及其账户)归属随之变更。确认?')">
+          <select name="owner_id" class="small" data-autosubmit>
+            {% for u in users %}
+            <option value="{{ u.id }}" {% if h.owner_id == u.id %}selected{% endif %}>{{ u.name }}</option>
+            {% endfor %}
+          </select>
+        </form></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>配置覆盖(user_config)</h2>
+  <p class="muted" style="margin:0 0 8px">用户自己的行有→用, 没有→实时跟随全局默认(配置页); 删除覆盖=回落默认。quota_* 为配额键(v5.6 起用户自己不可改, 只有这里能设)。</p>
+  <form method="post" action="{{ url_for('admin.set_user_config') }}" class="inline" style="margin-bottom:8px">
+    <select name="user_id" class="small">
+      {% for u in users %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}
+    </select>
+    <select name="key" class="small">
+      {% for k in cfg_keys %}<option value="{{ k }}">{{ k }}</option>{% endfor %}
+    </select>
+    <input name="value" class="small" placeholder="值(JSON: 100 / [0.01,0.1] / &quot;text&quot;)" required style="width:220px">
+    <button class="small">写覆盖</button>
+  </form>
+  <table class="dense">
+    <thead><tr><th>用户</th><th>键</th><th>覆盖值</th><th data-nosort>操作</th></tr></thead>
+    <tbody>
+    {% for o in overrides %}
+      <tr>
+        <td class="mono">{{ o.user }}</td>
+        <td class="mono">{{ o.key }}</td>
+        <td class="mono">{{ o.value }}</td>
+        <td><form method="post" action="{{ url_for('admin.del_user_config') }}" class="inline"
+              onsubmit="return confirm('删除 {{ o.user }} 的 {{ o.key }} 覆盖 — 回落全局默认?')">
+          <input type="hidden" name="user_id" value="{{ o.user_id }}">
+          <input type="hidden" name="key" value="{{ o.key }}">
+          <button class="small">删</button>
+        </form></td>
+      </tr>
+    {% endfor %}
+    {% if not overrides %}<tr><td colspan="4" class="muted">没有任何覆盖 — 所有用户全部实时跟随全局默认</td></tr>{% endif %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

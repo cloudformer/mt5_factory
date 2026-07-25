@@ -56,6 +56,26 @@ async def host_events(host_id: int, request: Request, limit: int = 100):
     return {"events": [dict(r) for r in rows]}
 
 
+class OwnerRequest(BaseModel):
+    owner_id: int
+
+
+@router.post("/hosts/{host_id}/owner")
+async def set_host_owner(host_id: int, req: OwnerRequest, request: Request):
+    """划拨 worker 归属(v5.5 管理后台): 一台 worker 属于且只属于一个用户(1:N 定死)。
+    只是改标 — "A 的 worker 只拉 A 的策略"的执法在 v5.6"""
+    try:
+        row = await request.app.state.pool.fetchrow(
+            "UPDATE mt5_hosts SET owner_id=$2 WHERE id=$1 RETURNING id, name, owner_id",
+            host_id, req.owner_id)
+    except asyncpg.ForeignKeyViolationError:
+        raise HTTPException(status_code=400, detail=f"用户 {req.owner_id} 不存在")
+    if row is None:
+        raise HTTPException(status_code=404, detail="host not found")
+    logger.info("host #%d owner -> user #%d", host_id, req.owner_id)
+    return dict(row)
+
+
 class HostCreate(BaseModel):
     name: str
     host: str

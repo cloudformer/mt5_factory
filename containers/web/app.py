@@ -14,6 +14,7 @@ from views.execution import bp as execution_bp
 from views.mt5 import bp as mt5_bp
 from views.strategies import bp as strategies_bp
 from views.symbols import bp as symbols_bp
+from views.users import bp as admin_bp
 from views.workers import bp as workers_bp
 
 app = Flask(__name__)
@@ -26,6 +27,7 @@ app.register_blueprint(strategies_bp)
 app.register_blueprint(backtests_bp)
 app.register_blueprint(execution_bp)
 app.register_blueprint(mt5_bp)
+app.register_blueprint(admin_bp)
 
 
 @app.get("/healthz")
