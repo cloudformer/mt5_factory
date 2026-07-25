@@ -93,19 +93,6 @@ def toggle_worker_key(key_id: int):
     return redirect(url_for("admin.users_page"))
 
 
-@bp.post("/hosts/<int:host_id>/owner")
-def set_host_owner(host_id: int):
-    try:
-        r = api.post(f"/hosts/{host_id}/owner",
-                     {"owner_id": int(request.form["owner_id"])})
-        flash(f"worker {r['name']} 划拨给用户 #{r['owner_id']}", "ok")
-    except (ValueError, KeyError):
-        flash("owner_id 格式错误", "error")
-    except api.ApiError as e:
-        flash(f"划拨失败: {e}", "error")
-    return redirect(url_for("admin.users_page"))
-
-
 @bp.post("/user_config/set")
 def set_user_config():
     raw = request.form.get("value", "").strip()

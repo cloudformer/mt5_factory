@@ -107,9 +107,10 @@
 
 <section>
   <h2>worker 归属</h2>
-  <p class="muted" style="margin:0 0 8px">一台 worker 属于且只属于一个用户(四位一体: 机器=终端=账户=worker); 划拨只是改标, "A 的 worker 只拉 A 的策略"的执法在 v5.6。</p>
+  <p class="muted" style="margin:0 0 8px">归属 = <b>绑定钥匙的主人</b>(announce 每分钟自动对齐, 手动改会被钥匙改回 — 故此列只读);
+    换归属 = 吊销旧钥匙 → 给新用户发一把 → 机器 env 换钥。无钥匙的老机器归默认用户。</p>
   <table class="dense">
-    <thead><tr><th>ID</th><th>名字</th><th>职能</th><th>MT5账户</th><th>状态</th><th data-nosort title="选完即提交">归属用户</th></tr></thead>
+    <thead><tr><th>ID</th><th>名字</th><th>职能</th><th>MT5账户</th><th>状态</th><th title="来自绑定钥匙, 只读">归属用户</th></tr></thead>
     <tbody>
     {% for h in hosts %}
       <tr>
@@ -118,14 +119,7 @@
         <td>{{ h.runner or '—' }}{% if h.download %} <span class="muted">+下载</span>{% endif %}</td>
         <td class="mono muted">{{ h.mt5_login or '—' }}</td>
         <td>{{ h.status }}</td>
-        <td><form method="post" action="{{ url_for('admin.set_host_owner', host_id=h.id) }}" class="inline"
-              onsubmit="return confirm('把 worker {{ h.name }} 划拨给所选用户 — 该机(及其账户)归属随之变更。确认?')">
-          <select name="owner_id" class="small" data-autosubmit>
-            {% for u in users %}
-            <option value="{{ u.id }}" {% if h.owner_id == u.id %}selected{% endif %}>{{ u.name }}</option>
-            {% endfor %}
-          </select>
-        </form></td>
+        <td class="mono">{% for u in users %}{% if u.id == h.owner_id %}{{ u.name }}{% endif %}{% endfor %}</td>
       </tr>
     {% endfor %}
     </tbody>
