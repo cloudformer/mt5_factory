@@ -99,24 +99,41 @@ async def generate(req: GenerateRequest, request: Request):
 
 @router.get("/strategies/status")
 async def list_strategies(request: Request, status: Optional[str] = None,
-                          symbol: Optional[str] = None, limit: int = 100):
+                          symbol: Optional[str] = None, limit: int = 100,
+                          host: Optional[str] = None):
     """策略实例列表, 按状态/品种筛选 (Windows runner 拉任务也走这里)。
+    host=主机名(v5.0-B1 挂载认领): 该 worker 只拉指给自己的挂载(手数取挂载点值),
+    与 status 组成两把钥匙防呆; 未注册/未传 host = 旧口径(角色全量), 老 runner 双向兼容。
     随附三方战绩 — web 页并排对比"回测质量 / demo / live 在券商是否一致":
       backtest: 最新一次回测指标 (backtests 表, 可能为 null)
-      stats:    {"demo": {trades,wins,profit}, "live": {...}} (strategy_stats 表, 心跳快照)"""
-    q = ("SELECT s.id, s.name, s.template, s.symbol, s.timeframe, s.params, s.status,"
-         "       s.magic_number, s.volume, sy.broker, b.metrics AS backtest, st.stats"
+      stats:    {"demo": {trades,wins,profit}, "live": {...}} (strategy_stats 表, 心跳快照;
+                multi-account 安全: 先按 env 聚合再打包)"""
+    cond, args = [], []
+    vol_expr, join_mounts = "s.volume", ""
+    if host:
+        hr = await request.app.state.pool.fetchrow(
+            "SELECT id FROM mt5_hosts WHERE name=$1 AND enabled", host)
+        if hr:
+            args.append(hr["id"])
+            join_mounts = (f"  JOIN strategy_mounts m ON m.strategy_id = s.id"
+                           f" AND m.enabled AND m.host_id = ${len(args)}")
+            vol_expr = "COALESCE(m.volume, s.volume)"
+    q = (f"SELECT s.id, s.name, s.template, s.symbol, s.timeframe, s.params, s.status,"
+         f"       s.magic_number, {vol_expr} AS volume, sy.broker,"
+         f"       b.metrics AS backtest, st.stats"
          "  FROM strategies s"
+         f"{join_mounts}"
          "  LEFT JOIN symbols sy ON sy.symbol = s.symbol"  # 券商(来自品种主档)
          # 只取主品种回测 (symbol=s.symbol): 跨品种验证会写多品种行, 不能串到别品种成绩
          "  LEFT JOIN LATERAL (SELECT metrics FROM backtests"
          "                      WHERE strategy_id = s.id AND symbol = s.symbol"
          "                      ORDER BY id DESC LIMIT 1) b ON true"
-         "  LEFT JOIN LATERAL (SELECT jsonb_object_agg(lower(env), jsonb_build_object("
-         "                       'trades', trades, 'wins', wins,"
-         "                       'profit', round(profit::numeric, 2))) AS stats"
-         "                       FROM strategy_stats WHERE strategy_id = s.id) st ON true")
-    cond, args = [], []
+         "  LEFT JOIN LATERAL (SELECT jsonb_object_agg(env, v) AS stats FROM ("
+         "                       SELECT lower(env) AS env, jsonb_build_object("
+         "                         'trades', sum(trades)::int, 'wins', sum(wins)::int,"
+         "                         'profit', round(sum(profit)::numeric, 2)) AS v"
+         "                       FROM strategy_stats WHERE strategy_id = s.id"
+         "                       GROUP BY lower(env)) e) st ON true")
     if status:
         args.append(status); cond.append(f"s.status = ${len(args)}")
     if symbol:
@@ -267,6 +284,24 @@ async def set_status(strategy_id: int, req: StatusRequest, request: Request):
         strategy_id, req.status)
     if row is None:
         raise HTTPException(status_code=404, detail="strategy not found")
+    # 挂载联动(v5.0-B1, 2026-07-24 与 Frank 定): 分账户世界不"全挂"——
+    # DEMO/LIVE → 挂到 owner 池里该角色"挂载数最少"的一台(单台=它, 新策略自动流向空机;
+    # 该角色已有挂载则不动 — 保住既有落位, 换挂/多挂是 B2 的 UI 活);
+    # CANDIDATE/ARCHIVED → 清空挂载即停跑。runner 按挂载认领见 list_strategies(host=)。
+    if req.status in ("DEMO", "LIVE"):
+        await request.app.state.pool.execute(
+            "INSERT INTO strategy_mounts (strategy_id, host_id, volume)"
+            " SELECT s.id, h.id, s.volume FROM strategies s, mt5_hosts h"
+            " WHERE s.id=$1 AND h.runner=$2 AND h.enabled AND h.owner_id = s.owner_id"
+            "   AND NOT EXISTS (SELECT 1 FROM strategy_mounts m0"
+            "                     JOIN mt5_hosts h0 ON h0.id = m0.host_id"
+            "                    WHERE m0.strategy_id = $1 AND h0.runner = $2)"
+            " ORDER BY (SELECT count(*) FROM strategy_mounts m2 WHERE m2.host_id = h.id), h.id"
+            " LIMIT 1"
+            " ON CONFLICT DO NOTHING", strategy_id, req.status.lower())
+    else:
+        await request.app.state.pool.execute(
+            "DELETE FROM strategy_mounts WHERE strategy_id=$1", strategy_id)
     return dict(row)
 
 
@@ -346,9 +381,10 @@ async def ai_report(strategy_id: int, request: Request):
     runtime = await pool.fetch(  # 运行区间原始数据(何时真实在跑; 对账窗口由它推导)
         "SELECT run_from, run_to, host FROM strategy_runtime WHERE strategy_id=$1"
         " ORDER BY run_from", strategy_id)
-    envs = await pool.fetch(     # 实盘按环境拆分(demo/live 各自战绩快照)
-        "SELECT env, trades, wins, profit, updated_at FROM strategy_stats"
-        " WHERE strategy_id=$1 ORDER BY env", strategy_id)
+    envs = await pool.fetch(     # 实盘按环境拆分(demo/live 各自战绩快照; 多账户按 env 聚合)
+        "SELECT env, sum(trades)::int AS trades, sum(wins)::int AS wins,"
+        "       sum(profit) AS profit, max(updated_at) AS updated_at"
+        " FROM strategy_stats WHERE strategy_id=$1 GROUP BY env ORDER BY env", strategy_id)
     recon = await compute_reconcile(pool, strategy_id)  # 现算最新对账(与分析页同口径)
 
     def _cols(ts):  # 回测逐笔 → 紧凑列式(全字段: 出入场时间/价格/净点/原因/MAE/MFE)

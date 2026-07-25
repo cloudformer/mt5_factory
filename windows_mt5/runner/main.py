@@ -134,8 +134,11 @@ def fetch_strategies(run_status: str) -> list:
     if not run_status:
         logger.info("loaded 0 strategies (role=idle)")  # 空闲也打一行, 否则控制台静默像卡住
         return [], []   # 空闲: 无角色 → 不加载任何策略 (必须返回两个值, 与解包对齐)
+    # host=本机名(v5.0-B1 挂载认领): 新 api 按挂载表只发指给我这台的(手数取挂载点值);
+    # 老 api 忽略该参数=角色全量 — 双向兼容, api 与 worker 谁先升级都安全
     r = requests.get(f"{API_URL}/strategies/status",
-                     params={"status": run_status, "limit": 500}, timeout=10)
+                     params={"status": run_status, "host": socket.gethostname(),
+                             "limit": 500}, timeout=10)
     r.raise_for_status()
     data = r.json()
     # 默认手数唯一源=config表(接口随策略带回); env VOLUME 只在 api 没给时兜底

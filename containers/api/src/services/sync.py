@@ -324,14 +324,16 @@ async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
         # 按主机角色写对应环境; 策略晋级后旧环境的最后快照保留 — demo vs live 才有对比对象。
         # 只存聚合(近90天窗口), 逐笔回写是 P2
         rn = health.get("runner") or {}
-        if h["runner"] and rn.get("per_strategy"):
+        # v5.0-B1: 主键 (strategy_id, account) — 多挂载后同策略多账户各存各的, 不互相覆盖;
+        # env 降为属性列(账户随主机角色变则跟着改)。无 login 的心跳不写: 没有账户维度没法归位
+        if h["runner"] and rn.get("per_strategy") and health.get("login"):
             await pool.executemany(
-                "INSERT INTO strategy_stats (strategy_id, env, trades, wins, profit)"
-                " VALUES ($1, $2, $3, $4, $5)"
-                " ON CONFLICT (strategy_id, env) DO UPDATE SET"
-                "   trades = EXCLUDED.trades, wins = EXCLUDED.wins,"
+                "INSERT INTO strategy_stats (strategy_id, env, account, trades, wins, profit)"
+                " VALUES ($1, $2, $3, $4, $5, $6)"
+                " ON CONFLICT (strategy_id, account) DO UPDATE SET"
+                "   env = EXCLUDED.env, trades = EXCLUDED.trades, wins = EXCLUDED.wins,"
                 "   profit = EXCLUDED.profit, updated_at = now()",
-                [(s["id"], h["runner"].upper(), s["closed"]["trades"],
+                [(s["id"], h["runner"].upper(), health["login"], s["closed"]["trades"],
                   s["closed"]["wins"], s["closed"]["profit"])
                  for s in rn["per_strategy"] if s.get("closed")])
         # 运行区间(strategy_runtime, schema/019): 名单里的策略 = 此刻真实在跑 →
