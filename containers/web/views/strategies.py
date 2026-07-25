@@ -18,6 +18,7 @@ def index():
     symbol = a.get("symbol") or None
     broker = a.get("broker") or None
     status = a.get("status") or None
+    visibility = a.get("visibility") or None
     q_field = a.get("q_field") or "name"
     q_text = a.get("q_text") or None
     min_trades = a.get("min_trades", 0, type=int)
@@ -46,7 +47,7 @@ def index():
         if min_actual_trades:
             params["min_actual_trades"] = min_actual_trades
         for k, v in (("template", template), ("symbol", symbol),
-                     ("broker", broker), ("status", status)):
+                     ("broker", broker), ("status", status), ("visibility", visibility)):
             if v:
                 params[k] = v
         params.update({k: v for k, v in filters.items() if v is not None})
@@ -88,7 +89,8 @@ def index():
     return render_template("strategies.html", results=results, volume_presets=volume_presets,
                            volume_default=volume_default, mounts_view=mounts_view,
                            symbol=symbol, broker=broker, min_actual_trades=min_actual_trades,
-                           status=status, min_trades=min_trades, q_field=q_field, q_text=q_text,
+                           status=status, visibility=visibility,
+                           min_trades=min_trades, q_field=q_field, q_text=q_text,
                            filters=filters, positive=positive, oos=oos, rank=rank,
                            rank_templates=rank_templates, brokers=brokers, symbols=symbols,
                            template=template, templates=templates, oos_split=oos_split,
@@ -147,6 +149,31 @@ def analysis():
         except api.ApiError as e:
             flash(f"分析失败: {e}", "error")
     return render_template("strategy_analysis.html", recon=recon, ana=ana, sid=sid)
+
+
+@bp.post("/<int:strategy_id>/set_visibility")
+def set_visibility(strategy_id: int):
+    """改可见性(私有/公开/共享) — 打标动作, 低频, 普通提交+flash"""
+    try:
+        r = api.post(f"/strategies/{strategy_id}/visibility",
+                     {"visibility": request.form.get("visibility", "")})
+        zh = {"private": "私有", "public": "公开", "shared": "共享"}
+        flash(f"#{strategy_id} 可见性 → {zh.get(r['visibility'], r['visibility'])}", "ok")
+    except api.ApiError as e:
+        flash(f"改可见性失败: {e}", "error")
+    return redirect(request.referrer or url_for("strategies.index"))
+
+
+@bp.get("/market")
+def market():
+    """策略市场(v5.4 雏形, 只读): public/shared 策略的成绩摘要+实盘汇总。
+    红线现在就练: shared 不显示参数, 连 name 都不显示(策略名里嵌着参数)。"""
+    rows = []
+    try:
+        rows = api.get("/backtest/top", visibility="public,shared", limit=200)["results"]
+    except api.ApiError as e:
+        flash(f"api 不可用: {e}", "error")
+    return render_template("market.html", rows=rows)
 
 
 @bp.post("/<int:strategy_id>/mount")

@@ -251,7 +251,8 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
               min_win_rate: float = 0, min_pf: float = 0,
               max_dd: Optional[float] = None, min_robust: Optional[float] = None,
               positive_only: bool = False, rank_template: Optional[str] = None,
-              oos_pass: bool = False, template: Optional[str] = None, page: int = 1):
+              oos_pass: bool = False, template: Optional[str] = None, page: int = 1,
+              visibility: Optional[str] = None):
     """策略列表排名: 从 strategies 出发 LEFT JOIN 主品种回测 — 未回测的策略也出现(成绩为空,
     默认沉底), 列表与排名合一。跨品种结果只喂健壮性列/明细, 不参与排名。
 
@@ -278,6 +279,9 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         _and("COALESCE(b.broker, sy.broker) = ${n}", broker)
     if status:
         _and("s.status = ${n}", status.upper())
+    if visibility:  # 可见性(逗号多值): 列表筛选 / 市场页(public,shared)共用
+        _and("s.visibility = ANY(${n})",
+             [v.strip() for v in visibility.split(",") if v.strip()])
     if min_win_rate:  # 前端传百分数, metrics 存 0~1
         _and("b.id IS NOT NULL AND COALESCE((b.metrics->>'win_rate')::float, 0) >= ${n}",
              min_win_rate / 100)
@@ -314,7 +318,7 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
             if t.get("name") == rank_template), None)
 
     cols = ("s.id AS strategy_id, s.name, s.template, s.symbol, s.timeframe, s.status,"
-            " s.params, s.magic_number, s.volume,"
+            " s.visibility, s.params, s.magic_number, s.volume,"
             " COALESCE(b.broker, sy.broker) AS broker, b.metrics, b.created_at")
     joins = (" FROM strategies s"
              " LEFT JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol"

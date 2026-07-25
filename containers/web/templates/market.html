@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('策略市场', '公开(public)=参数全可见可复制 · 共享(shared)=只给汇总战绩(不显示参数与策略名 — 名字里嵌着参数); 复制/盲测/订阅随 v5.6 隔离后开放, 现为只读雏形') }}
+
+<section>
+  <div style="overflow-x:auto">
+  <table class="dense" data-colpick id="market-table">
+    <thead><tr>
+      <th>ID</th><th>可见性</th><th>策略</th><th title="生成用的策略模板(逻辑代码)">模板</th>
+      <th>品种</th><th>周期</th><th>状态</th>
+      <th>回测笔数</th><th>回测胜率</th><th>净点数</th><th>PF</th><th>最大回撤</th>
+      <th data-nosort title="demo+live 合并实盘战绩(strategy_stats 心跳快照) — 市场的招牌: 真金白银跑出来的">实盘 笔·胜率·盈亏</th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="mono">{% if r.visibility == 'public' %}<a href="{{ url_for('strategies.analysis', strategy_id=r.strategy_id) }}" title="公开策略可看完整分析">{{ r.strategy_id }}</a>{% else %}{{ r.strategy_id }}{% endif %}</td>
+        <td>{% if r.visibility == 'public' %}<span class="badge ok">公开</span>{% else %}<span class="badge warn">共享</span>{% endif %}</td>
+        <td class="mono muted" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="{{ r.name if r.visibility == 'public' else '共享策略不显示名称(名称嵌参数, 防反推)' }}">
+          {% if r.visibility == 'public' %}{{ r.name }}{% else %}{{ r.template }}-{{ r.symbol }}-{{ r.timeframe }} <span class="muted">#{{ r.strategy_id }}</span>{% endif %}</td>
+        <td class="mono muted">{{ r.template }}</td>
+        <td class="mono">{{ r.symbol }}</td>
+        <td>{{ r.timeframe }}</td>
+        <td>{{ m.status_label(r.status) }}</td>
+        {% if r.has_bt %}
+        <td>{{ r.metrics.trades }}</td>
+        <td>{{ m.pct(r.metrics.win_rate * 100) }}</td>
+        <td class="{{ 'pos' if r.metrics.net_points > 0 else 'neg' }}">{{ r.metrics.net_points }}</td>
+        <td>{{ r.metrics.profit_factor or '—' }}</td>
+        <td class="muted">{{ r.metrics.max_dd_points or 0 }}</td>
+        {% else %}<td colspan="5" class="muted">未回测</td>{% endif %}
+        <td>{% if r.actual %}{{ r.actual.trades }} 笔 · {{ m.pct(r.actual.win_rate * 100) if r.actual.win_rate is not none else '—' }} ·
+          <span class="{{ 'pos' if r.actual.profit > 0 else 'neg' }}">{{ r.actual.profit }}</span>
+          {% else %}<span class="muted">—</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if not rows %}
+  <p class="muted">市场空空如也 — 去「策略列表排名」把好策略的可见性改为 公开/共享, 它们就会出现在这里。</p>
+  {% endif %}
+</section>
+{% endblock %}

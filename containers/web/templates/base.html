@@ -47,6 +47,7 @@
   </div>
   <a href="{{ url_for('execution.demo') }}" {% if ep == 'execution.demo' %}class="active"{% endif %}>Demo</a>
   <a href="{{ url_for('execution.live') }}" {% if ep == 'execution.live' %}class="active"{% endif %}>Live</a>
+  <a href="{{ url_for('strategies.market') }}" {% if ep == 'strategies.market' %}class="active"{% endif %}>市场</a>
   <div class="navmenu">
     <a href="{{ url_for('mt5.index') }}"
        {% if ep.startswith('mt5.') %}class="active"{% endif %}>MT5 ▾</a>

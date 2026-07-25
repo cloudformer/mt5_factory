@@ -324,6 +324,25 @@ async def set_volume(strategy_id: int, req: VolumeRequest, request: Request):
     return dict(row)
 
 
+class VisibilityRequest(BaseModel):
+    visibility: str
+
+
+@router.post("/strategies/{strategy_id}/visibility")
+async def set_visibility(strategy_id: int, req: VisibilityRequest, request: Request):
+    """改可见性(v5.4): private=只有自己 / public=全可见可fork / shared=只给汇总可盲测订阅。
+    现在只是打标(执法在 v5.6 输出层裁剪); 默认 private, 上市场永远是逐个主动打标。"""
+    if req.visibility not in ("private", "public", "shared"):
+        raise HTTPException(status_code=400, detail="visibility 须为 private/public/shared")
+    row = await request.app.state.pool.fetchrow(
+        "UPDATE strategies SET visibility=$2, updated_at=now()"
+        " WHERE id=$1 RETURNING id, name, visibility", strategy_id, req.visibility)
+    if row is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    logger.info("strategy #%d visibility -> %s", strategy_id, req.visibility)
+    return dict(row)
+
+
 class MountRequest(BaseModel):
     host_id: int
     volume: Optional[float] = None   # 空=该挂载点回落 策略手数→全局默认
