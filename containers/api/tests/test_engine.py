@@ -243,3 +243,141 @@ def test_run_backtest_commission_deducted(monkeypatch):
     res = run_backtest(m1, "any", {}, 0.01, "M1",
                        slippage_points=0, commission_points=7, spread_points=0, oos_split=None)
     assert res["trades"][0]["points"] == pytest.approx(50.0 - 7)   # 佣金按点从盈亏扣
+
+
+# ---------- 移动止损(v0.9): 纯函数 trail_new_sl ----------
+
+from strategy_core.trailing import atr_m1, trail_new_sl  # noqa: E402
+
+_FIXED = {"active": "fixed", "fixed": {"gap": 50}}                       # gap 50点=0.5(point 0.01)
+_BE = {"active": "breakeven", "breakeven": {"gap": 50, "start": 100}}    # 盈利100点(1.0)才启动
+_ATR = {"active": "atr", "atr": {"k": 2.0, "period": 14}}
+
+
+def test_trail_ratchet_up_only_buy():
+    # BUY entry=100, cur_sl=99: ref=101 → cand=100.5 > 99 → 移
+    assert trail_new_sl("BUY", 100, 99.0, 101.0, _FIXED, 0.01) == pytest.approx(100.5)
+    # ref 回落到 100.6 → cand=100.1 < 已在 100.5 的 SL → None(只上不下)
+    assert trail_new_sl("BUY", 100, 100.5, 100.6, _FIXED, 0.01) is None
+
+
+def test_trail_sell_mirror():
+    # SELL entry=100, cur_sl=101: ref(ask)=99 → cand=99.5 < 101 → 移
+    assert trail_new_sl("SELL", 100, 101.0, 99.0, _FIXED, 0.01) == pytest.approx(99.5)
+    # 反弹 ref=99.8 → cand=100.3 > 已在 99.5 → None
+    assert trail_new_sl("SELL", 100, 99.5, 99.8, _FIXED, 0.01) is None
+
+
+def test_trail_breakeven_gate_and_jump():
+    # 盈利 0.9 < start 1.0 → 不启动
+    assert trail_new_sl("BUY", 100, 99.0, 100.9, _BE, 0.01) is None
+    # 盈利 1.0 达标 → cand=max(ref-gap, entry)=max(100.5, 100)=100.5
+    assert trail_new_sl("BUY", 100, 99.0, 101.0, _BE, 0.01) == pytest.approx(100.5)
+    # 刚过启动但 ref-gap<entry → 至少保本(=entry)
+    be = {"active": "breakeven", "breakeven": {"gap": 200, "start": 100}}
+    assert trail_new_sl("BUY", 100, 99.0, 101.0, be, 0.01) == pytest.approx(100.0)
+
+
+def test_trail_breakeven_requires_start():
+    assert trail_new_sl("BUY", 100, 99.0, 105.0,
+                        {"active": "breakeven", "breakeven": {"gap": 50}}, 0.01) is None
+
+
+def test_trail_atr_gap():
+    # atr=0.3, k=2 → gap=0.6: ref=102 → cand=101.4
+    assert trail_new_sl("BUY", 100, 99.0, 102.0, _ATR, 0.01, atr=0.3) == pytest.approx(101.4)
+    assert trail_new_sl("BUY", 100, 99.0, 102.0, _ATR, 0.01, atr=None) is None  # 无ATR不动
+
+
+def test_trail_disabled_or_bad_cfg():
+    assert trail_new_sl("BUY", 100, 99.0, 105.0, {}, 0.01) is None
+    assert trail_new_sl("BUY", 100, 99.0, 105.0, {"active": None}, 0.01) is None
+    assert trail_new_sl("BUY", 100, 99.0, 105.0, {"active": "fixed", "fixed": {}}, 0.01) is None
+
+
+def test_atr_m1_window_and_insufficient():
+    m1 = {"high": np.array([2., 3., 2., 3.]), "low": np.array([1., 1., 1., 1.]),
+          "close": np.array([1.5, 2., 1.5, 2.])}
+    assert atr_m1(m1, 1, 3) is None                       # 历史不足
+    # j=3, period=3: 窗 h[1..3] l[1..3] cp=close[0..2] → tr=[max(2,1.5,.5)=2, max(1,0,1)=1, max(2,1.5,.5)=2]
+    assert atr_m1(m1, 3, 3) == pytest.approx((2 + 1 + 2) / 3)
+
+
+# ---------- 移动止损: 引擎集成(_walk_exit / run_backtest) ----------
+
+def _m1_seq(prices):
+    """按 (o,h,l,c) 序列造 M1(零点差)"""
+    n = len(prices)
+    return {"time": np.array([1_700_000_000 + i * 60 for i in range(n)], np.int64),
+            "open": np.array([p[0] for p in prices]),
+            "high": np.array([p[1] for p in prices]),
+            "low": np.array([p[2] for p in prices]),
+            "close": np.array([p[3] for p in prices]),
+            "spread": np.zeros(n, np.int64)}
+
+
+def test_walk_exit_trailing_locks_profit_buy():
+    # entry=100, sl=99, tp=110(远); 走势: 涨到101.5收盘 → SL棘轮到101; 次根跌到100.5 → 触发被追后的SL
+    m1 = _m1_seq([(100.5, 101.6, 100.4, 101.5),   # bar0: 不触发, 收盘后 SL→101.5-0.5=101
+                  (101.1, 101.2, 100.5, 100.6)])  # bar1: low 100.5 <= 101 → sl 触发(在被追的位置)
+    pos = {"dir": "BUY", "entry": 100.0, "sl": 99.0, "tp": 110.0}
+    hit = _walk_exit(pos, 0, 2, m1, 0.01, 0, trail=_FIXED)
+    assert hit == (101.0, 1, "sl") and pos["trailed"] is True   # 出在101(锁利), 非原始99
+
+
+def test_walk_exit_no_trail_identical_old_path():
+    # 同一行情不开 trail: SL 停 99, bar1 不触发 → None(与旧行为一致)
+    m1 = _m1_seq([(100.5, 101.6, 100.4, 101.5), (101.0, 101.2, 100.5, 100.6)])
+    pos = {"dir": "BUY", "entry": 100.0, "sl": 99.0, "tp": 110.0}
+    assert _walk_exit(pos, 0, 2, m1, 0.01, 0) is None and pos["sl"] == 99.0
+
+
+def test_walk_exit_trailing_sell_uses_ask():
+    # SELL entry=100, sl=101: 跌到98.5收盘, 点差20点(0.2) → ask=98.7 → SL→98.7+0.5=99.2
+    m1 = _m1_seq([(99.5, 99.6, 98.4, 98.5)])
+    m1["spread"] = np.array([20], np.int64)
+    pos = {"dir": "SELL", "entry": 100.0, "sl": 101.0, "tp": 90.0}
+    assert _walk_exit(pos, 0, 1, m1, 0.01, None, trail=_FIXED) is None
+    assert pos["sl"] == pytest.approx(99.2)
+
+
+class _StubTrail(_StubOnce):
+    """TP 放远(110): 专测 trailing — 不被 _StubOnce 的近 TP(100.5) 抢先"""
+    def on_bar(self, o, h, l, c):
+        if self._fired:
+            return None
+        self._fired = True
+        return Signal("BUY", sl=99.0, tp=110.0)
+
+
+def test_run_backtest_trail_reason_tsl(monkeypatch):
+    """集成: 开固定移动 → 冲高回落笔的出场 reason=tsl 且净点优于不开"""
+    monkeypatch.setattr(bt, "make_strategy", lambda *a, **k: _StubTrail())
+    t0 = 1_700_000_000
+    n = 6
+    m1 = {"time": np.array([t0 + i * 60 for i in range(n)], np.int64),
+          "open": np.array([100., 100., 100., 100., 101.5, 101.]),
+          "high": np.array([100., 100., 100., 101.6, 101.6, 101.]),
+          "low": np.array([100., 100., 100., 100., 100.9, 99.]),
+          "close": np.array([100., 100., 100., 101.5, 101., 99.5]),
+          "spread": np.zeros(n, np.int64)}
+    params_on = {"trail": {"active": "fixed", "fixed": {"gap": 30}}}
+    res_on = run_backtest(m1, "any", params_on, 0.01, "M1",
+                          slippage_points=0, commission_points=0, spread_points=0, oos_split=None)
+    monkeypatch.setattr(bt, "make_strategy", lambda *a, **k: _StubTrail())
+    res_off = run_backtest(m1, "any", {}, 0.01, "M1",
+                           slippage_points=0, commission_points=0, spread_points=0, oos_split=None)
+    # 开: bar3收盘101.5 → SL棘轮到101.2; bar4 low 100.9 触发 → tsl, +120点
+    tr_on, tr_off = res_on["trades"][0], res_off["trades"][0]
+    assert tr_on["reason"] == "tsl" and tr_on["points"] == pytest.approx(120.0)
+    # 关: SL 停 99, bar5 low 99 触发原始止损 → -100点; 开优于关(锁利)
+    assert tr_off["reason"] == "sl" and tr_off["points"] == pytest.approx(-100.0)
+
+
+def test_run_backtest_keep_tp_false_removes_tp(monkeypatch):
+    monkeypatch.setattr(bt, "make_strategy", lambda *a, **k: _StubOnce())
+    m1, _ = _stub_m1()   # bar3 high=101 会触发原TP 100.5
+    params = {"trail": {"active": "fixed", "fixed": {"gap": 500}, "keep_tp": False}}
+    res = run_backtest(m1, "any", params, 0.01, "M1",
+                       slippage_points=0, commission_points=0, spread_points=0, oos_split=None)
+    assert res["trades"] == []   # TP被去掉且SL(gap极大)未被触发 → 持仓到数据尾不成交

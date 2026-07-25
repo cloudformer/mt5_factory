@@ -103,8 +103,15 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
         raise ValueError(f"no M1 data for {sym}, run /syncdata first")
     oos_split = await pool.fetchval(
         "SELECT value FROM config WHERE key='backtest_oos_split'") or 0.7
+    # 移动止损(v0.9)回落: 策略 params 没填 trail → 用全局默认 trail_default(null=关, 不注入)。
+    # 引擎只认 params(纯函数), 回落在这一层做 — 与实盘 runner 拉取时同一回落规则, 两边一致
+    params = s["params"]
+    if isinstance(params, dict) and not params.get("trail"):
+        td = await pool.fetchval("SELECT value FROM config WHERE key='trail_default'")
+        if isinstance(td, dict) and td.get("active"):
+            params = {**params, "trail": td}
     result = await asyncio.to_thread(
-        backtest.run_backtest, cache["m1"], s["template"], s["params"],
+        backtest.run_backtest, cache["m1"], s["template"], params,
         meta["point"], s["timeframe"], oos_split=oos_split, **payload["costs"])
     # to_time 记"实际读到的最后一根 M1", 不用请求截止 t_to(默认=now)。
     # 否则数据滞后于 now 时跑的回测会把 to_time 记成 now, 让对账 bt_stale 误判为"新鲜"、

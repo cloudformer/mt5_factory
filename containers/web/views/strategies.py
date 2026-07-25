@@ -164,6 +164,30 @@ def set_visibility(strategy_id: int):
     return redirect(request.referrer or url_for("strategies.index"))
 
 
+@bp.get("/<int:strategy_id>/trail_compare")
+def trail_compare(strategy_id: int):
+    """AJAX: 移动止损四档对比(api 内存现算 ×4, 不落库) — 透传"""
+    try:
+        return api.get(f"/strategies/{strategy_id}/trail_compare")
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
+@bp.post("/<int:strategy_id>/set_trail")
+def set_trail(strategy_id: int):
+    """AJAX: 把某档移动止损写进策略 params.trail(空=清除, 回落全局默认)"""
+    import json as _json
+    raw = request.form.get("trail", "").strip()
+    try:
+        trail = _json.loads(raw) if raw else None
+        r = api.post(f"/strategies/{strategy_id}/trail", {"trail": trail})
+        return {"ok": True, "trail": r["trail"]}
+    except ValueError:
+        return {"error": "trail JSON 格式错误"}, 400
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
 @bp.post("/<int:strategy_id>/basis")
 def set_basis(strategy_id: int):
     """编辑备注(basis) — AJAX 失焦即存, 回 JSON; 当前版本唯一可编辑的注释"""

@@ -305,6 +305,99 @@ async def set_status(strategy_id: int, req: StatusRequest, request: Request):
     return dict(row)
 
 
+@router.get("/strategies/{strategy_id}/trail_compare")
+async def trail_compare(strategy_id: int, request: Request):
+    """移动止损四档对比(v0.9 第3步): 同一策略全量回测跑 关/固定/保本/ATR 四版,
+    内存现算不落库(排名/成绩仍用 backtests 表, 两口径各答各的)。
+    档位参数: 策略 params.trail 里有该类就用它, 否则用数据自适应探针
+    (fixed.gap=平均M1波幅×2 点, breakeven 同 gap+start=gap×2, atr k=2/period=14) — 免先填参数。"""
+    pool = request.app.state.pool
+    s = await pool.fetchrow(
+        "SELECT s.template, s.params, s.symbol, s.timeframe, sym.point FROM strategies s"
+        " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    if not s["point"] or s["timeframe"] not in backtest.TF_SECONDS:
+        raise HTTPException(status_code=400, detail="品种未登记或周期不支持")
+    m1 = await backtest.load_m1(pool, s["symbol"],
+                                datetime(2015, 1, 1, tzinfo=timezone.utc),
+                                datetime.now(timezone.utc))
+    if m1 is None:
+        raise HTTPException(status_code=400, detail=f"{s['symbol']} 无 M1 数据, 先去下载")
+    cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
+    costs = {"slippage_points": cfg.get("slippage_points", backtest.DEFAULT_SLIPPAGE_POINTS),
+             "commission_points": cfg.get("commission_points", backtest.DEFAULT_COMMISSION_POINTS),
+             "spread_points": cfg.get("spread_points")}
+    point = float(s["point"])
+    import numpy as np
+    probe_gap = max(int(round(float(np.mean(m1["high"] - m1["low"])) / point * 2)), 10)
+    own = (s["params"] or {}).get("trail") or {}
+
+    def _variant(t):
+        if t == "off":
+            return None
+        v = {"active": t}
+        if own.get(t):
+            v[t] = own[t]                     # 策略自己填过该类参数 → 尊重
+        elif t == "fixed":
+            v["fixed"] = {"gap": probe_gap}
+        elif t == "breakeven":
+            v["breakeven"] = {"gap": probe_gap, "start": probe_gap * 2}
+        else:
+            v["atr"] = {"k": 2.0, "period": 14}
+        if "keep_tp" in own:
+            v["keep_tp"] = own["keep_tp"]
+        return v
+
+    rows = []
+    for t in ("off", "fixed", "breakeven", "atr"):
+        p = dict(s["params"] or {})
+        p.pop("trail", None)
+        tc = _variant(t)
+        if tc:
+            p["trail"] = tc
+        res = await asyncio.to_thread(
+            backtest.run_backtest, m1, s["template"], p, point, s["timeframe"],
+            oos_split=None, **costs)
+        mtr = res["metrics"]
+        rows.append({"type": t, "cfg": tc, "trades": mtr.get("trades"),
+                     "net_points": mtr.get("net_points"), "win_rate": mtr.get("win_rate"),
+                     "profit_factor": mtr.get("profit_factor"),
+                     "max_dd_points": mtr.get("max_dd_points"),
+                     "tsl": sum(1 for x in res["trades"]
+                                if str(x.get("reason", "")).startswith("tsl"))})
+    return {"strategy_id": strategy_id, "current": own.get("active"),
+            "probe_gap": probe_gap, "variants": rows}
+
+
+class TrailRequest(BaseModel):
+    trail: Optional[dict] = None   # null = 清除(回落全局默认 trail_default)
+
+
+@router.post("/strategies/{strategy_id}/trail")
+async def set_trail(strategy_id: int, req: TrailRequest, request: Request):
+    """把某档移动止损写进策略 params.trail(对比页「用这档」); null=清除回落全局默认。
+    生效范围: 全量回测(重跑后)/对账重放/实盘 runner(第4步接通后) — 同一份配置三处一致。"""
+    if req.trail is not None:
+        t = req.trail.get("active")
+        if t not in ("fixed", "breakeven", "atr"):
+            raise HTTPException(status_code=400, detail="trail.active 须为 fixed/breakeven/atr")
+        if not isinstance(req.trail.get(t), dict):
+            raise HTTPException(status_code=400, detail=f"缺 {t} 的参数组")
+    if req.trail is None:
+        row = await request.app.state.pool.fetchrow(
+            "UPDATE strategies SET params = params - 'trail', updated_at=now()"
+            " WHERE id=$1 RETURNING id", strategy_id)
+    else:
+        row = await request.app.state.pool.fetchrow(
+            "UPDATE strategies SET params = jsonb_set(params, '{trail}', $2::jsonb),"
+            " updated_at=now() WHERE id=$1 RETURNING id", strategy_id, req.trail)
+    if row is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    logger.info("strategy #%d trail -> %s", strategy_id, req.trail)
+    return {"id": strategy_id, "trail": req.trail}
+
+
 class BasisRequest(BaseModel):
     basis: str
 

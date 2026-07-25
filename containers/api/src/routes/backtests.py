@@ -628,11 +628,19 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all",
     tol_min = await pool.fetchval(
         "SELECT value FROM config WHERE key='recon_pair_tol_minutes'")
     tol = int(tol_min or DEFAULT_PAIR_TOL_MINUTES) * 60
+    # 移动止损(v0.9)回落: 与 jobs 全量回测同一规则(params 没 trail → trail_default; null=关)。
+    # 对账铁律"统一配置(含插件)": 重放与实盘用同一份生效配置
+    params_eff = strat["params"]
+    if isinstance(params_eff, dict) and not params_eff.get("trail"):
+        td = await pool.fetchval("SELECT value FROM config WHERE key='trail_default'")
+        if isinstance(td, dict) and td.get("active"):
+            params_eff = {**params_eff, "trail": td}
     by_acct: dict = {}
     for a in actual:
         by_acct.setdefault(a["account"], []).append(a)
     accounts = sorted(by_acct, key=lambda k: -len(by_acct[k]))   # 主账户(笔数最多)在前
-    results = {a: await _reconcile_account(pool, strat, strategy_id, scope, a, by_acct[a], tol)
+    results = {a: await _reconcile_account(pool, strat, strategy_id, scope, a, by_acct[a],
+                                           tol, params_eff)
                for a in accounts}
     # 落库: 该(策略,scope)整组删旧插新 — 账户集合变化不留孤儿行(含旧口径 account=0 行)
     async with pool.acquire() as conn:
@@ -684,8 +692,11 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all",
 
 
 async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account: int,
-                             actual: list, tol: int) -> dict:
-    """单账户对账全流程(窗口→起点对齐重放→配对→缺口归因); actual=该账户成交, 已按时间排序"""
+                             actual: list, tol: int, params_eff=None) -> dict:
+    """单账户对账全流程(窗口→起点对齐重放→配对→缺口归因); actual=该账户成交, 已按时间排序。
+    params_eff: 生效参数(含 trail 回落后的), 重放用它 — 守"统一配置(含插件)"铁律"""
+    if params_eff is None:
+        params_eff = strat["params"]
     out = {"strategy_id": strategy_id, "scope": scope, "symbol": strat["symbol"],
            "window_from": None, "window_to": None,
            "actual_trades": len(actual), "bt_trades": 0, "metrics": {}}
@@ -726,7 +737,7 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
         try:
             tf_sec = backtest.TF_SECONDS[strat["timeframe"]]
             warm = backtest.make_strategy(
-                strat["template"], strat["params"], strat["point"]).warmup
+                strat["template"], params_eff, strat["point"]).warmup
             lead = warm * tf_sec * 3 + 2 * 86400   # 热身3倍余量+2天: 周末/缺分钟也够
             m1 = await backtest.load_m1(
                 pool, strat["symbol"],
@@ -734,7 +745,7 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
                 datetime.fromtimestamp(wt_ts, tz=timezone.utc) + timedelta(days=5))
             if m1 is not None and len(m1["time"]):
                 res = await asyncio.to_thread(
-                    backtest.run_backtest, m1, strat["template"], strat["params"],
+                    backtest.run_backtest, m1, strat["template"], params_eff,
                     strat["point"], strat["timeframe"], oos_split=None,
                     start_ts=int(wf_ts - tol), **costs)  # 左端同容差放宽, 首笔信号不被切
                 bt_all = res["trades"]

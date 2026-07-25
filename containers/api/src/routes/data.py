@@ -17,7 +17,8 @@ router = APIRouter()
 CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
                "ranking_templates", "backtest_oos_split", "mt5_trades_days",
                "runtime_write_minutes", "runtime_gap_minutes", "cross_symbol_gate",
-               "recon_pair_tol_minutes", "volume_presets", "volume_default"}
+               "recon_pair_tol_minutes", "volume_presets", "volume_default",
+               "trail_default"}   # 移动止损全局默认(v0.9): null=关; 结构见 strategy_core/trailing.py
 
 
 # ---------- 数据同步 ----------

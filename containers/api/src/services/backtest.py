@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from strategy_core import TF_SECONDS, make_strategy
+from strategy_core.trailing import atr_m1, trail_new_sl
 
 logger = logging.getLogger("backtest")
 
@@ -70,8 +71,10 @@ def aggregate(m1: dict, tf_seconds: int) -> dict:
     }
 
 
-def _walk_exit(pos, j_from, j_to, m1, point, spread_points):
-    """M1 逐根检查 SL/TP。悲观: 先查SL后查TP; 跳空按开盘价。返回 (exit_price, j, reason) 或 None"""
+def _walk_exit(pos, j_from, j_to, m1, point, spread_points, trail=None):
+    """M1 逐根检查 SL/TP。悲观: 先查SL后查TP; 跳空按开盘价。返回 (exit_price, j, reason) 或 None。
+    trail(v0.9 移动止损): 每根 M1 收盘后棘轮更新 pos["sl"](只向有利方向), 生效于下一根 —
+    与实盘 runner"看最新收盘 M1 改单"同一语义, 两边逐笔一致。"""
     o, h, l = m1["open"], m1["high"], m1["low"]
     for j in range(j_from, j_to):
         if pos["dir"] == "BUY":  # 以 bid 离场, bar本身就是bid价
@@ -93,6 +96,15 @@ def _walk_exit(pos, j_from, j_to, m1, point, spread_points):
                 return float(o[j] + sp), j, "tp_gap"
             if l[j] + sp <= pos["tp"]:
                 return pos["tp"], j, "tp"
+        if trail:  # 本根未出场 → 按收盘价棘轮 SL(参考价口径与撮合一致: BUY=bid收盘, SELL=ask收盘)
+            ref = float(m1["close"][j]) + (
+                _spread_at(m1, j, point, spread_points) if pos["dir"] == "SELL" else 0.0)
+            atr = (atr_m1(m1, j, int((trail.get("atr") or {}).get("period") or 14))
+                   if trail.get("active") == "atr" else None)
+            ns = trail_new_sl(pos["dir"], pos["entry"], pos["sl"], ref, trail, point, atr)
+            if ns is not None:
+                pos["sl"] = ns
+                pos["trailed"] = True
     return None
 
 
@@ -118,6 +130,10 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
     n = len(tf["time"])
     slip = slippage_points * point
     commission = commission_points
+    # 移动止损(v0.9): 配置随策略 params 走(全局默认的回落在 api 层做, 引擎只认 params)
+    trail = params.get("trail") if isinstance(params, dict) else None
+    if not (isinstance(trail, dict) and trail.get("active")):
+        trail = None
 
     pos = None
     trades = []
@@ -140,8 +156,10 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
                 entry = float(m1["open"][j] - slip)
             pos = {"dir": sig.direction, "entry": entry, "sl": sig.sl, "tp": sig.tp,
                    "entry_time": int(m1["time"][j]), "mae": 0.0, "mfe": 0.0}
+            if trail and trail.get("keep_tp") is False:   # 去掉TP让利润跑, 只靠移动SL出场
+                pos["tp"] = float("inf") if sig.direction == "BUY" else float("-inf")
 
-        hit = _walk_exit(pos, j_from, j_to, m1, point, spread_points)
+        hit = _walk_exit(pos, j_from, j_to, m1, point, spread_points, trail=trail)
         # MAE/MFE(点): 持仓期间最大浮亏/浮盈游程 — AI 调 SL/TP 的直接依据(bid 价近似)。
         # 只扫到出场那根为止; M1 已在内存, min/max 零额外 IO
         seg_end = (hit[1] + 1) if hit else j_to
@@ -156,6 +174,9 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
                 pos["mfe"] = max(pos["mfe"], (pos["entry"] - lo) / point)
         if hit:
             exit_price, j, reason = hit
+            # 被追过的 SL 触发 = 锁利出场, 单独记 tsl(开/关对比与归因区分"原始止损 vs 移动止损")
+            if pos.get("trailed") and reason in ("sl", "sl_gap"):
+                reason = {"sl": "tsl", "sl_gap": "tsl_gap"}[reason]
             sign = 1 if pos["dir"] == "BUY" else -1
             points = sign * (exit_price - pos["entry"]) / point - commission
             trades.append({

@@ -222,6 +222,17 @@
 </section>
 
 <section id="tab-backtest" hidden>
+  {# 移动止损四档对比(v0.9 第3步): 内存现算不落库 — 回测数据一份, 差异在视图;
+     [用这档]写回策略 params.trail(排名成绩重跑回测后生效, 对账/实盘同一配置) #}
+  {% if sid %}
+  <div class="flex-between">
+    <h3 style="margin:0">移动止损对比 <span class="muted">(现算·不影响排名成绩)</span></h3>
+    <span><span id="trail-hint" class="muted"></span>
+      <button type="button" class="small" id="trail-cmp-btn"
+        title="同一策略全量回测跑四版: 关闭/固定/保本/ATR(策略没填参数时用数据自适应探针); 约几秒">四档对比</button></span>
+  </div>
+  <div id="trail-cmp" style="margin:6px 0 14px"></div>
+  {% endif %}
   <div class="flex-between">
     <h2 style="margin:0">胜负归因 · <span class="badge warn">回测数据</span></h2>
     {% if sid and ana and ana.symbols %}{{ m.view_toggle('bt') }}{% endif %}
@@ -297,6 +308,62 @@
     if (det) det.hidden = view !== "det";     // 详细=逐笔明细; 收起=都隐藏
     document.querySelectorAll('[data-vgroup="' + g + '"]')
       .forEach((b) => b.classList.toggle("live", b.dataset.view === view));
+  });
+})();
+
+// 移动止损四档对比(v0.9): 现算视图 — 拉四版回测并排; [用这档]写回策略 params.trail
+(function () {
+  const btn = document.getElementById("trail-cmp-btn");
+  if (!btn) return;
+  const box = document.getElementById("trail-cmp");
+  const hint = document.getElementById("trail-hint");
+  const sid = {{ sid or 'null' }};
+  const ZH = { off: "关闭", fixed: "固定移动", breakeven: "保本+移动", atr: "ATR移动" };
+  btn.addEventListener("click", async () => {
+    if (!sid) return;
+    btn.disabled = true;
+    hint.textContent = "计算中(全量回测 ×4)…";
+    try {
+      const d = await fetch(`/strategies/${sid}/trail_compare`).then((r) => r.json());
+      if (d.error) throw new Error(d.error);
+      hint.textContent = `当前生效: ${ZH[d.current] || "关闭"} · 探针 gap=${d.probe_gap} 点`;
+      const best = Math.max(...d.variants.map((v) => v.net_points ?? -1e18));
+      let h = '<table class="dense"><tr><th>档位</th><th>参数</th><th>笔数</th><th>净点</th>'
+        + '<th>胜率</th><th>PF</th><th>最大回撤</th><th title="移动止损锁利出场笔数">tsl</th><th data-nosort></th></tr>';
+      d.variants.forEach((v) => {
+        const cfgTxt = v.cfg ? JSON.stringify(v.cfg[v.type] || {}) : "—";
+        const cfgAttr = v.cfg ? JSON.stringify(v.cfg).replace(/'/g, "&#39;") : "";
+        h += `<tr><td>${ZH[v.type]}</td><td class="mono muted">${cfgTxt}</td>`
+          + `<td class="mono">${v.trades ?? "—"}</td>`
+          + `<td class="mono ${v.net_points === best ? "pos" : ""}"><b>${v.net_points ?? "—"}</b></td>`
+          + `<td class="mono">${v.win_rate != null ? (v.win_rate * 100).toFixed(1) + "%" : "—"}</td>`
+          + `<td class="mono">${v.profit_factor ?? "—"}</td>`
+          + `<td class="mono muted">${v.max_dd_points ?? "—"}</td>`
+          + `<td class="mono">${v.tsl}</td>`
+          + `<td><button class="small trail-use" data-cfg='${cfgAttr}'>用这档</button></td></tr>`;
+      });
+      box.innerHTML = h + "</table>";
+    } catch (e) {
+      hint.textContent = "失败: " + e.message;
+    }
+    btn.disabled = false;
+  });
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest(".trail-use");
+    if (!b) return;
+    const cfg = b.dataset.cfg;
+    if (!confirm(cfg ? "把该档写入策略 params.trail(全量回测重跑后生效于排名; 对账/实盘同一配置)?"
+                     : "清除本策略的移动止损(回落全局默认 trail_default)?")) return;
+    try {
+      const r = await fetch(`/strategies/${sid}/set_trail`, {
+        method: "POST", body: new URLSearchParams({ trail: cfg || "" }),
+      });
+      const d = await r.json();
+      hint.textContent = d.error ? "写入失败: " + d.error
+        : "已写入 ✅(排名成绩需重跑回测后更新)";
+    } catch (err) {
+      hint.textContent = "写入失败: " + err.message;
+    }
   });
 })();
 </script>
