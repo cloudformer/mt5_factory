@@ -7,6 +7,18 @@ import api_client as api
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
+@bp.before_request
+def owner_only():
+    """管理台门禁(v5.6 简单权限): /admin/* 只认 owner(id 1), 身份即令牌
+    (登录前 = 右上角切换的身份; 上登录后这里换成真凭据判断, 路由零改动)。
+    switch_user 例外 — 它是换身份的口, 拦了就没人能切成 owner 了。"""
+    if request.endpoint == "admin.switch_user":
+        return
+    if session.get("dev_user_id") != 1:
+        flash("管理员页面仅 owner(admin)可用 — 右上角切换身份", "error")
+        return redirect(url_for("dashboard.index"))
+
+
 @bp.get("/users")
 def users_page():
     users, keys, wkeys, hosts = [], [], [], []
