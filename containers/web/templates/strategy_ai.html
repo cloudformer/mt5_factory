@@ -29,6 +29,10 @@
   <p class="muted" style="margin:0 0 4px">复制下面整段喂给任何 AI(Claude/ChatGPT/本地模型); 它要求 AI 返回 {{ count }} 组参数的 JSON:</p>
   <textarea id="ai-prompt" readonly rows="6" style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:11px">{{ prompt }}</textarea>
   <button class="small" type="button" id="copy-prompt">复制提示词</button>
+  <button class="small" type="button" id="trail-prompt-btn"
+    title="插件调优(v0.9): 只调 trailing 不动策略参数 — AI 出 20 组 trail 配置(带已验证先验:
+start是命门/gap配止损尺度/克大单亲高频/留出段裁决), 粘回第3步走同一管道:
+解析→创建子代→回测这批(自带OOS)→家族对比留出净点裁决→勾选留/汰; 父策略 trail 保持 null">插件调优提示词(20组)</button>
   <span class="muted" id="copy-hint"></span>
   {% endif %}
 </section>
@@ -303,6 +307,20 @@
     try { await navigator.clipboard.writeText(ta.value); }
     catch (e) { ta.select(); document.execCommand("copy"); }
     document.getElementById("copy-hint").textContent = "已复制 " + ta.value.length + " 字符";
+  });
+  // 插件调优提示词(v0.9×AI): 换装到同一文本框, 后续流程(复制→AI→粘回解析)完全不变
+  const tb = document.getElementById("trail-prompt-btn");
+  if (tb) tb.addEventListener("click", async () => {
+    tb.disabled = true;
+    const hint = document.getElementById("copy-hint");
+    hint.textContent = "生成插件调优提示词…";
+    try {
+      const d = await fetch(`/strategies/{{ sid }}/trail_prompt?count=20`).then((r) => r.json());
+      if (d.error) throw new Error(d.error);
+      document.getElementById("ai-prompt").value = d.prompt;
+      hint.textContent = "已换成插件调优提示词(20组 trail) — 复制喂 AI, 结果粘回第 3 步";
+    } catch (e) { hint.textContent = "失败: " + e.message; }
+    tb.disabled = false;
   });
 })();
 

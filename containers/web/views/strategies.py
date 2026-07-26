@@ -164,6 +164,16 @@ def set_visibility(strategy_id: int):
     return redirect(request.referrer or url_for("strategies.index"))
 
 
+@bp.get("/<int:strategy_id>/trail_prompt")
+def trail_prompt(strategy_id: int):
+    """AJAX: 插件调优提示词(只调trail不动策略参数, AI出N组→走既有收货/回测/家族对比管道)"""
+    try:
+        return api.get(f"/strategies/{strategy_id}/trail_prompt",
+                       count=request.args.get("count", 20, type=int))
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
 @bp.get("/<int:strategy_id>/trail_compare")
 def trail_compare(strategy_id: int):
     """AJAX: 移动止损四档对比(api 内存现算, 不落库) — 透传;

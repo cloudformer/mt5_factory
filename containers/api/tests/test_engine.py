@@ -295,6 +295,22 @@ def test_trail_disabled_or_bad_cfg():
     assert trail_new_sl("BUY", 100, 99.0, 105.0, {"active": "fixed", "fixed": {}}, 0.01) is None
 
 
+def test_combo_error_allows_and_validates_trail():
+    """收货校验(v0.9×AI 插件调优): params 可带可选 trail 键, 结构不合法拒收"""
+    from src.services.instances import combo_error, trail_error
+    from strategy_core import TEMPLATES
+    cls = TEMPLATES["ma_cross"]
+    space = cls.RANDOM_SPACE or cls.PARAM_GRID
+    base = {k: (v[0] if isinstance(v, tuple) else v[0]) for k, v in space.items()}
+    assert combo_error(cls, space, base) is None                          # 无 trail 照旧
+    ok = {**base, "trail": {"active": "atr", "atr": {"k": 4.0, "period": 14}}}
+    assert combo_error(cls, space, ok) is None                            # 合法 trail 放行
+    bad = {**base, "trail": {"active": "breakeven", "breakeven": {"gap": 50}}}
+    assert "start" in combo_error(cls, space, bad)                        # 保本缺 start 拒收
+    assert trail_error({"active": "fixed", "fixed": {}}) is not None      # gap 缺失拒收
+    assert trail_error({"active": "nope"}) is not None
+
+
 def test_atr_m1_window_and_insufficient():
     m1 = {"high": np.array([2., 3., 2., 3.]), "low": np.array([1., 1., 1., 1.]),
           "close": np.array([1.5, 2., 1.5, 2.])}

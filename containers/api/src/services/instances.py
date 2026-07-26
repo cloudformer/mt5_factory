@@ -21,17 +21,47 @@ logger = logging.getLogger("instances")
 DEFAULT_BATCH_LIMIT = 500  # 单批收货上限兜底; 实际值读 config 表 generate_batch_limit(生成页可改)
 
 
+def trail_error(trail) -> Optional[str]:
+    """trail 插件配置校验(v0.9, 插件调优收货用): 结构合法才收。None=合格"""
+    if not isinstance(trail, dict):
+        return "trail 必须是对象"
+    t = trail.get("active")
+    if t not in ("fixed", "breakeven", "atr"):
+        return "trail.active 须为 fixed/breakeven/atr"
+    p = trail.get(t)
+    if not isinstance(p, dict):
+        return f"trail 缺 {t} 参数组"
+    if t == "atr":
+        if not p.get("k") or p["k"] <= 0:
+            return "trail.atr.k 须 >0"
+    else:
+        if not p.get("gap") or p["gap"] <= 0:
+            return f"trail.{t}.gap 须 >0"
+        if t == "breakeven" and not p.get("start"):
+            return "trail.breakeven.start 必填(保本类必须有启动阈值)"
+    return None
+
+
 def combo_error(cls, space: dict, params) -> Optional[str]:
-    """单组参数三层校验: 键完整 → 数值在空间范围内 → 模板 valid_params。None=合格"""
+    """单组参数三层校验: 键完整 → 数值在空间范围内 → 模板 valid_params。None=合格。
+    params 可带可选的 "trail" 键(v0.9 插件, 不在模板空间里, 单独校验结构)"""
+    if not isinstance(params, dict):
+        return "params 必须是对象"
+    trail = params.get("trail")
+    core = {k: v for k, v in params.items() if k != "trail"}
     keys = set(space)
-    if not isinstance(params, dict) or set(params) != keys:
-        return f"参数键必须恰好是 {sorted(keys)}"
-    bad = next((k for k, v in params.items()
+    if set(core) != keys:
+        return f"参数键必须恰好是 {sorted(keys)}(可另带可选 trail)"
+    if trail is not None:
+        err = trail_error(trail)
+        if err:
+            return err
+    bad = next((k for k, v in core.items()
                 if isinstance(space.get(k), tuple)
                 and not space[k][0] <= v <= space[k][1]), None)
     if bad:
-        return f"{bad}={params[bad]} 超出空间 {space[bad][:2]}"
-    if not cls.valid_params(params):
+        return f"{bad}={core[bad]} 超出空间 {space[bad][:2]}"
+    if not cls.valid_params(core):
         return "valid_params 不通过"
     return None
 

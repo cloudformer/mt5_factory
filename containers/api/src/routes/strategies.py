@@ -775,6 +775,54 @@ async def ai_tune_prompt(strategy_id: int, request: Request, count: int = 10):
     return {"prompt": prompt, "space": space, "strategy": meta}
 
 
+_TRAIL_TUNE_PROMPT = """你是移动止损(trailing stop)调优助手。下面给出策略 #{sid} 的完整成绩单(JSON)。
+本轮只调 trailing 插件, 策略本身参数一律原样保留、一个都不许改。
+
+trailing 配置结构(params 里的 "trail" 键):
+  {{"active": "fixed"|"breakeven"|"atr",
+   "fixed":     {{"gap": <点数>}},                  // SL 跟最高价固定距离
+   "breakeven": {{"gap": <点数>, "start": <点数>}}, // 盈利达 start(点)才启动, 先保本再追
+   "atr":       {{"k": <倍数>, "period": 14}}}}     // 距离=M1 ATR(period)×k, 自适应
+
+已验证的先验(必须遵守):
+- start 是命门: 开仓即贴身追会掐死行情。fixed/breakeven 的 gap 取该策略止损距离的 0.5~1.0 倍;
+  breakeven 的 start 取止损距离的 1~2 倍; atr 的 k 在 2(贴身,已证差)~8(名存实亡)之间, 4~5 曾是平台区
+- trailing 克"利润靠少数大单"型(笔数少/单笔集中度高), 亲"利润分散高频"型 —
+  成绩单里笔数少且 top_trade_pct 高时, 倾向宽松档并在 basis 说明风险
+- 评判以样本外留出段为准, 全样本好看没有用
+
+任务: 提出 {count} 组 trail 配置做下一轮回测。三类都要覆盖、数值拉开梯度,
+结合成绩单的 MAE/MFE 分布与持仓形态选数值, 每组 basis 写清依据。
+
+返回格式(协议, 系统机器解析, 严格遵守):
+- 只输出一个 JSON 对象: 第一个字符 {{, 最后一个字符 }}; 无 markdown 围栏、无前言后语
+- combos 恰好 {count} 项; 每组 params = 当前参数逐键原样复制({params}) 再加 "trail" 键
+- 每组必附 "basis": 一句依据(引用成绩单数字 + 该 trail 数值的选择理由)
+- template 原样带回; model 填你的准确模型名; 顶层只有 template/model/combos
+
+结构: {{"template": "{template}", "model": "<你的模型名>", "combos": [{{"params": {{…当前参数原样…, "trail": {{…}}}}, "basis": "一句依据"}}]}}
+
+成绩单:
+{report}
+
+(再次强调: 输出=一个 JSON 对象, combos 恰好 {count} 项, 策略参数不许改、只加 trail 键。)"""
+
+
+@router.get("/strategies/{strategy_id}/trail_prompt")
+async def trail_tune_prompt(strategy_id: int, request: Request, count: int = 20):
+    """插件调优提示词(v0.9×AI): 只调 trail 不动策略参数。AI 出 {count} 组 trail 配置 →
+    走既有收货管道建子代(parent 谱系, 与调参同一条路) → 回测这批(jobs 自带 OOS) →
+    家族对比"留出净点"列裁决 → 勾选留/汰。父策略 trail 保持 null。"""
+    import json as _json
+    report = await ai_report(strategy_id, request)
+    meta = report["strategy"]
+    prompt = _TRAIL_TUNE_PROMPT.format(
+        sid=strategy_id, template=meta["template"], count=count,
+        params=_json.dumps(meta["params"], ensure_ascii=False),
+        report=_json.dumps(report, ensure_ascii=False, default=str))
+    return {"prompt": prompt, "strategy": meta}
+
+
 # 淘汰死因码(schema/022): AI 负样本("这类参数死于什么"), 页面按码翻中文, 不收自由文本
 ARCHIVE_REASONS = {"manual", "holdout_loss", "min_trades", "low_pf", "recon_fail",
                    "orphan_symbol", "other"}
