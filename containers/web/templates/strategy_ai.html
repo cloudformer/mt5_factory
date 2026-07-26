@@ -341,6 +341,7 @@
       const d = await fetch(`/strategies/{{ sid }}/trail_prompt?count=21`).then((r) => r.json());
       if (d.error) throw new Error(d.error);
       ta.value = d.prompt; ta.hidden = false; cp.hidden = false;
+      cp.classList.add("live");   // 与第2/3步同套引导: 高亮=下一步点这里
       hint.textContent = "已生成 — 复制喂 AI, 返回贴下框";
     } catch (e) { hint.textContent = "失败: " + e.message; }
     pb.disabled = false;
@@ -352,6 +353,9 @@
   });
 
   const runBtn = document.getElementById("tsl-run-btn");
+  const input = document.getElementById("tsl-input");
+  input.addEventListener("input", () =>   // 贴上内容 → 高亮下一步(清空则退灯)
+    runBtn.classList.toggle("live", !!input.value.trim()));
   runBtn.addEventListener("click", async () => {
     let trails;
     try {  // 容错: 剥围栏/前后废话, 只取首{到末}
