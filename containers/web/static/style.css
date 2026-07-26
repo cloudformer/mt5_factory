@@ -239,6 +239,7 @@ a.btn {
 a.btn:hover { background: #d9ecf9; }
 .pos { color: var(--ok-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .neg { color: var(--err-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.warn { color: var(--warn-fg); font-weight: 600; }  /* 正文级警示(琥珀): 如对账占位级联归因 */
 
 /* ---------- 表单 ---------- */
 form.inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

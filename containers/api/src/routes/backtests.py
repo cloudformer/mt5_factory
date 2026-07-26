@@ -802,20 +802,29 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
                 a_net, b_net = float(p["actual"]["net"]), float(p["bt"]["points"])
                 p["net_diff_points"] = round(a_net - b_net)               # 净点本就是点, 直接相减
                 p["net_diff_pct"] = round((a_net - b_net) / abs(b_net) * 100, 2)
-    for p in pairs:  # 每行: ①归属窗口(逐笔对照按窗口分组显示) ②缺口归因(实盘有回测无时)
+    # 持仓占位归因(2026-07-26 与 Frank 定, 744/3533 实证): 单仓互斥下, 一次毫厘分歧
+    # (出场时间差/SL赛跑)会让两边持仓期错开, 下游连环"单边有单" — 归因成"占位(级联)",
+    # 与真漏单/真无信号分开。只改描述, 分数与配对统计零改动。
+    live_iv = [(a["entry_time"].timestamp(), a["exit_time"].timestamp()) for a in actual]
+    bt_iv = [(t["entry_time"], t["exit_time"]) for t in bt_all if t.get("exit_time")]
+    for p in pairs:  # 每行: ①归属窗口(逐笔对照按窗口分组显示) ②缺口归因(单边有单时, 两个方向都归)
         ts = (p["actual"] or p["bt"])["ts"]
         p["window"] = next((k for k, (w0, w1) in enumerate(windows) if w0 <= ts <= w1), None)
         if p["bt"] is not None:
             p["bt"].pop("ts", None)
         if p["actual"] is None:
-            continue
+            if any(t0 < ts < t1 for t0, t1 in live_iv):
+                p["gap"] = "live_holding"   # 回测有实盘无: 实盘正被持仓占着(级联)
+            continue                        # 否则维持无归因(模板显示"没有归因, 疑似漏单/无报价")
         p["actual"].pop("ts", None)
         if p["bt"] is not None:
             continue
-        if replay_to_ts is not None and ts <= replay_to_ts:
-            p["gap"] = "not_triggered"   # 重放已覆盖该时间仍无信号 = 真差异
-        else:
+        if replay_to_ts is None or ts > replay_to_ts:
             p["gap"] = "data_missing"    # 库内 M1 未到该时间 → 先下载(重放现算, 无"回测过期")
+        elif any(t0 < ts < t1 for t0, t1 in bt_iv):
+            p["gap"] = "bt_holding"      # 实盘有回测无: 重放正被持仓占着(级联)
+        else:
+            p["gap"] = "not_triggered"   # 重放已覆盖该时间、空仓、仍无信号 = 真差异
     def _fmt(ts):
         return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%m-%d %H:%M")
     win_view = [{  # 每段窗口 + 两边笔数(逐笔对照的分组表头); 上限100段防撑爆

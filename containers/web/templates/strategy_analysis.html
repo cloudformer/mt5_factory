@@ -130,10 +130,13 @@
             </div>
           </details>
           {% elif p.actual %}
-            {% if p.gap == 'not_triggered' %}<span class="neg">✗ 回测未触发</span> — 该时间回测已覆盖仍无信号(真差异,计入不匹配)
+            {% if p.gap == 'not_triggered' %}<span class="neg">✗ 回测未触发</span> — 该时间回测已覆盖、空仓、仍无信号(真差异,计入不匹配)
+            {% elif p.gap == 'bt_holding' %}<span class="warn">回测持仓占位(级联)</span> — 重放此刻被持仓占着开不了单; 根因=更早某笔配对单的出场时间差
             {% elif p.gap == 'data_missing' %}<span class="neg">数据未下载</span> — 库内 M1 未到该时间 → 先去「数据下载」
             {% else %}<span class="neg">回测无信号</span>{% endif %}
-          {% else %}<span class="neg">实盘未下单</span> — 疑似 runner 漏单 / 无报价
+          {% elif p.gap == 'live_holding' %}<span class="warn">实盘持仓占位(级联)</span> — 实盘此刻被持仓占着开不了单; 根因=更早某笔配对单的出场时间差
+          {# 占位/数据都解释不了时如实说"没有归因"(2026-07-26 实证: 占位级联是主因, 真漏单待 worker 上报佐证) #}
+          {% else %}<span class="neg">实盘未下单</span> — 没有归因, 疑似 runner 漏单 / 无报价
           {% endif %}
         </td>
     {% endmacro %}
