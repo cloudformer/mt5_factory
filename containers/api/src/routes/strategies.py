@@ -349,8 +349,9 @@ async def trail_compare(strategy_id: int, request: Request, variant: Optional[st
         elif t == "breakeven":
             v["breakeven"] = ({"gap": g, "start": st}
                               if (gap or start or not own.get(t)) else own[t])
-        else:
-            v["atr"] = {"k": kk, "period": 14} if (k or not own.get(t)) else own[t]
+        else:  # atr 组: k 必填; start 可选(手填 start 时也作用于 atr 档 — 启动阈值对三类通用)
+            v["atr"] = ({"k": kk, "period": 14, **({"start": start} if start else {})}
+                        if (k or start or not own.get(t)) else own[t])
         if "keep_tp" in own:
             v["keep_tp"] = own["keep_tp"]
         return v
