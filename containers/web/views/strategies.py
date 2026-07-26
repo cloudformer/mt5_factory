@@ -174,6 +174,17 @@ def trail_prompt(strategy_id: int):
         return {"error": str(e)}, 502
 
 
+@bp.post("/<int:strategy_id>/trail_batch")
+def trail_batch(strategy_id: int):
+    """AJAX: 第4步·插件调优批跑(与生成策略分开) — N版内存回测较慢, 超时放宽到300s"""
+    payload = request.get_json(silent=True) or {}
+    try:
+        return api.post(f"/strategies/{strategy_id}/trail_batch",
+                        {"trails": payload.get("trails") or []}, timeout=300)
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
 @bp.get("/<int:strategy_id>/trail_compare")
 def trail_compare(strategy_id: int):
     """AJAX: 移动止损四档对比(api 内存现算, 不落库) — 透传;

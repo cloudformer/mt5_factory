@@ -44,24 +44,17 @@ def trail_error(trail) -> Optional[str]:
 
 def combo_error(cls, space: dict, params) -> Optional[str]:
     """单组参数三层校验: 键完整 → 数值在空间范围内 → 模板 valid_params。None=合格。
-    params 可带可选的 "trail" 键(v0.9 插件, 不在模板空间里, 单独校验结构)"""
-    if not isinstance(params, dict):
-        return "params 必须是对象"
-    trail = params.get("trail")
-    core = {k: v for k, v in params.items() if k != "trail"}
+    严格分离(2026-07-25 与 Frank 定): 生成策略管道**拒收 trail 等空间外键** —
+    插件调优走第4步 trail_batch(内存批跑+保留写回), 两条线不混。"""
     keys = set(space)
-    if set(core) != keys:
-        return f"参数键必须恰好是 {sorted(keys)}(可另带可选 trail)"
-    if trail is not None:
-        err = trail_error(trail)
-        if err:
-            return err
-    bad = next((k for k, v in core.items()
+    if not isinstance(params, dict) or set(params) != keys:
+        return f"参数键必须恰好是 {sorted(keys)}(插件调优走第4步, 不在这里收 trail)"
+    bad = next((k for k, v in params.items()
                 if isinstance(space.get(k), tuple)
                 and not space[k][0] <= v <= space[k][1]), None)
     if bad:
-        return f"{bad}={core[bad]} 超出空间 {space[bad][:2]}"
-    if not cls.valid_params(core):
+        return f"{bad}={params[bad]} 超出空间 {space[bad][:2]}"
+    if not cls.valid_params(params):
         return "valid_params 不通过"
     return None
 

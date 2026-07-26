@@ -791,28 +791,27 @@ trailing 配置结构(params 里的 "trail" 键):
   成绩单里笔数少且 top_trade_pct 高时, 倾向宽松档并在 basis 说明风险
 - 评判以样本外留出段为准, 全样本好看没有用
 
-任务: 提出 {count} 组 trail 配置做下一轮回测。三类都要覆盖、数值拉开梯度,
-结合成绩单的 MAE/MFE 分布与持仓形态选数值, 每组 basis 写清依据。
+任务: 提出 {count} 组 trail 配置(三类都覆盖、数值拉开梯度, 结合成绩单的 MAE/MFE 分布
+与持仓形态选数值), 每组 basis 写清依据。参考: 该策略当前参数 {params}(只供你估算
+止损尺度, 不要出现在返回里)。
 
 返回格式(协议, 系统机器解析, 严格遵守):
 - 只输出一个 JSON 对象: 第一个字符 {{, 最后一个字符 }}; 无 markdown 围栏、无前言后语
-- combos 恰好 {count} 项; 每组 params = 当前参数逐键原样复制({params}) 再加 "trail" 键
-- 每组必附 "basis": 一句依据(引用成绩单数字 + 该 trail 数值的选择理由)
-- template 原样带回; model 填你的准确模型名; 顶层只有 template/model/combos
+- trails 恰好 {count} 项; 每项只有 "trail"(配置对象) 和 "basis"(一句依据, 引用成绩单数字)
+- model 填你的准确模型名; 顶层只有 model/trails — 策略参数不出现在返回里(系统只解析 trail)
 
-结构: {{"template": "{template}", "model": "<你的模型名>", "combos": [{{"params": {{…当前参数原样…, "trail": {{…}}}}, "basis": "一句依据"}}]}}
+结构: {{"model": "<你的模型名>", "trails": [{{"trail": {{"active": "…", …}}, "basis": "一句依据"}}]}}
 
 成绩单:
 {report}
 
-(再次强调: 输出=一个 JSON 对象, combos 恰好 {count} 项, 策略参数不许改、只加 trail 键。)"""
+(再次强调: 输出=一个 JSON 对象, trails 恰好 {count} 项, 只有 trail 配置、不含任何策略参数。)"""
 
 
 @router.get("/strategies/{strategy_id}/trail_prompt")
 async def trail_tune_prompt(strategy_id: int, request: Request, count: int = 20):
-    """插件调优提示词(v0.9×AI): 只调 trail 不动策略参数。AI 出 {count} 组 trail 配置 →
-    走既有收货管道建子代(parent 谱系, 与调参同一条路) → 回测这批(jobs 自带 OOS) →
-    家族对比"留出净点"列裁决 → 勾选留/汰。父策略 trail 保持 null。"""
+    """插件调优提示词(第4步, 与生成策略完全分开): 协议只返回 trail 配置(策略参数不出现在
+    返回里, 协议层面杜绝混线)。配套 trail_batch 内存批跑 + 留出段裁判, 「保留」写回本策略。"""
     import json as _json
     report = await ai_report(strategy_id, request)
     meta = report["strategy"]
@@ -821,6 +820,81 @@ async def trail_tune_prompt(strategy_id: int, request: Request, count: int = 20)
         params=_json.dumps(meta["params"], ensure_ascii=False),
         report=_json.dumps(report, ensure_ascii=False, default=str))
     return {"prompt": prompt, "strategy": meta}
+
+
+def _holdout(trades: list, split: float = 0.7):
+    """70/30 留出段(裁判位): 按入场时间切, 返回(留出净点, 留出回撤)。与 OOS 口径一致"""
+    if not trades:
+        return 0.0, 0.0
+    t0, t1 = trades[0]["entry_time"], trades[-1]["entry_time"]
+    cut = t0 + split * (t1 - t0)
+    net = eq = pk = mx = 0.0
+    for t in trades:
+        if t["entry_time"] < cut:
+            continue
+        net += t["points"]
+        eq += t["points"]
+        pk = max(pk, eq)
+        mx = max(mx, pk - eq)
+    return round(net, 1), round(mx, 1)
+
+
+class TrailBatchRequest(BaseModel):
+    trails: list   # [{"trail": {...}, "basis": "..."}] — 第4步协议, 只有 trail 无策略参数
+
+
+@router.post("/strategies/{strategy_id}/trail_batch")
+async def trail_batch(strategy_id: int, req: TrailBatchRequest, request: Request):
+    """插件调优批跑(第4步): 对本策略内存跑 N 版 trail + 基准(M1 只载一次),
+    每版附留出段裁判列。不建实例、不落库 — 「保留」由前端调 /trail 写回本策略。"""
+    if not req.trails or len(req.trails) > 30:
+        raise HTTPException(status_code=400, detail="trails 须为 1~30 组")
+    pool = request.app.state.pool
+    s = await pool.fetchrow(
+        "SELECT s.template, s.params, s.symbol, s.timeframe, sym.point FROM strategies s"
+        " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    if not s["point"] or s["timeframe"] not in backtest.TF_SECONDS:
+        raise HTTPException(status_code=400, detail="品种未登记或周期不支持")
+    m1 = await backtest.load_m1(pool, s["symbol"],
+                                datetime(2015, 1, 1, tzinfo=timezone.utc),
+                                datetime.now(timezone.utc))
+    if m1 is None:
+        raise HTTPException(status_code=400, detail=f"{s['symbol']} 无 M1 数据, 先去下载")
+    cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
+    costs = {"slippage_points": cfg.get("slippage_points", backtest.DEFAULT_SLIPPAGE_POINTS),
+             "commission_points": cfg.get("commission_points", backtest.DEFAULT_COMMISSION_POINTS),
+             "spread_points": cfg.get("spread_points")}
+    point = float(s["point"])
+    base_params = dict(s["params"] or {})
+    base_params.pop("trail", None)
+
+    async def _run(p):
+        res = await asyncio.to_thread(backtest.run_backtest, m1, s["template"], p,
+                                      point, s["timeframe"], oos_split=None, **costs)
+        mtr = res["metrics"]
+        ho_net, ho_dd = _holdout(res["trades"])
+        return {"trades": mtr.get("trades"), "net_points": mtr.get("net_points"),
+                "win_rate": mtr.get("win_rate"), "profit_factor": mtr.get("profit_factor"),
+                "max_dd_points": mtr.get("max_dd_points"),
+                "holdout_net": ho_net, "holdout_dd": ho_dd,
+                "tsl": sum(1 for x in res["trades"]
+                           if str(x.get("reason", "")).startswith("tsl"))}
+
+    baseline = await _run(base_params)
+    rows = []
+    for i, it in enumerate(req.trails):
+        tr = (it or {}).get("trail") if isinstance(it, dict) else None
+        err = instances.trail_error(tr)
+        if err:
+            rows.append({"i": i + 1, "trail": tr,
+                         "basis": (it or {}).get("basis") if isinstance(it, dict) else None,
+                         "error": err})
+            continue
+        r = await _run({**base_params, "trail": tr})
+        rows.append({"i": i + 1, "trail": tr, "basis": it.get("basis"), **r})
+    return {"strategy_id": strategy_id, "baseline": baseline, "rows": rows}
 
 
 # 淘汰死因码(schema/022): AI 负样本("这类参数死于什么"), 页面按码翻中文, 不收自由文本

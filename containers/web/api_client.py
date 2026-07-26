@@ -22,9 +22,9 @@ def get(path: str, **params):
         raise ApiError(str(e))
 
 
-def _send(method: str, path: str, payload: dict | None):
+def _send(method: str, path: str, payload: dict | None, timeout: int = 30):
     try:
-        r = requests.request(method, f"{API_URL}{path}", json=payload, timeout=30)
+        r = requests.request(method, f"{API_URL}{path}", json=payload, timeout=timeout)
         if r.status_code >= 400:
             try:
                 detail = r.json().get("detail")
@@ -36,8 +36,8 @@ def _send(method: str, path: str, payload: dict | None):
         raise ApiError(str(e))
 
 
-def post(path: str, payload: dict | None = None):
-    return _send("POST", path, payload)
+def post(path: str, payload: dict | None = None, timeout: int = 30):
+    return _send("POST", path, payload, timeout)   # timeout: 长任务(如插件批跑)可放宽
 
 
 def put(path: str, payload: dict | None = None):

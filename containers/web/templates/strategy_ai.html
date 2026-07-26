@@ -29,10 +29,6 @@
   <p class="muted" style="margin:0 0 4px">复制下面整段喂给任何 AI(Claude/ChatGPT/本地模型); 它要求 AI 返回 {{ count }} 组参数的 JSON:</p>
   <textarea id="ai-prompt" readonly rows="6" style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:11px">{{ prompt }}</textarea>
   <button class="small" type="button" id="copy-prompt">复制提示词</button>
-  <button class="small" type="button" id="trail-prompt-btn"
-    title="插件调优(v0.9): 只调 trailing 不动策略参数 — AI 出 20 组 trail 配置(带已验证先验:
-start是命门/gap配止损尺度/克大单亲高频/留出段裁决), 粘回第3步走同一管道:
-解析→创建子代→回测这批(自带OOS)→家族对比留出净点裁决→勾选留/汰; 父策略 trail 保持 null">插件调优提示词(20组)</button>
   <span class="muted" id="copy-hint"></span>
   {% endif %}
 </section>
@@ -51,6 +47,26 @@ start是命门/gap配止损尺度/克大单亲高频/留出段裁决), 粘回第
     <span class="muted" id="step3-hint">流水线: 解析(只读) → 创建(入库) → 回测(主品种) — 上一步满足条件, 下一步才亮起</span>
   </p>
   <div id="combos-preview"></div>
+</section>
+
+<section>
+  {# 第4步(v0.9×AI, 2026-07-25 与 Frank 定): 与生成策略完全分开 — 只调本策略的移动止损。
+     协议只返回 trail(策略参数不出现在返回里, 协议层面杜绝混线); 内存批跑不建实例不落库;
+     「保留」= 写回本策略 params.trail(可反复换), 默认 null 不变 #}
+  <h2>第 4 步 · 插件调优(tsl) <span class="muted">— 只调本策略的移动止损, 不建新实例, 与上面生成策略完全分开</span></h2>
+  <p class="muted" style="margin:0 0 4px">①生成提示词喂 AI(只返回 trail 配置) ②结果贴回
+    ③解析并跑这批(内存跑 N 版+基准, M1 只载一次, 每组附<b>留出段</b>裁判列, 不落库)
+    ④满意的一组「保留」写回本策略(默认关闭不变)。</p>
+  <p style="margin:6px 0 4px">
+    <button class="small" type="button" id="tsl-prompt-btn">生成 tsl 提示词(20组)</button>
+    <button class="small" type="button" id="tsl-copy-btn" hidden>复制提示词</button>
+    <span class="muted" id="tsl-hint"></span></p>
+  <textarea id="tsl-prompt" readonly rows="5" hidden
+    style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:11px"></textarea>
+  <textarea id="tsl-input" rows="5" style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:12px; margin-top:6px"
+    placeholder='AI 返回贴这里: {"model":"…","trails":[{"trail":{"active":"atr","atr":{"k":4,"period":14}},"basis":"…"}, …]}'></textarea>
+  <p style="margin:6px 0 0"><button class="small" type="button" id="tsl-run-btn">解析并跑这批</button></p>
+  <div id="tsl-out" style="margin-top:8px"></div>
 </section>
 <script>
 (function () {
@@ -308,19 +324,92 @@ start是命门/gap配止损尺度/克大单亲高频/留出段裁决), 粘回第
     catch (e) { ta.select(); document.execCommand("copy"); }
     document.getElementById("copy-hint").textContent = "已复制 " + ta.value.length + " 字符";
   });
-  // 插件调优提示词(v0.9×AI): 换装到同一文本框, 后续流程(复制→AI→粘回解析)完全不变
-  const tb = document.getElementById("trail-prompt-btn");
-  if (tb) tb.addEventListener("click", async () => {
-    tb.disabled = true;
-    const hint = document.getElementById("copy-hint");
-    hint.textContent = "生成插件调优提示词…";
+})();
+
+// 第4步·插件调优(tsl): 与生成策略完全分开 — 提示词/解析/批跑/保留 全部只作用于本策略的 trail
+(function () {
+  const pb = document.getElementById("tsl-prompt-btn");
+  if (!pb) return;
+  const ta = document.getElementById("tsl-prompt");
+  const cp = document.getElementById("tsl-copy-btn");
+  const hint = document.getElementById("tsl-hint");
+  const out = document.getElementById("tsl-out");
+  pb.addEventListener("click", async () => {
+    pb.disabled = true;
+    hint.textContent = "生成中…";
     try {
       const d = await fetch(`/strategies/{{ sid }}/trail_prompt?count=20`).then((r) => r.json());
       if (d.error) throw new Error(d.error);
-      document.getElementById("ai-prompt").value = d.prompt;
-      hint.textContent = "已换成插件调优提示词(20组 trail) — 复制喂 AI, 结果粘回第 3 步";
+      ta.value = d.prompt; ta.hidden = false; cp.hidden = false;
+      hint.textContent = "已生成 — 复制喂 AI, 返回贴下框";
     } catch (e) { hint.textContent = "失败: " + e.message; }
-    tb.disabled = false;
+    pb.disabled = false;
+  });
+  cp.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(ta.value); }
+    catch (e) { ta.select(); document.execCommand("copy"); }
+    hint.textContent = "已复制 " + ta.value.length + " 字符";
+  });
+
+  const runBtn = document.getElementById("tsl-run-btn");
+  runBtn.addEventListener("click", async () => {
+    let trails;
+    try {  // 容错: 剥围栏/前后废话, 只取首{到末}
+      let raw = document.getElementById("tsl-input").value;
+      const s = raw.indexOf("{"), e2 = raw.lastIndexOf("}");
+      if (s >= 0 && e2 > s) raw = raw.slice(s, e2 + 1);
+      const j = JSON.parse(raw);
+      trails = j.trails;
+      if (!Array.isArray(trails) || !trails.length) throw new Error("缺 trails 数组");
+    } catch (e) {
+      out.innerHTML = '<p class="neg">解析失败: ' + e.message + ' — 需要 {"trails":[…]} 的 JSON</p>';
+      return;
+    }
+    runBtn.disabled = true;
+    out.innerHTML = `<span class="muted">内存跑 ${trails.length} 版 + 基准中(约${trails.length}~${trails.length * 2}秒)…</span>`;
+    try {
+      const r = await fetch(`/strategies/{{ sid }}/trail_batch`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trails }),
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      const b = d.baseline;
+      let h = '<table class="dense"><tr><th>#</th><th>trail</th><th>basis</th><th>笔</th><th>净点</th>'
+        + '<th title="70/30 留出段净点 — 裁判列, 胜过基准标绿">留出净点</th><th>留出回撤</th><th>tsl</th><th data-nosort></th></tr>'
+        + `<tr class="row-marked"><td>基准</td><td class="mono muted">关闭</td><td class="muted">本策略当前(无trail)</td>`
+        + `<td class="mono">${b.trades}</td><td class="mono"><b>${b.net_points}</b></td>`
+        + `<td class="mono"><b>${b.holdout_net}</b></td><td class="mono muted">${b.holdout_dd}</td><td>0</td><td></td></tr>`;
+      d.rows.slice().sort((a, x) => ((x.holdout_net ?? -1e18) - (a.holdout_net ?? -1e18))).forEach((v) => {
+        if (v.error) {
+          h += `<tr><td>${v.i}</td><td class="mono muted">${JSON.stringify(v.trail)}</td>`
+            + `<td colspan="6" class="neg">拒收: ${v.error}</td><td></td></tr>`;
+          return;
+        }
+        const beat = v.holdout_net > b.holdout_net;
+        h += `<tr><td>${v.i}</td><td class="mono">${JSON.stringify(v.trail)}</td>`
+          + `<td class="muted clip" title="${(v.basis || "").replace(/"/g, "&quot;")}">${v.basis || "—"}</td>`
+          + `<td class="mono">${v.trades}</td><td class="mono">${v.net_points}</td>`
+          + `<td class="mono ${beat ? "pos" : ""}">${v.holdout_net}</td>`
+          + `<td class="mono muted">${v.holdout_dd}</td><td class="mono">${v.tsl}</td>`
+          + `<td><button class="small tsl-keep" data-trail='${JSON.stringify(v.trail).replace(/'/g, "&#39;")}'>保留</button></td></tr>`;
+      });
+      out.innerHTML = h + '</table><p class="muted">按留出净点排序 · 保留 = 写回本策略 params.trail(可反复换, 不建新实例)</p>';
+    } catch (e) {
+      out.innerHTML = '<p class="neg">批跑失败: ' + e.message + "</p>";
+    }
+    runBtn.disabled = false;
+  });
+
+  out.addEventListener("click", async (e) => {
+    const b = e.target.closest(".tsl-keep");
+    if (!b) return;
+    if (!confirm("把这组 trail 写回本策略 #{{ sid }}(排名成绩需重跑回测后更新; 再点其他组可覆盖)?")) return;
+    const r = await fetch(`/strategies/{{ sid }}/set_trail`, {
+      method: "POST", body: new URLSearchParams({ trail: b.dataset.trail }),
+    });
+    const d = await r.json();
+    hint.textContent = d.error ? "保留失败: " + d.error : "已写回本策略 ✅";
   });
 })();
 
