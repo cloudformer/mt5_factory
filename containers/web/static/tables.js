@@ -88,7 +88,8 @@ document.addEventListener("change", async (e) => {
 });
 
 /* 表格排序 (全站自动, 无需标记): 所有 table 点表头即可排序(再点反向); 个别列不想排标 data-nosort。
-   数字列(含 %, +, — 空值)按数值排, 其余按文本; 空值(—)固定沉底 */
+   数字列(含 %, +, — 空值)按数值排, 其余按文本; 空值(—)固定沉底;
+   参照行(如插件批跑的基准行)标 data-pin = 不参与排序, 固定在表头下 */
 function initTableSort(table) {
   if (table.dataset.sortInit) return;  // 防重复绑定(支持 AJAX 换表后重入)
   // 有配对详情行的表(如 Workers 主行+隐藏详情)排序会把两者拆散, 默认跳过;
@@ -110,7 +111,8 @@ function initTableSort(table) {
 
         // 数据行 = 除表头外的行; 跳过空态行(单格 colspan); 排除嵌套子表(展开明细里的 subtable)的行
         const rows = [...table.querySelectorAll("tr")].slice(1)
-          .filter((r) => r.closest("table") === table && !r.querySelector("td[colspan]"));
+          .filter((r) => r.closest("table") === table && !r.querySelector("td[colspan]")
+            && !r.hasAttribute("data-pin"));
         const cell = (r) => (r.children[col]?.textContent || "").trim();
         const toNum = (t) => parseFloat(t.replace(/[%,+\s]/g, ""));
         const filled = rows.map(cell).filter((v) => v && v !== "—");

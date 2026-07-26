@@ -377,7 +377,7 @@
       const b = d.baseline;
       let h = '<table class="dense"><tr><th>#</th><th>trail</th><th>basis</th><th>笔</th><th>净点</th>'
         + '<th title="70/30 留出段净点 — 裁判列, 胜过基准标绿">留出净点</th><th>留出回撤</th><th>tsl</th><th data-nosort></th></tr>'
-        + `<tr class="row-marked"><td>基准</td><td class="mono muted">关闭</td><td class="muted">本策略当前(无trail)</td>`
+        + `<tr class="row-marked" data-pin><td>基准</td><td class="mono muted">关闭</td><td class="muted">本策略当前(无trail)</td>`
         + `<td class="mono">${b.trades}</td><td class="mono"><b>${b.net_points}</b></td>`
         + `<td class="mono"><b>${b.holdout_net}</b></td><td class="mono muted">${b.holdout_dd}</td><td>0</td><td></td></tr>`;
       d.rows.slice().sort((a, x) => ((x.holdout_net ?? -1e18) - (a.holdout_net ?? -1e18))).forEach((v) => {
@@ -394,7 +394,8 @@
           + `<td class="mono muted">${v.holdout_dd}</td><td class="mono">${v.tsl}</td>`
           + `<td><button class="small tsl-keep" data-trail='${JSON.stringify(v.trail).replace(/'/g, "&#39;")}'>保留</button></td></tr>`;
       });
-      out.innerHTML = h + '</table><p class="muted">按留出净点排序 · 保留 = 写回本策略 params.trail(可反复换, 不建新实例)</p>';
+      out.innerHTML = h + '</table><p class="muted">默认按留出净点排序, 点表头可换列(基准行钉在顶部) · 保留 = 写回本策略 params.trail(可反复换, 不建新实例)</p>';
+      if (window.initTableSort) window.initTableSort(out.querySelector("table"));
     } catch (e) {
       out.innerHTML = '<p class="neg">批跑失败: ' + e.message + "</p>";
     }
