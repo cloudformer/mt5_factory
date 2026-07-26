@@ -390,15 +390,17 @@
             + `<td colspan="6" class="neg">拒收: ${v.error}</td><td></td></tr>`;
           return;
         }
+        // 达标 = 两净点为正 且 留出回撤小于基准(目标是降风险, 不要求净点胜过基准)
+        const win = v.net_points > 0 && v.holdout_net > 0 && v.holdout_dd < b.holdout_dd;
         const beat = v.holdout_net > b.holdout_net;
-        h += `<tr><td>${v.i}</td><td class="mono">${JSON.stringify(v.trail)}</td>`
+        h += `<tr${win ? ' class="row-win"' : ""}><td>${v.i}</td><td class="mono">${JSON.stringify(v.trail)}</td>`
           + `<td class="muted clip" title="${(v.basis || "").replace(/"/g, "&quot;")}">${v.basis || "—"}</td>`
           + `<td class="mono">${v.trades}</td><td class="mono">${v.net_points}</td>`
           + `<td class="mono ${beat ? "pos" : ""}">${v.holdout_net}</td>`
           + `<td class="mono muted">${v.holdout_dd}</td><td class="mono">${v.tsl}</td>`
           + `<td><button class="small tsl-keep" data-trail='${JSON.stringify(v.trail).replace(/'/g, "&#39;")}'>保留</button></td></tr>`;
       });
-      out.innerHTML = h + '</table><p class="muted">默认按留出净点排序, 点表头可换列(基准行钉在顶部) · 保留 = 写回本策略 params.trail(可反复换, 不建新实例)</p>';
+      out.innerHTML = h + '</table><p class="muted">整行绿 = 两净点为正且留出回撤小于基准(降风险不亏钱) · 留出净点绿字 = 胜过基准 · 默认按留出净点排序, 点表头可换列(基准行钉在顶部) · 保留 = 写回本策略 params.trail(可反复换, 不建新实例)</p>';
       if (window.initTableSort) window.initTableSort(out.querySelector("table"));
     } catch (e) {
       out.innerHTML = '<p class="neg">批跑失败: ' + e.message + "</p>";
