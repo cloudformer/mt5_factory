@@ -791,9 +791,10 @@ trailing 配置结构(params 里的 "trail" 键):
   成绩单里笔数少且 top_trade_pct 高时, 倾向宽松档并在 basis 说明风险
 - 评判以样本外留出段为准, 全样本好看没有用
 
-任务: 提出 {count} 组 trail 配置(三类都覆盖、数值拉开梯度, 结合成绩单的 MAE/MFE 分布
-与持仓形态选数值), 每组 basis 写清依据。参考: 该策略当前参数 {params}(只供你估算
-止损尺度, 不要出现在返回里)。
+任务: 提出 {count} 组 trail 配置, 三类硬性均分 — fixed 恰好 {n_fixed} 组、
+breakeven 恰好 {n_be} 组、atr 恰好 {n_atr} 组(这样结果表能对比出哪类适合本策略),
+每类内部数值拉开梯度(结合成绩单的 MAE/MFE 分布与持仓形态选数值), 每组 basis 写清依据。
+参考: 该策略当前参数 {params}(只供你估算止损尺度, 不要出现在返回里)。
 
 返回格式(协议, 系统机器解析, 严格遵守):
 - 只输出一个 JSON 对象: 第一个字符 {{, 最后一个字符 }}; 无 markdown 围栏、无前言后语
@@ -809,14 +810,17 @@ trailing 配置结构(params 里的 "trail" 键):
 
 
 @router.get("/strategies/{strategy_id}/trail_prompt")
-async def trail_tune_prompt(strategy_id: int, request: Request, count: int = 20):
+async def trail_tune_prompt(strategy_id: int, request: Request, count: int = 21):
     """插件调优提示词(第4步, 与生成策略完全分开): 协议只返回 trail 配置(策略参数不出现在
     返回里, 协议层面杜绝混线)。配套 trail_batch 内存批跑 + 留出段裁判, 「保留」写回本策略。"""
     import json as _json
     report = await ai_report(strategy_id, request)
     meta = report["strategy"]
+    n_fixed = (count + 2) // 3   # 三类硬性均分(20 → 7/7/6): 结果表按类对比哪种适合本策略
+    n_be = (count + 1) // 3
     prompt = _TRAIL_TUNE_PROMPT.format(
         sid=strategy_id, template=meta["template"], count=count,
+        n_fixed=n_fixed, n_be=n_be, n_atr=count - n_fixed - n_be,
         params=_json.dumps(meta["params"], ensure_ascii=False),
         report=_json.dumps(report, ensure_ascii=False, default=str))
     return {"prompt": prompt, "strategy": meta}

@@ -58,7 +58,7 @@
     ③解析并跑这批(内存跑 N 版+基准, M1 只载一次, 每组附<b>留出段</b>裁判列, 不落库)
     ④满意的一组「保留」写回本策略(默认关闭不变)。</p>
   <p style="margin:6px 0 4px">
-    <button class="small" type="button" id="tsl-prompt-btn">生成 tsl 提示词(20组)</button>
+    <button class="small" type="button" id="tsl-prompt-btn">生成 tsl 提示词(21组=三类×7)</button>
     <button class="small" type="button" id="tsl-copy-btn" hidden>复制提示词</button>
     <span class="muted" id="tsl-hint"></span></p>
   <textarea id="tsl-prompt" readonly rows="5" hidden
@@ -338,7 +338,7 @@
     pb.disabled = true;
     hint.textContent = "生成中…";
     try {
-      const d = await fetch(`/strategies/{{ sid }}/trail_prompt?count=20`).then((r) => r.json());
+      const d = await fetch(`/strategies/{{ sid }}/trail_prompt?count=21`).then((r) => r.json());
       if (d.error) throw new Error(d.error);
       ta.value = d.prompt; ta.hidden = false; cp.hidden = false;
       hint.textContent = "已生成 — 复制喂 AI, 返回贴下框";
