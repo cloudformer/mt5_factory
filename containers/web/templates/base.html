@@ -23,7 +23,14 @@
       <a href="{{ url_for('symbols.ranking') }}" {% if ep == 'symbols.ranking' %}class="active"{% endif %}>排名参数模板</a>
     </div>
   </div>
-  <a href="{{ url_for('datasync.index') }}" {% if ep.startswith('datasync.') %}class="active"{% endif %}>下载</a>
+  {# 数据组: 数据进出(现在只有下载, 未来扩: 保鲜/校验) #}
+  <div class="navmenu">
+    <a href="{{ url_for('datasync.index') }}"
+       {% if ep.startswith('datasync.') %}class="active"{% endif %}>数据 ▾</a>
+    <div class="navmenu-items">
+      <a href="{{ url_for('datasync.index') }}" {% if ep == 'datasync.index' %}class="active"{% endif %}>下载</a>
+    </div>
+  </div>
   {# 策略组: 造和跑(生成/回测/排名) #}
   <div class="navmenu">
     <a href="{{ url_for('strategies.index') }}"
@@ -45,28 +52,16 @@
       <a href="{{ url_for('strategies.quality') }}" {% if ep == 'strategies.quality' %}class="active"{% endif %}>回测质量分析</a>
     </div>
   </div>
-  <a href="{{ url_for('execution.demo') }}" {% if ep == 'execution.demo' %}class="active"{% endif %}>Demo</a>
-  <a href="{{ url_for('execution.live') }}" {% if ep == 'execution.live' %}class="active"{% endif %}>Live</a>
-  <a href="{{ url_for('strategies.market') }}" {% if ep == 'strategies.market' %}class="active"{% endif %}>市场</a>
-  {# 管理组: owner 专属(v5.6 起只有 user 1 可见/可达); 未来扩: 计划配额/审计/运营报表 #}
+  {# 实盘组: 真实下单的两个环境(实盘 = demo 模拟 + live 真金, 纯 UI 汇总概念) #}
   <div class="navmenu">
-    <a href="{{ url_for('admin.users_page') }}"
-       {% if ep.startswith('admin.') %}class="active"{% endif %}>管理 ▾</a>
+    <a href="{{ url_for('execution.demo') }}"
+       {% if ep.startswith('execution.') %}class="active"{% endif %}>实盘 ▾</a>
     <div class="navmenu-items">
-      <a href="{{ url_for('admin.users_page') }}" {% if ep == 'admin.users_page' %}class="active"{% endif %}>用户管理</a>
+      <a href="{{ url_for('execution.demo') }}" {% if ep == 'execution.demo' %}class="active"{% endif %}>Demo</a>
+      <a href="{{ url_for('execution.live') }}" {% if ep == 'execution.live' %}class="active"{% endif %}>Live</a>
     </div>
   </div>
-  {# 开发模式身份切换(v5.6 登录前过渡): 仅标识不过滤; 测试好了才上登录页 #}
-  {% if dev_users %}
-  <form method="post" action="{{ url_for('admin.switch_user') }}" class="inline" style="margin-left:auto"
-        title="当前身份(开发模式): 仅右上角标识, 不做任何过滤/权限 — 那是 v5.6 通电的事; 选完即切换">
-    <select name="user_id" class="small" data-autosubmit>
-      {% for u in dev_users %}
-      <option value="{{ u.id }}" {% if u.id == dev_user_id %}selected{% endif %}>{{ u.name }}{{ ' (owner)' if u.id == 1 else '' }}</option>
-      {% endfor %}
-    </select>
-  </form>
-  {% endif %}
+  <a href="{{ url_for('strategies.market') }}" {% if ep == 'strategies.market' %}class="active"{% endif %}>市场</a>
   <div class="navmenu">
     <a href="{{ url_for('mt5.index') }}"
        {% if ep.startswith('mt5.') %}class="active"{% endif %}>MT5 ▾</a>
@@ -75,6 +70,25 @@
       <a href="{{ url_for('mt5.system') }}" {% if ep == 'mt5.system' %}class="active"{% endif %}>系统流水</a>
     </div>
   </div>
+  {# 管理员组: owner 专属(v5.6 起只有 user 1 可见/可达); 未来扩: 计划配额/审计/运营报表 #}
+  <div class="navmenu">
+    <a href="{{ url_for('admin.users_page') }}"
+       {% if ep.startswith('admin.') %}class="active"{% endif %}>管理员 ▾</a>
+    <div class="navmenu-items">
+      <a href="{{ url_for('admin.users_page') }}" {% if ep == 'admin.users_page' %}class="active"{% endif %}>用户管理</a>
+    </div>
+  </div>
+  {# 当前用户(最右): 开发模式身份切换(v5.6 登录前过渡), 仅标识不过滤; 测试好了才上登录页 #}
+  {% if dev_users %}
+  <form method="post" action="{{ url_for('admin.switch_user') }}" class="inline" style="margin-left:auto"
+        title="当前身份(开发模式): 仅标识, 不做任何过滤/权限 — 那是 v5.6 通电的事; 选完即切换">
+    <select name="user_id" class="small" data-autosubmit>
+      {% for u in dev_users %}
+      <option value="{{ u.id }}" {% if u.id == dev_user_id %}selected{% endif %}>{{ u.name }}{{ ' (owner)' if u.id == 1 else '' }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
 </nav>
 <main>
   {% with messages = get_flashed_messages(with_categories=true) %}
