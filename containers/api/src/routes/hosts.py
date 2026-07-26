@@ -54,6 +54,7 @@ async def list_hosts(request: Request):
 @router.get("/hosts/{host_id}/events")
 async def host_events(host_id: int, request: Request, limit: int = 100):
     """worker 生命周期历史 (注册/上下线/启停/角色变更/账户下发)"""
+    await identity.assert_host_visible(request.app.state.pool, request, host_id)
     rows = await request.app.state.pool.fetch(
         "SELECT event, detail, created_at FROM mt5_host_events"
         " WHERE host_id=$1 ORDER BY created_at DESC LIMIT $2", host_id, limit)
@@ -235,6 +236,7 @@ async def host_restart(host_id: int, request: Request):
 @router.get("/hosts/{host_id}/trades")
 async def host_trades(host_id: int, request: Request, days: int = 30):
     """转发 worker 的 MT5 交易流水 (持仓+成交明细, 原样透传, web /mt5 页用)"""
+    await identity.assert_host_visible(request.app.state.pool, request, host_id)
     row = await request.app.state.pool.fetchrow(
         "SELECT host, port FROM mt5_hosts WHERE id=$1 AND enabled", host_id)
     if row is None:

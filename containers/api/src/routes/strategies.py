@@ -317,6 +317,7 @@ async def trail_compare(strategy_id: int, request: Request, variant: Optional[st
     档位参数: 策略 params.trail 里有该类就用它, 否则用数据自适应探针
     (fixed.gap=平均M1波幅×2 点, breakeven 同 gap+start=gap×2, atr k=2/period=14) — 免先填参数。"""
     pool = request.app.state.pool
+    await identity.assert_strategy_visible(pool, request, strategy_id)
     s = await pool.fetchrow(
         "SELECT s.template, s.params, s.symbol, s.timeframe, sym.point FROM strategies s"
         " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
@@ -574,6 +575,7 @@ async def ai_report(strategy_id: int, request: Request):
     身份/参数 + 主品种回测(含 oos/by_year/mae/mfe) + 跨品种 + 可信度(对账) + 实盘
     + 同模板尸体(负样本: 参数+死因码)。喂给 AI 生成器做调参迭代的输入。"""
     pool = request.app.state.pool
+    await identity.assert_strategy_visible(pool, request, strategy_id)  # 也罩住 trail_prompt/ai_prompt
     await usage.bump_by_owner(pool, "ai_reports", [strategy_id])  # 用量: 只记录不拦截
     s = await pool.fetchrow(
         "SELECT id, name, template, params, symbol, timeframe, status, magic_number,"
@@ -703,6 +705,7 @@ async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Req
 @router.get("/strategies/{strategy_id}/family")
 async def family(strategy_id: int, request: Request):
     """谱系对比: 父策略 + 全部 AI 子代, 各带主品种回测成绩(净点/PF/OOS留出/MAE) — AI分析页对比表"""
+    await identity.assert_strategy_visible(request.app.state.pool, request, strategy_id)
     rows = await request.app.state.pool.fetch(
         "SELECT s.id, s.name, s.params, s.status, s.archive_reason, s.parent_id,"
         "       s.basis, s.created_at, b.metrics"
@@ -859,6 +862,7 @@ async def trail_batch(strategy_id: int, req: TrailBatchRequest, request: Request
     if not req.trails or len(req.trails) > 30:
         raise HTTPException(status_code=400, detail="trails 须为 1~30 组")
     pool = request.app.state.pool
+    await identity.assert_strategy_visible(pool, request, strategy_id)
     s = await pool.fetchrow(
         "SELECT s.template, s.params, s.symbol, s.timeframe, sym.point FROM strategies s"
         " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)

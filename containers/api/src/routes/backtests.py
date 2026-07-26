@@ -106,14 +106,19 @@ async def run(req: BacktestRequest, request: Request):
     pool = request.app.state.pool
     if await jobs.has_active(pool):
         raise HTTPException(status_code=409, detail="backtest already running")
+    uid = identity.scope_uid(request)   # v5.6: 非 owner 只能回测自己的策略(点名别人的 id 不生效)
     if req.strategy_ids:
         rows = await pool.fetch(
-            "SELECT * FROM strategies WHERE id = ANY($1) ORDER BY symbol, id", req.strategy_ids)
+            "SELECT * FROM strategies WHERE id = ANY($1)"
+            + (" AND owner_id = $2" if uid else "") + " ORDER BY symbol, id",
+            req.strategy_ids, *([uid] if uid else []))
     else:
         # 回测不看状态(对 demo/live 零影响, 只刷新 backtests 记录)。
         # 只回测品种仍在主档里的策略: 品种已删的孤儿策略(如旧 BTCUSD)自动跳过, 不报错。
         q = "SELECT * FROM strategies WHERE symbol IN (SELECT symbol FROM symbols)"
         args = []
+        if uid:
+            args.append(uid); q += f" AND owner_id=${len(args)}"
         if req.template:  # 策略模板筛选
             args.append(req.template); q += f" AND template=${len(args)}"
         if req.symbol:  # 货币对筛选
@@ -195,6 +200,7 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
     勾交叉且非点名时按 cross_symbol_gate 预演门槛: 够格 q 个展开交叉, 其余只跑主品种。"""
     pool = request.app.state.pool
     limit = await _batch_limit(pool, limit)
+    uid = identity.scope_uid(request)   # v5.6: 预览口径与 run() 一致, 非 owner 只数自己的
     sel = "SELECT id, symbol FROM strategies"
     if strategy_ids is not None:
         try:
@@ -203,10 +209,14 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
             return {"strategies": 0, "symbols_per": 1, "runs": 0}
         if not ids:
             return {"strategies": 0, "symbols_per": 1, "runs": 0}
-        rows = await pool.fetch(f"{sel} WHERE id = ANY($1) LIMIT $2", ids, limit)
+        rows = await pool.fetch(
+            f"{sel} WHERE id = ANY($1)" + (" AND owner_id = $3" if uid else "") + " LIMIT $2",
+            ids, limit, *([uid] if uid else []))
     else:
         q = f"{sel} WHERE symbol IN (SELECT symbol FROM symbols)"
         args = []
+        if uid:
+            args.append(uid); q += f" AND owner_id=${len(args)}"
         if template:
             args.append(template); q += f" AND template=${len(args)}"
         if symbol:
@@ -453,6 +463,7 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
 @router.get("/backtest/results/{strategy_id}")
 async def results(strategy_id: int, request: Request):
     """单策略各品种的回测记录(跨品种验证的每品种一行)"""
+    await identity.assert_strategy_visible(request.app.state.pool, request, strategy_id)
     rows = await request.app.state.pool.fetch(
         "SELECT id, from_time, to_time, symbol, broker, metrics, created_at FROM backtests"
         " WHERE strategy_id=$1 ORDER BY symbol", strategy_id)
@@ -606,6 +617,7 @@ async def reconcile(strategy_id: int, request: Request, scope: str = "all",
                     account: Optional[int] = None):
     """关2对账端点 — 计算逻辑在 compute_reconcile(策略分析页与 AI 成绩单共用);
     account=看哪个账户的详情(缺省=笔数最多的主账户)"""
+    await identity.assert_strategy_visible(request.app.state.pool, request, strategy_id)
     return await compute_reconcile(request.app.state.pool, strategy_id, scope, account)
 
 
@@ -1008,6 +1020,7 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
     """单策略【回测】胜负归因(维度二期1): 读指定品种(默认主品种) backtests.trades + oos + 跨品种行。
     分析的是【整段回测】(不切窗口)。symbol 可选 → 看该策略在不同货币对上的回测归因。"""
     pool = request.app.state.pool
+    await identity.assert_strategy_visible(pool, request, strategy_id)
     strat = await pool.fetchrow(
         "SELECT name, symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
     if strat is None:
