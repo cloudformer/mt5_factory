@@ -17,7 +17,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import backtest, jobs, usage
+from src.services import backtest, identity, jobs, usage
 
 logger = logging.getLogger("backtests")
 router = APIRouter()
@@ -254,7 +254,7 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
               max_dd: Optional[float] = None, min_robust: Optional[float] = None,
               positive_only: bool = False, rank_template: Optional[str] = None,
               oos_pass: bool = False, template: Optional[str] = None, page: int = 1,
-              visibility: Optional[str] = None):
+              visibility: Optional[str] = None, market: bool = False):
     """策略列表排名: 从 strategies 出发 LEFT JOIN 主品种回测 — 未回测的策略也出现(成绩为空,
     默认沉底), 列表与排名合一。跨品种结果只喂健壮性列/明细, 不参与排名。
 
@@ -284,6 +284,10 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
     if visibility:  # 可见性(逗号多值): 列表筛选 / 市场页(public,shared)共用
         _and("s.visibility = ANY(${n})",
              [v.strip() for v in visibility.split(",") if v.strip()])
+    if not market:  # v5.6 通电: 非 owner 只见自己的策略; market=1(市场页)是明确的跨用户视图
+        uid = identity.scope_uid(request)
+        if uid:
+            _and("s.owner_id = ${n}", uid)
     if min_win_rate:  # 前端传百分数, metrics 存 0~1
         _and("b.id IS NOT NULL AND COALESCE((b.metrics->>'win_rate')::float, 0) >= ${n}",
              min_win_rate / 100)
@@ -570,6 +574,7 @@ async def reconcile_summary(request: Request):
     顶部三卡(总笔数匹配率/策略平均分/达标率)由页面按筛选现算, 这里只出行数据;
     重算走既有单策略端点(页面 AJAX 循环调), 本端点不触发任何计算。
     注意: 必须注册在 /reconcile/{strategy_id} 之前, 否则 'summary' 会被当成 int 解析。"""
+    uid = identity.scope_uid(request)   # v5.6 通电: 非 owner 只见自己策略的对账
     rows = await request.app.state.pool.fetch(
         "SELECT s.id, s.name, s.symbol, s.status, s.template, t.account, t.n AS live_trades,"
         "       r.match_score, r.metrics, r.updated_at"
@@ -579,7 +584,9 @@ async def reconcile_summary(request: Request):
         # 行=策略×账户(v5.0-B2b); 旧口径 account=0 行 join 不上=显示"未算", 重算即对齐
         "  LEFT JOIN reconciliations r ON r.strategy_id = s.id AND r.scope = 'all'"
         "       AND r.account = t.account"
-        " ORDER BY r.match_score DESC NULLS LAST, s.id, t.account")
+        + (" WHERE s.owner_id = $1" if uid else "")
+        + " ORDER BY r.match_score DESC NULLS LAST, s.id, t.account",
+        *([uid] if uid else []))
     out = []
     for r in rows:
         m = r["metrics"] or {}
@@ -861,12 +868,25 @@ async def trades_local(request: Request, account: Optional[int] = None,
         from_time = from_time.replace(tzinfo=timezone.utc)
     if to_time and to_time.tzinfo is None:
         to_time = to_time.replace(tzinfo=timezone.utc)
+    # v5.6 通电: 非 owner 只见自己的成交 = 本人策略的单, 或本人 worker 账户上的单(手动/测试单跟账户走)
+    uid = identity.scope_uid(request)
+
+    def _own(alias: str, n: int) -> str:
+        return (f" (EXISTS(SELECT 1 FROM strategies s WHERE s.id = {alias}.strategy_id"
+                f"         AND s.owner_id = ${n})"
+                f"  OR EXISTS(SELECT 1 FROM mt5_hosts h WHERE h.mt5_login = {alias}.account"
+                f"         AND h.owner_id = ${n}))")
+
     # 账号带券商(优先库里存的 broker; 老行未回填则回退到 mt5_login→mt5_server), "券商→账号"两级过滤
     accounts = [dict(r) for r in await pool.fetch(
         "SELECT DISTINCT t.account, COALESCE(t.broker, hh.mt5_server) AS broker"
         " FROM trades t LEFT JOIN mt5_hosts hh ON hh.mt5_login = t.account"
-        " ORDER BY COALESCE(t.broker, hh.mt5_server) NULLS LAST, t.account")]
+        + (f" WHERE{_own('t', 1)}" if uid else "")
+        + " ORDER BY COALESCE(t.broker, hh.mt5_server) NULLS LAST, t.account",
+        *([uid] if uid else []))]
     q, args = "SELECT * FROM trades WHERE true", []
+    if uid:
+        args.append(uid); q += f" AND{_own('trades', len(args))}"
     if account:
         args.append(account); q += f" AND account = ${len(args)}"
     if from_time:

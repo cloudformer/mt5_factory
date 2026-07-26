@@ -20,16 +20,14 @@ from views.workers import bp as workers_bp
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "mt5web-dev")
 
-# 开发模式身份(v5.6 登录前的过渡, 2026-07-25 与 Frank 定): 右上角显示当前用户并可切换,
-# 存 session 仅做标识 — 不做任何过滤/权限(那是 5.6 通电的事); 全部测试好了才加登录页。
+# 开发模式身份(v5.6 登录前的过渡): 右上角显示当前用户并可切换, 存 session。
+# 2026-07-26 通电(读路径过滤): 该身份随 api_client 以 X-User-Id 头捎给 api,
+# api 在列表类读路径按它过滤(资产只见自己的); 仍零拦截无登录, 测试好了才加登录页。
 _users_cache = {"t": 0.0, "users": []}
 
 
-@app.context_processor
-def inject_dev_identity():
+def _dev_users() -> list:
     import time as _time
-
-    from flask import session
 
     import api_client as _api
     if _time.time() - _users_cache["t"] > 60:   # 60s 轻缓存: 每页一次 api 调用太浪费
@@ -38,10 +36,27 @@ def inject_dev_identity():
             _users_cache["t"] = _time.time()
         except Exception:
             pass
-    users = _users_cache["users"]
+    return _users_cache["users"]
+
+
+@app.before_request
+def ensure_dev_identity():
+    """进视图前把身份落进 session — api_client 靠它发 X-User-Id, 首次访问也不缺身份。
+    默认身份 = frank(交易用户, 日常视角); 想看管理视角右上角切 admin。"""
+    from flask import request, session
+    if request.endpoint in ("healthz", "static"):   # 健康检查/静态文件不需要身份
+        return
+    if session.get("dev_user_id") is None:
+        users = _dev_users()
+        session["dev_user_id"] = next(
+            (u["id"] for u in users if u["name"] == "frank"), 1)
+
+
+@app.context_processor
+def inject_dev_identity():
+    from flask import session
+    users = _dev_users()
     uid = session.get("dev_user_id")
-    if uid is None:   # 默认身份 = frank(交易用户, 日常视角); 想看管理视角切 admin
-        uid = next((u["id"] for u in users if u["name"] == "frank"), 1)
     name = next((u["name"] for u in users if u["id"] == uid), "?")
     return {"dev_users": users, "dev_user_id": uid, "dev_user_name": name}
 app.register_blueprint(dashboard_bp)

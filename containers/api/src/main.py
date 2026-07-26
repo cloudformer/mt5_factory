@@ -113,9 +113,15 @@ for router in ROUTERS:
 async def identify_caller(request, call_next):
     """身份识别(v5.6-A 最小版, 2026-07-25 与 Frank 定: 只识别不限制) —
     带 X-API-Key(用户钥匙或 worker 钥匙)则解析出"是谁"挂到 request.state 并记日志;
-    不带/无效照常放行, 对任何请求零拦截。将来通电(过滤/401)另起, 不在这里。"""
+    不带/无效照常放行, 对任何请求零拦截。
+    2026-07-26 通电(读路径过滤): 无钥匙时接受 web 转发的 X-User-Id(右上角切换的身份,
+    登录前过渡、信任内网 web) — 列表类读端点按 services.identity.scope_uid 过滤资产;
+    登录上线后 web 改发真凭据, 本中间件与各端点零改动。401/写路径拦截仍不在这里。"""
     request.state.user_id, request.state.auth_kind = None, None
     key = request.headers.get("X-API-Key")
+    dev_uid = request.headers.get("X-User-Id")
+    if not key and dev_uid and dev_uid.isdigit():
+        request.state.user_id, request.state.auth_kind = int(dev_uid), "dev"
     pool = getattr(app.state, "pool", None)
     if key and pool is not None:
         h = hashlib.sha256(key.encode()).hexdigest()

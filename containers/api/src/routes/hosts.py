@@ -14,7 +14,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import sync
+from src.services import identity, sync
 
 logger = logging.getLogger("hosts")
 router = APIRouter()
@@ -41,11 +41,13 @@ async def _claim_account(pool, host_id: int, login: int, server: str):
 
 @router.get("/hosts")
 async def list_hosts(request: Request):
+    uid = identity.scope_uid(request)   # v5.6 通电: 非 owner 只见自己的 worker
     rows = await request.app.state.pool.fetch(
         "SELECT id, name, host, port, download, runner, account_type, enabled, status,"
         "       owner_id, mt5_login, mt5_server,"   # 归属与账户: 管理页划拨下拉/账户列要显示
         "       created_at, online_at, offline_at, last_heartbeat, last_health"
-        "  FROM mt5_hosts ORDER BY id")
+        "  FROM mt5_hosts" + (" WHERE owner_id = $1" if uid else "") + " ORDER BY id",
+        *([uid] if uid else []))
     return {"hosts": [dict(r) for r in rows]}
 
 

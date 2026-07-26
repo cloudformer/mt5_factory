@@ -229,7 +229,8 @@ def market():
     红线现在就练: shared 不显示参数, 连 name 都不显示(策略名里嵌着参数)。"""
     rows = []
     try:
-        rows = api.get("/backtest/top", visibility="public,shared", limit=200)["results"]
+        # market=1: 明确的跨用户视图(v5.6 通电后 /backtest/top 默认按当前用户过滤)
+        rows = api.get("/backtest/top", visibility="public,shared", market=1, limit=200)["results"]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("market.html", rows=rows)

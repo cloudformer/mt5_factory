@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from src.services import backtest, instances, usage, verify
+from src.services import backtest, identity, instances, usage, verify
 from strategy_core import TEMPLATES, TF_SECONDS, grid_combos, random_combo
 
 logger = logging.getLogger("strategies")
@@ -138,6 +138,9 @@ async def list_strategies(request: Request, status: Optional[str] = None,
         args.append(status); cond.append(f"s.status = ${len(args)}")
     if symbol:
         args.append(symbol); cond.append(f"s.symbol = ${len(args)}")
+    uid = identity.scope_uid(request)   # v5.6 通电: 非 owner 只见自己的策略
+    if uid:                             # (无身份的 runner/脚本不过滤, 行为与通电前一致)
+        args.append(uid); cond.append(f"s.owner_id = ${len(args)}")
     if cond:
         q += " WHERE " + " AND ".join(cond)
     args.append(limit)
@@ -548,9 +551,11 @@ _ORPHAN_WHERE = "symbol NOT IN (SELECT symbol FROM symbols) AND status <> 'ARCHI
 @router.get("/strategies/orphans")
 async def orphans(request: Request):
     """列出孤儿策略(品种已删、未归档) — 供页面亮清单, 清理前先看清楚要清什么"""
+    uid = identity.scope_uid(request)   # v5.6 通电: 非 owner 只见自己的
     rows = await request.app.state.pool.fetch(
         f"SELECT id, name, symbol, status FROM strategies WHERE {_ORPHAN_WHERE}"
-        " ORDER BY symbol, id")
+        + (" AND owner_id = $1" if uid else "") + " ORDER BY symbol, id",
+        *([uid] if uid else []))
     return {"orphans": [dict(r) for r in rows]}
 
 

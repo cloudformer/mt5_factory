@@ -70,7 +70,8 @@
       <a href="{{ url_for('mt5.system') }}" {% if ep == 'mt5.system' %}class="active"{% endif %}>系统流水</a>
     </div>
   </div>
-  {# 管理员组: owner 专属(v5.6 起只有 user 1 可见/可达); 未来扩: 计划配额/审计/运营报表 #}
+  {# 管理员组: owner(id 1)专属菜单 — 其他身份隐藏(仅导航层, 零拦截); 未来扩: 计划配额/审计/运营报表 #}
+  {% if dev_user_id == 1 %}
   <div class="navmenu">
     <a href="{{ url_for('admin.users_page') }}"
        {% if ep.startswith('admin.') %}class="active"{% endif %}>管理员 ▾</a>
@@ -78,6 +79,7 @@
       <a href="{{ url_for('admin.users_page') }}" {% if ep == 'admin.users_page' %}class="active"{% endif %}>用户管理</a>
     </div>
   </div>
+  {% endif %}
   {# 当前用户(最右): 开发模式身份切换(v5.6 登录前过渡), 仅标识不过滤; 测试好了才上登录页 #}
   {% if dev_users %}
   <form method="post" action="{{ url_for('admin.switch_user') }}" class="inline" style="margin-left:auto"

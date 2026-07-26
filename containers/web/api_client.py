@@ -13,9 +13,22 @@ class ApiError(Exception):
     pass
 
 
+def _identity_headers() -> dict:
+    """当前身份捎给 api(v5.6 通电): X-User-Id = 右上角切换的用户(app.before_request 已落 session)。
+    api 读路径按它过滤资产; 登录上线后这里换成真凭据, 视图代码零改动。"""
+    try:
+        from flask import has_request_context, session
+        if has_request_context() and session.get("dev_user_id") is not None:
+            return {"X-User-Id": str(session["dev_user_id"])}
+    except Exception:
+        pass
+    return {}
+
+
 def get(path: str, **params):
     try:
-        r = requests.get(f"{API_URL}{path}", params=params or None, timeout=15)
+        r = requests.get(f"{API_URL}{path}", params=params or None, timeout=15,
+                         headers=_identity_headers())
         r.raise_for_status()
         return r.json()
     except requests.RequestException as e:
@@ -24,7 +37,8 @@ def get(path: str, **params):
 
 def _send(method: str, path: str, payload: dict | None, timeout: int = 30):
     try:
-        r = requests.request(method, f"{API_URL}{path}", json=payload, timeout=timeout)
+        r = requests.request(method, f"{API_URL}{path}", json=payload, timeout=timeout,
+                             headers=_identity_headers())
         if r.status_code >= 400:
             try:
                 detail = r.json().get("detail")
