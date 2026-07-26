@@ -266,24 +266,41 @@ document.addEventListener("DOMContentLoaded", () => {
 
 /* 表格列宽拖拽 (全站统一, 电子表格式: 拖谁只动谁, 别的列不跳):
    拖动瞬间把所有列宽固定成当前像素 + table-layout:fixed, 之后只改被拖的列和表总宽,
-   表变宽超出容器时靠 section 的 overflow-x 横向滚动。所有 table 自动生效, 无需标记 */
+   表变宽超出容器时靠 section 的 overflow-x 横向滚动。所有 table 自动生效, 无需标记。
+   列宽记忆: 拖完存 localStorage(按 页面路径+表id/序号), 下次进页自动还原;
+   列数变了(改版)自动失效; 双击拖柄 = 清记忆恢复默认 */
 document.addEventListener("DOMContentLoaded", () => {
-  document.querySelectorAll("table").forEach((table) => {
+  document.querySelectorAll("table").forEach((table, ti) => {
     const ths = [...table.querySelectorAll("tr:first-child th")];
     if (ths.length < 2) return;
+    const memKey = `colw:${location.pathname}:${table.id || "t" + ti}`;
+    const freeze = (widths, total) => {   // 固定为像素宽(拖拽和还原共用)
+      ths.forEach((h, i) => { h.style.width = widths[i] + "px"; });
+      table.style.tableLayout = "fixed";
+      table.style.minWidth = "0";                 // 解除 max-content, 改由列宽之和决定
+      table.style.width = total + "px";
+    };
+    try {   // 还原上次列宽; 列数对不上(页面改版)= 记忆作废
+      const m = JSON.parse(localStorage.getItem(memKey) || "null");
+      if (m && Array.isArray(m.w) && m.w.length === ths.length) freeze(m.w, m.total);
+    } catch (e) { /* 记忆损坏: 忽略, 用默认布局 */ }
     ths.forEach((th) => {
       const grip = document.createElement("div");
       grip.className = "col-resizer";
+      grip.title = "拖动调列宽(自动记住) · 双击恢复默认";
       th.style.position = "relative";
       th.appendChild(grip);
+
+      grip.addEventListener("dblclick", () => {   // 清记忆 + 回到自动布局
+        localStorage.removeItem(memKey);
+        ths.forEach((h) => { h.style.width = ""; });
+        table.style.tableLayout = ""; table.style.minWidth = ""; table.style.width = "";
+      });
 
       grip.addEventListener("mousedown", (e) => {
         e.preventDefault();
         // 冻结当前布局: 各列固定为现有像素宽, 切 fixed 让改动只作用于目标列
-        ths.forEach((h) => { h.style.width = h.offsetWidth + "px"; });
-        table.style.tableLayout = "fixed";
-        table.style.minWidth = "0";                 // 解除 max-content, 改由列宽之和决定
-        table.style.width = table.offsetWidth + "px";
+        freeze(ths.map((h) => h.offsetWidth), table.offsetWidth);
         const startX = e.pageX, startW = th.offsetWidth, startTable = table.offsetWidth;
 
         const move = (ev) => {
@@ -296,6 +313,10 @@ document.addEventListener("DOMContentLoaded", () => {
           document.removeEventListener("mouseup", up);
           document.body.style.cursor = "";
           document.body.style.userSelect = "";
+          try {   // 拖完落记忆(存储满/隐私模式失败也不影响使用)
+            localStorage.setItem(memKey, JSON.stringify(
+              { w: ths.map((h) => h.offsetWidth), total: table.offsetWidth }));
+          } catch (err) { /* 忽略 */ }
         };
         document.body.style.cursor = "col-resize";
         document.body.style.userSelect = "none";

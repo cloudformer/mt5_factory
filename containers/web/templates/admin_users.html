@@ -21,7 +21,8 @@
         <td>{% if u.enabled %}<span class="pos">启用</span>{% else %}<span class="neg">停用</span>{% endif %}</td>
         <td class="mono">{{ u.strategies }}</td>
         <td class="mono">{{ u.workers }}</td>
-        <td class="mono">{{ u.keys }}</td>
+        {# u['keys']: 必须下标取 — u.keys 会撞上字典内置方法, 渲染成 <built-in method keys> #}
+        <td class="mono">{{ u['keys'] }}</td>
         <td class="mono muted">{{ u.created_at[:10] if u.created_at else '—' }}</td>
         <td>
           <form method="post" action="{{ url_for('admin.issue_key', user_id=u.id) }}" class="inline">
