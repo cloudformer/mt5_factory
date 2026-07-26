@@ -235,7 +235,9 @@
       k<input id="trail-k" class="small" type="number" step="0.1" style="width:50px" placeholder="2"
         title="ATR 档系数(距离=M1 ATR14×k); 空=2">
       <button type="button" class="small" id="trail-cmp-btn"
-        title="同一策略全量回测跑四版(内存现算); 填了参数用你的, 空=探针; 约几秒">四档对比</button></span>
+        title="同一策略全量回测跑四版(内存现算); 填了参数用你的, 空=探针; 约几秒">四档对比</button>
+      <a class="small" href="{{ url_for('strategies.ai_page', strategy_id=sid) }}"
+        title="让 AI 批量试: AI策略分析页第2步点「插件调优提示词(20组)」→ 建子代走漏斗(OOS裁决)">AI批量调优→</a></span>
   </div>
   <div id="trail-cmp" style="margin:6px 0 14px"></div>
   {% endif %}
