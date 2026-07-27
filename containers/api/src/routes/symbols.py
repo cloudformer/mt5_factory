@@ -3,18 +3,17 @@
 一切品种信息只此一处: 下载哪些(download)、每品种起始日期(data_start)、
 精度(digits/point)、下单约束(volume_min/stops_level)。下载/回测/策略生成全部只读本表。
 
-关键纪律: 登记品种必须经券商校验 (POST /symbols 调 bridge /symbol/{name}),
-精度由券商自动带回, 不手填 — 根治"手填 point 靠猜 / 加了券商没有的品种" 这类 bug。
+关键纪律: 登记品种必须经券商校验, 精度由券商自动带回, 不手填 —
+根治"手填 point 靠猜 / 加了券商没有的品种"这类 bug。
+校验是异步的(2026-07-26, v7.2 单向化 #7): 登记先入库(待校验), 下载 worker 的 announce
+应答里领任务、查本机 MT5、下次 announce 捎回结果(见 hosts.announce_host) —
+api 不再反向连 worker; 页面 1~2 分钟后刷出"已校验/失败"。
 """
 import logging
 from datetime import date
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-
-import httpx
-
-from src.services import sync
 
 
 def _parse_date(s: str) -> date:
@@ -37,7 +36,7 @@ async def list_symbols(request: Request):
     pool = request.app.state.pool
     rows = await pool.fetch(
         "SELECT s.symbol, s.broker, s.digits, s.point, s.volume_min, s.stops_level,"
-        "       s.download, s.data_start, s.verified_at,"
+        "       s.download, s.data_start, s.verified_at, s.verify_error,"
         "       c.first_bar, c.last_bar, c.bars"
         "  FROM symbols s"
         "  LEFT JOIN LATERAL (SELECT min(time) AS first_bar, max(time) AS last_bar,"
@@ -57,50 +56,26 @@ class SymbolRegister(BaseModel):
     data_start: str = "2015-01-01"
 
 
-async def _broker_symbol(pool, name: str) -> tuple[dict, str]:
-    """向任一下载 worker 的券商查这个品种是否存在及其真实精度。
-    返回 (symbol_info, broker) — broker=该 worker 账户的 server 名(品种来源标注)。
-    券商没有 → 400 明确报错 (不再是下载时才炸的 500)。"""
-    host = await pool.fetchrow(
-        "SELECT host, port, last_health->>'server' AS server FROM mt5_hosts"
-        " WHERE enabled AND download ORDER BY id LIMIT 1")
-    if host is None:
-        raise HTTPException(status_code=400, detail="没有可用的下载 worker, 无法向券商校验品种")
-    headers = {"X-API-Key": sync.BRIDGE_API_KEY} if sync.BRIDGE_API_KEY else {}
-    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
-        try:
-            r = await client.get(f"http://{host['host']}:{host['port']}/symbol/{name}")
-        except httpx.HTTPError as e:
-            raise HTTPException(status_code=502, detail=f"bridge unreachable: {e}")
-    if r.status_code == 404:
-        raise HTTPException(status_code=400,
-                            detail=f"该券商没有品种 {name} — 名称可能不同(如 {name}.m / Bitcoin), "
-                                   "在 MT5 报价窗 Ctrl+M 查实际名称")
-    if r.status_code != 200:
-        raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", "bridge error"))
-    return r.json(), host["server"]
-
-
 @router.post("/symbols")
 async def register_symbol(req: SymbolRegister, request: Request):
-    """登记一个品种: 向券商校验存在性 + 自动取真实精度/下单约束后入库"""
+    """登记/重新校验一个品种(异步): 先入库标"待校验", 下载 worker 经 announce 领任务
+    查券商, 1~2 分钟后精度自动补齐(或标失败原因)。已存在的品种 = 触发重新校验,
+    原精度保留到新结果到达(校验期间不影响已有回测/下载判定)。"""
     name = req.symbol.strip().upper()
     if not name:
         raise HTTPException(status_code=400, detail="symbol 不能为空")
     ds = _parse_date(req.data_start)
-    info, broker = await _broker_symbol(request.app.state.pool, name)
+    worker = await request.app.state.pool.fetchval(
+        "SELECT count(*) FROM mt5_hosts WHERE enabled AND download")
     row = await request.app.state.pool.fetchrow(
-        "INSERT INTO symbols (symbol, broker, digits, point, volume_min, stops_level,"
-        "                     data_start, download, verified_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, now())"
-        " ON CONFLICT (symbol) DO UPDATE SET"
-        "   broker=$2, digits=$3, point=$4, volume_min=$5, stops_level=$6, verified_at=now()"
-        " RETURNING *",
-        name, broker, info["digits"], info["point"], info.get("volume_min"),
-        info.get("trade_stops_level"), ds)
-    logger.info("symbol registered: %s @ %s (digits=%s point=%s)",
-                name, broker, info["digits"], info["point"])
-    return dict(row)
+        "INSERT INTO symbols (symbol, data_start, download)"
+        " VALUES ($1, $2, FALSE)"   # 新品种校验通过才开下载
+        " ON CONFLICT (symbol) DO UPDATE SET verified_at=NULL, verify_error=NULL"
+        " RETURNING *", name, ds)
+    logger.info("symbol %s queued for broker verify (download workers=%d)", name, worker)
+    return {**dict(row), "pending": True,
+            "hint": ("已登记, 等下载 worker 校验(约1~2分钟, 刷新本页看结果)" if worker
+                     else "已登记, 但当前没有启用的下载 worker — worker 上线后自动校验")}
 
 
 class SymbolUpdate(BaseModel):

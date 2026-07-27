@@ -200,15 +200,39 @@ def _reconnect_loop():
         _connect()
 
 
+def _verify_symbol(name: str):
+    """品种校验(v7.2 单向化 #7, 替代 api 反向调 /symbol): 查本机 MT5。
+    返回 info dict / {"error": 原因}(确定性失败) / None(MT5 没连上等瞬态, 下轮重试不缓存)"""
+    try:
+        with _mt5_lock:
+            if mt5.terminal_info() is None:
+                return None                      # 瞬态: 不给结论, 等连上再查
+            found = mt5.symbol_select(name, True)
+            info = mt5.symbol_info(name) if found else None
+            acct = mt5.account_info()
+        if info is None:
+            return {"error": f"券商没有品种 {name} — 名称可能不同(如 {name}.m / Bitcoin), "
+                             "在 MT5 报价窗 Ctrl+M 查实际名称"}
+        return {"digits": info.digits, "point": info.point,
+                "volume_min": info.volume_min, "stops_level": info.trade_stops_level,
+                "broker": acct.server if acct else None}
+    except Exception as e:
+        logger.warning("verify symbol %s failed: %s", name, e)
+        return None                              # 异常按瞬态处理, 下轮重试
+
+
 def _announce_loop():
     """自动注册: 周期性向 api 自报家门, Workers 页面无需手动添加。
     身份 = 计算机名(socket.gethostname()): 稳定、重启/换IP/换账户都不变;
-    IP 只作"当前地址"随心跳刷新。新机器以 download 角色入册, demo/live 由人在 web 上指派。"""
+    IP 只作"当前地址"随心跳刷新。新机器以 download 角色入册, demo/live 由人在 web 上指派。
+    顺带品种校验(单向化): 应答里领任务 → 查本机 MT5 → 下轮 announce 捎回;
+    发送成功即清缓存 — api 若没入库, 下轮还会派同一任务, 自愈。"""
     if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
         logger.warning("DOCKER_COMPOSE_HOST not set, skip auto-register (register manually on the web Workers page)")
         return
     api_base = f"http://{DOCKER_COMPOSE_HOST}:{API_PORT}"
     hostname = socket.gethostname()  # 计算机名 = worker 身份(注册主键)
+    verify_results: dict = {}        # 待捎回的品种校验结果
     while True:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -218,13 +242,26 @@ def _announce_loop():
             payload = {"name": hostname, "host": my_ip, "port": BRIDGE_PORT}
             if WORKER_KEY:
                 payload["key"] = WORKER_KEY
+            sent = list(verify_results)
+            if sent:
+                payload["symbol_info"] = dict(verify_results)
             r = requests.post(f"{api_base}/hosts/announce", timeout=10, json=payload)
             if r.status_code != 200:
                 logger.warning("announce rejected: %s %s", r.status_code, r.text[:100])
-            elif r.json().get("key_state") in ("invalid", "conflict"):
-                # 钥匙无效/被吊销/已绑别的机器(克隆机忘换钥匙的典型) — 大声说, 别静默
-                logger.warning("worker key %s — 去管理页检查(吊销了? 克隆机没换钥匙?)",
-                               r.json()["key_state"])
+            else:
+                resp = r.json()
+                for k in sent:                    # api 已收到; 没入库它会再派, 无需重发
+                    verify_results.pop(k, None)
+                for name in resp.get("verify_symbols", []):
+                    res = _verify_symbol(name)
+                    if res is not None:
+                        logger.info("symbol verify %s: %s", name,
+                                    res.get("error") or f"point={res.get('point')}")
+                        verify_results[name] = res
+                if resp.get("key_state") in ("invalid", "conflict"):
+                    # 钥匙无效/被吊销/已绑别的机器(克隆机忘换钥匙的典型) — 大声说, 别静默
+                    logger.warning("worker key %s — 去管理页检查(吊销了? 克隆机没换钥匙?)",
+                                   resp["key_state"])
         except Exception as e:
             logger.warning("announce failed (api not up yet?): %s", e)
         time.sleep(60)

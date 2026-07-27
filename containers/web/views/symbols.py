@@ -189,13 +189,13 @@ def save_ranks():
 
 @bp.post("/add")
 def add():
-    """登记品种: api 会向券商校验存在性并自动取真实精度"""
+    """登记品种: 异步券商校验(v7.2 单向化) — 下载 worker 领任务查 MT5, 1~2 分钟出结果"""
     try:
         result = api.post("/symbols", {
             "symbol": request.form["symbol"].strip().upper(),
             "data_start": request.form.get("data_start", "2015-01-01").strip(),
         })
-        flash(f"{result['symbol']} 已登记 (digits={result['digits']}, point={result['point']})", "ok")
+        flash(f"{result['symbol']} {result.get('hint', '已登记, 等待校验')}", "ok")
     except (api.ApiError, KeyError) as e:
         flash(f"登记失败: {e}", "error")
     return redirect(request.referrer or url_for("symbols.index"))
@@ -217,10 +217,10 @@ def update(symbol):
 
 @bp.post("/<symbol>/reverify")
 def reverify(symbol):
-    """重新向券商校验并刷新精度 (等价于重新登记同名品种)"""
+    """重新向券商校验并刷新精度 (等价于重新登记同名品种; 异步, 1~2 分钟出结果)"""
     try:
         result = api.post("/symbols", {"symbol": symbol})
-        flash(f"{result['symbol']} 已重新校验 (digits={result['digits']}, point={result['point']})", "ok")
+        flash(f"{result['symbol']} {result.get('hint', '已提交重新校验')}", "ok")
     except api.ApiError as e:
         flash(f"校验失败: {e}", "error")
     return redirect(request.referrer or url_for("symbols.index"))

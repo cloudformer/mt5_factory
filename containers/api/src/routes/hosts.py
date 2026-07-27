@@ -98,6 +98,9 @@ class AnnounceRequest(BaseModel):
     host: str
     port: int = 8020
     key: str | None = None   # worker 钥匙(schema/040): 带钥=自动归钥主+首绑; 不带=照旧
+    # 品种校验结果回传(v7.2 单向化 #7): {品种名: {digits,point,volume_min,stops_level,broker}
+    # 或 {"error": 原因}} — 上轮 announce 应答里 verify_symbols 派的任务, 这轮捎回
+    symbol_info: dict | None = None
 
 
 @router.post("/hosts/announce")
@@ -143,7 +146,35 @@ async def announce_host(req: AnnounceRequest, request: Request):
             key_state = "conflict"         # 这把钥匙已绑别的机器(克隆机忘换钥匙的典型)
             logger.warning("announce %s: worker key already bound to host #%s",
                            req.name, wk["host_id"])
+    # 品种校验收发(v7.2 单向化 #7, 仅下载职能的启用机参与):
+    # ①收: 上轮派的任务这轮捎回结果 → 补齐精度(只补待校验行, 防旧结果覆盖已校验数据)
+    if req.symbol_info and row["download"] and row["enabled"]:
+        for sym, info in req.symbol_info.items():
+            if not isinstance(info, dict):
+                continue
+            sym = str(sym).strip().upper()
+            if info.get("error"):
+                await pool.execute(
+                    "UPDATE symbols SET verify_error=$2"
+                    " WHERE symbol=$1 AND verified_at IS NULL",
+                    sym, str(info["error"])[:200])
+            elif info.get("point"):
+                await pool.execute(
+                    "UPDATE symbols SET digits=$2, point=$3, volume_min=$4, stops_level=$5,"
+                    "       broker=COALESCE($6, broker), download=TRUE,"
+                    "       verified_at=now(), verify_error=NULL"
+                    " WHERE symbol=$1 AND verified_at IS NULL",
+                    sym, info.get("digits"), info["point"], info.get("volume_min"),
+                    info.get("stops_level"), info.get("broker"))
+                logger.info("symbol %s verified via %s (point=%s)", sym, req.name, info["point"])
     out = {k: row[k] for k in ("id", "name", "download", "runner", "enabled")}
+    # ②派: 待校验且未标失败的品种 → 应答里带任务, bridge 查 MT5 下轮捎回
+    if row["download"] and row["enabled"]:
+        pend = await pool.fetch(
+            "SELECT symbol FROM symbols"
+            " WHERE verified_at IS NULL AND verify_error IS NULL LIMIT 10")
+        if pend:
+            out["verify_symbols"] = [r["symbol"] for r in pend]
     if key_state:
         out["key_state"] = key_state
     return out

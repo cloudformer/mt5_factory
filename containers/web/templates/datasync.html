@@ -78,7 +78,8 @@
       <td>{% if s.bars %}{{ "{:,}".format(s.bars) }}{% else %}<span class="muted">无</span>{% endif %}</td>
       <td>{% if s.verified_at %}<span class="badge ok"
             title="券商已确认存在 · 精度 {{ s.digits }}·{{ s.point }} · 最小手 {{ s.volume_min if s.volume_min is not none else '—' }} · 停损位 {{ s.stops_level if s.stops_level is not none else '—' }}">已校验</span>
-          {% else %}<span class="badge warn" title="未经券商校验, 点右边『校验』">未校验</span>{% endif %}</td>
+          {% elif s.verify_error %}<span class="badge error" title="{{ s.verify_error }} — 改名后重新登记即重试">校验失败</span>
+          {% else %}<span class="badge warn" title="下载 worker 校验中(约1~2分钟, 刷新本页看结果; 没有在线下载worker则等其上线)">校验中</span>{% endif %}</td>
       <td>
         <form method="post" action="{{ url_for('symbols.reverify', symbol=s.symbol) }}" class="inline">
           <button class="small" title="向券商重新确认并刷新精度/券商(需下载worker在线)">校验</button>
