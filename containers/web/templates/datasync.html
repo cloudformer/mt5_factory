@@ -57,7 +57,7 @@
     <tr><th data-nosort>#</th><th>品种</th><th>券商</th>
         <th title="是否参与同步; 只同步打勾的品种">下载</th>
         <th title="从哪天开始下载; 每品种独立">起始日期</th>
-        <th>覆盖范围</th><th>已下载(M1)</th><th>校验</th><th data-nosort>操作</th></tr>
+        <th title="K线时间=券商服务器时间, 库按 UTC 存储, 此处原样显示不转换(铁律: 交易/K线时间永不转换)">覆盖范围 (UTC)</th><th>已下载(M1)</th><th>校验</th><th data-nosort>操作</th></tr>
     {% for s in symbols %}
     <tr>
       <td class="rownum muted"></td>
@@ -108,7 +108,7 @@
   <h2><span class="badge error">孤儿数据 ({{ orphans | length }})</span></h2>
   <p class="muted">这些品种在数据库里有历史 K线、却没有品种登记(改名/直接操作数据库遗留)——暴露出来一键清空, 不留看不到的藏数据。</p>
   <table>
-    <tr><th>品种</th><th>K线数</th><th>覆盖范围</th><th>操作</th></tr>
+    <tr><th>品种</th><th>K线数</th><th title="K线时间=券商服务器时间, 库按 UTC 存储, 原样显示不转换">覆盖范围 (UTC)</th><th>操作</th></tr>
     {% for o in orphans %}
     <tr>
       <td>{{ o.symbol }}</td>
