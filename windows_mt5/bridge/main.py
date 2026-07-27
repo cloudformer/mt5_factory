@@ -907,11 +907,15 @@ def ordertest(symbol: str = "XAUUSD"):
             raise HTTPException(status_code=400, detail="算法交易开关未开 (工具栏 Algo Trading)")
         volume = max(info.volume_min, 0.01)
         dist = max(info.trade_stops_level * 3, 500) * info.point
+        # 成交模式自适应(与 runner 同修, 2026-07-26 事故 retcode 10030): 品种支持什么用什么
+        fm = (mt5.ORDER_FILLING_IOC if info.filling_mode & mt5.SYMBOL_FILLING_IOC
+              else mt5.ORDER_FILLING_FOK if info.filling_mode & mt5.SYMBOL_FILLING_FOK
+              else mt5.ORDER_FILLING_RETURN)
         req = {"action": mt5.TRADE_ACTION_DEAL, "symbol": symbol, "volume": volume,
                "type": mt5.ORDER_TYPE_BUY, "price": tick.ask,
                "sl": tick.ask - dist, "tp": tick.ask + dist, "deviation": 20,
                "magic": SMOKE_MAGIC, "comment": "bridge-ordertest",
-               "type_time": mt5.ORDER_TIME_GTC, "type_filling": mt5.ORDER_FILLING_IOC}
+               "type_time": mt5.ORDER_TIME_GTC, "type_filling": fm}
         r = mt5.order_send(req)
         if r is None or r.retcode != mt5.TRADE_RETCODE_DONE:
             raise HTTPException(status_code=502, detail={
@@ -929,7 +933,7 @@ def ordertest(symbol: str = "XAUUSD"):
                             "price": tick.bid, "deviation": 20, "magic": SMOKE_MAGIC,
                             "position": pos.ticket, "comment": "ordertest-close",
                             "type_time": mt5.ORDER_TIME_GTC,
-                            "type_filling": mt5.ORDER_FILLING_IOC})
+                            "type_filling": fm})
     if c is None or c.retcode != mt5.TRADE_RETCODE_DONE:
         return {"result": "PARTIAL", "open": opened,
                 "close": f"failed retcode={c.retcode if c else None} - close manually in MT5"}

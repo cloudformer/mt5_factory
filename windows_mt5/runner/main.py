@@ -254,6 +254,18 @@ def fetch_strategies(run_status: str) -> list:
     return instances, skipped
 
 
+def filling_mode(info):
+    """按品种支持的成交模式自适应(2026-07-26 事故: live 策略#23 下单连拒 retcode 10030
+    "Unsupported filling mode" — 写死 IOC 撞上不支持 IOC 的品种/券商)。
+    info.filling_mode 位掩码: FOK=1 / IOC=2; 优先 IOC(与原行为一致: 部分成交余量撤销),
+    不支持则 FOK, 两者都没有(常见于做市商 Market 执行) → RETURN。"""
+    if info.filling_mode & mt5.SYMBOL_FILLING_IOC:
+        return mt5.ORDER_FILLING_IOC
+    if info.filling_mode & mt5.SYMBOL_FILLING_FOK:
+        return mt5.ORDER_FILLING_FOK
+    return mt5.ORDER_FILLING_RETURN
+
+
 def position_dir(symbol: str, magic: int) -> str:
     """flat/buy/sell — 持仓真相永远来自 MT5(无状态), 决策日志的 pos 列"""
     for p in mt5.positions_get(symbol=symbol) or []:
@@ -303,7 +315,7 @@ def send_order(inst: dict, sig) -> str:
         # 方向/品种/时间不写 — MT5 原生字段已有, 不重复占位。权威归因仍是 magic。
         "comment": f"id:{inst['id']},{socket.gethostname()}"[:26],
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "type_filling": filling_mode(info),   # 自适应(修 10030): 品种支持什么用什么
     }
     result = mt5.order_send(request)
     if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
