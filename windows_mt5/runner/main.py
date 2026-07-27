@@ -42,6 +42,8 @@ API_HEADERS = {"X-API-Key": WORKER_KEY} if WORKER_KEY else {}
 MT5_PATH = os.getenv("MT5_PATH", "").strip()
 BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 同机 bridge, 开机时等它先连上 MT5
 STATUS_FILE = Path(__file__).resolve().parents[1] / "runner_status.json"  # bridge 状态页读它
+LOG_DIR = Path(__file__).resolve().parents[1] / "logs"   # 决策日志(JSONL, 滚动定容, 免维护)
+DECISION_KEEP_DAYS = 14   # 本地只留 N 天(翻天时自动删旧) — 定容不增长, 极端全M1也就百来MB
 POLL_SECONDS = 10       # 主循环: 写心跳 + 处理收盘bar
 REFRESH_SECONDS = 15    # 重新检测角色/拉策略 (原60s太久, 切换后要等太长; 收到15s 更快反映)
 
@@ -57,6 +59,51 @@ TF_MT5 = {
     "D1": mt5.TIMEFRAME_D1,
 }
 
+# ---------- 决策日志 + 异常事件(2026-07-26 与 Frank 定, 对账归因闭环的最里层证据) ----------
+# 全量决策留本地 JSONL(谁看得见谁写); 异常只报"状态变化"随心跳捎给 api 落 mt5_host_events。
+# 铁律: 先写本地再上报(断网也有本地证据); 记录失败绝不影响交易主循环(全部 try 包死)。
+_events: list = []      # 状态变化事件缓冲(最近50条, 随心跳整批上报, api 按 eid 幂等去重)
+_eid_last = 0
+_quote_bad: set = set()   # 处于"拿不到K线"状态的策略id(进入/恢复各记一次, 不逐拍刷屏)
+_fail_last: dict = {}     # sid -> 上次下单失败act(同错误只报首个, 成功即清)
+_skip_seen: set = set()   # 已报过的加载失败 (id, reason)
+_dec_day = ""             # 当前决策日志文件日期(翻天=换文件+清理过期)
+
+
+def decision_log(rec: dict) -> None:
+    """每策略每收盘bar一行(JSONL): 对账缺单时来查"有没有信号/为什么没下单"。
+    格式(2026-07-26 定): {"t","bar","sid","sym","tf","pos","sig","act"[,"note"]}"""
+    global _dec_day
+    try:
+        day = time.strftime("%Y%m%d", time.gmtime())
+        if day != _dec_day:   # 翻天: 换文件 + 删过期 → 定容, 免维护
+            _dec_day = day
+            LOG_DIR.mkdir(exist_ok=True)
+            cutoff = time.time() - DECISION_KEEP_DAYS * 86400
+            for f in LOG_DIR.glob("decisions_*.jsonl"):
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+        rec = {"t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **rec}
+        with (LOG_DIR / f"decisions_{day}.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:   # 日志绝不拖垮交易
+        pass
+
+
+def push_event(kind: str, sid, note: str = "") -> None:
+    """异常状态变化 → 事件缓冲(心跳捎带上报, api 以 eid 唯一索引幂等入库)。
+    kind: QUOTE_LOST/QUOTE_OK/ORDER_FAIL/LOAD_FAIL(与 mt5_host_events.event 同名, ≤16字符)"""
+    global _eid_last
+    _eid_last = max(_eid_last + 1, int(time.time() * 1000))
+    e = {"eid": _eid_last, "ts": round(time.time(), 3), "kind": kind}
+    if sid is not None:
+        e["sid"] = sid
+    if note:
+        e["note"] = note[:120]
+    _events.append(e)
+    del _events[:-50]
+    logger.warning("event %s sid=%s %s", kind, sid, note)
+
 
 def write_status(run_status: str, instances: list, last_bar: dict | None = None,
                  skipped: list | None = None) -> None:
@@ -69,6 +116,7 @@ def write_status(run_status: str, instances: list, last_bar: dict | None = None,
         "mt5_connected": mt5.terminal_info() is not None,
     }
     payload["skipped"] = skipped or []
+    payload["events"] = list(_events)   # 异常状态变化(最近50条): api 心跳收走, eid 幂等去重
     try:
         payload["account"] = stats.account_snapshot()
         payload["per_strategy"] = stats.per_strategy(instances, last_bar)
@@ -181,6 +229,12 @@ def fetch_strategies(run_status: str) -> list:
             logger.info("volume change #%d %s: %.2f -> %.2f (next order)",
                         inst["id"], inst["name"], prev, inst["volume"])
         _vol_seen[inst["id"]] = inst["volume"]
+    # 加载失败 = 异常事件(状态变化才报: 新失败报一次, 恢复后再失败再报)
+    global _skip_seen
+    for sk in skipped:
+        if (sk["id"], sk["reason"]) not in _skip_seen:
+            push_event("LOAD_FAIL", sk["id"], f"{sk['symbol']} {sk['reason']}")
+    _skip_seen = {(sk["id"], sk["reason"]) for sk in skipped}
     customs = [i for i in instances if abs(i["volume"] - default_vol) > 1e-9]
     logger.info("loaded %d strategies, skipped %d (role=%s)%s",
                 len(instances), len(skipped), run_status or "idle",
@@ -189,20 +243,24 @@ def fetch_strategies(run_status: str) -> list:
     return instances, skipped
 
 
-def has_position(symbol: str, magic: int) -> bool:
-    positions = mt5.positions_get(symbol=symbol)
-    return any(p.magic == magic for p in (positions or []))
+def position_dir(symbol: str, magic: int) -> str:
+    """flat/buy/sell — 持仓真相永远来自 MT5(无状态), 决策日志的 pos 列"""
+    for p in mt5.positions_get(symbol=symbol) or []:
+        if p.magic == magic:
+            return "buy" if p.type == mt5.POSITION_TYPE_BUY else "sell"
+    return "flat"
 
 
-def send_order(inst: dict, sig) -> None:
+def send_order(inst: dict, sig) -> str:
+    """下单并返回决策日志的 act 结论: open_ok / refused:* / order_fail:<retcode>"""
     if not sig.sl or not sig.tp:  # 铁律: 无 SL/TP 不下单
         logger.error("%s signal without SL/TP, refused", inst["name"])
-        return
+        return "refused:no_sltp"
     info = mt5.symbol_info(inst["symbol"])  # 下单前取现值: digits/最小手/停损距离都可能随券商变
     tick = mt5.symbol_info_tick(inst["symbol"])
     if info is None or tick is None:
         logger.error("%s no symbol info / tick", inst["symbol"])
-        return
+        return "refused:no_tick"
     is_buy = sig.direction == "BUY"
     price = tick.ask if is_buy else tick.bid
     # A: SL/TP 按券商 digits 取整 — 浮点原值(如 4083.8400000001)苛刻券商会拒 Invalid stops
@@ -212,13 +270,13 @@ def send_order(inst: dict, sig) -> None:
     if info.volume_min and volume < info.volume_min:
         logger.error("%s volume %.2f < broker min %.2f, refused",
                      inst["name"], volume, info.volume_min)
-        return
+        return "refused:vol_min"
     # B2: SL/TP 距离不得小于券商最小停损距离 stops_level (小止损策略必须过这关)
     min_d = (info.trade_stops_level or 0) * info.point
     if min_d and (abs(price - sl) < min_d or abs(tp - price) < min_d):
         logger.error("%s SL/TP too close to price: |price-sl|=%.5f |tp-price|=%.5f < stops_level %.5f, refused",
                      inst["name"], abs(price - sl), abs(tp - price), min_d)
-        return
+        return "refused:stops_level"
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": inst["symbol"],
@@ -240,10 +298,11 @@ def send_order(inst: dict, sig) -> None:
     if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
         logger.error("%s order failed: %s", inst["name"],
                      result._asdict() if result else mt5.last_error())
-    else:
-        logger.info("%s %s %.2f lots @ %.5f sl=%.5f tp=%.5f (magic=%d)",
-                    inst["name"], sig.direction, volume, result.price,
-                    sig.sl, sig.tp, inst["magic"])
+        return f"order_fail:{result.retcode if result else mt5.last_error()[0]}"
+    logger.info("%s %s %.2f lots @ %.5f sl=%.5f tp=%.5f (magic=%d)",
+                inst["name"], sig.direction, volume, result.price,
+                sig.sl, sig.tp, inst["magic"])
+    return "open_ok"
 
 
 def process(inst: dict, last_bar: dict) -> None:
@@ -252,18 +311,38 @@ def process(inst: dict, last_bar: dict) -> None:
     # 从位置1取 = 只用已收盘 bar
     rates = mt5.copy_rates_from_pos(inst["symbol"], tf, 1, strat.warmup)
     if rates is None or len(rates) < strat.warmup:
+        if inst["id"] not in _quote_bad:   # 进入"拿不到K线": 状态变化才记, 不逐拍刷屏
+            _quote_bad.add(inst["id"])
+            push_event("QUOTE_LOST", inst["id"], f"{inst['symbol']} rates unavailable")
+            decision_log({"sid": inst["id"], "sym": inst["symbol"], "act": "quote_lost"})
         return
+    if inst["id"] in _quote_bad:           # 恢复
+        _quote_bad.discard(inst["id"])
+        push_event("QUOTE_OK", inst["id"], inst["symbol"])
+        decision_log({"sid": inst["id"], "sym": inst["symbol"], "act": "quote_ok"})
     bar_time = int(rates[-1]["time"])
     if last_bar.get(inst["id"]) == bar_time:  # 该收盘bar已处理过
         return
     last_bar[inst["id"]] = bar_time
 
     sig = strat.on_bar(rates["open"], rates["high"], rates["low"], rates["close"])
+    pos = position_dir(inst["symbol"], inst["magic"])  # 无状态: 持仓以MT5为准
     if sig is None:
-        return
-    if has_position(inst["symbol"], inst["magic"]):  # 无状态: 持仓以MT5为准
-        return
-    send_order(inst, sig)
+        act = "hold"
+    elif pos != "flat":
+        act = "skip_pos"    # 占位: 有信号但被持仓占着 — 对账"占位级联"的最里层证据
+    else:
+        act = send_order(inst, sig)
+        if act != "open_ok":               # 拒单/失败: 同一错误只报首个, 成功即清
+            if _fail_last.get(inst["id"]) != act:
+                _fail_last[inst["id"]] = act
+                push_event("ORDER_FAIL", inst["id"], act)
+        else:
+            _fail_last.pop(inst["id"], None)
+    # 每策略每收盘bar一行决策记录(bar=券商服务器时间, 永不转换)
+    decision_log({"bar": time.strftime("%Y-%m-%d %H:%M", time.gmtime(bar_time)),
+                  "sid": inst["id"], "sym": inst["symbol"], "tf": inst["timeframe"],
+                  "pos": pos, "sig": sig.direction.lower() if sig else "none", "act": act})
 
 
 def main():

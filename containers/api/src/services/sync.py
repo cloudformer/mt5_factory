@@ -344,6 +344,19 @@ async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
                     pool, [s["id"] for s in rn["per_strategy"] if s.get("id")], h["name"])
             except Exception as e:
                 logger.warning("touch runtime %s failed: %s", h["name"], e)
+        # worker 异常事件入库(2026-07-26): runner 状态变化(断报价/下单失败/加载失败)随心跳
+        # 捎带(缓冲最近50条, 每条唯一 eid), 唯一索引(schema/044)+ON CONFLICT 幂等 —
+        # 轮询重复看到同一批静默跳过。库只存状态变化, 全量决策在 worker 本地 JSONL。
+        if rn.get("events"):
+            try:
+                await pool.executemany(
+                    "INSERT INTO mt5_host_events (host_id, event, detail) VALUES ($1, $2, $3)"
+                    " ON CONFLICT (host_id, (detail->>'eid'))"
+                    " WHERE (detail->>'eid') IS NOT NULL DO NOTHING",
+                    [(h["id"], str(e.get("kind", "?"))[:16], e)
+                     for e in rn["events"] if isinstance(e, dict) and e.get("eid")])
+            except Exception as e:
+                logger.warning("ingest events %s failed: %s", h["name"], e)
         # 逐笔回合入库(关2对账源数据, v1.6): 拉 /trades → 按 position_id 配对回合 → upsert。
         # 独立 try: 逐笔落库失败不能拖垮心跳状态机(它只是对账用, 不影响 worker 存活判定)
         if h["runner"] and health.get("login"):
