@@ -335,7 +335,7 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
             "SELECT value FROM config WHERE key='ranking_templates'") or [])
             if t.get("name") == rank_template), None)
 
-    cols = ("s.id AS strategy_id, s.name, s.template, s.symbol, s.timeframe, s.status,"
+    cols = ("s.id AS strategy_id, s.name, s.basis, s.template, s.symbol, s.timeframe, s.status,"
             " s.visibility, s.params, s.magic_number, s.volume,"
             " COALESCE(b.broker, sy.broker) AS broker, b.metrics, b.created_at")
     joins = (" FROM strategies s"
