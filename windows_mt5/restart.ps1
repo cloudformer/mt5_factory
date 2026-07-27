@@ -7,9 +7,13 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Split-Path -Parent $root
 
 Write-Host "=== Restart services ===" -ForegroundColor Cyan
-# Dedicated worker VM: make sure old python processes are gone.
+# 先杀看门狗窗口再杀 python(2026-07-26 修): 只杀 python 会留下旧看门狗循环,
+# 10 秒后旧代码复活 + 下面再起一套新看门狗 = 同账户两个 runner 双跑。
 # Redirect inside cmd, not PS: under EAP=Stop, PS 5.1 turns taskkill's stderr
-# ("process not found" - normal when nothing was running) into a fatal error.
+# ("process/window not found" - normal when nothing was running) into a fatal error.
+cmd /c 'taskkill /F /FI "WINDOWTITLE eq MT5 Bridge*" >nul 2>&1'
+cmd /c 'taskkill /F /FI "WINDOWTITLE eq MT5 Runner*" >nul 2>&1'
+cmd /c 'taskkill /F /FI "WINDOWTITLE eq MT5 self-test*" >nul 2>&1'
 cmd /c "taskkill /F /IM python.exe >nul 2>&1"
 Start-Sleep -Seconds 2
 # 必须经 explorer 启动: 若本脚本在管理员窗口运行, 直接 Start-Process 会把提升权限传给

@@ -11,9 +11,13 @@ function Assert-LastExitCode($what) {
 }
 
 Write-Host "=== Stop services first ===" -ForegroundColor Cyan
-# 必须先停 python: 运行中的 bridge/runner 会锁住 .py 文件, git pull 覆盖失败(Windows 文件锁,
-# 是"更新看似成功、版本号却不变"的元凶)。停了再拉, 拉完 restart.ps1 再起。
-# 经 cmd 重定向: EAP=Stop 下 taskkill 的 "进程不存在" stderr 会被 PS 当致命错误
+# 顺序铁律(2026-07-26 修): 先杀看门狗窗口(cmd 循环), 再杀 python —
+# 只杀 python 的话, start_bridge/start_runner 的看门狗 10 秒后会把旧代码重新拉起:
+# 轻则文件锁回来 pull/pip 失败, 重则 restart 再起一套 = 新旧两个 runner 同账户双跑。
+# 经 cmd 重定向: EAP=Stop 下 taskkill 的 "进程/窗口不存在" stderr 会被 PS 当致命错误
+cmd /c 'taskkill /F /FI "WINDOWTITLE eq MT5 Bridge*" >nul 2>&1'
+cmd /c 'taskkill /F /FI "WINDOWTITLE eq MT5 Runner*" >nul 2>&1'
+cmd /c 'taskkill /F /FI "WINDOWTITLE eq MT5 self-test*" >nul 2>&1'
 cmd /c "taskkill /F /IM python.exe >nul 2>&1"
 Start-Sleep -Seconds 2
 
@@ -24,7 +28,13 @@ if ((Test-Path "$repo\.git") -and (Get-Command git -ErrorAction SilentlyContinue
 } else {
     Write-Host "No git repo or git not installed - skipped pull (copy files manually, then run this script)" -ForegroundColor Yellow
 }
+# 普通用户运行(2026-07-26 去 UAC): Python 装在系统目录时 pip 会因无写权限失败 —
+# 自动退到 --user(用户 site-packages 在 sys.path 里优先于系统目录, 新依赖照样生效)
 python -m pip install -r "$root\requirements.txt" --quiet
-Assert-LastExitCode "pip install -r requirements.txt"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "pip 写系统目录无权限(普通用户) - 改用 --user 重试" -ForegroundColor Yellow
+    python -m pip install -r "$root\requirements.txt" --quiet --user
+    Assert-LastExitCode "pip install --user (仍失败: 右键'以管理员身份运行'本脚本一次)"
+}
 
 & "$root\restart.ps1"
