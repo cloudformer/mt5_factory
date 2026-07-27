@@ -168,6 +168,10 @@ async def announce_host(req: AnnounceRequest, request: Request):
                     info.get("stops_level"), info.get("broker"))
                 logger.info("symbol %s verified via %s (point=%s)", sym, req.name, info["point"])
     out = {k: row[k] for k in ("id", "name", "download", "runner", "enabled")}
+    # worker 参数下发(config 唯一源, schema/046): 报到即领最新, 配置页改完 1~2 分钟生效
+    params = await pool.fetchval("SELECT value FROM config WHERE key='worker_params'")
+    if params:
+        out["params"] = params
     # ②派: 待校验且未标失败的品种 → 应答里带任务, bridge 查 MT5 下轮捎回
     if row["download"] and row["enabled"]:
         pend = await pool.fetch(

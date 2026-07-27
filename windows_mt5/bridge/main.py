@@ -200,6 +200,34 @@ def _reconnect_loop():
         _connect()
 
 
+# worker 参数(config 表 worker_params, announce 应答下发): 上报节奏/批量等, 用户按网络自调。
+# bridge 领回 → 内存生效 + 落文件(runner 共读决策日志保留天数等)。缺省=代码兜底值。
+WORKER_PARAMS_FILE = Path(__file__).resolve().parents[1] / "worker_params.json"
+_worker_params: dict = {}
+try:   # 启动先读上次领的(api 没起来也用旧参数跑, 无状态: 文件只是缓存, 真相在 config 表)
+    _worker_params = json.loads(WORKER_PARAMS_FILE.read_text())
+except (OSError, ValueError):
+    pass
+
+
+def _wparam(key: str, default: int, lo: int, hi: int) -> int:
+    """取 worker 参数并夹在安全区间(api 侧也校验, 双保险防脚枪)"""
+    v = _worker_params.get(key, default)
+    return max(lo, min(hi, v)) if isinstance(v, int) else default
+
+
+def _apply_worker_params(params) -> None:
+    if not isinstance(params, dict) or params == _worker_params:
+        return
+    _worker_params.clear()
+    _worker_params.update(params)
+    logger.info("worker params updated: %s", params)
+    try:
+        WORKER_PARAMS_FILE.write_text(json.dumps(params))
+    except OSError:
+        pass
+
+
 def _verify_symbol(name: str):
     """品种校验(v7.2 单向化 #7, 替代 api 反向调 /symbol): 查本机 MT5。
     返回 info dict / {"error": 原因}(确定性失败) / None(MT5 没连上等瞬态, 下轮重试不缓存)"""
@@ -250,6 +278,7 @@ def _announce_loop():
                 logger.warning("announce rejected: %s %s", r.status_code, r.text[:100])
             else:
                 resp = r.json()
+                _apply_worker_params(resp.get("params"))   # 报到领配置(config 唯一源)
                 for k in sent:                    # api 已收到; 没入库它会再派, 无需重发
                     verify_results.pop(k, None)
                 for name in resp.get("verify_symbols", []):
@@ -264,7 +293,7 @@ def _announce_loop():
                                    resp["key_state"])
         except Exception as e:
             logger.warning("announce failed (api not up yet?): %s", e)
-        time.sleep(60)
+        time.sleep(_wparam("announce_seconds", 60, 30, 300))
 
 
 def _heartbeat_push_loop():
@@ -287,7 +316,8 @@ def _heartbeat_push_loop():
                 logger.warning("heartbeat push rejected: %s %s", r.status_code, r.text[:100])
         except Exception as e:
             logger.warning("heartbeat push failed: %s", e)
-        time.sleep(30)
+        # 上限60: 轮询侧"新鲜推送"窗口75s, 推得比它慢会推/拉来回抖(api侧同区间校验)
+        time.sleep(_wparam("heartbeat_seconds", 30, 10, 60))
 
 
 def _require_key(x_api_key: Optional[str]):

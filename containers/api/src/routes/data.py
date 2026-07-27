@@ -18,7 +18,13 @@ CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
                "ranking_templates", "backtest_oos_split", "mt5_trades_days",
                "runtime_write_minutes", "runtime_gap_minutes", "cross_symbol_gate",
                "recon_pair_tol_minutes", "volume_presets", "volume_default",
-               "trail_default"}   # 移动止损全局默认(v0.9): null=关; 结构见 strategy_core/trailing.py
+               "trail_default",   # 移动止损全局默认(v0.9): null=关; 结构见 strategy_core/trailing.py
+               "worker_params"}   # worker 上报节奏/批量(v7.2, schema/046): announce 应答下发
+
+# worker_params 各项允许区间(用户按网络自调, 区间防脚枪):
+# heartbeat 上限 60 = 轮询侧"新鲜推送"窗口 75s 的安全边界(推得比窗口慢会推/拉来回抖)
+WORKER_PARAM_RANGES = {"heartbeat_seconds": (10, 60), "announce_seconds": (30, 300),
+                       "bars_batch": (1000, 200000), "decision_keep_days": (3, 90)}
 
 
 # ---------- 数据同步 ----------
@@ -91,6 +97,14 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
         wr = req.value.get("min_win_rate")
         if wr is not None and not 0 <= wr <= 1:
             raise HTTPException(status_code=400, detail="min_win_rate must be 0~1 (e.g. 0.3)")
+    if key == "worker_params":  # worker 上报节奏/批量: 键完整 + 各项在允许区间内
+        if not isinstance(req.value, dict) or set(req.value) != set(WORKER_PARAM_RANGES):
+            raise HTTPException(status_code=400,
+                                detail=f"worker_params 键必须恰好是 {sorted(WORKER_PARAM_RANGES)}")
+        for k, (lo, hi) in WORKER_PARAM_RANGES.items():
+            v = req.value.get(k)
+            if not isinstance(v, int) or not lo <= v <= hi:
+                raise HTTPException(status_code=400, detail=f"worker_params.{k} 须为 {lo}~{hi} 的整数")
     if key == "recon_pair_tol_minutes":  # 对账配对容差: 回测与实盘时间窗口差距(分钟)
         if not isinstance(req.value, int) or not 1 <= req.value <= 120:
             raise HTTPException(status_code=400,

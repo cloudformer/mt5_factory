@@ -43,7 +43,18 @@ MT5_PATH = os.getenv("MT5_PATH", "").strip()
 BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 同机 bridge, 开机时等它先连上 MT5
 STATUS_FILE = Path(__file__).resolve().parents[1] / "runner_status.json"  # bridge 状态页读它
 LOG_DIR = Path(__file__).resolve().parents[1] / "logs"   # 决策日志(JSONL, 滚动定容, 免维护)
-DECISION_KEEP_DAYS = 14   # 本地只留 N 天(翻天时自动删旧) — 定容不增长, 极端全M1也就百来MB
+# worker 参数(config 表 worker_params → announce 应答 → bridge 落文件, runner 共读)
+PARAMS_FILE = Path(__file__).resolve().parents[1] / "worker_params.json"
+DECISION_KEEP_DAYS = 14   # 兜底值; 实际以 worker_params.decision_keep_days 为准(配置页可调)
+
+
+def _keep_days() -> int:
+    """决策日志保留天数(翻天时读一次, 便宜): 配置区间 3~90, 文件缺失/损坏用兜底"""
+    try:
+        v = json.loads(PARAMS_FILE.read_text()).get("decision_keep_days")
+        return max(3, min(90, v)) if isinstance(v, int) else DECISION_KEEP_DAYS
+    except (OSError, ValueError):
+        return DECISION_KEEP_DAYS
 POLL_SECONDS = 10       # 主循环: 写心跳 + 处理收盘bar
 REFRESH_SECONDS = 15    # 重新检测角色/拉策略 (原60s太久, 切换后要等太长; 收到15s 更快反映)
 
@@ -79,7 +90,7 @@ def decision_log(rec: dict) -> None:
         if day != _dec_day:   # 翻天: 换文件 + 删过期 → 定容, 免维护
             _dec_day = day
             LOG_DIR.mkdir(exist_ok=True)
-            cutoff = time.time() - DECISION_KEEP_DAYS * 86400
+            cutoff = time.time() - _keep_days() * 86400
             for f in LOG_DIR.glob("decisions_*.jsonl"):
                 if f.stat().st_mtime < cutoff:
                     f.unlink()

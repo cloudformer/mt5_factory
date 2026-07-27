@@ -85,6 +85,22 @@
 </section>
 
 <section>
+  <h2>worker 参数(上报节奏/批量 — 按你的网络自调)</h2>
+  <form method="post" action="{{ url_for('symbols.save_worker_params') }}" class="inline">
+    <label>心跳上报(秒) <input name="heartbeat_seconds" value="{{ worker_params.get('heartbeat_seconds', 30) }}" size="3"
+        title="worker 主动推心跳的间隔(10~60)。上限60: 服务端75秒内没收到推送会退回反向轮询, 推得太慢会两种模式来回抖"></label>
+    <label>报到间隔(秒) <input name="announce_seconds" value="{{ worker_params.get('announce_seconds', 60) }}" size="3"
+        title="announce 自报家门间隔(30~300): 注册刷新/领配置/领品种校验任务都走它 — 调大=配置生效变慢"></label>
+    <label>K线上传批量(根/批) <input name="bars_batch" value="{{ worker_params.get('bars_batch', 50000) }}" size="7"
+        title="下载数据分批上传的单批根数(1000~200000, 单向化#3启用): 网络差调小, 内网快调大"></label>
+    <label>决策日志保留(天) <input name="decision_keep_days" value="{{ worker_params.get('decision_keep_days', 14) }}" size="3"
+        title="runner 本地每bar决策日志(JSONL)滚动保留天数(3~90), 超期自动删 — 定容不增长"></label>
+    <button class="small">保存</button>
+    <span class="muted">唯一源=config 表; 各 worker 每次报到自动领取, 改完约 1 分钟生效, 无需重启</span>
+  </form>
+</section>
+
+<section>
   <h2>MT5 流水默认时间区间</h2>
   <form method="post" action="{{ url_for('symbols.save_mt5_days') }}" class="inline">
     <label>天数选项 <input name="mt5_trades_days" value="{{ mt5_days | join(', ') }}" size="18"

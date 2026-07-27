@@ -26,7 +26,7 @@ def backtest_params():
     """配置·策略参数: 生成收货上限 + 成本模型 + 回测单批上限 + OOS 切分"""
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
     runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
-    generate_limit = 500
+    generate_limit, worker_params = 500, {}
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空(铁律欠账4)
     volume_default = None
     try:
@@ -42,6 +42,7 @@ def backtest_params():
         runtime_gap = cfg.get("runtime_gap_minutes", 15)
         gate = cfg.get("cross_symbol_gate") or {}
         recon_tol = cfg.get("recon_pair_tol_minutes", 2)
+        worker_params = cfg.get("worker_params") or {}
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
@@ -49,7 +50,7 @@ def backtest_params():
                            volume_default=volume_default,
                            oos_split=oos_split, mt5_days=mt5_days,
                            runtime_write=runtime_write, runtime_gap=runtime_gap, gate=gate,
-                           recon_tol=recon_tol)
+                           recon_tol=recon_tol, worker_params=worker_params)
 
 
 @bp.post("/config/volume-presets")
@@ -75,6 +76,20 @@ def save_generate_limit():
         api.put("/config/generate_batch_limit",
                 {"value": int(request.form["generate_limit"])})
         flash("生成单批收货上限已保存", "ok")
+    except (api.ApiError, ValueError, KeyError) as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
+
+
+@bp.post("/config/worker-params")
+def save_worker_params():
+    """保存 worker 参数(config: worker_params)— 上报节奏/批量, 用户按网络自调;
+    下发走 announce 应答, worker 1~2 分钟自动领到, 无需重启"""
+    try:
+        api.put("/config/worker_params", {"value": {
+            k: int(request.form[k]) for k in
+            ("heartbeat_seconds", "announce_seconds", "bars_batch", "decision_keep_days")}})
+        flash("worker 参数已保存 — 各 worker 下次报到(约1分钟)自动领取生效", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
         flash(f"保存失败: {e}", "error")
     return redirect(url_for("symbols.backtest_params"))
