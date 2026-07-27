@@ -36,6 +36,11 @@ async def _download_hosts(pool: asyncpg.Pool):
     )
 
 
+async def insert_bars(conn: asyncpg.Connection, symbol: str, bars: list) -> int:
+    """K线幂等入库(主键 ON CONFLICT DO NOTHING): 旧编排拉取 与 新 jobs 上传 共用同一落库。"""
+    return await _insert_bars(conn, symbol, bars)
+
+
 async def _insert_bars(conn: asyncpg.Connection, symbol: str, bars: list) -> int:
     records = [
         (symbol, "M1", datetime.fromtimestamp(b["time"], tz=timezone.utc),
@@ -122,6 +127,83 @@ async def run_full_sync(pool: asyncpg.Pool):
     state["running"] = False
     state["current"] = {}
     logger.info("full sync finished: %s bars, errors=%s", state["bars_written"], state["errors"])
+
+
+# ---------- 下载编排反转(v7.2 #3, 2026-07-26 与 Frank 定): jobs 模式 ----------
+# api 只把任务写在"桌上"(jobs 表, kind=download), download worker 轮询领取 →
+# 自拉 MT5 → 分批 POST /download/bars 回来入库(同一个幂等 upsert)。
+# 旧编排(run_full_sync, api 反向拉)保留作兼容路: 没有会领任务的新 worker 时才走。
+DOWNLOAD_KIND = "download"
+DOWNLOAD_MAX_ATTEMPTS = 5     # 同一任务被收回重派的上限, 超过 = FAILED(防死循环重试)
+DOWNLOAD_IDLE_MINUTES = 10    # RUNNING 且 N 分钟没有任何上传动作 = 怠工, 收回重派
+
+
+async def submit_download_jobs(pool: asyncpg.Pool) -> dict:
+    """每个下载品种一条 job(from=库内断点, to=提交时刻), 先清后插(与回测批同款)。"""
+    items = await load_download_symbols(pool)
+    if not items:
+        return {"jobs": 0, "error": "没有开启下载的品种 — 在下载页登记品种(会向券商校验)"}
+    now = datetime.now(timezone.utc)
+    rows = []
+    for it in items:
+        last = await pool.fetchval(
+            "SELECT max(time) FROM historical_bars WHERE symbol=$1 AND timeframe='M1'",
+            it["symbol"])
+        rows.append((DOWNLOAD_KIND, {"symbol": it["symbol"], "written": 0,
+                                     "from": (last or it["data_start"]).isoformat(),
+                                     "to": now.isoformat()}))
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("DELETE FROM jobs WHERE kind=$1", DOWNLOAD_KIND)
+            await conn.executemany("INSERT INTO jobs (kind, payload) VALUES ($1, $2)", rows)
+    logger.info("download jobs submitted: %d symbols", len(rows))
+    return {"jobs": len(rows), "symbols": [r[1]["symbol"] for r in rows]}
+
+
+async def claim_download_job(pool: asyncpg.Pool, worker: str):
+    """领任务: SKIP LOCKED 抢单(多 download 机并发安全, 铁律6)。
+    顺手回收怠工单(10分钟无上传 → 重派; 重派超5次 → FAILED 记明原因)。"""
+    await pool.execute(
+        "UPDATE jobs SET status='FAILED', finished_at=now(),"
+        "       error=concat_ws(' | ', error, '重派超'||$2||'次仍未完成, 放弃(看 worker 日志找上传失败原因)')"
+        " WHERE kind=$1 AND status='RUNNING' AND attempts >= $2"
+        "   AND started_at < now() - make_interval(mins => $3)",
+        DOWNLOAD_KIND, DOWNLOAD_MAX_ATTEMPTS, DOWNLOAD_IDLE_MINUTES)
+    await pool.execute(
+        "UPDATE jobs SET status='PENDING', worker=NULL, attempts=attempts+1,"
+        "       error=concat_ws(' | ', error, '怠工收回(10分钟无上传, 原worker='||coalesce(worker,'?')||')')"
+        " WHERE kind=$1 AND status='RUNNING'"
+        "   AND started_at < now() - make_interval(mins => $2)",
+        DOWNLOAD_KIND, DOWNLOAD_IDLE_MINUTES)
+    return await pool.fetchrow(
+        "UPDATE jobs SET status='RUNNING', worker=$2, started_at=now()"
+        " WHERE id = (SELECT id FROM jobs WHERE kind=$1 AND status='PENDING'"
+        "             ORDER BY (payload->>'symbol'), id LIMIT 1 FOR UPDATE SKIP LOCKED)"
+        " RETURNING id, payload", DOWNLOAD_KIND, worker)
+
+
+async def download_progress(pool: asyncpg.Pool):
+    """jobs 模式进度, 拼成与旧内存 state 同形 → web 下载页零改动。无下载 jobs = None(用旧 state)。"""
+    rows = await pool.fetch(
+        "SELECT status, worker, error, payload FROM jobs WHERE kind=$1", DOWNLOAD_KIND)
+    if not rows:
+        return None
+    out = {"running": False, "current": {}, "symbols": [], "bars_written": 0,
+           "done": [], "errors": [], "mode": "jobs"}
+    for r in rows:
+        p = r["payload"]
+        sym = p.get("symbol", "?")
+        out["symbols"].append(sym)
+        out["bars_written"] += int(p.get("written") or 0)
+        if r["status"] == "DONE":
+            out["done"].append(sym)
+        elif r["status"] == "FAILED":
+            out["errors"].append(f"{sym}@{r['worker'] or '?'}: {r['error'] or '未知原因'}")
+        else:  # PENDING / RUNNING
+            out["running"] = True
+            if r["status"] == "RUNNING":
+                out["current"][r["worker"] or "?"] = sym
+    return out
 
 
 async def log_host_event(pool: asyncpg.Pool, host_id: int, event: str, detail: dict | None = None):

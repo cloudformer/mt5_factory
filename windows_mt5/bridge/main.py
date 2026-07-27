@@ -200,6 +200,9 @@ def _reconnect_loop():
         _connect()
 
 
+# 本机职能(announce 应答回告): download 决定要不要轮询领下载任务; bridge 不自作主张
+_role = {"download": False}
+
 # worker 参数(config 表 worker_params, announce 应答下发): 上报节奏/批量等, 用户按网络自调。
 # bridge 领回 → 内存生效 + 落文件(runner 共读决策日志保留天数等)。缺省=代码兜底值。
 WORKER_PARAMS_FILE = Path(__file__).resolve().parents[1] / "worker_params.json"
@@ -279,6 +282,7 @@ def _announce_loop():
             else:
                 resp = r.json()
                 _apply_worker_params(resp.get("params"))   # 报到领配置(config 唯一源)
+                _role["download"] = bool(resp.get("download"))   # 职能以注册表为准
                 for k in sent:                    # api 已收到; 没入库它会再派, 无需重发
                     verify_results.pop(k, None)
                 for name in resp.get("verify_symbols", []):
@@ -334,6 +338,100 @@ def _heartbeat_push_loop():
         time.sleep(_wparam("heartbeat_seconds", 30, 10, 60))
 
 
+def _download_loop():
+    """下载编排反转(v7.2 #3): 轮询领任务 → 本机 MT5 拉 K线 → 分批 POST 回 api 入库。
+    只有 download 职能(announce 应答回告)且 MT5 已连时干活; 空闲每 20s 问一次;
+    领到任务干完立刻再领(多品种连续消化, 多机 SKIP LOCKED 自动分摊)。"""
+    if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
+        return
+    api_base = f"http://{DOCKER_COMPOSE_HOST}:{API_PORT}"
+    hostname = socket.gethostname()
+    headers = {"X-API-Key": WORKER_KEY} if WORKER_KEY else {}
+    while True:
+        try:
+            if not _role["download"]:
+                time.sleep(30)
+                continue
+            with _mt5_lock:
+                mt5_up = mt5.terminal_info() is not None
+            if not mt5_up:          # MT5 没连: 不领任务(领了也拉不了, 白占租约)
+                time.sleep(30)
+                continue
+            r = requests.get(f"{api_base}/download/task", timeout=15,
+                             params={"name": hostname}, headers=headers)
+            if r.status_code != 200:
+                # 404=未注册(等announce) / 403=停用或无职能 / 其他=api侧异常 — 都带原因打日志
+                logger.warning("download task poll: HTTP %s %s", r.status_code, r.text[:120])
+                time.sleep(60)
+                continue
+            task = r.json().get("task")
+            if not task:
+                time.sleep(20)      # 无任务: 桌上没活, 一会儿再看
+                continue
+            _run_download_task(api_base, headers, task)
+        except Exception as e:
+            logger.warning("download loop error: %s: %s", type(e).__name__, e)
+            time.sleep(30)
+
+
+def _run_download_task(api_base: str, headers: dict, task: dict) -> None:
+    """执行一个下载任务: [from, to) 按 bars_batch 切片拉 MT5 → 逐批上传。
+    错误处理三分法:
+      MT5 拉取失败(确定性) → 上报 error, job 记 FAILED+原因;
+      上传网络失败        → 单批重试3次, 仍败=放弃(api 10分钟无上传自动收回重派);
+      任务已失效(404/409) → 明确放弃, 回去重新领。"""
+    job_id, symbol = task["job_id"], task["symbol"]
+    frm = datetime.fromisoformat(task["from"])
+    to = datetime.fromisoformat(task["to"])
+    batch = _wparam("bars_batch", 50000, 1000, 200000)
+    chunk = timedelta(minutes=batch)   # M1 一根一分钟: batch 根 ≈ batch 分钟
+    logger.info("download job #%s %s %s → %s (batch=%d bars)",
+                job_id, symbol, frm.strftime("%Y-%m-%d"), to.strftime("%Y-%m-%d"), batch)
+
+    def post(payload: dict):
+        for attempt in range(1, 4):
+            try:
+                pr = requests.post(f"{api_base}/download/bars", json=payload,
+                                   headers=headers, timeout=120)
+                if pr.status_code == 200:
+                    return pr.json()
+                if pr.status_code in (404, 409):   # 任务被新批清掉/怠工被收回: 放弃重领
+                    logger.warning("download job #%s 已失效(HTTP %s %s), 放弃并重新领任务",
+                                   job_id, pr.status_code, pr.text[:100])
+                    return None
+                logger.warning("upload bars job #%s: HTTP %s %s (第%d/3次)",
+                               job_id, pr.status_code, pr.text[:120], attempt)
+            except Exception as e:
+                logger.warning("upload bars job #%s failed: %s: %s (第%d/3次)",
+                               job_id, type(e).__name__, e, attempt)
+            time.sleep(5)
+        logger.error("download job #%s 上传连败3次, 放弃 — api 将在10分钟后收回重派", job_id)
+        return None
+
+    cursor = frm
+    while cursor < to:
+        chunk_end = min(cursor + chunk, to)
+        with _mt5_lock:
+            mt5.symbol_select(symbol, True)
+            data = mt5.copy_rates_range(symbol, mt5.TIMEFRAME_M1, cursor, chunk_end)
+        if data is None:   # 确定性失败(品种不可用/历史深度不够等): 原因如实上报, job 记 FAILED
+            with _mt5_lock:
+                err = mt5.last_error()
+            post({"job_id": job_id,
+                  "error": f"copy_rates_range {symbol} {cursor:%Y-%m-%d}~{chunk_end:%Y-%m-%d}"
+                           f" failed: {err}"})
+            return
+        bars = [{"time": int(b["time"]),
+                 "open": float(b["open"]), "high": float(b["high"]),
+                 "low": float(b["low"]), "close": float(b["close"]),
+                 "tick_volume": int(b["tick_volume"]), "spread": int(b["spread"]),
+                 "real_volume": int(b["real_volume"])} for b in data]
+        if post({"job_id": job_id, "bars": bars, "done": chunk_end >= to}) is None:
+            return
+        cursor = chunk_end
+    logger.info("download job #%s %s done", job_id, symbol)
+
+
 def _require_key(x_api_key: Optional[str]):
     if BRIDGE_API_KEY and x_api_key != BRIDGE_API_KEY:
         raise HTTPException(status_code=401, detail="invalid api key")
@@ -356,6 +454,7 @@ def startup():
     threading.Thread(target=_reconnect_loop, daemon=True).start()
     threading.Thread(target=_announce_loop, daemon=True).start()
     threading.Thread(target=_heartbeat_push_loop, daemon=True).start()
+    threading.Thread(target=_download_loop, daemon=True).start()
 
 
 def _runner_status() -> dict:
@@ -489,11 +588,12 @@ def health():
 
     if not mt5_up:
         return {"status": "degraded", "mt5_connected": False, "runner": runner,
-                "selftest": _selftest(), "version": VERSION,
+                "selftest": _selftest(), "version": VERSION, "dl_poll": True,
                 "services": services, "summary": summary}
     return {
         "status": "healthy",
         "version": VERSION,
+        "dl_poll": True,   # 能力标记(v7.2 #3): 本机会轮询领下载任务 → api 走 jobs 模式不再反向拉
         "mt5_connected": True,
         "trade_allowed": account["trade_allowed"],
         "login": account["login"],

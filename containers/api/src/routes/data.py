@@ -30,7 +30,21 @@ WORKER_PARAM_RANGES = {"heartbeat_seconds": (10, 60), "announce_seconds": (30, 3
 # ---------- 数据同步 ----------
 @router.post("/syncdata")
 async def start_sync(request: Request):
-    """触发全量/增量同步 (断点续传; 品种分摊到所有下载 worker 并行)"""
+    """触发全量/增量同步(断点续传)。v7.2 #3 双栈:
+    有会领任务的新 worker(health 带 dl_poll) → jobs 模式(api 只写任务表, worker 轮询领取
+    + 自拉 MT5 + 分批上传); 全是旧 worker → 老编排(api 反向拉)兼容路, 全员更新后自然退役。"""
+    pool = request.app.state.pool
+    capable = await pool.fetchval(
+        "SELECT count(*) FROM mt5_hosts WHERE enabled AND download AND last_health ? 'dl_poll'")
+    if capable:
+        if await pool.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM jobs WHERE kind=$1"
+                " AND status IN ('PENDING','RUNNING'))", sync.DOWNLOAD_KIND):
+            raise HTTPException(status_code=409, detail="download jobs already running")
+        res = await sync.submit_download_jobs(pool)
+        if res.get("error"):
+            raise HTTPException(status_code=400, detail=res["error"])
+        return {"started": True, "mode": "jobs", **res}
     if sync.state["running"]:
         raise HTTPException(status_code=409, detail="sync already running")
     sync.state["running"] = True
@@ -39,8 +53,75 @@ async def start_sync(request: Request):
 
 
 @router.get("/syncdata/status")
-async def sync_status():
-    return sync.state
+async def sync_status(request: Request):
+    """进度: 旧编排跑着用内存 state; 否则有下载 jobs 就拼 jobs 视图(同形, 下载页零改动)"""
+    if sync.state["running"]:
+        return sync.state
+    return await sync.download_progress(request.app.state.pool) or sync.state
+
+
+@router.get("/download/task")
+async def download_task(request: Request, name: str):
+    """worker 领下载任务(v7.2 #3): SKIP LOCKED 抢单, 多 download 机自动分摊。
+    无任务 → {"task": null}; 拒领时给明确原因(未注册/停用/无下载职能)。"""
+    pool = request.app.state.pool
+    h = await pool.fetchrow(
+        "SELECT id, enabled, download FROM mt5_hosts WHERE name=$1", name)
+    if h is None:
+        raise HTTPException(status_code=404, detail=f"worker {name} 未注册 — 等 announce 建档")
+    if not h["enabled"]:
+        raise HTTPException(status_code=403, detail=f"worker {name} 已停用, 不派任务")
+    if not h["download"]:
+        raise HTTPException(status_code=403, detail=f"worker {name} 无下载职能, 不派任务")
+    row = await sync.claim_download_job(pool, name)
+    if row is None:
+        return {"task": None}
+    return {"task": {"job_id": row["id"], **row["payload"]}}
+
+
+class BarsUpload(BaseModel):
+    job_id: int
+    bars: list = []         # bridge /rates 同款字段: time/open/high/low/close/tick_volume/spread/real_volume
+    done: bool = False      # true = 该任务最后一批
+    error: str | None = None   # worker 侧确定性失败(如券商无此品种): job 记 FAILED+原因
+
+
+@router.post("/download/bars")
+async def download_bars(req: BarsUpload, request: Request):
+    """worker 分批上传 K线(v7.2 #3): 幂等入库(主键 ON CONFLICT), 断了重传零副作用;
+    每批顺手续租(started_at=now, 活跃即持有 — 10分钟无上传由领取路收回重派)。"""
+    pool = request.app.state.pool
+    job = await pool.fetchrow(
+        "SELECT id, status, payload FROM jobs WHERE id=$1 AND kind=$2",
+        req.job_id, sync.DOWNLOAD_KIND)
+    if job is None:   # 新一批提交时旧 jobs 被清 → 老任务作废, worker 放弃重领即可
+        raise HTTPException(status_code=404,
+                            detail=f"job {req.job_id} 不存在(可能已被新一批下载清掉) — 放弃本任务重新领取")
+    if job["status"] != "RUNNING":
+        raise HTTPException(status_code=409,
+                            detail=f"job {req.job_id} 状态={job['status']} 非 RUNNING"
+                                   "(可能怠工被收回重派) — 放弃本任务重新领取")
+    if req.error:
+        await pool.execute(
+            "UPDATE jobs SET status='FAILED', error=$2, finished_at=now() WHERE id=$1",
+            req.job_id, req.error[:500])
+        return {"accepted": True, "failed": True}
+    written = 0
+    if req.bars:
+        try:
+            async with pool.acquire() as conn:
+                written = await sync.insert_bars(conn, job["payload"]["symbol"], req.bars)
+        except (KeyError, TypeError, ValueError) as e:   # 形状不合法: 400 带具体字段错误
+            raise HTTPException(status_code=400,
+                                detail=f"bars 形状不合法({type(e).__name__}: {e}) — "
+                                       "需 bridge /rates 同款字段")
+    await pool.execute(
+        "UPDATE jobs SET started_at=now(),"   # 续租: 有上传就不算怠工
+        "  payload = jsonb_set(payload, '{written}',"
+        "     to_jsonb(COALESCE((payload->>'written')::bigint, 0) + $2::bigint))"
+        + (", status='DONE', finished_at=now()" if req.done else "")
+        + " WHERE id=$1", req.job_id, written)
+    return {"accepted": True, "written": written, "done": req.done}
 
 
 # 数据覆盖已并入 GET /symbols (品种主档随附每品种 M1 覆盖), 不再单列端点
