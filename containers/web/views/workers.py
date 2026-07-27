@@ -27,11 +27,15 @@ def index():
         st = (h.get("last_health") or {}).get("selftest")
         if st and st.get("updated"):
             st["updated_fmt"] = datetime.fromtimestamp(st["updated"]).strftime("%m-%d %H:%M")
-        # 最近事件(异常状态变化/上下线)进详情行 — QUOTE_LOST/ORDER_FAIL 不用登库查了
+        # 最近事件进详情行: 异常类(下单失败/断报价/加载失败/漏存)直接显示,
+        # 生命周期类(上下线/DEGRADED, 高频噪音)默认收起(2026-07-26 与 Frank 定)
         try:
-            h["events"] = api.get(f"/hosts/{h['id']}/events", limit=10)["events"]
+            evs = api.get(f"/hosts/{h['id']}/events", limit=30)["events"]
         except api.ApiError:
-            h["events"] = []   # 事件取不到不挡整页(详情里显示空)
+            evs = []   # 事件取不到不挡整页(详情里显示空)
+        anomaly = ("QUOTE_LOST", "QUOTE_OK", "ORDER_FAIL", "LOAD_FAIL", "trades_mismatch")
+        h["events_bad"] = [e for e in evs if e["event"] in anomaly][:10]
+        h["events_life"] = [e for e in evs if e["event"] not in anomaly][:10]
     return render_template("workers.html", hosts=hosts)
 
 

@@ -62,20 +62,28 @@
       <td colspan="8">
         {% if h.last_health %}{{ m.health_detail(h) }}
         {% else %}<span class="muted">尚无健康数据（等待首次心跳，约 30 秒）</span>{% endif %}
-        {# 最近事件(v7.2 小优化②): 上下线 + runner 异常状态变化(断报价/下单失败/加载失败) #}
-        {% if h.events %}
+        {# 最近事件(v7.2 小优化②): 异常类直接显示; 上下线等生命周期噪音默认收起 #}
+        {% if h.events_bad %}
         <table class="subtable" style="margin-top:6px">
-          <tr><th>时间</th><th>事件</th><th>策略</th><th>详情</th></tr>
-          {% for e in h.events %}
+          <tr><th>时间</th><th>异常事件</th><th>策略</th><th>详情</th></tr>
+          {% for e in h.events_bad %}
           <tr>
             <td class="muted">{{ m.lts(e.created_at) }}</td>
-            <td>{% if e.event in ('QUOTE_LOST', 'ORDER_FAIL', 'LOAD_FAIL', 'OFFLINE', 'trades_mismatch') %}<span class="neg">{{ e.event }}</span>
-                {% else %}{{ e.event }}{% endif %}</td>
+            <td><span class="neg">{{ e.event }}</span></td>
             <td class="mono">{{ e.detail.sid if e.detail and e.detail.sid else '—' }}</td>
             <td class="muted clip" title="{{ e.detail.note if e.detail else '' }}">{{ e.detail.note if e.detail and e.detail.note else '—' }}</td>
           </tr>
           {% endfor %}
         </table>
+        {% elif h.events_life %}<p class="muted" style="margin:6px 0 0">近期无异常事件</p>{% endif %}
+        {% if h.events_life %}
+        <details style="margin-top:4px"><summary class="muted" style="cursor:pointer">上下线记录({{ h.events_life | length }})</summary>
+          <table class="subtable" style="margin-top:4px">
+            {% for e in h.events_life %}
+            <tr><td class="muted">{{ m.lts(e.created_at) }}</td><td>{{ e.event }}</td></tr>
+            {% endfor %}
+          </table>
+        </details>
         {% endif %}
       </td>
     </tr>
