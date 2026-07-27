@@ -66,26 +66,5 @@ def delete(host_id: int):
     return redirect(url_for("workers.index"))
 
 
-@bp.post("/<int:host_id>/restart")
-def restart(host_id: int):
-    """远程重启 worker 的 bridge/runner (更新代码请在 Windows 上手动 update.bat)"""
-    try:
-        api.post(f"/hosts/{host_id}/restart")
-        flash("已触发重启 — worker 离线约 1 分钟, 页面已自动刷新, 回来后看详情自检确认", "ok")
-    except api.ApiError as e:
-        flash(f"重启失败: {e}", "error")
-    return redirect(_watch())
-
-
-@bp.post("/<int:host_id>/connect")
-def connect(host_id: int):
-    try:
-        result = api.post(f"/hosts/{host_id}/connect", {
-            "login": int(request.form["login"]),
-            "password": request.form["password"],
-            "server": request.form["server"].strip(),
-        })
-        flash(f"MT5 已登录: {result.get('login')} @ {result.get('server')}", "ok")
-    except (api.ApiError, ValueError, KeyError) as e:
-        flash(f"下发账户失败: {e}", "error")
-    return redirect(url_for("workers.index"))
+# 远程重启/下发账户路由已删(2026-07-26, v7.2 单向化取舍): api 不再主动连 worker —
+# 重启上机操作(bridge 本地看门狗保留), 账户在部署时写机器 env(announce 自动回报)。

@@ -49,10 +49,7 @@
           <button name="enabled" value="{{ 'false' if h.enabled else 'true' }}" class="small hl">
             {{ '停用' if h.enabled else '启用' }}</button>
         </form>
-        <form method="post" action="{{ url_for('workers.restart', host_id=h.id) }}" class="inline"
-              onsubmit="return confirm('重启 {{ h.name }} 的 bridge/runner, 离线约1分钟?')">
-          <button class="small hl" title="做什么: 重启 bridge+runner 并重跑自检(约1分钟)。&#10;什么情况用:&#10;· MT5终端卡死(详情显示未连接)&#10;· 改了 env 配置要生效&#10;· runner 换账户后不下单(句柄失效)&#10;· 想重跑一遍自检&#10;不用于: 更新代码(去Windows双击update.bat)、休市、策略正常等信号&#10;前提: bridge 可达(离线状态点了没用)">重启</button>
-        </form>
+        {# 远程重启按钮已删(2026-07-26, v7.2 单向化): 重启上机操作(看门狗/restart.bat 保留) #}
         <form method="post" action="{{ url_for('workers.delete', host_id=h.id) }}" class="inline"
               onsubmit="return confirm('删除 worker {{ h.name }}? (机器还在跑会自动重新注册; 彻底移除先在Windows关进程)')">
           <button class="small hl danger">删除</button>
@@ -75,23 +72,10 @@
    (demo⇄live 经空闲两步, runner 60 秒内自动切换)。worker 靠 bridge 自动上报(名字=计算机名),
    无需手动注册; download 默认开; 空闲也参与下载; MT5 账户在 Windows 手动登录。</p>
 
-<section>
-  <h2>下发 MT5 账户 <span class="badge">未启用</span></h2>
-  {# 当前禁用: 账户在 Windows 手动登录。未来启用 = 把下面的 disabled 去掉即可(后端 /connect 端点一直在) #}
-  <form method="post" id="connect-form" class="inline"
-        onsubmit="this.action='/workers/'+this.host_id.value+'/connect'">
-    <select name="host_id" disabled>
-      {% for h in hosts %}<option value="{{ h.id }}">{{ h.name }} ({{ h.host }})</option>{% endfor %}
-    </select>
-    <input name="login" placeholder="MT5 账号" size="10" disabled>
-    <input name="password" type="password" placeholder="密码" size="12" disabled>
-    <input name="server" placeholder="服务器 如 MetaQuotes-Demo" size="18" disabled>
-    <button disabled>登录</button>
-  </form>
-  <p class="muted">当前未启用：MT5 账户在 Windows 上手动登录。future: 需要远程下发账户时, 去掉本表单各控件的 disabled 即可(后端已就绪)。</p>
-</section>
+{# 「下发 MT5 账户」区块已删(2026-07-26, v7.2 单向化): 账户在部署时写机器 env /
+   Windows 手动登录, announce 自动回报实际账号; api 不再主动连 worker #}
 
-{# 指派/重启后自动刷新: URL 带 watch=截止毫秒, 每 6 秒 reload(保留同一 URL), 到点自停。
+{# 指派后自动刷新: URL 带 watch=截止毫秒, 每 6 秒 reload(保留同一 URL), 到点自停。
    避免更新后干等心跳; 不点操作时(无 watch)不刷, 不打扰正常浏览 #}
 <script>
 (function () {

@@ -211,26 +211,8 @@ async def delete_host(host_id: int, request: Request):
     return {"deleted": row["name"]}
 
 
-@router.post("/hosts/{host_id}/restart")
-async def host_restart(host_id: int, request: Request):
-    """远程重启 worker 的 bridge/runner (不更新代码 — 更新在 Windows 上手动 update.bat)。
-    转发到 bridge /restart, 那边写标志退出、看门狗接管。"""
-    pool = request.app.state.pool
-    row = await pool.fetchrow(
-        "SELECT host, port FROM mt5_hosts WHERE id=$1 AND enabled", host_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="host not found or disabled")
-    headers = {"X-API-Key": sync.BRIDGE_API_KEY} if sync.BRIDGE_API_KEY else {}
-    async with httpx.AsyncClient(timeout=15, headers=headers) as client:
-        try:
-            r = await client.post(f"http://{row['host']}:{row['port']}/restart")
-        except httpx.HTTPError as e:
-            raise HTTPException(status_code=502, detail=f"bridge unreachable: {e}")
-    if r.status_code != 200:
-        raise HTTPException(status_code=r.status_code,
-                            detail=r.json().get("detail", "bridge error"))
-    await sync.log_host_event(pool, host_id, "RESTART")
-    return r.json()
+# 远程重启端点已删(2026-07-26 与 Frank 定, v7.2 单向化取舍): api 不再主动连 worker。
+# bridge 本地 /restart 与看门狗保留 — 真要重启上机操作; 未来需要再以"worker 轮询待办"回归。
 
 
 @router.get("/hosts/{host_id}/trades")
@@ -254,38 +236,5 @@ async def host_trades(host_id: int, request: Request, days: int = 30):
     return r.json()
 
 
-class ConnectRequest(BaseModel):
-    login: int
-    password: str
-    server: str
-
-
-@router.post("/hosts/{host_id}/connect")
-async def connect_host(host_id: int, req: ConnectRequest, request: Request):
-    """向 worker 远程下发 MT5 账户 (转发到 bridge /connect)"""
-    pool = request.app.state.pool
-    row = await pool.fetchrow(
-        "SELECT host, port FROM mt5_hosts WHERE id=$1 AND enabled", host_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="host not found or disabled")
-    old = await pool.fetchrow(
-        "SELECT mt5_login, mt5_server FROM mt5_hosts WHERE id=$1", host_id)
-    await _claim_account(pool, host_id, req.login, req.server)  # 撞号在这里就被数据库拦下, 不碰 bridge
-    headers = {"X-API-Key": sync.BRIDGE_API_KEY} if sync.BRIDGE_API_KEY else {}
-    try:
-        async with httpx.AsyncClient(timeout=30, headers=headers) as client:
-            try:
-                r = await client.post(
-                    f"http://{row['host']}:{row['port']}/connect", json=req.model_dump())
-            except httpx.HTTPError as e:
-                raise HTTPException(status_code=502, detail=f"bridge unreachable: {e}")
-        if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail=r.json().get("detail"))
-    except HTTPException:
-        # 没登上: 退回原账户占位, 不占着一个实际没在用的号
-        await pool.execute("UPDATE mt5_hosts SET mt5_login=$2, mt5_server=$3 WHERE id=$1",
-                           host_id, old["mt5_login"], old["mt5_server"])
-        raise
-    await sync.log_host_event(pool, host_id, "ACCOUNT_SET",
-                              {"login": req.login, "server": req.server})
-    return r.json()
+# 远程下发 MT5 账户端点已删(2026-07-26 与 Frank 定, v7.2 单向化取舍): 账户本来就是
+# 部署时写在机器 env 的事, announce/心跳会回报实际登录账号(_claim_account 撞号执法保留)。
