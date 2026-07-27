@@ -180,6 +180,29 @@ async def announce_host(req: AnnounceRequest, request: Request):
     return out
 
 
+@router.post("/hosts/heartbeat")
+async def push_heartbeat(request: Request):
+    """v7.2 一期(2026-07-26 与 Frank 定): worker 主动推心跳 — bridge 每 30s POST,
+    payload = 其 /health 同一份数据 + name(计算机名, 身份与 announce 一致)。
+    与轮询共用同一收货函数(sync.ingest_health); 轮询侧看到 75s 内的新鲜推送即跳过
+    反向探测(双栈过渡, 推送停了自动回轮询)。trades 仍走拉取(#2 未迁)。"""
+    try:
+        health = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body 必须是 JSON")
+    name = str(health.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="缺 name(计算机名)")
+    pool = request.app.state.pool
+    h = await pool.fetchrow(
+        "SELECT id, name, status, runner FROM mt5_hosts WHERE name=$1 AND enabled", name)
+    if h is None:  # 未注册: 等 announce(每分钟)先建档, 下一拍推送即被接受
+        raise HTTPException(status_code=404, detail="host 未注册或已停用 — announce 会自动建档")
+    health["push_v"] = 1   # 服务端强制打标(轮询跳过的依据), 不信任 payload 自带
+    await sync.ingest_health(pool, h, health)
+    return {"accepted": True}
+
+
 class HostUpdate(BaseModel):
     enabled: bool | None = None
     download: bool | None = None

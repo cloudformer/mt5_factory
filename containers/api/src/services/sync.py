@@ -287,8 +287,87 @@ async def _persist_trades(pool: asyncpg.Pool, client: httpx.AsyncClient, h, acco
                              {"account": account, "mt5": len(rows), "db": stored})
 
 
+async def ingest_health(pool: asyncpg.Pool, h, health: dict) -> None:
+    """心跳收货(推/拉共用一套, v7.2 一期): 状态机 + last_health + 账号认领 + stats
+    + runtime + 异常事件。h 需含 id/name/status/runner。
+    trades 不在这里 — #2 未迁, 仍由轮询侧 _beat_one 拉取。"""
+    new = "ONLINE" if health.get("status") == "healthy" else "DEGRADED"
+    # $2 加 ::text: 同一参数既赋值 varchar 列又与 text 比较, 不显式转换
+    # Postgres 会报 "inconsistent types deduced for parameter"
+    await pool.execute(
+        "UPDATE mt5_hosts SET status=$2::text, last_heartbeat=now(), last_health=$3,"
+        " online_at = CASE WHEN $2::text='ONLINE' AND status <> 'ONLINE'"
+        "             THEN now() ELSE online_at END"
+        " WHERE id=$1", h["id"], new, health)
+    if h["status"] != new:
+        await log_host_event(pool, h["id"], new)
+        logger.info("worker %s %s", h["name"], new)
+    # 铁律"不同 worker 不得共用 MT5 账户"由数据库唯一索引执法 (schema/002):
+    # 把实际登录账户同步进列, 写失败 = 撞号 (典型: 克隆机自带旧账户), 只告警不中断
+    if health.get("login"):
+        try:
+            await pool.execute(
+                "UPDATE mt5_hosts SET mt5_login=$2, mt5_server=$3 WHERE id=$1"
+                " AND (mt5_login IS DISTINCT FROM $2 OR mt5_server IS DISTINCT FROM $3)",
+                h["id"], health["login"], health.get("server"))
+        except asyncpg.UniqueViolationError:
+            logger.warning("worker %s 登录的 MT5 账户 %s 已被其他启用 worker 占用 — "
+                           "违反铁律, 请换账户", h["name"], health["login"])
+    # 每策略战绩快照入库 (strategy_stats): 回测/demo/live 三方对比的数据基础。
+    # 按主机角色写对应环境; 策略晋级后旧环境的最后快照保留 — demo vs live 才有对比对象。
+    # 只存聚合(近90天窗口), 逐笔回写是 P2
+    rn = health.get("runner") or {}
+    # v5.0-B1: 主键 (strategy_id, account) — 多挂载后同策略多账户各存各的, 不互相覆盖;
+    # env 降为属性列(账户随主机角色变则跟着改)。无 login 的心跳不写: 没有账户维度没法归位
+    if h["runner"] and rn.get("per_strategy") and health.get("login"):
+        await pool.executemany(
+            "INSERT INTO strategy_stats (strategy_id, env, account, trades, wins, profit)"
+            " VALUES ($1, $2, $3, $4, $5, $6)"
+            " ON CONFLICT (strategy_id, account) DO UPDATE SET"
+            "   env = EXCLUDED.env, trades = EXCLUDED.trades, wins = EXCLUDED.wins,"
+            "   profit = EXCLUDED.profit, updated_at = now()",
+            [(s["id"], h["runner"].upper(), health["login"], s["closed"]["trades"],
+              s["closed"]["wins"], s["closed"]["profit"])
+             for s in rn["per_strategy"] if s.get("closed")])
+    # 运行区间(strategy_runtime, schema/019): 名单里的策略 = 此刻真实在跑 →
+    # 批量"推进最近段 / 新开一段"。独立 try: 区间记录失败不拖垮心跳状态机
+    if h["runner"] and rn.get("per_strategy"):
+        try:
+            await _touch_runtime(
+                pool, [s["id"] for s in rn["per_strategy"] if s.get("id")], h["name"])
+        except Exception as e:
+            logger.warning("touch runtime %s failed: %s", h["name"], e)
+    # worker 异常事件入库(2026-07-26): runner 状态变化(断报价/下单失败/加载失败)随心跳
+    # 捎带(缓冲最近50条, 每条唯一 eid), 唯一索引(schema/044)+ON CONFLICT 幂等 —
+    # 重复看到同一批静默跳过。库只存状态变化, 全量决策在 worker 本地 JSONL。
+    if rn.get("events"):
+        try:
+            await pool.executemany(
+                "INSERT INTO mt5_host_events (host_id, event, detail) VALUES ($1, $2, $3)"
+                " ON CONFLICT (host_id, (detail->>'eid'))"
+                " WHERE (detail->>'eid') IS NOT NULL DO NOTHING",
+                [(h["id"], str(e.get("kind", "?"))[:16], e)
+                 for e in rn["events"] if isinstance(e, dict) and e.get("eid")])
+        except Exception as e:
+            logger.warning("ingest events %s failed: %s", h["name"], e)
+
+
 async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
-    """单台主机的一次心跳探测与状态落库"""
+    """单台主机的一次心跳轮询: 探测 /health → 收货(ingest_health) → 拉 trades。
+    双栈过渡(v7.2 一期): 该机在推心跳(last_health 带 push_v)且 75s 内新鲜 →
+    跳过反向探测(推送已收货), 只保留 trades 拉取(#2 未迁);
+    推送停了(降级/回滚)超时自动回到轮询 — 自愈, 无需任何开关。"""
+    push = await pool.fetchrow(
+        "SELECT mt5_login, mt5_server FROM mt5_hosts"
+        " WHERE id=$1 AND last_health ? 'push_v'"
+        "   AND last_heartbeat > now() - interval '75 seconds'", h["id"])
+    if push is not None:
+        if h["runner"] and push["mt5_login"]:
+            try:
+                await _persist_trades(pool, client, h, int(push["mt5_login"]), push["mt5_server"])
+            except Exception as e:
+                logger.warning("persist trades %s failed: %s", h["name"], e)
+        return
     health = None
     try:
         r = await client.get(f"http://{h['host']}:{h['port']}/health")
@@ -298,65 +377,8 @@ async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
         health = None
 
     if health is not None:  # bridge 可达
-        new = "ONLINE" if health.get("status") == "healthy" else "DEGRADED"
-        # $2 加 ::text: 同一参数既赋值 varchar 列又与 text 比较, 不显式转换
-        # Postgres 会报 "inconsistent types deduced for parameter"
-        await pool.execute(
-            "UPDATE mt5_hosts SET status=$2::text, last_heartbeat=now(), last_health=$3,"
-            " online_at = CASE WHEN $2::text='ONLINE' AND status <> 'ONLINE'"
-            "             THEN now() ELSE online_at END"
-            " WHERE id=$1", h["id"], new, health)
-        if h["status"] != new:
-            await log_host_event(pool, h["id"], new)
-            logger.info("worker %s %s", h["name"], new)
-        # 铁律"不同 worker 不得共用 MT5 账户"由数据库唯一索引执法 (schema/002):
-        # 把实际登录账户同步进列, 写失败 = 撞号 (典型: 克隆机自带旧账户), 只告警不中断
-        if health.get("login"):
-            try:
-                await pool.execute(
-                    "UPDATE mt5_hosts SET mt5_login=$2, mt5_server=$3 WHERE id=$1"
-                    " AND (mt5_login IS DISTINCT FROM $2 OR mt5_server IS DISTINCT FROM $3)",
-                    h["id"], health["login"], health.get("server"))
-            except asyncpg.UniqueViolationError:
-                logger.warning("worker %s 登录的 MT5 账户 %s 已被其他启用 worker 占用 — "
-                               "违反铁律, 请换账户", h["name"], health["login"])
-        # 每策略战绩快照入库 (strategy_stats): 回测/demo/live 三方对比的数据基础。
-        # 按主机角色写对应环境; 策略晋级后旧环境的最后快照保留 — demo vs live 才有对比对象。
-        # 只存聚合(近90天窗口), 逐笔回写是 P2
-        rn = health.get("runner") or {}
-        # v5.0-B1: 主键 (strategy_id, account) — 多挂载后同策略多账户各存各的, 不互相覆盖;
-        # env 降为属性列(账户随主机角色变则跟着改)。无 login 的心跳不写: 没有账户维度没法归位
-        if h["runner"] and rn.get("per_strategy") and health.get("login"):
-            await pool.executemany(
-                "INSERT INTO strategy_stats (strategy_id, env, account, trades, wins, profit)"
-                " VALUES ($1, $2, $3, $4, $5, $6)"
-                " ON CONFLICT (strategy_id, account) DO UPDATE SET"
-                "   env = EXCLUDED.env, trades = EXCLUDED.trades, wins = EXCLUDED.wins,"
-                "   profit = EXCLUDED.profit, updated_at = now()",
-                [(s["id"], h["runner"].upper(), health["login"], s["closed"]["trades"],
-                  s["closed"]["wins"], s["closed"]["profit"])
-                 for s in rn["per_strategy"] if s.get("closed")])
-        # 运行区间(strategy_runtime, schema/019): 名单里的策略 = 此刻真实在跑 →
-        # 批量"推进最近段 / 新开一段"。独立 try: 区间记录失败不拖垮心跳状态机
-        if h["runner"] and rn.get("per_strategy"):
-            try:
-                await _touch_runtime(
-                    pool, [s["id"] for s in rn["per_strategy"] if s.get("id")], h["name"])
-            except Exception as e:
-                logger.warning("touch runtime %s failed: %s", h["name"], e)
-        # worker 异常事件入库(2026-07-26): runner 状态变化(断报价/下单失败/加载失败)随心跳
-        # 捎带(缓冲最近50条, 每条唯一 eid), 唯一索引(schema/044)+ON CONFLICT 幂等 —
-        # 轮询重复看到同一批静默跳过。库只存状态变化, 全量决策在 worker 本地 JSONL。
-        if rn.get("events"):
-            try:
-                await pool.executemany(
-                    "INSERT INTO mt5_host_events (host_id, event, detail) VALUES ($1, $2, $3)"
-                    " ON CONFLICT (host_id, (detail->>'eid'))"
-                    " WHERE (detail->>'eid') IS NOT NULL DO NOTHING",
-                    [(h["id"], str(e.get("kind", "?"))[:16], e)
-                     for e in rn["events"] if isinstance(e, dict) and e.get("eid")])
-            except Exception as e:
-                logger.warning("ingest events %s failed: %s", h["name"], e)
+        health.pop("push_v", None)          # 轮询取回的不算推送(防旧标记粘住跳过逻辑)
+        await ingest_health(pool, h, health)
         # 逐笔回合入库(关2对账源数据, v1.6): 拉 /trades → 按 position_id 配对回合 → upsert。
         # 独立 try: 逐笔落库失败不能拖垮心跳状态机(它只是对账用, 不影响 worker 存活判定)
         if h["runner"] and health.get("login"):

@@ -267,6 +267,29 @@ def _announce_loop():
         time.sleep(60)
 
 
+def _heartbeat_push_loop():
+    """v7.2 一期(2026-07-26): 主动推心跳(30s) — payload = /health 同一份数据 + name。
+    api 收到即停对本机的反向探测(双栈过渡, 推送断了它自动回轮询, 两边都无需开关)。
+    404 = announce 还没建档, 等下一分钟 announce 即可, 不算错。"""
+    if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
+        return   # 没配 api 地址: announce 同样跳过, 这里安静退出
+    api_base = f"http://{DOCKER_COMPOSE_HOST}:{API_PORT}"
+    hostname = socket.gethostname()
+    headers = {"X-API-Key": WORKER_KEY} if WORKER_KEY else {}
+    while True:
+        try:
+            payload = health()   # 与被轮询时同一份数据(同一个函数)
+            payload["name"] = hostname
+            payload["push_v"] = 1
+            r = requests.post(f"{api_base}/hosts/heartbeat", timeout=10,
+                              json=payload, headers=headers)
+            if r.status_code not in (200, 404):   # 404=announce未建档, 正常竞态
+                logger.warning("heartbeat push rejected: %s %s", r.status_code, r.text[:100])
+        except Exception as e:
+            logger.warning("heartbeat push failed: %s", e)
+        time.sleep(30)
+
+
 def _require_key(x_api_key: Optional[str]):
     if BRIDGE_API_KEY and x_api_key != BRIDGE_API_KEY:
         raise HTTPException(status_code=401, detail="invalid api key")
@@ -288,6 +311,7 @@ def startup():
     threading.Thread(target=_connect, daemon=True).start()
     threading.Thread(target=_reconnect_loop, daemon=True).start()
     threading.Thread(target=_announce_loop, daemon=True).start()
+    threading.Thread(target=_heartbeat_push_loop, daemon=True).start()
 
 
 def _runner_status() -> dict:
