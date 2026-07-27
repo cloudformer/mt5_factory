@@ -320,6 +320,8 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         t = q_text.strip()
         if q_field == "name":
             _and("s.name ILIKE ${n}", f"%{t}%")
+        elif q_field == "basis":   # 批次标签/生因模糊(2026-07-27): 验尺实验按批查找
+            _and("s.basis ILIKE ${n}", f"%{t}%")
         elif q_field == "id" and t.isdigit():
             _and("s.id = ${n}", int(t))
         elif q_field == "timeframe":

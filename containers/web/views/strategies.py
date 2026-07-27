@@ -494,6 +494,8 @@ def generate():
             "timeframe": request.form["timeframe"],
             "mode": request.form.get("mode", "random"),
             "count": request.form.get("count", 50, type=int),
+            # 批次标签 → basis(生因): 事后排名页搜"标签"按批查找/分组统计(验尺实验用)
+            "label": request.form.get("label", "").strip() or None,
         })
         msg = f"已生成 {result['created']} 个策略实例"
         if result.get("skipped"):

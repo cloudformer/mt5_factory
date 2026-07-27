@@ -73,8 +73,8 @@
     </div>
     <div class="filter-row">
       <label>搜索
-        <select name="q_field" title="策略名=模糊; ID/周期/状态=精准">
-          {% for v, t in [('name','策略名(模糊)'), ('id','ID'), ('timeframe','周期'), ('status','状态')] %}
+        <select name="q_field" title="策略名/标签=模糊; ID/周期/状态=精准">
+          {% for v, t in [('name','策略名(模糊)'), ('basis','标签/生因(模糊)'), ('id','ID'), ('timeframe','周期'), ('status','状态')] %}
           <option value="{{ v }}" {% if v == q_field %}selected{% endif %}>{{ t }}</option>{% endfor %}
         </select></label>
       <input name="q_text" value="{{ q_text or '' }}" size="14" placeholder="关键词(空=不搜)">

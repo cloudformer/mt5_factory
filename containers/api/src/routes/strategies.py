@@ -42,6 +42,7 @@ class GenerateRequest(BaseModel):
     timeframe: str = "M15"
     mode: str = "random"  # grid=固定网格(有限) | random=随机采样(默认)
     count: int = 50       # random 模式下每个品种生成的数量
+    label: str | None = None  # 批次标签(2026-07-27): 写进 basis(生因), 事后按批查找/分组统计用
 
 
 @router.post("/strategies/generate")
@@ -72,8 +73,9 @@ async def generate(req: GenerateRequest, request: Request):
     rng = random.Random()
     for symbol in symbols:
         max_created = None
+        basis = (req.label or "").strip() or req.mode   # 标签优先; 没填保持旧值 grid/random
         if req.mode == "grid":
-            combos = [{"params": p, "basis": "grid"} for p in grid_combos(req.template)]
+            combos = [{"params": p, "basis": basis} for p in grid_combos(req.template)]
         else:  # random: 多采样抵消撞重(内存先去重), 管道里新建满 count 即停
             seen, combos = set(), []
             for _ in range(req.count * 5):
@@ -84,7 +86,7 @@ async def generate(req: GenerateRequest, request: Request):
                 if key in seen:
                     continue
                 seen.add(key)
-                combos.append({"params": p, "basis": "random"})
+                combos.append({"params": p, "basis": basis})
             max_created = req.count
         r = await instances.create_instances(
             pool, req.template, symbol, req.timeframe, combos, max_created=max_created)
