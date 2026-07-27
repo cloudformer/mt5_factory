@@ -129,7 +129,7 @@ def _explain_failure(err: tuple, procs: int, streak: int) -> str:
 
 def _connect() -> bool:
     global _connected, _fail_streak
-    creds = _creds or _env_creds()
+    creds = _env_creds()   # 账户唯一来源 = 机器 env(/connect 远程下发已随 v7.2 收口删除)
     kwargs = dict(creds) if creds else {}
     if MT5_PATH:
         kwargs["path"] = MT5_PATH
@@ -625,12 +625,6 @@ def remote_restart(x_api_key: Optional[str] = Header(default=None)):
         os._exit(0)     # 硬退出 → python main.py 返回, 看门狗接管
     threading.Thread(target=_exit, daemon=True).start()
     return {"started": True, "note": "worker 将离线约1分钟, bridge/runner 重启并重跑自检"}
-
-
-class ConnectRequest(BaseModel):
-    login: int
-    password: str
-    server: str
 
 
 # /connect(远程下发账户)已删(2026-07-26 v7.2 收口): api 侧调用早已砍掉, 端点成孤儿 —
