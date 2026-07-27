@@ -66,14 +66,15 @@ async def download_task(request: Request, name: str):
     无任务 → {"task": null}; 拒领时给明确原因(未注册/停用/无下载职能)。"""
     pool = request.app.state.pool
     h = await pool.fetchrow(
-        "SELECT id, enabled, download FROM mt5_hosts WHERE name=$1", name)
+        "SELECT id, enabled, download, mt5_server FROM mt5_hosts WHERE name=$1", name)
     if h is None:
         raise HTTPException(status_code=404, detail=f"worker {name} 未注册 — 等 announce 建档")
     if not h["enabled"]:
         raise HTTPException(status_code=403, detail=f"worker {name} 已停用, 不派任务")
     if not h["download"]:
         raise HTTPException(status_code=403, detail=f"worker {name} 无下载职能, 不派任务")
-    row = await sync.claim_download_job(pool, name)
+    # 券商匹配领单(纪律: 数据从实际交易的券商下载): server 来自心跳同步的登录账户
+    row = await sync.claim_download_job(pool, name, h["mt5_server"])
     if row is None:
         return {"task": None}
     return {"task": {"job_id": row["id"], **row["payload"]}}

@@ -160,8 +160,10 @@ async def submit_download_jobs(pool: asyncpg.Pool) -> dict:
     return {"jobs": len(rows), "symbols": [r[1]["symbol"] for r in rows]}
 
 
-async def claim_download_job(pool: asyncpg.Pool, worker: str):
-    """领任务: SKIP LOCKED 抢单(多 download 机并发安全, 铁律6)。
+async def claim_download_job(pool: asyncpg.Pool, worker: str, server: str | None):
+    """领任务: SKIP LOCKED 抢单(多 download 机并发安全, 铁律6), 快者多得但**必须券商匹配**
+    (纪律: 数据从实际交易的券商服务器下载) — 品种 broker == worker 登录 server 才可领;
+    品种无券商标注(老行) = 谁都可领; worker 未上报账户(server=None) = 只能领无标注的。
     顺手回收怠工单(10分钟无上传 → 重派; 重派超5次 → FAILED 记明原因)。"""
     await pool.execute(
         "UPDATE jobs SET status='FAILED', finished_at=now(),"
@@ -177,9 +179,13 @@ async def claim_download_job(pool: asyncpg.Pool, worker: str):
         DOWNLOAD_KIND, DOWNLOAD_IDLE_MINUTES)
     return await pool.fetchrow(
         "UPDATE jobs SET status='RUNNING', worker=$2, started_at=now()"
-        " WHERE id = (SELECT id FROM jobs WHERE kind=$1 AND status='PENDING'"
-        "             ORDER BY (payload->>'symbol'), id LIMIT 1 FOR UPDATE SKIP LOCKED)"
-        " RETURNING id, payload", DOWNLOAD_KIND, worker)
+        " WHERE id = (SELECT j.id FROM jobs j"
+        "             LEFT JOIN symbols s ON s.symbol = j.payload->>'symbol'"
+        "             WHERE j.kind=$1 AND j.status='PENDING'"
+        "               AND (s.broker IS NULL OR s.broker = $3)"   # 券商匹配
+        # FOR UPDATE OF j: 只锁 jobs 行 — 裸 FOR UPDATE 会碰外连接可空侧(symbols)直接报错
+        "             ORDER BY (j.payload->>'symbol'), j.id LIMIT 1 FOR UPDATE OF j SKIP LOCKED)"
+        " RETURNING id, payload", DOWNLOAD_KIND, worker, server)
 
 
 async def download_progress(pool: asyncpg.Pool):
