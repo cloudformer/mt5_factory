@@ -203,8 +203,27 @@ async def push_heartbeat(request: Request):
     if h is None:  # 未注册: 等 announce(每分钟)先建档, 下一拍推送即被接受
         raise HTTPException(status_code=404, detail="host 未注册或已停用 — announce 会自动建档")
     health["push_v"] = 1   # 服务端强制打标(轮询跳过的依据), 不信任 payload 自带
+    health.pop("trades_v", None)
+    resp = {"accepted": True}
+    # 成交捎带(v7.2 #2): 单独取出入库, 不进 last_health(防每30s存一大块JSON)。
+    # 入库成功才打 trades_v 标(轮询凭它免拉); 失败不打标+回明确原因 → 轮询自动回退拉取, 数据不丢
+    trades = health.pop("trades", None)
+    login = health.get("login")
+    if h["runner"] and login:
+        if isinstance(trades, list):
+            try:
+                stored, bad = await sync.ingest_trades(
+                    pool, h, int(login), trades, health.get("server"))
+                health["trades_v"] = 1
+                resp["trades_stored"], resp["trades_bad"] = stored, bad
+            except Exception as e:   # 库故障/数据形状意外: 原因回给 worker 日志, 本拍不打标
+                logger.error("heartbeat trades ingest %s(acct %s) failed: %s: %s",
+                             name, login, type(e).__name__, e)
+                resp["trades_error"] = f"{type(e).__name__}: {e}"
+        # 下一拍成交窗口(自适应: 空库回填90天, 稳态3天) — 刚入完库现算, 窗口即时收缩
+        resp["trades_days"] = await sync.trades_window_days(pool, int(login))
     await sync.ingest_health(pool, h, health)
-    return {"accepted": True}
+    return resp
 
 
 class HostUpdate(BaseModel):

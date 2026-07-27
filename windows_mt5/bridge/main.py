@@ -305,17 +305,31 @@ def _heartbeat_push_loop():
     api_base = f"http://{DOCKER_COMPOSE_HOST}:{API_PORT}"
     hostname = socket.gethostname()
     headers = {"X-API-Key": WORKER_KEY} if WORKER_KEY else {}
+    trades_days = 0   # 成交窗口由 api 应答指定(自适应); 0=本拍不捎(首拍/无角色机)
     while True:
         try:
             payload = health()   # 与被轮询时同一份数据(同一个函数)
             payload["name"] = hostname
             payload["push_v"] = 1
-            r = requests.post(f"{api_base}/hosts/heartbeat", timeout=10,
+            # 成交捎带(v7.2 #2): 按 api 上一拍指定的窗口收集; 收集失败本拍不带 —
+            # api 见不到成交不打标, 自动回退拉取, 数据不丢(失败原因必须落日志)
+            if trades_days and payload.get("login"):
+                try:
+                    payload["trades"] = _trades_data(trades_days)["deals"]
+                except Exception as e:
+                    logger.warning("heartbeat: collect trades(%dd) failed: %s: %s — "
+                                   "本拍不捎成交, api 将回退拉取", trades_days, type(e).__name__, e)
+            r = requests.post(f"{api_base}/hosts/heartbeat", timeout=15,
                               json=payload, headers=headers)
-            if r.status_code not in (200, 404):   # 404=announce未建档, 正常竞态
-                logger.warning("heartbeat push rejected: %s %s", r.status_code, r.text[:100])
+            if r.status_code == 200:
+                resp = r.json()
+                trades_days = int(resp.get("trades_days") or 0)
+                if resp.get("trades_error"):   # api 收货失败: 原因如实打出来, 别静默
+                    logger.warning("heartbeat: api 收成交失败(将回退拉取): %s", resp["trades_error"])
+            elif r.status_code != 404:   # 404=announce未建档, 正常竞态, 等下一分钟
+                logger.warning("heartbeat push rejected: HTTP %s %s", r.status_code, r.text[:120])
         except Exception as e:
-            logger.warning("heartbeat push failed: %s", e)
+            logger.warning("heartbeat push failed: %s: %s", type(e).__name__, e)
         # 上限60: 轮询侧"新鲜推送"窗口75s, 推得比它慢会推/拉来回抖(api侧同区间校验)
         time.sleep(_wparam("heartbeat_seconds", 30, 10, 60))
 

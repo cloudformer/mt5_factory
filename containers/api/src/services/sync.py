@@ -213,25 +213,38 @@ TRADES_BACKFILL_DAYS = 90   # 首次/空库回填窗口(足够大, 保证历史�
 TRADES_OVERLAP_DAYS = 3     # 稳态重叠(补迟到平仓; 去重靠主键, 多拉无害)
 
 
-async def _persist_trades(pool: asyncpg.Pool, client: httpx.AsyncClient, h, account: int,
-                          broker: str = None) -> None:
-    """拉 bridge /trades → 按 position_id 配对回合 → upsert trades(增量去重, 与 MT5 已平仓一致)。
-    落【全部】已平仓回合(不按 magic 过滤, 与 MT5 100% 一致): strategy_id=magic-100000(策略区间)否则 NULL;
-    "只看策略单"的过滤放到对账/分析时。持仓中不入(铁律: 只存历史)。
-    窗口自适应: 空库回填 BACKFILL 天; 稳态只拉'最新平仓往前 OVERLAP 天', 大而不浪费。"""
+async def trades_window_days(pool: asyncpg.Pool, account: int) -> int:
+    """成交窗口自适应(推/拉共用): 空库回填 BACKFILL 天; 稳态 = 最新平仓缺口 + OVERLAP 天。
+    推送模式下 api 把这个数放进心跳应答, worker 下一拍按它收集 — 窗口智慧留在库侧。"""
     last = await pool.fetchval("SELECT max(exit_time) FROM trades WHERE account=$1", account)
     if last is None:
-        days = TRADES_BACKFILL_DAYS
-    else:
-        gap = (datetime.now(timezone.utc) - last).days
-        days = min(TRADES_BACKFILL_DAYS, max(TRADES_OVERLAP_DAYS, gap + TRADES_OVERLAP_DAYS))
+        return TRADES_BACKFILL_DAYS
+    gap = (datetime.now(timezone.utc) - last).days
+    return min(TRADES_BACKFILL_DAYS, max(TRADES_OVERLAP_DAYS, gap + TRADES_OVERLAP_DAYS))
+
+
+async def _persist_trades(pool: asyncpg.Pool, client: httpx.AsyncClient, h, account: int,
+                          broker: str = None) -> None:
+    """拉 bridge /trades → ingest_trades 落库(v7.2 双栈的拉侧; 推侧见 hosts.push_heartbeat)。"""
+    days = await trades_window_days(pool, account)
     headers = {"X-API-Key": BRIDGE_API_KEY} if BRIDGE_API_KEY else {}
     r = await client.get(f"http://{h['host']}:{h['port']}/trades",
                          params={"days": days}, headers=headers)
-    if r.status_code != 200:
+    if r.status_code != 200:   # 非200 = bridge 侧明确拒绝/异常, 带原因记日志, 下一拍重试
+        logger.warning("pull trades %s(acct %s) failed: HTTP %s %s",
+                       h["name"], account, r.status_code, r.text[:120])
         return
+    await ingest_trades(pool, h, account, r.json().get("deals", []), broker)
+
+
+async def ingest_trades(pool: asyncpg.Pool, h, account: int, deals: list,
+                        broker: str = None) -> tuple[int, int]:
+    """deals(MT5 原样) → 按 position_id 配对回合 → 幂等 upsert。返回 (落库回合数, 坏回合数)。
+    推(心跳捎带)/拉(_persist_trades)共用同一解析同一落库 — 并跑零分叉, 重复喂零副作用。
+    落【全部】已平仓回合(不按 magic 过滤, 与 MT5 100% 一致): strategy_id=magic-100000(策略区间)否则 NULL;
+    "只看策略单"的过滤放到对账/分析时。持仓中不入(铁律: 只存历史)。"""
     by_pos: dict = {}
-    for d in r.json().get("deals", []):
+    for d in deals:
         pid = d.get("position_id")     # D1: 缺 position_id 的畸形 deal 直接跳过, 不进分组
         if pid is not None:
             by_pos.setdefault(pid, []).append(d)
@@ -264,9 +277,9 @@ async def _persist_trades(pool: asyncpg.Pool, client: httpx.AsyncClient, h, acco
             bad += 1
             logger.warning("skip malformed round-trip pos=%s @ %s: %s", pos_id, h["name"], e)
     if bad:
-        logger.warning("persist trades %s: %d 坏回合已跳过(其余照落)", h["name"], bad)
+        logger.warning("ingest trades %s: %d 坏回合已跳过(其余照落)", h["name"], bad)
     if not rows:
-        return
+        return 0, bad
     await pool.executemany(
         "INSERT INTO trades (account, position_id, strategy_id, magic, env, symbol,"
         "   direction, volume, entry_time, entry_price, exit_time, exit_price,"
@@ -285,6 +298,7 @@ async def _persist_trades(pool: asyncpg.Pool, client: httpx.AsyncClient, h, acco
                        h["name"], len(rows), stored)
         await log_host_event(pool, h["id"], "trades_mismatch",
                              {"account": account, "mt5": len(rows), "db": stored})
+    return stored, bad
 
 
 async def ingest_health(pool: asyncpg.Pool, h, health: dict) -> None:
@@ -358,11 +372,13 @@ async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
     跳过反向探测(推送已收货), 只保留 trades 拉取(#2 未迁);
     推送停了(降级/回滚)超时自动回到轮询 — 自愈, 无需任何开关。"""
     push = await pool.fetchrow(
-        "SELECT mt5_login, mt5_server FROM mt5_hosts"
-        " WHERE id=$1 AND last_health ? 'push_v'"
+        "SELECT mt5_login, mt5_server, (last_health ? 'trades_v') AS trades_pushed"
+        "  FROM mt5_hosts WHERE id=$1 AND last_health ? 'push_v'"
         "   AND last_heartbeat > now() - interval '75 seconds'", h["id"])
     if push is not None:
-        if h["runner"] and push["mt5_login"]:
+        # trades_v = 上一拍推送已捎成交且入库成功(hosts.push_heartbeat 打标) → 拉取全免;
+        # 没带成交/入库失败则不打标 → 这里回退拉取, 数据不丢(双栈#2)
+        if not push["trades_pushed"] and h["runner"] and push["mt5_login"]:
             try:
                 await _persist_trades(pool, client, h, int(push["mt5_login"]), push["mt5_server"])
             except Exception as e:
