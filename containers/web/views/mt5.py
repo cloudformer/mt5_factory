@@ -1,7 +1,7 @@
-"""MT5 流水页: 从选中 worker 实时透传持仓 + 历史成交明细 (不落库, 人工核对用)
-
-链路 web → api → bridge → MT5, 看到的就是券商侧原始数据;
-web 端只做两件事: magic → 策略名归因, 枚举值翻译成中文。
+"""MT5 流水页(v7.2 #5 单向化, 2026-07-26 与 Frank 定: 功能保留、通道反转):
+持仓 = worker 心跳快照(last_health.positions, 每拍覆盖, 零新表零清理, 最多滞后一个心跳);
+成交 = 库内已平仓回合(trades 表, #2 心跳推送落库) — api 不再反向连 worker。
+web 端只做: magic → 策略名归因, 枚举值翻译成中文。
 """
 from datetime import datetime, timedelta
 
@@ -58,16 +58,25 @@ def index():
     # 选中 worker 登录的券商(server) — 整页流水都来自这一家, 放页头
     sel = next((h for h in hosts if h["id"] == host_id), None)
     broker = ((sel or {}).get("last_health") or {}).get("server") if sel else None
-    if host_id:
+    acct_login = (sel or {}).get("mt5_login")
+    if host_id and sel:
         try:
-            data = api.get(f"/hosts/{host_id}/trades", days=days)
+            # v7.2 #5 单向化: 不再反向拉 worker — 持仓读心跳快照, 成交读库(推送落的 trades)
+            data = {"days": days,
+                    "positions": (sel.get("last_health") or {}).get("positions"),
+                    "trades": []}
+            if acct_login:
+                data["trades"] = api.get(
+                    "/trades/local", account=acct_login, include_test="true",
+                    from_time=(datetime.now() - timedelta(days=days)).isoformat())["trades"]
             # magic→策略名映射: 上限给足(策略库会超500); 超出仍有 _who 的"策略 #id"兜底
             strategies = api.get("/strategies/status", limit=5000)["strategies"]
             magic_map = {s["magic_number"]: s["name"]
                          for s in strategies if s["magic_number"]}
         except api.ApiError as e:
             flash(f"流水获取失败: {e}", "error")
-    if data:
+            data = None
+    if data and data["positions"] is not None:
         for p in data["positions"]:
             p["time_fmt"] = datetime.fromtimestamp(p["time"]).strftime("%m-%d %H:%M:%S")
             p["who"] = _who(p["magic"], magic_map)
@@ -81,18 +90,15 @@ def index():
         if age > 180:
             acct_stale = int(age / 60)
     if data:
-        for d in data["deals"]:
-            d["time_fmt"] = datetime.fromtimestamp(d["time"]).strftime("%m-%d %H:%M:%S")
-            d["entry_cn"] = ENTRY_CN.get(d["entry"], d["entry"])
-            # 原因只对平仓有意义; 开仓一律程序 → 冗余不显示。
-            # 平仓若是"程序"触发 = 测试单(策略平仓只会 SL/TP, 不主动平) → 显示"测试"
-            if d["entry"] == "in":
-                d["reason_cn"] = "—"
-            elif d["reason"] == "expert":
-                d["reason_cn"] = "测试"
-            else:
-                d["reason_cn"] = REASON_CN.get(d["reason"], d["reason"])
-            d["who"] = "入金/出金" if d["type"] == "balance" else _who(d["magic"], magic_map)
+        for t in data["trades"]:   # 库内回合: 时间(JSON里是ISO串)格式化 + 原因翻中文 + magic 归因
+            for k in ("entry_time", "exit_time"):
+                try:
+                    t[k + "_fmt"] = datetime.fromisoformat(t[k]).strftime("%m-%d %H:%M:%S")
+                except (TypeError, ValueError):
+                    t[k + "_fmt"] = "—"
+            t["reason_cn"] = ("测试" if t.get("close_reason") == "expert"
+                              else REASON_CN.get(t.get("close_reason"), t.get("close_reason") or "—"))
+            t["who"] = _who(t.get("magic") or 0, magic_map)
     return render_template("mt5.html", groups=groups, host_id=host_id, days=days,
                            presets=presets, win=win, frm=frm,
                            data=data, broker=broker, account=account, acct_stale=acct_stale,

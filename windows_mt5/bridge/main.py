@@ -590,6 +590,11 @@ def health():
         return {"status": "degraded", "mt5_connected": False, "runner": runner,
                 "selftest": _selftest(), "version": VERSION, "dl_poll": True,
                 "services": services, "summary": summary}
+    try:   # 持仓快照(v7.2 #5 单向化): 每拍随心跳覆盖到 last_health, web 流水页读它
+        positions = _positions_snapshot()   # 不再反向拉 — 失败给空+日志, 不拖垮心跳
+    except Exception as e:
+        logger.warning("positions snapshot failed: %s: %s", type(e).__name__, e)
+        positions = []
     return {
         "status": "healthy",
         "version": VERSION,
@@ -599,6 +604,7 @@ def health():
         "login": account["login"],
         "server": account["server"],
         "currency": account["currency"],
+        "positions": positions,
         "runner": runner,
         "selftest": _selftest(),
         "services": services,
@@ -725,20 +731,27 @@ _DEAL_ENTRY = {0: "in", 1: "out", 2: "inout", 3: "out_by"}
 _DEAL_REASON = {0: "manual", 1: "mobile", 2: "web", 3: "expert", 4: "sl", 5: "tp", 6: "so"}
 
 
+def _positions_snapshot() -> list:
+    """当前持仓快照(MT5 原样序列化): /trades 与 心跳payload(v7.2 #5 单向化)共用同一份字段。"""
+    with _mt5_lock:
+        positions = mt5.positions_get() or []
+    return [{
+        "ticket": p.ticket, "time": p.time, "symbol": p.symbol,
+        "type": _DEAL_TYPE.get(p.type, str(p.type)), "volume": p.volume,
+        "price_open": p.price_open, "sl": p.sl, "tp": p.tp,
+        "price_current": p.price_current, "profit": p.profit, "swap": p.swap,
+        "magic": p.magic, "comment": p.comment,
+    } for p in positions]
+
+
 def _trades_data(days: int) -> dict:
     now = datetime.now(timezone.utc)
+    positions = _positions_snapshot()
     with _mt5_lock:  # +1天缓冲: 历史过滤按券商服务器时间
-        positions = mt5.positions_get() or []
         deals = mt5.history_deals_get(now - timedelta(days=days), now + timedelta(days=1)) or []
     return {
         "days": days,
-        "positions": [{
-            "ticket": p.ticket, "time": p.time, "symbol": p.symbol,
-            "type": _DEAL_TYPE.get(p.type, str(p.type)), "volume": p.volume,
-            "price_open": p.price_open, "sl": p.sl, "tp": p.tp,
-            "price_current": p.price_current, "profit": p.profit, "swap": p.swap,
-            "magic": p.magic, "comment": p.comment,
-        } for p in positions],
+        "positions": positions,
         "deals": [{
             "ticket": d.ticket, "position_id": d.position_id, "time": d.time,
             "symbol": d.symbol, "type": _DEAL_TYPE.get(d.type, str(d.type)),
