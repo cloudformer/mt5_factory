@@ -97,6 +97,19 @@ async def generate(req: GenerateRequest, request: Request):
             "template": req.template, "symbols": req.symbols}
 
 
+@router.get("/strategies/names")
+async def strategy_names(request: Request):
+    """轻量名册: id/name/magic 全量(流水页 magic→策略名 归因用)。
+    为什么单开: /strategies/status 每行带成绩包且有 limit — 库存超 limit 时
+    归属列会一半真名一半"策略 #id"兜底(2026-07-26 实测 6000+ 库存踩中), 名册必须全量且轻。"""
+    uid = identity.scope_uid(request)   # v5.6: 非 owner 只见自己的
+    rows = await request.app.state.pool.fetch(
+        "SELECT id, name, magic_number FROM strategies"
+        + (" WHERE owner_id = $1" if uid else "") + " ORDER BY id",
+        *([uid] if uid else []))
+    return {"strategies": [dict(r) for r in rows]}
+
+
 @router.get("/strategies/status")
 async def list_strategies(request: Request, status: Optional[str] = None,
                           symbol: Optional[str] = None, limit: int = 100,

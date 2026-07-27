@@ -10,7 +10,6 @@ import hashlib
 import logging
 
 import asyncpg
-import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -292,25 +291,9 @@ async def delete_host(host_id: int, request: Request):
 # bridge 本地 /restart 与看门狗保留 — 真要重启上机操作; 未来需要再以"worker 轮询待办"回归。
 
 
-@router.get("/hosts/{host_id}/trades")
-async def host_trades(host_id: int, request: Request, days: int = 30):
-    """转发 worker 的 MT5 交易流水 (持仓+成交明细, 原样透传, web /mt5 页用)"""
-    await identity.assert_host_visible(request.app.state.pool, request, host_id)
-    row = await request.app.state.pool.fetchrow(
-        "SELECT host, port FROM mt5_hosts WHERE id=$1 AND enabled", host_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="host not found or disabled")
-    headers = {"X-API-Key": sync.BRIDGE_API_KEY} if sync.BRIDGE_API_KEY else {}
-    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
-        try:
-            r = await client.get(f"http://{row['host']}:{row['port']}/trades",
-                                 params={"days": days})
-        except httpx.HTTPError as e:
-            raise HTTPException(status_code=502, detail=f"bridge unreachable: {e}")
-    if r.status_code != 200:
-        raise HTTPException(status_code=r.status_code,
-                            detail=r.json().get("detail", "bridge error"))
-    return r.json()
+# /hosts/{id}/trades 实时透传端点已删(2026-07-26 v7.2 收口): 流水页改读
+# 心跳快照(last_health.positions) + 库内回合(trades 表); MT5 原始 deal 腿备用入口 =
+# worker 本机 :8020/trades?fmt=html。至此 api 对 worker 零出站。
 
 
 # 远程下发 MT5 账户端点已删(2026-07-26 与 Frank 定, v7.2 单向化取舍): 账户本来就是

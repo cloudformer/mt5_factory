@@ -31,7 +31,7 @@
 
 {% if data %}
 <section>
-  <h2>当前持仓{% if data.positions is not none %} ({{ data.positions | length }}) <span class="muted" style="font-weight:normal">心跳快照 · 最多滞后约30秒</span>{% endif %}</h2>
+  <h2>当前持仓{% if data.positions is not none %} ({{ data.positions | length }}) <span class="muted" style="font-weight:normal">心跳快照 · last update {{ m.rel(snapshot_at) }}</span>{% endif %}</h2>
   {% if data.positions is none %}
   <p class="muted">该 worker 尚未上报持仓快照 — 旧版 bridge, 在 Windows 上跑一次 update.bat 即出现</p>
   {% else %}

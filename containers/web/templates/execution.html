@@ -31,7 +31,7 @@
       <td>{{ h.name }}</td>
       <td>{{ h.host }}:{{ h.port }}</td>
       <td>{{ h.account_type }}</td>
-      <td>{{ m.worker_status(h) }}</td>
+      <td>{{ m.worker_status(h) }} <span class="muted">{{ m.rel(h.last_heartbeat) }}</span></td>
       <td>
         <form method="post" action="{{ url_for('execution.unassign', mode=mode, host_id=h.id) }}" class="inline">
           <button class="small">取消指派</button>

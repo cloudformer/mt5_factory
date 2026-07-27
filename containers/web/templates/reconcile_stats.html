@@ -58,7 +58,9 @@
         <th>状态</th><th>模板</th>
         <th title="trades 表该策略×该账户的回合数">实盘笔数</th>
         <th title="窗口内 实盘和重放都出现且时间配上的笔数">配对</th>
-        <th>笔数率</th><th>方向率</th>
+        <th>笔数率</th>
+        <th title="记录不评判: 级联缺单(持仓占位, 同一根因的下游症状)从并集折掉后的笔数率 — 参考读数, 综合分不用它">根因参考</th>
+        <th>方向率</th>
         <th title="综合匹配度 0~100, ≥90=回测可信">匹配分</th><th>达标</th>
         <th title="配对笔净点合计: 回测-实盘 相对偏差(正=回测偏乐观)">总账偏</th>
         <th title="该行对账结果的计算时间(旧口径结果点[全部重算]刷新)">算于</th></tr>
@@ -81,6 +83,7 @@
         <td class="mono">{{ r.live_trades }}</td>
         <td class="mono" data-c="paired">{{ r.paired if r.paired is not none else '—' }}{% if r.union %} / {{ r.union }}{% endif %}</td>
         <td class="mono" data-c="count_rate">{{ (r.count_rate * 100)|round(1) ~ '%' if r.count_rate is not none else '—' }}</td>
+        <td class="mono muted" data-c="root_rate">{% if r.root_rate is not none %}{{ (r.root_rate * 100)|round(1) ~ '%' }} <span title="级联缺单笔数">({{ r.cascade }})</span>{% else %}—{% endif %}</td>
         <td class="mono" data-c="dir_rate">{{ (r.dir_rate * 100)|round(1) ~ '%' if r.dir_rate is not none else '—' }}</td>
         <td class="mono" data-c="score">{% if r.score is not none %}<b>{{ r.score }}</b>{% else %}<span class="muted">未算</span>{% endif %}</td>
         <td data-c="pass">{% if r.score is none %}<span class="muted">—</span>

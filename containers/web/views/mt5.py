@@ -69,8 +69,8 @@ def index():
                 data["trades"] = api.get(
                     "/trades/local", account=acct_login, include_test="true",
                     from_time=(datetime.now() - timedelta(days=days)).isoformat())["trades"]
-            # magic→策略名映射: 上限给足(策略库会超500); 超出仍有 _who 的"策略 #id"兜底
-            strategies = api.get("/strategies/status", limit=5000)["strategies"]
+            # magic→策略名映射(轻量名册端点, 无 limit — 超库存导致格式不齐的坑已修)
+            strategies = api.get("/strategies/names")["strategies"]  # 轻量名册: 全量, 归属列格式统一
             magic_map = {s["magic_number"]: s["name"]
                          for s in strategies if s["magic_number"]}
         except api.ApiError as e:
@@ -102,6 +102,7 @@ def index():
     return render_template("mt5.html", groups=groups, host_id=host_id, days=days,
                            presets=presets, win=win, frm=frm,
                            data=data, broker=broker, account=account, acct_stale=acct_stale,
+                           snapshot_at=(sel or {}).get("last_heartbeat"),  # 快照最后更新(相对时间标注)
                            worker_name=(sel or {}).get("name"),
                            worker_role=(sel or {}).get("runner"))
 
@@ -116,7 +117,7 @@ def system():
     frm = a.get("from") or ""
     to = a.get("to") or ""
     include_test = a.get("include_test") == "1"   # 默认不含: 过滤下单测试单
-    presets, accounts, trades, magic_map, cons = [7, 30, 90], [], [], {}, None
+    presets, accounts, trades, magic_map = [7, 30, 90], [], [], {}
     try:
         presets = api.get("/config")["config"].get("mt5_trades_days") or [7, 30, 90]
         # 时间窗(预设/自定义)→ 同一个窗口喂 流水查询 + 一致性核对
@@ -138,16 +139,10 @@ def system():
             params["include_test"] = "true"
         data = api.get("/trades/local", **params)
         accounts, trades = data["accounts"], data["trades"]
-        strategies = api.get("/strategies/status", limit=5000)["strategies"]
+        strategies = api.get("/strategies/names")["strategies"]  # 轻量名册: 全量, 归属列格式统一
         magic_map = {s["magic_number"]: s["name"] for s in strategies if s["magic_number"]}
-        # 一致性核对(本时段 库 vs MT5): 需选定具体账号才能定位其 worker
-        if account and from_iso:
-            cp = {"account": account, "from_time": from_iso}
-            if to_iso:
-                cp["to_time"] = to_iso
-            if include_test:
-                cp["include_test"] = "true"
-            cons = api.get("/trades/consistency", **cp)
+        # 一致性核对块已删(2026-07-26 v7.2 收口): 由常驻哨兵接管 — 每次成交推送入库后
+        # 自检, 缺一笔即 trades_mismatch 事件(Workers 页详情可见), 比手动点核对更早更全
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     for t in trades:
@@ -157,5 +152,5 @@ def system():
     for ac in accounts:
         acct_groups.setdefault(ac.get("broker") or "未知券商", []).append(ac["account"])
     return render_template("mt5_system.html", presets=presets, win=win, frm=frm, to=to,
-                           account=account, acct_groups=acct_groups, trades=trades, cons=cons,
+                           account=account, acct_groups=acct_groups, trades=trades,
                            include_test=include_test)

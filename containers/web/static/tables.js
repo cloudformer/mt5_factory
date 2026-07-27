@@ -262,6 +262,21 @@ document.addEventListener("DOMContentLoaded", () => {
       + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
     el.title = "本地时间(存储为 UTC)";
   });
+  /* 相对时间(被动推送数据的"最后更新"标注, 2026-07-26 与 Frank 定):
+     <1小时 → "40秒前/5分钟前"(每30秒自刷新), ≥1小时 → 本地绝对时间 */
+  document.querySelectorAll(".reltime[data-utc]").forEach((el) => {
+    const d = new Date(el.getAttribute("data-utc"));
+    if (isNaN(d)) return;
+    const render = () => {
+      const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
+      el.textContent = s < 90 ? `${Math.round(s)} 秒前`
+        : s < 3600 ? `${Math.round(s / 60)} 分钟前`
+        : `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+    render();
+    setInterval(render, 30000);
+    el.title = "最后更新时间(本地时区)";
+  });
 });
 
 /* 表格列宽拖拽 (全站统一, 电子表格式: 拖谁只动谁, 别的列不跳):

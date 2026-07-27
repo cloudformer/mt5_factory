@@ -143,6 +143,12 @@
   {%- else -%}—{%- endif -%}
 {%- endmacro %}
 
+{# 相对时间(被动推送数据的"最后更新"): <1小时→"40秒前"(30s自刷新), ≥1小时→本地绝对时间 #}
+{% macro rel(v) -%}
+  {%- if v -%}<span class="reltime" data-utc="{{ v }}">{{ (v[:19]) | replace('T', ' ') }}</span>
+  {%- else -%}—{%- endif -%}
+{%- endmacro %}
+
 {# 表格工具条 (全站统一): 每页条数 + 翻页 + 页码 + 搜索 + 计数 + 排序提示。
    配合 tables.js 的 data-* 生效(排序已全表自动, 无需标记)。列专属下拉筛选放 caller 块。
    用法: {{ m.table_toolbar('表id', hint='搜索…') }} #}

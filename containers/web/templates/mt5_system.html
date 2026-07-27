@@ -20,17 +20,8 @@
     <span class="muted">只含已平仓回合(持仓中看「Worker流水」实时)· 券商服务器时间</span>
   </form>
 
-  {# 一致性核对: 本时段 库 vs MT5 两边笔数, 两个灯一起绿(一致)/一起红(不一致) #}
-  {% if cons %}
-  {% set light = '🟢' if cons.consistent else ('🔴' if cons.mt5 is not none else '⚪') %}
-  <p style="margin:6px 0"><b>一致性核对(本时段)</b>：
-    库 <b>{{ cons.db }}</b> 笔 {{ light }} &nbsp;·&nbsp;
-    MT5 <b>{{ cons.mt5 if cons.mt5 is not none else '—' }}</b> 笔 {{ light }} &nbsp;
-    {% if cons.consistent %}<span class="pos">一致,库可信</span>
-    {% elif cons.mt5 is not none %}<span class="neg">不一致 — 库疑似漏存/多存, 需排查</span>
-    {% else %}<span class="muted">{{ cons.note }}</span>{% endif %}
-  </p>
-  {% endif %}{# 账号=全部 时不显示对账(对账需定位单一账号的worker) #}
+  {# 一致性核对块已删(2026-07-26 v7.2 收口): 常驻哨兵接管 — 成交推送入库即自检,
+     缺一笔即 trades_mismatch 事件(Workers 页详情可见), 比手动核对更早更全 #}
 
   {{ m.table_toolbar('sys-trades', hint='本页即时过滤已加载行') }}
   <table id="sys-trades" class="dense">

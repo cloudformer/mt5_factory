@@ -80,7 +80,8 @@
         {% else %}<span class="badge warn" title="该策略还没有运行区间记录(表上线前的历史数据): 对比窗口 = 每笔实盘±{{ recon.tol_minutes }}分钟, 仅验证'实盘每笔回测可复现', 抓不了漏单; 分母=实盘笔数">单边(降级) · 不抓漏单</span>{% endif %}</td></tr>
       <tr><td>实盘跨度</td><td>{{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }} · 实盘 <b>{{ recon.actual_trades }}</b> 笔</td></tr>
       <tr><td>回测笔数</td><td>窗口内 <b>{{ recon.bt_trades }}</b> · 重放期内 {{ recon.bt_total }}</td></tr>
-      <tr><td>记录不评判</td><td>信号 {{ m.pct(mt.signal_hit_rate * 100) }} · 涨跌 {{ m.pct(mt.outcome_match_rate * 100) }}</td></tr>
+      <tr><td>记录不评判</td><td>信号 {{ m.pct(mt.signal_hit_rate * 100) }} · 涨跌 {{ m.pct(mt.outcome_match_rate * 100) }}
+        {%- if mt.cascade_gaps %} · <span title="级联缺单(持仓占位, 同一根因的下游症状)从并集折掉后的笔数率 — 参考读数, 综合分与达标判定不用它(尺子从严不变)">根因参考 {{ m.pct(mt.decascaded_count_rate * 100) }}(级联缺单 {{ mt.cascade_gaps }} 笔已折算)</span>{% endif %}</td></tr>
       {% if mt.entry_diff_avg is defined %}
       <tr><td>入场精度</td><td>均差 {{ mt.entry_diff_avg }}
         {%- if mt.entry_diff_buy is defined %} · 买 {{ '%+g' % mt.entry_diff_buy }}({{ mt.entry_diff_buy_n }}笔){% endif %}

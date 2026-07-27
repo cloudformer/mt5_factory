@@ -79,7 +79,6 @@ MAX_BARS_PER_REQUEST = 100_000
 # MetaTrader5 包非线程安全: 所有 mt5 调用串行化
 _mt5_lock = threading.Lock()
 _connected = False
-_creds: Optional[dict] = None  # /connect 下发的账户, 优先于 env
 _account_cache: Optional[dict] = None  # 最近一次成功读到的账户信息, 供锁被长占时应答
 _fail_streak = 0  # 连续连接失败次数, 满 6 次触发自愈(杀终端重拉)
 
@@ -634,18 +633,8 @@ class ConnectRequest(BaseModel):
     server: str
 
 
-@app.post("/connect")
-def connect(req: ConnectRequest, x_api_key: Optional[str] = Header(default=None)):
-    """app 远程下发 MT5 账户并登录 (无需在 Windows 上手动配置)"""
-    global _creds
-    _require_key(x_api_key)
-    _creds = {"login": req.login, "password": req.password, "server": req.server}
-    if not _connect():
-        with _mt5_lock:
-            err = mt5.last_error()
-        _creds = None
-        raise HTTPException(status_code=401, detail=f"MT5 login failed: {err}")
-    return health()
+# /connect(远程下发账户)已删(2026-07-26 v7.2 收口): api 侧调用早已砍掉, 端点成孤儿 —
+# 账户 = 部署时写机器 env / MT5 手动登录, announce/心跳自动回报实际账号。
 
 
 @app.get("/account")

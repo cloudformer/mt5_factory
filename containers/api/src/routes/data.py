@@ -5,8 +5,6 @@
 品种清单/起始日期不在这里 — 品种唯一数据源是 symbols 表(见 routes/symbols.py)。
 扩展点: 新配置项 = CONFIG_KEYS 加 key + 校验分支 + postgres/schema/ 新增幂等种子 SQL。
 """
-import asyncio
-
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -30,34 +28,31 @@ WORKER_PARAM_RANGES = {"heartbeat_seconds": (10, 60), "announce_seconds": (30, 3
 # ---------- 数据同步 ----------
 @router.post("/syncdata")
 async def start_sync(request: Request):
-    """触发全量/增量同步(断点续传)。v7.2 #3 双栈:
-    有会领任务的新 worker(health 带 dl_poll) → jobs 模式(api 只写任务表, worker 轮询领取
-    + 自拉 MT5 + 分批上传); 全是旧 worker → 老编排(api 反向拉)兼容路, 全员更新后自然退役。"""
+    """触发全量/增量同步(断点续传)。v7.2 收口后唯一路径 = jobs 模式:
+    api 只写任务表, download worker 轮询领取 + 自拉 MT5 + 分批上传(单向)。"""
     pool = request.app.state.pool
     capable = await pool.fetchval(
         "SELECT count(*) FROM mt5_hosts WHERE enabled AND download AND last_health ? 'dl_poll'")
-    if capable:
-        if await pool.fetchval(
-                "SELECT EXISTS (SELECT 1 FROM jobs WHERE kind=$1"
-                " AND status IN ('PENDING','RUNNING'))", sync.DOWNLOAD_KIND):
-            raise HTTPException(status_code=409, detail="download jobs already running")
-        res = await sync.submit_download_jobs(pool)
-        if res.get("error"):
-            raise HTTPException(status_code=400, detail=res["error"])
-        return {"started": True, "mode": "jobs", **res}
-    if sync.state["running"]:
-        raise HTTPException(status_code=409, detail="sync already running")
-    sync.state["running"] = True
-    asyncio.create_task(sync.run_full_sync(request.app.state.pool))
-    return {"started": True}
+    if not capable:
+        raise HTTPException(status_code=400,
+                            detail="没有会领任务的下载 worker 在线(需 worker 更新到含下载循环的版本"
+                                   "并上报心跳) — 先更新/启动 worker 再同步")
+    if await pool.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM jobs WHERE kind=$1"
+            " AND status IN ('PENDING','RUNNING'))", sync.DOWNLOAD_KIND):
+        raise HTTPException(status_code=409, detail="download jobs already running")
+    res = await sync.submit_download_jobs(pool)
+    if res.get("error"):
+        raise HTTPException(status_code=400, detail=res["error"])
+    return {"started": True, "mode": "jobs", **res}
 
 
 @router.get("/syncdata/status")
 async def sync_status(request: Request):
-    """进度: 旧编排跑着用内存 state; 否则有下载 jobs 就拼 jobs 视图(同形, 下载页零改动)"""
-    if sync.state["running"]:
-        return sync.state
-    return await sync.download_progress(request.app.state.pool) or sync.state
+    """进度: 下载 jobs 拼视图(与旧内存 state 同形, 下载页零改动); 无任何 jobs = 空态"""
+    return (await sync.download_progress(request.app.state.pool)
+            or {"running": False, "current": {}, "symbols": [],
+                "bars_written": 0, "done": [], "errors": []})
 
 
 @router.get("/download/task")

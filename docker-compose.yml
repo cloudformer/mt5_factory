@@ -49,7 +49,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      BRIDGE_API_KEY: ${BRIDGE_API_KEY:-}
+      # BRIDGE_API_KEY 已退役(2026-07-26 v7.2 收口): api 对 worker 零出站, 没有"api调我"要保护
       MT5_HOSTS: ${MT5_HOSTS:-}
       MT5_PORT: ${MT5_PORT:-8020}
     ports:

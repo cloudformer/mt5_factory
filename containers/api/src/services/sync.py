@@ -1,20 +1,13 @@
-"""数据同步与心跳 — services 层: 下载M1(多worker并行分摊)、心跳状态机、host事件"""
+"""数据同步与心跳 — services 层: 下载任务(jobs, worker 领取)、心跳收货与看门狗、host事件。
+v7.2 收口(2026-07-26 与 Frank 定): api 对 worker 零出站 — 本模块不再有任何 HTTP 客户端;
+数据全部由 worker 推(心跳/成交/K线上传), api 只收货 + 看门狗判离线。"""
 import asyncio
 import logging
-import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import asyncpg
-import httpx
 
 logger = logging.getLogger("sync")
-
-BRIDGE_API_KEY = os.getenv("BRIDGE_API_KEY", "")
-CHUNK_DAYS = 30  # M1 每次拉 30 天 ≈ 4.3万根, 低于 bridge 单次上限
-
-# 全局同步状态 (单进程内存即可, 不用太复杂)
-state = {"running": False, "current": {}, "symbols": [],
-         "bars_written": 0, "done": [], "errors": []}
 
 
 async def load_download_symbols(pool: asyncpg.Pool) -> list:
@@ -26,14 +19,6 @@ async def load_download_symbols(pool: asyncpg.Pool) -> list:
              "data_start": datetime(r["data_start"].year, r["data_start"].month,
                                     r["data_start"].day, tzinfo=timezone.utc)}
             for r in rows]
-
-
-async def _download_hosts(pool: asyncpg.Pool):
-    """所有可用的下载 worker — 多台并行下载, 品种轮询分摊"""
-    return await pool.fetch(
-        "SELECT name, host, port FROM mt5_hosts"
-        " WHERE enabled AND download ORDER BY id"
-    )
 
 
 async def insert_bars(conn: asyncpg.Connection, symbol: str, bars: list) -> int:
@@ -57,82 +42,13 @@ async def _insert_bars(conn: asyncpg.Connection, symbol: str, bars: list) -> int
     return int(result.split()[-1])  # "INSERT 0 N" -> N
 
 
-async def _sync_symbol(pool: asyncpg.Pool, client: httpx.AsyncClient, base: str,
-                       symbol: str, data_start: datetime, worker: str):
-    # 断点续传: 从库里最后一根 bar 继续
-    last = await pool.fetchval(
-        "SELECT max(time) FROM historical_bars WHERE symbol=$1 AND timeframe='M1'", symbol
-    )
-    cursor = last or data_start
-    now = datetime.now(timezone.utc)
+# 旧编排(run_full_sync: api 反向拉 bridge /rates)已删(2026-07-26 v7.2 收口) —
+# 下载唯一路径 = 下方 jobs 模式; 老 worker 不再被支持(全员已更新)。
 
-    while cursor < now:
-        chunk_end = min(cursor + timedelta(days=CHUNK_DAYS), now)
-        state["current"][worker] = f"{symbol} {cursor:%Y-%m-%d}"
-        resp = await client.get(f"{base}/rates", params={
-            "symbol": symbol, "timeframe": "M1",
-            "from_ts": int(cursor.timestamp()), "to_ts": int(chunk_end.timestamp()),
-        })
-        resp.raise_for_status()
-        bars = resp.json()["bars"]
-        if bars:
-            async with pool.acquire() as conn:
-                written = await _insert_bars(conn, symbol, bars)
-            state["bars_written"] += written
-        cursor = chunk_end
-    logger.info("%s synced (via %s)", symbol, worker)
-
-
-async def _worker_sync(pool: asyncpg.Pool, client: httpx.AsyncClient, host, items: list):
-    """一台 worker 串行下载分给它的品种 (bridge 内部 MT5 调用本就串行)。
-    items: [{symbol, data_start}] — 每品种用自己的起始日期"""
-    base = f"http://{host['host']}:{host['port']}"
-    for it in items:
-        try:
-            await _sync_symbol(pool, client, base, it["symbol"], it["data_start"], host["name"])
-            state["done"].append(it["symbol"])
-        except Exception as e:
-            logger.error("sync %s via %s failed: %s", it["symbol"], host["name"], e)
-            state["errors"].append(f"{it['symbol']}@{host['name']}: {e}")
-    state["current"].pop(host["name"], None)
-
-
-async def run_full_sync(pool: asyncpg.Pool):
-    """全量/增量同步: 品种轮询分摊到所有下载 worker, 并行执行。品种源 = symbols 表"""
-    hosts = await _download_hosts(pool)
-    if not hosts:
-        state["errors"].append("no enabled mt5_host with role 'download'")
-        state["running"] = False
-        return
-
-    items = await load_download_symbols(pool)
-    if not items:
-        state["errors"].append("没有开启下载的品种 — 在下载页登记品种(会向券商校验)")
-        state["running"] = False
-        return
-
-    headers = {"X-API-Key": BRIDGE_API_KEY} if BRIDGE_API_KEY else {}
-    state.update(current={}, symbols=[it["symbol"] for it in items],
-                 bars_written=0, done=[], errors=[])
-    # 轮询分摊: worker i 负责 items[i::n]
-    assignments = [(h, items[i::len(hosts)]) for i, h in enumerate(hosts)]
-    logger.info("sync across %d workers: %s", len(hosts),
-                {h["name"]: [it["symbol"] for it in its] for h, its in assignments})
-
-    async with httpx.AsyncClient(headers=headers, timeout=120) as client:
-        await asyncio.gather(*(
-            _worker_sync(pool, client, h, its)
-            for h, its in assignments if its
-        ))
-    state["running"] = False
-    state["current"] = {}
-    logger.info("full sync finished: %s bars, errors=%s", state["bars_written"], state["errors"])
-
-
-# ---------- 下载编排反转(v7.2 #3, 2026-07-26 与 Frank 定): jobs 模式 ----------
+# ---------- 下载编排(v7.2 #3, 2026-07-26 与 Frank 定): jobs 模式 ----------
 # api 只把任务写在"桌上"(jobs 表, kind=download), download worker 轮询领取 →
 # 自拉 MT5 → 分批 POST /download/bars 回来入库(同一个幂等 upsert)。
-# 旧编排(run_full_sync, api 反向拉)保留作兼容路: 没有会领任务的新 worker 时才走。
+# (收口后 jobs 是唯一下载路径)
 DOWNLOAD_KIND = "download"
 DOWNLOAD_MAX_ATTEMPTS = 5     # 同一任务被收回重派的上限, 超过 = FAILED(防死循环重试)
 DOWNLOAD_IDLE_MINUTES = 10    # RUNNING 且 N 分钟没有任何上传动作 = 怠工, 收回重派
@@ -258,12 +174,11 @@ HEARTBEAT_LEADER_LOCK = 714002  # advisory lock key: 心跳循环选主(铁律6,
 
 
 async def heartbeat_loop(pool: asyncpg.Pool):
-    """每 30s 轮询启用 worker 的 /health, 维护三态状态机 + 事件记录:
-      ONLINE   = /health healthy (bridge + MT5 + 账户全就绪)
-      DEGRADED = bridge 可达但 MT5 未就绪 (未连接/账户未登录) — 可远程下发账户, 不是离线
-      OFFLINE  = bridge 不可达超过 90s 宽限 (避免单次超时抖动)
+    """worker 在线看门狗(v7.2 收口后: api 零出站, 不再探测任何 worker)。
+    worker 每 30s 主动推心跳(hosts.push_heartbeat 收货并置 ONLINE/DEGRADED);
+    这里只做反向裁定: last_heartbeat 超 90s 宽限(3 拍没到) → OFFLINE + 事件。
 
-    选主(铁律6): 拿到 advisory lock 的副本才轮询(锁挂在专用连接上, 持有到进程死);
+    选主(铁律6): 拿到 advisory lock 的副本才裁定(锁挂在专用连接上, 持有到进程死);
     其余副本待机每 30s 重试 — 主挂了连接断开锁自动释放, 待机者接管, 无需任何协调服务。"""
     while True:
         try:
@@ -274,24 +189,24 @@ async def heartbeat_loop(pool: asyncpg.Pool):
                     continue
                 logger.info("heartbeat leader acquired (lock %s)", HEARTBEAT_LEADER_LOCK)
                 # 当主: lock_conn 挂着锁不还池(池 min2/max10, 占1条无碍), 循环体照旧用池
-                async with httpx.AsyncClient(timeout=5) as client:
-                    while True:
-                        try:
-                            hosts = await pool.fetch(
-                                "SELECT id, name, host, port, status, runner"
-                                " FROM mt5_hosts WHERE enabled")
-                            for h in hosts:
-                                try:
-                                    await _beat_one(pool, client, h)
-                                except Exception as e:  # 单台异常隔离
-                                    logger.warning("heartbeat %s error: %s", h["name"], e)
-                        except asyncpg.PostgresConnectionError:
-                            raise   # 池级连接故障 → 掉出主循环重新选主
-                        except Exception as e:
-                            logger.warning("heartbeat loop error: %s", e)
-                        if lock_conn.is_closed():   # 锁连接断 = 主身份已失效, 停止双写
-                            raise asyncpg.PostgresConnectionError("leader lock conn lost")
-                        await asyncio.sleep(30)
+                while True:
+                    try:
+                        rows = await pool.fetch(
+                            "UPDATE mt5_hosts SET status='OFFLINE', offline_at=now()"
+                            " WHERE enabled AND status <> 'OFFLINE'"
+                            "   AND (last_heartbeat IS NULL OR"
+                            "        last_heartbeat < now() - interval '90 seconds')"
+                            " RETURNING id, name")
+                        for r in rows:
+                            await log_host_event(pool, r["id"], "OFFLINE")
+                            logger.warning("worker %s OFFLINE (90s 无心跳推送)", r["name"])
+                    except asyncpg.PostgresConnectionError:
+                        raise   # 池级连接故障 → 掉出主循环重新选主
+                    except Exception as e:
+                        logger.warning("heartbeat watchdog error: %s", e)
+                    if lock_conn.is_closed():   # 锁连接断 = 主身份已失效, 停止双写
+                        raise asyncpg.PostgresConnectionError("leader lock conn lost")
+                    await asyncio.sleep(30)
         except Exception as e:
             logger.warning("heartbeat leader error (re-electing): %s", e)
             await asyncio.sleep(10)
@@ -302,8 +217,9 @@ TRADES_OVERLAP_DAYS = 3     # 稳态重叠(补迟到平仓; 去重靠主键, 多
 
 
 async def trades_window_days(pool: asyncpg.Pool, account: int) -> int:
-    """成交窗口自适应(推/拉共用): 空库回填 BACKFILL 天; 稳态 = 最新平仓缺口 + OVERLAP 天。
-    推送模式下 api 把这个数放进心跳应答, worker 下一拍按它收集 — 窗口智慧留在库侧。"""
+    """成交窗口自适应: 空库回填 BACKFILL 天; 稳态 = 最新平仓缺口 + OVERLAP 天。
+    api 把这个数放进心跳应答, worker 下一拍按它收集 — 窗口智慧留在库侧。
+    (拉取路 _persist_trades 已删, 2026-07-26 v7.2 收口: 成交唯一入口 = 心跳捎带)"""
     last = await pool.fetchval("SELECT max(exit_time) FROM trades WHERE account=$1", account)
     if last is None:
         return TRADES_BACKFILL_DAYS
@@ -311,24 +227,10 @@ async def trades_window_days(pool: asyncpg.Pool, account: int) -> int:
     return min(TRADES_BACKFILL_DAYS, max(TRADES_OVERLAP_DAYS, gap + TRADES_OVERLAP_DAYS))
 
 
-async def _persist_trades(pool: asyncpg.Pool, client: httpx.AsyncClient, h, account: int,
-                          broker: str = None) -> None:
-    """拉 bridge /trades → ingest_trades 落库(v7.2 双栈的拉侧; 推侧见 hosts.push_heartbeat)。"""
-    days = await trades_window_days(pool, account)
-    headers = {"X-API-Key": BRIDGE_API_KEY} if BRIDGE_API_KEY else {}
-    r = await client.get(f"http://{h['host']}:{h['port']}/trades",
-                         params={"days": days}, headers=headers)
-    if r.status_code != 200:   # 非200 = bridge 侧明确拒绝/异常, 带原因记日志, 下一拍重试
-        logger.warning("pull trades %s(acct %s) failed: HTTP %s %s",
-                       h["name"], account, r.status_code, r.text[:120])
-        return
-    await ingest_trades(pool, h, account, r.json().get("deals", []), broker)
-
-
 async def ingest_trades(pool: asyncpg.Pool, h, account: int, deals: list,
-                        broker: str = None) -> tuple[int, int]:
+                        broker: str | None = None) -> tuple[int, int]:
     """deals(MT5 原样) → 按 position_id 配对回合 → 幂等 upsert。返回 (落库回合数, 坏回合数)。
-    推(心跳捎带)/拉(_persist_trades)共用同一解析同一落库 — 并跑零分叉, 重复喂零副作用。
+    唯一入口 = 心跳捎带(hosts.push_heartbeat, 收口后拉取路已删); 重复喂零副作用(幂等)。
     落【全部】已平仓回合(不按 magic 过滤, 与 MT5 100% 一致): strategy_id=magic-100000(策略区间)否则 NULL;
     "只看策略单"的过滤放到对账/分析时。持仓中不入(铁律: 只存历史)。"""
     by_pos: dict = {}
@@ -454,49 +356,6 @@ async def ingest_health(pool: asyncpg.Pool, h, health: dict) -> None:
             logger.warning("ingest events %s failed: %s", h["name"], e)
 
 
-async def _beat_one(pool: asyncpg.Pool, client: httpx.AsyncClient, h) -> None:
-    """单台主机的一次心跳轮询: 探测 /health → 收货(ingest_health) → 拉 trades。
-    双栈过渡(v7.2 一期): 该机在推心跳(last_health 带 push_v)且 75s 内新鲜 →
-    跳过反向探测(推送已收货), 只保留 trades 拉取(#2 未迁);
-    推送停了(降级/回滚)超时自动回到轮询 — 自愈, 无需任何开关。"""
-    push = await pool.fetchrow(
-        "SELECT mt5_login, mt5_server, (last_health ? 'trades_v') AS trades_pushed"
-        "  FROM mt5_hosts WHERE id=$1 AND last_health ? 'push_v'"
-        "   AND last_heartbeat > now() - interval '75 seconds'", h["id"])
-    if push is not None:
-        # trades_v = 上一拍推送已捎成交且入库成功(hosts.push_heartbeat 打标) → 拉取全免;
-        # 没带成交/入库失败则不打标 → 这里回退拉取, 数据不丢(双栈#2)
-        if not push["trades_pushed"] and h["runner"] and push["mt5_login"]:
-            try:
-                await _persist_trades(pool, client, h, int(push["mt5_login"]), push["mt5_server"])
-            except Exception as e:
-                logger.warning("persist trades %s failed: %s", h["name"], e)
-        return
-    health = None
-    try:
-        r = await client.get(f"http://{h['host']}:{h['port']}/health")
-        if r.status_code == 200:
-            health = r.json()               # 完整 /health JSON, 存库供 web 展示
-    except (httpx.HTTPError, ValueError):
-        health = None
-
-    if health is not None:  # bridge 可达
-        health.pop("push_v", None)          # 轮询取回的不算推送(防旧标记粘住跳过逻辑)
-        await ingest_health(pool, h, health)
-        # 逐笔回合入库(关2对账源数据, v1.6): 拉 /trades → 按 position_id 配对回合 → upsert。
-        # 独立 try: 逐笔落库失败不能拖垮心跳状态机(它只是对账用, 不影响 worker 存活判定)
-        if h["runner"] and health.get("login"):
-            try:
-                await _persist_trades(pool, client, h, int(health["login"]), health.get("server"))
-            except Exception as e:
-                logger.warning("persist trades %s failed: %s", h["name"], e)
-    else:  # 探测失败: 超过90s宽限才判下线
-        row = await pool.fetchrow(
-            "UPDATE mt5_hosts SET status='OFFLINE', offline_at=now()"
-            " WHERE id=$1 AND status <> 'OFFLINE'"
-            "   AND (last_heartbeat IS NULL OR"
-            "        last_heartbeat < now() - interval '90 seconds')"
-            " RETURNING id", h["id"])
-        if row:
-            await log_host_event(pool, h["id"], "OFFLINE")
-            logger.warning("worker %s OFFLINE", h["name"])
+# _beat_one(反向探测 /health + 拉 /trades 的双栈轮询)已删(2026-07-26 v7.2 收口):
+# 心跳/成交唯一入口 = worker 推送(hosts.push_heartbeat → ingest_health/ingest_trades);
+# 在线判定 = heartbeat_loop 看门狗(没收到=下线)。api 对 worker 零出站。

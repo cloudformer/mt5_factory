@@ -607,6 +607,8 @@ async def reconcile_summary(request: Request):
                     "live_trades": r["live_trades"], "score": r["match_score"],
                     "paired": m.get("paired"), "union": m.get("union"),
                     "count_rate": m.get("count_match_rate"), "dir_rate": m.get("dir_match_rate"),
+                    # 根因参考(记录不评判): 去级联笔数率 + 级联缺单数(重算后才有值)
+                    "root_rate": m.get("decascaded_count_rate"), "cascade": m.get("cascade_gaps"),
                     "q10": m.get("q10_pass"), "net_bias_pct": m.get("net_bias_pct"),
                     "updated_at": r["updated_at"]})
     return {"strategies": out}
@@ -825,6 +827,14 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
             p["gap"] = "bt_holding"      # 实盘有回测无: 重放正被持仓占着(级联)
         else:
             p["gap"] = "not_triggered"   # 重放已覆盖该时间、空仓、仍无信号 = 真差异
+    # 根因参考率(2026-07-26 与 Frank 定, 记录不评判 — 综合分与达标一分不动):
+    # 级联缺单(占位)是同一根因的下游症状, 从并集折掉后 = "去级联笔数率",
+    # 一眼看出"70% 里其实只有几次真分歧"。尺子从严不变, 这只是参考读数。
+    cascade = sum(1 for p in pairs if p.get("gap") in ("live_holding", "bt_holding"))
+    metrics["cascade_gaps"] = cascade
+    if cascade and metrics.get("union"):
+        metrics["decascaded_count_rate"] = round(
+            metrics["paired"] / max(1, metrics["union"] - cascade), 3)
     def _fmt(ts):
         return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%m-%d %H:%M")
     win_view = [{  # 每段窗口 + 两边笔数(逐笔对照的分组表头); 上限100段防撑爆
@@ -922,56 +932,9 @@ async def trades_local(request: Request, account: Optional[int] = None,
     return {"accounts": accounts, "trades": [dict(r) for r in rows]}
 
 
-@router.get("/trades/consistency")
-async def trades_consistency(request: Request, account: int, from_time: datetime,
-                             to_time: Optional[datetime] = None, include_test: bool = False):
-    """按需一致性核对: 本时间段 库(trades)笔数 vs 该账号 worker 实时 MT5 已平仓笔数。
-    两数相等 = 一致(库可信); 不等 = 库疑似漏存/多存。worker 离线则无法实时核对。
-    include_test 两边同口径生效(默认都过滤下单测试单) — 单边过滤会造成假不一致。"""
-    pool = request.app.state.pool
-    # ① 归一时区: web 可能传 naive(datetime.now().isoformat()无tz) → 与 aware 运算会 TypeError。
-    #   trades.exit_time 存的是券商时间(按 UTC 标), 故 naive 一律按 UTC 处理。
-    if from_time.tzinfo is None:
-        from_time = from_time.replace(tzinfo=timezone.utc)
-    to_time = to_time or datetime.now(timezone.utc)
-    if to_time.tzinfo is None:
-        to_time = to_time.replace(tzinfo=timezone.utc)
-    db = None
-    try:  # ② 兜底: 任何异常都返回优雅结果, 绝不 500(核对是辅助功能, 不该拖垮页面)
-        db_q = "SELECT count(*) FROM trades WHERE account=$1 AND exit_time>=$2 AND exit_time<=$3"
-        if not include_test:
-            db_q += f" AND magic <> {TEST_MAGIC}"
-        db = await pool.fetchval(db_q, account, from_time, to_time)
-        host = await pool.fetchrow(
-            "SELECT host, port FROM mt5_hosts WHERE mt5_login=$1 AND enabled", account)
-        if host is None:
-            return {"account": account, "db": db, "mt5": None, "consistent": None,
-                    "note": "该账号当前无在线 worker 登录, 无法实时核对(库数据仍在)"}
-        ft, tt = from_time.timestamp(), to_time.timestamp()
-        days = max(1, int((datetime.now(timezone.utc) - from_time).total_seconds() // 86400) + 2)
-        headers = ({"X-API-Key": os.getenv("BRIDGE_API_KEY", "")}
-                   if os.getenv("BRIDGE_API_KEY") else {})
-        async with httpx.AsyncClient(timeout=15, headers=headers) as client:
-            r = await client.get(f"http://{host['host']}:{host['port']}/trades",
-                                 params={"days": days})
-        by_pos: dict = {}
-        for d in r.json().get("deals", []):
-            pid = d.get("position_id")
-            if pid is not None:
-                by_pos.setdefault(pid, []).append(d)
-        mt5 = 0
-        for legs in by_pos.values():
-            ins = next((d for d in legs if d.get("entry") == "in"), None)
-            out = next((d for d in legs if d.get("entry") == "out"), None)
-            if ins and out and ins.get("type") in ("buy", "sell") and ft <= out["time"] <= tt:
-                if not include_test and ins.get("magic") == TEST_MAGIC:  # 与库侧同口径过滤
-                    continue
-                mt5 += 1
-        return {"account": account, "db": db, "mt5": mt5, "consistent": db == mt5}
-    except Exception as e:
-        logger.warning("trades consistency %s failed: %s", account, e)
-        return {"account": account, "db": db, "mt5": None, "consistent": None,
-                "note": f"核对暂不可用(worker/bridge 不可达或出错): {e}"}
+# /trades/consistency(按需拉 bridge 实时核对)已删(2026-07-26 v7.2 收口, api 零出站):
+# 一致性由常驻哨兵接管 — 每次成交推送入库后 D2 自检, 缺一笔即 trades_mismatch 事件
+# (Workers 页详情可见), 比"手动点核对"更早更全。人工兜底 = worker 本机 :8020/trades?fmt=html。
 
 
 # ---------- 策略分析·维度二实例级(期1): 单策略回测胜负归因 (v1.4) ----------
