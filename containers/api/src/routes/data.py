@@ -5,19 +5,103 @@
 品种清单/起始日期不在这里 — 品种唯一数据源是 symbols 表(见 routes/symbols.py)。
 扩展点: 新配置项 = CONFIG_KEYS 加 key + 校验分支 + postgres/schema/ 新增幂等种子 SQL。
 """
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import sync
+from src.services import regime, sync
+
+logger = logging.getLogger("data")
 
 router = APIRouter()
+
+
+# ---------- 市场状态 Regime(v2.5 阶段一: 尺子先行, 只读展示, 无任何选拔逻辑) ----------
+@router.get("/regime/{symbol}")
+async def regime_timeline(symbol: str, request: Request, days: int = 90, full: int = 0):
+    """品种的 regime 时间线 + 四标准统计(页面即记分卡)。读时自愈补算(无定时任务)。
+    days=演变表返回最近 N 天(色带固定给最近365天); full=1 附算区分度(标准③,
+    要重扫 M1 聚合 D1, 几秒~几十秒, 口径评定时手动点, 平时不算)。"""
+    name = symbol.strip().upper()
+    pool = request.app.state.pool
+    if not await pool.fetchval("SELECT 1 FROM symbols WHERE symbol=$1", name):
+        raise HTTPException(status_code=404, detail=f"品种 {name} 未登记")
+    params = await regime.load_params(pool)
+    err = await regime.ensure_timeline(pool, name)
+    rows = await pool.fetch(
+        "SELECT date, regime FROM regime_timeline WHERE symbol=$1 ORDER BY date", name)
+    if not rows:
+        return {"symbol": name, "error": err or "无数据", "rows": [],
+                "stats": {}, "params": params}
+    regs = [r["regime"] for r in rows]
+    out = {"symbol": name, "error": err, "params": params,
+           "stats": regime.stats(regs),
+           "current": {"date": rows[-1]["date"].isoformat(), "regime": rows[-1]["regime"]},
+           # 色带(最近365天)与演变表(最近 days 天)同源, 前端各取所需
+           "rows": [{"date": r["date"].isoformat(), "regime": r["regime"]}
+                    for r in rows[-max(days, 365):]]}
+    if full:  # 标准③区分度: 高/低波格日均真实波幅比 + 长趋势A/B次日收益t值(中性指标)
+        d1 = await regime._d1(pool, name, regime.warmup_days(params))
+        if d1 is not None:
+            import numpy as np
+            dates, h, low, c = d1
+            dims, start = regime.compute_regimes(h, low, c, params)
+            if dims is not None and len(dates) - start > 300:
+                tr = (h[start:] - low[start:]) / c[start:] * 100
+                va = dims[2][start:] == "A"
+                la = dims[0][start:] == "A"
+                ret = np.concatenate((np.diff(np.log(c[start:])), [np.nan]))
+                ra, rb = ret[la & ~np.isnan(ret)], ret[~la & ~np.isnan(ret)]
+                se = (np.sqrt(ra.var(ddof=1) / len(ra) + rb.var(ddof=1) / len(rb))
+                      if len(ra) > 30 and len(rb) > 30 else 0)
+                out["distinct"] = {
+                    "vol_ratio": round(float(tr[va].mean() / tr[~va].mean()), 2)
+                                 if va.any() and (~va).any() else None,
+                    "trend_t": round(float((ra.mean() - rb.mean()) / se), 1) if se else None}
+    return out
+
+
+@router.post("/regime/params/reset")
+async def regime_params_reset(request: Request):
+    """口径恢复默认(SMA200/SMA20/ATR14/252/0.5) — 唯一权威 = services/regime.DEFAULT_PARAMS
+    (与 schema/048 种子同值)。只改配置不重建 — 重建仍是 Regime 页的显式动作。"""
+    await request.app.state.pool.execute(
+        "UPDATE config SET value=$1, updated_at=now() WHERE key='regime_params'",
+        regime.DEFAULT_PARAMS)
+    return {"params": regime.DEFAULT_PARAMS}
+
+
+@router.post("/regime/rebuild")
+async def regime_rebuild(request: Request, symbol: str | None = None):
+    """按当前口径(config regime_params)重算时间线 — 覆盖更新不删表
+    (同主键 UPSERT + 修剪新暖机起点前的头部残留)。
+    symbol=某品种只重建它(Regime 页按钮, 2026-07-27 Frank 定: 重建是显式动作);
+    不传=全部下载品种。逐品种给结果, 失败原因如实带回。"""
+    pool = request.app.state.pool
+    params = await regime.load_params(pool)
+    if symbol:
+        symbols = [symbol.strip().upper()]
+    else:
+        symbols = [r["symbol"] for r in await pool.fetch(
+            "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
+    results = {}
+    for s in symbols:
+        try:
+            results[s] = await regime.rebuild_symbol(pool, s, params) or "ok"
+        except Exception as e:   # 单品种失败不挡整批, 原因如实回
+            logger.warning("regime rebuild %s failed: %s: %s", s, type(e).__name__, e)
+            results[s] = f"失败: {type(e).__name__}: {e}"
+    return {"params": params, "results": results,
+            "ok": sum(1 for v in results.values() if v == "ok"), "total": len(symbols)}
 
 CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
                "ranking_templates", "backtest_oos_split", "mt5_trades_days",
                "runtime_write_minutes", "runtime_gap_minutes", "cross_symbol_gate",
                "recon_pair_tol_minutes", "volume_presets", "volume_default",
                "trail_default",   # 移动止损全局默认(v0.9): null=关; 结构见 strategy_core/trailing.py
-               "worker_params"}   # worker 上报节奏/批量(v7.2, schema/046): announce 应答下发
+               "worker_params",   # worker 上报节奏/批量(v7.2, schema/046): announce 应答下发
+               "regime_params"}   # Regime 口径(v2.5, schema/048): 评定期配置页可换, 改完重建时间线
 
 # worker_params 各项允许区间(用户按网络自调, 区间防脚枪):
 # heartbeat 上限 60 = 轮询侧"新鲜推送"窗口 75s 的安全边界(推得比窗口慢会推/拉来回抖)
@@ -182,6 +266,26 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
             v = req.value.get(k)
             if not isinstance(v, int) or not lo <= v <= hi:
                 raise HTTPException(status_code=400, detail=f"worker_params.{k} 须为 {lo}~{hi} 的整数")
+    if key == "regime_params":  # Regime 口径: 键完整 + 均线格式 + 数值区间(services/regime 消费)
+        want = {"long_ma", "short_ma", "atr_n", "vol_win", "vol_q"}
+        if not isinstance(req.value, dict) or set(req.value) != want:
+            raise HTTPException(status_code=400, detail=f"regime_params 键必须恰好是 {sorted(want)}")
+        try:   # 周期区间与配置页 number 框一致(前后端同一边界, 不给幻想):
+            n_long = regime.parse_ma(req.value["long_ma"])[1]    # 长趋势 50~500
+            n_short = regime.parse_ma(req.value["short_ma"])[1]  # 短趋势 5~100
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if not 20 <= n_long <= 500:   # 下限20: 短历史调试用(正式评定用200级)
+            raise HTTPException(status_code=400, detail="长趋势均线周期须为 20~500 交易日")
+        if not 5 <= n_short <= 100:
+            raise HTTPException(status_code=400, detail="短趋势均线周期须为 5~100 交易日")
+        if not isinstance(req.value["atr_n"], int) or not 2 <= req.value["atr_n"] <= 100:
+            raise HTTPException(status_code=400, detail="atr_n 须为 2~100 的整数")
+        if not isinstance(req.value["vol_win"], int) or not 20 <= req.value["vol_win"] <= 1000:
+            raise HTTPException(status_code=400, detail="vol_win 须为 20~1000 的整数(交易日)")
+        q = req.value["vol_q"]
+        if not isinstance(q, (int, float)) or not 0.1 <= q <= 0.9:
+            raise HTTPException(status_code=400, detail="vol_q 须为 0.1~0.9(高波阈值分位)")
     if key == "recon_pair_tol_minutes":  # 对账配对容差: 回测与实盘时间窗口差距(分钟)
         if not isinstance(req.value, int) or not 1 <= req.value <= 120:
             raise HTTPException(status_code=400,

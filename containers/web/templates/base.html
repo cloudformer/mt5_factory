@@ -29,6 +29,7 @@
        {% if ep.startswith('datasync.') %}class="active"{% endif %}>数据 ▾</a>
     <div class="navmenu-items">
       <a href="{{ url_for('datasync.index') }}" {% if ep == 'datasync.index' %}class="active"{% endif %}>下载</a>
+      <a href="{{ url_for('datasync.regime') }}" {% if ep == 'datasync.regime' %}class="active"{% endif %}>市场状态 Regime</a>
     </div>
   </div>
   {# 策略组: 造和跑(生成/回测/排名) #}

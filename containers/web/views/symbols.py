@@ -26,7 +26,7 @@ def backtest_params():
     """配置·策略参数: 生成收货上限 + 成本模型 + 回测单批上限 + OOS 切分"""
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
     runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
-    generate_limit, worker_params = 500, {}
+    generate_limit, worker_params, regime_params = 500, {}, {}
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空(铁律欠账4)
     volume_default = None
     try:
@@ -43,6 +43,7 @@ def backtest_params():
         gate = cfg.get("cross_symbol_gate") or {}
         recon_tol = cfg.get("recon_pair_tol_minutes", 2)
         worker_params = cfg.get("worker_params") or {}
+        regime_params = cfg.get("regime_params") or {}
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
@@ -50,7 +51,8 @@ def backtest_params():
                            volume_default=volume_default,
                            oos_split=oos_split, mt5_days=mt5_days,
                            runtime_write=runtime_write, runtime_gap=runtime_gap, gate=gate,
-                           recon_tol=recon_tol, worker_params=worker_params)
+                           recon_tol=recon_tol, worker_params=worker_params,
+                           regime_params=regime_params)
 
 
 @bp.post("/config/volume-presets")
@@ -92,6 +94,38 @@ def save_worker_params():
         flash("worker 参数已保存 — 各 worker 下次报到(约1分钟)自动领取生效", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
         flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
+
+
+@bp.post("/config/regime-params")
+def save_regime_params():
+    """保存 Regime 口径(config: regime_params) — 只存不重建(2026-07-27 Frank 定):
+    重建是显式动作, 去「数据 → 市场状态 Regime」页点「重建」, 想重建哪个货币点哪个。"""
+    try:
+        # 表单是 下拉(类型)+数字(周期) — 边界显式化; 存储格式仍是 'sma200' 字符串
+        api.put("/config/regime_params", {"value": {
+            "long_ma": request.form.get("long_kind", "sma") + request.form.get("long_n", "200"),
+            "short_ma": request.form.get("short_kind", "sma") + request.form.get("short_n", "20"),
+            "atr_n": int(request.form.get("atr_n", 14)),
+            "vol_win": int(request.form.get("vol_win", 252)),
+            "vol_q": float(request.form.get("vol_q", 0.5)),
+        }})
+        flash("Regime 口径已保存 — 去「数据 → 市场状态 Regime」点「按当前口径重建」生效并看新打分", "ok")
+    except (api.ApiError, ValueError) as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
+
+
+@bp.post("/config/regime-params-reset")
+def reset_regime_params():
+    """Regime 口径一键恢复默认 — 默认值唯一权威在 api(regime.DEFAULT_PARAMS), web 不复制"""
+    try:
+        r = api.post("/regime/params/reset")
+        p = r["params"]
+        flash(f"已恢复默认口径: {p['long_ma']}/{p['short_ma']}/ATR{p['atr_n']}"
+              f"/{p['vol_win']}日/{p['vol_q']}分位 — 生效需去 Regime 页点重建", "ok")
+    except api.ApiError as e:
+        flash(f"恢复失败: {e}", "error")
     return redirect(url_for("symbols.backtest_params"))
 
 

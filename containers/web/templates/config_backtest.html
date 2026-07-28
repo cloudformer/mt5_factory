@@ -85,6 +85,41 @@
 </section>
 
 <section>
+  <h2>Regime 口径(v2.5 评定期 — 只存不重建; 重建去 Regime 页显式点)</h2>
+  <form method="post" action="{{ url_for('symbols.save_regime_params') }}" class="inline"
+        onsubmit="return confirm('保存 Regime 口径?(只保存 — 生效需去「数据→市场状态Regime」页点重建)\n\n纪律: 禁止用策略盈利调口径(循环论证); 评定完成后选定值冻结。')">
+    {# 边界显式化(2026-07-27 Frank 定): 类型=下拉只有两个选项, 数值=number框 min/max 写在脸上 — 不给幻想 #}
+    {% set lm = regime_params.get('long_ma', 'sma200') %}{% set sm = regime_params.get('short_ma', 'sma20') %}
+    <label>长趋势均线
+      <select name="long_kind">
+        <option value="sma" {% if lm.startswith('sma') %}selected{% endif %}>SMA</option>
+        <option value="ema" {% if lm.startswith('ema') %}selected{% endif %}>EMA</option>
+      </select>
+      <input name="long_n" type="number" min="20" max="500" value="{{ lm[3:] }}" style="width:4.5em"
+        title="周期 20~500 交易日(小值仅短历史调试用, 正式评定用 200 级); D1 收盘 vs 此均线 → 牛/熊"></label>
+    <label>短趋势均线
+      <select name="short_kind">
+        <option value="sma" {% if sm.startswith('sma') %}selected{% endif %}>SMA</option>
+        <option value="ema" {% if sm.startswith('ema') %}selected{% endif %}>EMA</option>
+      </select>
+      <input name="short_n" type="number" min="5" max="100" value="{{ sm[3:] }}" style="width:4em"
+        title="周期 5~100 交易日; 与长趋势一致率≥90%时按 v2.5 文档换不共享收盘价的定义"></label>
+    <label>ATR周期 <input name="atr_n" type="number" min="2" max="100" value="{{ regime_params.get('atr_n', 14) }}" style="width:3.5em"
+        title="波动维的 ATR 周期, 2~100"></label>
+    <label>波动回看窗(日) <input name="vol_win" type="number" min="20" max="1000" value="{{ regime_params.get('vol_win', 252) }}" style="width:4.5em"
+        title="ATR 与过去 N 个交易日的分位阈值比较, 20~1000(小值仅短历史调试用); 252≈一年"></label>
+    <label>高波分位 <input name="vol_q" type="number" min="0.1" max="0.9" step="0.01" value="{{ '%g' % regime_params.get('vol_q', 0.5) }}" style="width:4em"
+        title="0.1~0.9; 0.5=中位(高低各半), 0.67=前1/3算高波"></label>
+    <button class="small">保存口径</button>
+    <span class="muted">评定期专用; 保存后去「数据 → 市场状态 Regime」点重建、看记分卡。禁止用策略盈利调口径</span>
+  </form>
+  <form method="post" action="{{ url_for('symbols.reset_regime_params') }}" class="inline"
+        onsubmit="return confirm('恢复默认口径 SMA200 / SMA20 / ATR14 / 252日 / 0.5分位?(只改配置, 生效需去 Regime 页点重建)')">
+    <button class="small">恢复默认(SMA200/SMA20/ATR14/252/0.5)</button>
+  </form>
+</section>
+
+<section>
   <h2>worker 参数(上报节奏/批量 — 按你的网络自调)</h2>
   <form method="post" action="{{ url_for('symbols.save_worker_params') }}" class="inline">
     <label>心跳上报(秒) <input name="heartbeat_seconds" value="{{ worker_params.get('heartbeat_seconds', 30) }}" size="3"

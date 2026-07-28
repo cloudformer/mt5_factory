@@ -131,6 +131,20 @@ def set_volume(strategy_id: int):
     return redirect(request.referrer or url_for("strategies.index"))
 
 
+def _regime_lines(ana) -> dict:
+    """八格战绩显示行(v2.5 第五步): {格子: [行1, 行2]} — 喂给 m.regime_grid(与 Regime 页同一张图)。
+    格内笔数 <20 = 样本不足未证实(灰显), 与全局小样本纪律一致"""
+    lines = {}
+    for cell, v in ((ana or {}).get("regime_cells") or {}).items():
+        if v["trades"] < 20:
+            lines[cell] = [f'<span class="muted">{v["trades"]} 笔 · 未证实(&lt;20)</span>']
+        else:
+            net_cls = "pos" if v["net"] >= 0 else "neg"
+            lines[cell] = [f'{v["trades"]} 笔 · 胜 {v["win_rate"]}%',
+                           f'<span class="{net_cls}">{v["net"]:+g} 点</span> · PF {v["pf"] if v["pf"] is not None else "∞"}']
+    return lines
+
+
 @bp.get("/analysis")
 def analysis():
     """策略分析: 关2对账(输入策略id → 回测 vs 实盘 match%); v1.4 更多归因维度待建"""
@@ -148,7 +162,8 @@ def analysis():
             ana = api.get(f"/analysis/{sid}", **({"symbol": a_symbol} if a_symbol else {}))
         except api.ApiError as e:
             flash(f"分析失败: {e}", "error")
-    return render_template("strategy_analysis.html", recon=recon, ana=ana, sid=sid)
+    return render_template("strategy_analysis.html", recon=recon, ana=ana, sid=sid,
+                           regime_lines=_regime_lines(ana))
 
 
 @bp.post("/<int:strategy_id>/set_visibility")
@@ -355,7 +370,8 @@ def analysis_fragment():
             ana = api.get(f"/analysis/{sid}", **({"symbol": a_symbol} if a_symbol else {}))
         except api.ApiError:
             ana = None
-    return render_template("_attribution_body.html", ana=ana)
+    return render_template("_attribution_body.html", ana=ana,
+                           regime_lines=_regime_lines(ana))
 
 
 @bp.get("/<int:strategy_id>/report.json")

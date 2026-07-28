@@ -241,6 +241,18 @@ a.btn:hover { background: #d9ecf9; }
 .neg { color: var(--err-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .warn { color: var(--warn-fg); font-weight: 600; }  /* 正文级警示(琥珀): 如对账占位级联归因 */
 
+/* Regime 八格象限(v2.5): 按波动分左右两屏, 每屏 2×2(行=长趋势 列=短趋势);
+   今天所在格=实线蓝圈, 海明距离1邻格=虚线圈 — 邻域概念直接画在图上 */
+.regime-grids { display: flex; gap: 20px; flex-wrap: wrap; }
+.regime-quad-title { font-weight: 600; margin: 0 0 6px; }
+.regime-quad { display: grid; grid-template-columns: auto 1fr 1fr; gap: 6px; align-items: stretch; }
+.regime-axis { font-size: 12px; color: var(--muted); text-align: center; align-self: end; padding: 0 4px; }
+.regime-cell { border: 1px solid #e2e8f0; border-left: 5px solid var(--cell); border-radius: 6px;
+               padding: 6px 10px; min-width: 170px; background: color-mix(in srgb, var(--cell) 7%, #fff); }
+.regime-cell.cur { outline: 2px solid #2563eb; outline-offset: 1px; }
+.regime-cell.nb  { outline: 2px dashed #93c5fd; outline-offset: 1px; }
+.regime-cell-line { font-size: 12.5px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+
 /* ---------- 表单 ---------- */
 form.inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 label { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }

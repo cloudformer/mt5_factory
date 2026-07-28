@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('市场状态 Regime', 'v2.5 阶段一 · 尺子先行只看不选: 三维八格(长趋势/短趋势/波动), 每日一格, 用前一日收盘判定(无未来函数)。口径未冻结(评定期): 配置页改口径 → 本页点重建 → 看新打分') }}
+
+{# 配色/中文名唯一定义在 _macros(m.regime_color / m.regime_cn): AAA绿→BBB红 八级渐变 #}
+
+{# 工具区: 上行=看什么(品种/窗口) + 口径徽章; 下行=做什么(重建/评定动作) — 看与动分离 #}
+<section>
+  <form method="get" class="filter-panel" style="margin:0">
+    <div class="filter-row" style="align-items:center">
+      <label>品种
+        <select name="symbol" data-autosubmit>
+          {% for s in symbols %}<option {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select></label>
+      <label>演变表
+        <select name="days" data-autosubmit>
+          {% for d in [30, 90, 180, 365] %}<option value="{{ d }}" {% if d == days %}selected{% endif %}>近{{ d }}天</option>{% endfor %}
+        </select></label>
+      {% if data and data.params %}
+      <span class="op-sep">│</span>
+      <span class="muted">当前口径</span>
+      <span class="badge" title="长趋势均线 / 短趋势均线(D1 收盘在其上=牛)">{{ data.params.long_ma | upper }} / {{ data.params.short_ma | upper }}</span>
+      <span class="badge" title="波动维: ATR 周期 vs 回看窗的分位阈值">ATR{{ data.params.atr_n }} · {{ data.params.vol_win }}日 · {{ (data.params.vol_q * 100) | round | int }}分位</span>
+      <a class="small" href="{{ url_for('symbols.backtest_params') }}" title="口径在配置页统一维护(评定期专用)">改口径</a>
+      {% endif %}
+    </div>
+  </form>
+  <div style="margin:8px 0 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    {# 重建 = 显式动作(2026-07-27 Frank 定): 配置页只存口径, 这里点谁重建谁 #}
+    <form method="post" action="{{ url_for('datasync.regime_rebuild') }}" class="inline"
+          onsubmit="return confirm('按当前口径重建 {{ symbol }} 的时间线(覆盖更新, 几秒)?')">
+      <input type="hidden" name="symbol" value="{{ symbol }}">
+      <button class="small">重建 {{ symbol }}</button>
+    </form>
+    <form method="post" action="{{ url_for('datasync.regime_rebuild') }}" class="inline"
+          onsubmit="return confirm('重建全部下载品种的时间线(每品种几秒, 串行)?')">
+      <input type="hidden" name="all" value="1">
+      <input type="hidden" name="symbol" value="{{ symbol }}">
+      <button class="small">重建全部</button>
+    </form>
+    {% if not full %}
+    <a class="small" href="{{ url_for('datasync.regime', symbol=symbol, days=days, full=1) }}"
+       title="记分卡标准③: 高/低波格波幅比 + 趋势A/B收益t值 — 要重扫全量M1(几秒~几十秒), 评定时手动点">算区分度③</a>
+    {% endif %}
+    <span class="muted">改完口径先「重建」再看下方记分卡 · 重建=覆盖更新不删数据</span>
+  </div>
+</section>
+
+{% if data and data.error %}<div class="flash error">{{ data.error }}</div>{% endif %}
+{% if data and data.rows %}
+{% set st = data.stats %}
+
+{# ===== 当前状态(横排一条, 2026-07-28 Frank 定: 箭头代字, 定义进悬停不占版面) ===== #}
+<section>
+  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:15px">
+    <span style="display:inline-block;width:16px;height:16px;border-radius:3px;background:{{ m.regime_color(data.current.regime) }}"></span>
+    <b class="mono" style="font-size:19px">{{ symbol }} · {{ data.current.regime }}</b>
+    <span title="长趋势: D1 收盘 vs {{ data.params.long_ma | upper }}">长 <b class="{{ 'pos' if data.current.regime[0] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[0] == 'A' else '↓' }}</b></span>
+    <span title="短趋势: D1 收盘 vs {{ data.params.short_ma | upper }}">短 <b class="{{ 'pos' if data.current.regime[1] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[1] == 'A' else '↓' }}</b></span>
+    <span title="波动: ATR{{ data.params.atr_n }} vs {{ data.params.vol_win }}日{{ (data.params.vol_q * 100) | round | int }}分位">波 <b class="{{ 'pos' if data.current.regime[2] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[2] == 'A' else '↓' }}</b></span>
+    <span class="muted">已持续 <b>{{ st.current_run_days }}</b> 交易日 · {{ data.current.date }} · 由前一日收盘判定</span>
+  </div>
+</section>
+
+{# ===== 近一年色带(GitHub 贡献图式) ===== #}
+<section>
+  <h2>近一年演变色带 <span class="muted" style="font-weight:normal">一格一天 · 悬停看日期</span></h2>
+  <div style="display:flex;flex-wrap:wrap;gap:2px;max-width:100%">
+    {% for r in data.rows[-365:] %}
+    <span title="{{ r.date }}  {{ r.regime }}({{ m.regime_cn(r.regime) }})"
+          style="width:9px;height:22px;border-radius:2px;background:{{ m.regime_color(r.regime) }}"></span>
+    {% endfor %}
+  </div>
+  <p class="muted" style="margin-top:6px">
+    {% for k in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
+    <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ m.regime_color(k) }};vertical-align:-1px"></span>
+    {{ k }} {{ m.regime_cn(k) }}　{% endfor %}
+  </p>
+</section>
+
+{# ===== 演变表 ===== #}
+<section>
+  <h2>演变明细(近 {{ days }} 天)</h2>
+  <table class="dense">
+    <tr><th>日期</th><th>格子</th><th title="长趋势: A=↑牛 B=↓熊">长</th><th title="短趋势">短</th><th title="波动: A=↑高 B=↓低">波</th><th>变化</th></tr>
+    {% set rows_desc = data.rows[-days:] | reverse | list %}
+    {% for r in rows_desc %}
+    {% set prev = rows_desc[loop.index] if loop.index < rows_desc | length else none %}
+    <tr>
+      <td class="mono">{{ r.date }}</td>
+      <td class="mono"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ m.regime_color(r.regime) }};vertical-align:-1px"></span>
+        <b>{{ r.regime }}</b></td>
+      <td class="{{ 'pos' if r.regime[0] == 'A' else 'neg' }}">{{ '↑' if r.regime[0] == 'A' else '↓' }}</td>
+      <td class="{{ 'pos' if r.regime[1] == 'A' else 'neg' }}">{{ '↑' if r.regime[1] == 'A' else '↓' }}</td>
+      <td class="{{ 'pos' if r.regime[2] == 'A' else 'neg' }}">{{ '↑' if r.regime[2] == 'A' else '↓' }}</td>
+      <td class="muted">
+        {%- if prev and prev.regime != r.regime -%}
+          {%- set names = ['长', '短', '波'] -%}
+          {%- for i in range(3) %}{% if prev.regime[i] != r.regime[i] %}<span class="warn">{{ names[i] }}翻转</span> {% endif %}{% endfor -%}
+        {%- elif prev -%}—{%- else -%}<span class="muted">(表尾)</span>{%- endif -%}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+{# ===== 记分卡(v2.5 口径评定四标准 · 页面即记分卡) ===== #}
+<section>
+  <h2>口径记分卡 <span class="muted" style="font-weight:normal">全历史 {{ st.days }} 交易日(约 {{ st.years }} 年) · 门槛为初始参考值, 见 v2.5 文档</span></h2>
+  <table class="dense">
+    <tr><th>标准</th><th>指标</th><th>实测</th><th>参考门槛</th><th>初判</th></tr>
+    <tr><td rowspan="4">① 持续性</td>
+        <td>长趋势中位格龄</td><td class="mono">{{ st.dwell.long }} 天</td><td class="muted">≥20</td>
+        <td>{{ '✅' if st.dwell.long >= 20 else '❌' }}</td></tr>
+    <tr><td>短趋势中位格龄</td><td class="mono">{{ st.dwell.short }} 天</td><td class="muted">≥5</td>
+        <td>{{ '✅' if st.dwell.short >= 5 else '❌' }}</td></tr>
+    <tr><td>波动中位格龄</td><td class="mono">{{ st.dwell.vol }} 天</td><td class="muted">≥5</td>
+        <td>{{ '✅' if st.dwell.vol >= 5 else '❌' }}</td></tr>
+    <tr><td>组合格中位 / 年翻转</td><td class="mono">{{ st.combo_median }} 天 / {{ st.flips_per_year }} 次</td>
+        <td class="muted">≥3 / ≤60</td>
+        <td>{{ '✅' if st.combo_median >= 3 and st.flips_per_year <= 60 else '❌' }}</td></tr>
+    <tr><td>② 覆盖均衡</td><td>最稀格 / 最密格</td>
+        <td class="mono">{{ st.cov_min }}% / {{ st.cov_max }}%</td><td class="muted">≥5% / ≤35%</td>
+        <td>{{ '✅' if st.cov_min >= 5 and st.cov_max <= 35 else '❌' }}</td></tr>
+    <tr><td>③ 区分度</td><td>高/低波幅比 · 趋势A/B收益t值</td>
+        <td class="mono">{% if data.distinct %}{{ data.distinct.vol_ratio }}× · t={{ data.distinct.trend_t }}{% else %}<span class="muted">未算(点上方「算区分度③」)</span>{% endif %}</td>
+        <td class="muted">≥1.5× · |t|≥2</td>
+        <td>{% if data.distinct and data.distinct.vol_ratio %}{{ '✅' if data.distinct.vol_ratio >= 1.5 and data.distinct.trend_t is not none and (data.distinct.trend_t | abs) >= 2 else '❌' }}{% else %}—{% endif %}</td></tr>
+    <tr><td>④ 维度不冗余</td><td>两维最大一致率 {{ st.agree }}</td>
+        <td class="mono">{{ st.agree_max }}%</td><td class="muted">≤75%(≥90%=换定义)</td>
+        <td>{{ '✅' if st.agree_max <= 75 else ('⚠' if st.agree_max < 90 else '❌') }}</td></tr>
+  </table>
+</section>
+
+{# ===== 八格象限(v2.5 象限设计: 与第二步"策略×格子"同一张图, 那边装胜率净点) ===== #}
+<section>
+  <h2>八格象限(全历史覆盖) <span class="muted" style="font-weight:normal">蓝实线圈=今天 · 蓝虚线圈=一位之差的邻格(市场渐变最可能去的方向) · 红字=稀格(&lt;5%)</span></h2>
+  {{ m.regime_grid(cell_lines, current=data.current.regime, neighbors=neighbors) }}
+  <p class="muted" style="margin-top:8px">读法: 左右两屏只差「波动」一位 — 同位置左右互为邻格;
+    屏内上下差「长趋势」、左右差「短趋势」。今天 {{ data.current.regime }}({{ m.regime_cn(data.current.regime) }}),
+    渐变一次只翻一位, 所以下一步大概率落在三个虚线格之一。判读与替换后手见 v2.5 文档。</p>
+</section>
+{% elif data %}
+<p class="muted">暂无数据。</p>
+{% endif %}
+{% endblock %}

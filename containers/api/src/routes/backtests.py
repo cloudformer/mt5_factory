@@ -12,12 +12,11 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import httpx
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import backtest, identity, jobs, usage
+from src.services import backtest, identity, jobs, regime, usage
 
 logger = logging.getLogger("backtests")
 router = APIRouter()
@@ -1020,6 +1019,40 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
         "dir": t.get("dir"), "entry_price": t.get("entry"), "exit_price": t.get("exit"),
         "points": t.get("points"), "reason": t.get("reason"),
     } for t in st[:1000]]
+    # Regime 归因(v2.5 第五步, 2026-07-28 与 Frank 定): 交易只存事实, 格子现拼 —
+    # 逐笔入场日期 JOIN regime_timeline → 每笔当天格子 + 八格汇总。
+    # 改口径重建时间线后这里自动跟着变新(零垃圾); 回测引擎/存储零改动。
+    try:
+        await regime.ensure_timeline(pool, sym)   # 读时自愈; 历史不足等原因不挡归因页
+    except Exception as e:
+        logger.warning("regime ensure %s failed: %s", sym, e)
+    tl = {r["date"]: r["regime"] for r in await pool.fetch(
+        "SELECT date, regime FROM regime_timeline WHERE symbol=$1", sym)}
+    def _cell(t):
+        return tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
+    for t, view in zip(st[:1000], out["trades"]):   # 明细行带当天格子(顺序一致)
+        view["regime"] = _cell(t)
+    cells, unlabeled = {}, 0                        # 汇总用全部逐笔(不止显示的前1000)
+    for t in st:
+        cell = _cell(t)
+        if cell is None:
+            unlabeled += 1
+            continue
+        c = cells.setdefault(cell, {"trades": 0, "wins": 0, "net": 0.0, "gp": 0.0, "gl": 0.0})
+        p = float(t.get("points") or 0)
+        c["trades"] += 1
+        c["wins"] += 1 if p > 0 else 0
+        c["net"] += p
+        if p > 0:
+            c["gp"] += p
+        else:
+            c["gl"] -= p
+    out["regime_cells"] = {
+        k: {"trades": v["trades"], "win_rate": round(v["wins"] / v["trades"] * 100, 1),
+            "net": round(v["net"], 1),
+            "pf": round(v["gp"] / v["gl"], 2) if v["gl"] > 0 else None}
+        for k, v in cells.items()}
+    out["regime_unlabeled"] = unlabeled   # 时间线覆盖不到的笔数(暖机期/历史缺口), 如实报
     out["trades_capped"] = len(st) > 1000
     # 实盘同款归因: 与回测归因对照看"回测的赢法实盘还成立吗"(共用函数, AI成绩单也用它)
     out["actual"] = await actual_attribution(pool, strategy_id)
