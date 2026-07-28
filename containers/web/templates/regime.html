@@ -6,28 +6,42 @@
 {# 配色/中文名唯一定义在 _macros(m.regime_color / m.regime_cn): AAA绿→BBB红 八级渐变。
    页面排列(2026-07-28 Frank 定): 色带 → 当前状态 → 八格象限 → 记分卡(含评定流程) → 演变明细(翻页) #}
 
-{% if data and data.error %}<div class="flash error">{{ data.error }}</div>{% endif %}
-{% if not (data and data.rows) %}
+{# 品种选择器置顶(2026-07-28 Frank 定: 单品种页面, 切换入口必须在最上面) #}
 <section>
   <form method="get" class="inline">
-    <label>品种 <select name="symbol" data-autosubmit>
+    <label>货币对 <select name="symbol" data-autosubmit title="切换货币对 — 整页数据都随之切换">
       {% for s in symbols %}<option {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
     </select></label>
   </form>
-  {% if data %}<p class="muted">暂无数据。</p>{% endif %}
 </section>
+
+{% if data and data.error %}<div class="flash error">{{ data.error }}</div>{% endif %}
+{% if not (data and data.rows) %}
+{% if data %}<section><p class="muted">暂无数据。</p></section>{% endif %}
 {% else %}
 {% set st = data.stats %}
 
 {# ===== 1. 近一年色带 ===== #}
 <section>
-  <h2>近一年演变色带 <span class="muted" style="font-weight:normal">一格一天 · 悬停看日期</span></h2>
-  <div style="display:flex;flex-wrap:wrap;gap:2px;max-width:100%">
-    {% for r in data.rows[-365:] %}
-    <span title="{{ r.date }}  {{ r.regime }}({{ m.regime_cn(r.regime) }})"
-          style="width:9px;height:22px;border-radius:2px;background:{{ m.regime_color(r.regime) }}"></span>
-    {% endfor %}
+  <h2>近一年演变色带 <span class="muted" style="font-weight:normal">按月分行 · 一格一天(周末休市空缺) · 悬停看具体日</span></h2>
+  {% if band_months %}
+  <div class="mono muted" style="display:flex;justify-content:space-between;max-width:720px;margin-bottom:4px">
+    <span>{{ band_months[0][1][0].date }} 起</span>
+    <span>{{ symbol }} · 共 {{ data.rows | length }} 交易日</span>
+    <span>至 {{ band_months[-1][1][-1].date }}</span>
   </div>
+  {% for mon, mdays in band_months %}
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+    <span class="mono muted" style="width:60px;flex:none">{{ mon }}</span>
+    <div style="display:flex;gap:2px;flex-wrap:wrap">
+      {% for r in mdays %}
+      <span title="{{ r.date }}  {{ r.regime }}({{ m.regime_cn(r.regime) }})"
+            style="width:9px;height:20px;border-radius:2px;background:{{ m.regime_color(r.regime) }}"></span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
   <p class="muted" style="margin-top:6px">
     {% for k in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
     <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ m.regime_color(k) }};vertical-align:-1px"></span>
@@ -145,12 +159,8 @@
 {# ===== 5. 演变明细(选择器 + 翻页) ===== #}
 <section>
   <h2>演变明细</h2>
-  <form method="get" class="inline" style="margin-bottom:6px">
-    <label>品种 <select name="symbol" data-autosubmit
-        title="换品种 = 整页数据都换, 会刷新">
-      {% for s in symbols %}<option {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
-    </select></label>
-    {# 取最近N天 = 纯前端切片(data-rows-cap, 零请求零刷新), 与 每页/搜索/翻页 组合生效 #}
+  {# 取最近N天 = 纯前端切片(data-rows-cap, 零请求零刷新), 与 每页/搜索/翻页 组合生效; 品种选择在页顶 #}
+  <form class="inline" style="margin-bottom:6px" onsubmit="return false">
     <label>取最近 <select data-rows-cap="regime-evo"
         title="只影响本表显示多少行, 即时生效不刷新页面">
       {% for d in [30, 90, 180, 365] %}<option value="{{ d }}" {% if d == 90 %}selected{% endif %}>{{ d }} 天</option>{% endfor %}

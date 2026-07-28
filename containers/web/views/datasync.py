@@ -82,6 +82,13 @@ def regime():
             score = {"validity": None, "quality": quality, "passed": None, "total": None}
         score["parts"] = {"③波幅比(30)+t值(30)": score["validity"],
                           "①持续性(20)": round(q1), "②覆盖(12)": round(q2), "④不冗余(8)": round(q4)}
+    # 色带按月分行(2026-07-28 Frank 定: 免悬停定位, 一年12行, 多年也能扫): [(月份, [rows])]
+    band_months = []
+    for r in (data or {}).get("rows", [])[-365:]:
+        mon = r["date"][:7]
+        if not band_months or band_months[-1][0] != mon:
+            band_months.append((mon, []))
+        band_months[-1][1].append(r)
     # 象限图显示准备: 每格一行"N天 · P%"(稀格标红), 今天所在格 + 海明距离1的三个邻格
     cell_lines, neighbors = {}, []
     if data and data.get("stats", {}).get("cells"):
@@ -94,7 +101,7 @@ def regime():
         neighbors = [cur[:i] + ("B" if cur[i] == "A" else "A") + cur[i + 1:] for i in range(3)]
     return render_template("regime.html", symbols=symbols, symbol=symbol, days=days,
                            full=full, data=data, cell_lines=cell_lines, neighbors=neighbors,
-                           score=score)
+                           score=score, band_months=band_months)
 
 
 @bp.post("/regime/rebuild")
