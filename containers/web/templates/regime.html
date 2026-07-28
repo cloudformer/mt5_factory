@@ -26,25 +26,29 @@
       {% endif %}
     </div>
   </form>
-  <div style="margin:8px 0 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-    {# 重建 = 显式动作(2026-07-27 Frank 定): 配置页只存口径, 这里点谁重建谁 #}
-    <form method="post" action="{{ url_for('datasync.regime_rebuild') }}" class="inline"
-          onsubmit="return confirm('按当前口径重建 {{ symbol }} 的时间线(覆盖更新, 几秒)?')">
-      <input type="hidden" name="symbol" value="{{ symbol }}">
-      <button class="small">重建 {{ symbol }}</button>
-    </form>
-    <form method="post" action="{{ url_for('datasync.regime_rebuild') }}" class="inline"
-          onsubmit="return confirm('重建全部下载品种的时间线(每品种几秒, 串行)?')">
-      <input type="hidden" name="all" value="1">
-      <input type="hidden" name="symbol" value="{{ symbol }}">
-      <button class="small">重建全部</button>
-    </form>
-    {% if not full %}
-    <a class="small" href="{{ url_for('datasync.regime', symbol=symbol, days=days, full=1) }}"
-       title="记分卡标准③: 高/低波格波幅比 + 趋势A/B收益t值 — 要重扫全量M1(几秒~几十秒), 评定时手动点">算区分度③</a>
-    {% endif %}
-    <span class="muted">改完口径先「重建」再看下方记分卡 · 重建=覆盖更新不删数据</span>
+  {# 评定流程步骤条(2026-07-28 Frank 定: 学分析页的显式顺序, 别让人猜先后):
+     ③区分度按"当前配置"现算, ①②④来自"上次重建的时间线" — 改口径不重建就打分 = 新旧口径混算, 所以顺序必须钉死 #}
+  <div style="margin:8px 0 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <span class="tag">评定流程</span>
+    <span>① <a class="small" href="{{ url_for('symbols.backtest_params') }}">改口径(配置页)</a></span>
+    <span class="muted">→</span>
+    <span>②
+      <form method="post" action="{{ url_for('datasync.regime_rebuild') }}" class="inline"
+            onsubmit="return confirm('按当前口径重建 {{ symbol }} 的时间线(覆盖更新, 几秒)?')">
+        <input type="hidden" name="symbol" value="{{ symbol }}">
+        <button class="small">重建 {{ symbol }}</button>
+      </form>
+      <form method="post" action="{{ url_for('datasync.regime_rebuild') }}" class="inline"
+            onsubmit="return confirm('重建全部下载品种的时间线(每品种几秒, 串行)?')">
+        <input type="hidden" name="all" value="1">
+        <input type="hidden" name="symbol" value="{{ symbol }}">
+        <button class="small">重建全部</button>
+      </form>
+    </span>
+    <span class="muted">→</span>
+    <span>③ 看下方记分卡 <span class="muted">(①②④重建后自动更新; 区分度在表内点「补算」)</span></span>
   </div>
+  <p class="muted" style="margin:4px 0 0">纪律: 改完口径必须先②重建再看分 — 不重建就补算区分度会得到新旧口径混合的假记分卡。重建=覆盖更新, 不删数据。</p>
 </section>
 
 {% if data and data.error %}<div class="flash error">{{ data.error }}</div>{% endif %}
@@ -124,7 +128,9 @@
         <td class="mono">{{ st.cov_min }}% / {{ st.cov_max }}%</td><td class="muted">≥5% / ≤35%</td>
         <td>{{ '✅' if st.cov_min >= 5 and st.cov_max <= 35 else '❌' }}</td></tr>
     <tr><td>③ 区分度</td><td>高/低波幅比 · 趋势A/B收益t值</td>
-        <td class="mono">{% if data.distinct %}{{ data.distinct.vol_ratio }}× · t={{ data.distinct.trend_t }}{% else %}<span class="muted">未算(点上方「算区分度③」)</span>{% endif %}</td>
+        <td class="mono">{% if data.distinct %}{{ data.distinct.vol_ratio }}× · t={{ data.distinct.trend_t }}
+          {% else %}<a class="small" href="{{ url_for('datasync.regime', symbol=symbol, days=days, full=1) }}"
+              title="按当前配置重扫全量M1现算(几秒~几十秒)。前提: 改过口径要先完成上方②重建, 否则本行是新口径、其余三行是旧口径 = 混合假记分卡">补算区分度(几秒~几十秒)</a>{% endif %}</td>
         <td class="muted">≥1.5× · |t|≥2</td>
         <td>{% if data.distinct and data.distinct.vol_ratio %}{{ '✅' if data.distinct.vol_ratio >= 1.5 and data.distinct.trend_t is not none and (data.distinct.trend_t | abs) >= 2 else '❌' }}{% else %}—{% endif %}</td></tr>
     <tr><td>④ 维度不冗余</td><td>两维同向一致率: {% for k, v in st.agree.items() %}{{ k }} <b class="mono">{{ v }}%</b>{{ ' · ' if not loop.last }}{% endfor %}(取最大)</td>
