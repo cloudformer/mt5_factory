@@ -52,9 +52,10 @@
 <section>
   <h2>八格象限(全历史覆盖) <span class="muted" style="font-weight:normal">占比=历史上各格出现的天数份额, 与今天在哪格无关 · 蓝实线圈=今天 · 蓝虚线圈=一位之差的邻格 · 红字=稀格(&lt;5%)</span></h2>
   {{ m.regime_grid(cell_lines, current=data.current.regime, neighbors=neighbors) }}
-  <p class="muted" style="margin-top:8px">读法: 左右两屏只差「波动」一位 — 同位置左右互为邻格;
-    屏内上下差「长趋势」、左右差「短趋势」。渐变一次只翻一位, 下一步大概率落在三个虚线格之一;
-    今天若在稀格 = 当前处于历史少见状态(证据薄, 判读更保守)。</p>
+  <p class="muted" style="margin-top:8px">读法(权重即布局): 上行=牛市家族 下行=熊市家族(长趋势);
+    左右两半=短趋势(中缝隔开); 半内相邻=波动。每行左→右即色阶渐变序。
+    邻格方位固定: 波邻格=紧挨着的 · 短邻格=跳过中缝同位格 · 长邻格=正上/正下;
+    渐变一次只翻一位, 下一步大概率落在三个虚线格之一; 今天若在稀格 = 历史少见状态(证据薄, 判读保守)。</p>
 </section>
 
 {# ===== 4. 口径记分卡(含总评 + 评定流程) ===== #}
@@ -136,20 +137,23 @@
 <section>
   <h2>演变明细</h2>
   <form method="get" class="inline" style="margin-bottom:6px">
-    <label>品种 <select name="symbol" data-autosubmit>
+    <label>品种 <select name="symbol" data-autosubmit
+        title="换品种 = 整页数据都换, 会刷新">
       {% for s in symbols %}<option {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
     </select></label>
-    <label>取最近 <select name="days" data-autosubmit>
-      {% for d in [30, 90, 180, 365] %}<option value="{{ d }}" {% if d == days %}selected{% endif %}>{{ d }} 天</option>{% endfor %}
+    {# 取最近N天 = 纯前端切片(data-rows-cap, 零请求零刷新), 与 每页/搜索/翻页 组合生效 #}
+    <label>取最近 <select data-rows-cap="regime-evo"
+        title="只影响本表显示多少行, 即时生效不刷新页面">
+      {% for d in [30, 90, 180, 365] %}<option value="{{ d }}" {% if d == 90 %}selected{% endif %}>{{ d }} 天</option>{% endfor %}
     </select></label>
   </form>
   {{ m.table_toolbar('regime-evo', hint='本页即时过滤(日期/格子…)') }}
   <table id="regime-evo" class="dense">
     <tr><th>日期</th><th>格子</th><th title="长趋势: A=↑牛 B=↓熊">长</th><th title="短趋势">短</th><th title="波动: A=↑高 B=↓低">波</th><th>变化</th></tr>
-    {% set rows_desc = data.rows[-days:] | reverse | list %}
+    {% set rows_desc = data.rows | reverse | list %}
     {% for r in rows_desc %}
     {% set prev = rows_desc[loop.index] if loop.index < rows_desc | length else none %}
-    <tr>
+    <tr data-recency="{{ loop.index }}">
       <td class="mono">{{ r.date }}</td>
       <td class="mono"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ m.regime_color(r.regime) }};vertical-align:-1px"></span>
         <b>{{ r.regime }}</b></td>

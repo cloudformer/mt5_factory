@@ -139,6 +139,28 @@ window.initTableSort = initTableSort;
 document.addEventListener("DOMContentLoaded", () =>
   document.querySelectorAll("table").forEach(initTableSort));
 
+/* 行数上限切片(纯前端零请求, 2026-07-28): <select data-rows-cap="表id"> —
+   行需带 data-recency=1..N(新→旧序号, 服务端渲染时标好); 选 N = 只显示 recency≤N 的行。
+   与排序解耦(按 recency 不按 DOM 顺序), 与 每页/搜索/翻页 组合生效。
+   用途: Regime 演变表"取最近N天"这类"看多远"旋钮 — 数据一次给满, 切换不再整页刷新 */
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("select[data-rows-cap]").forEach((sel) => {
+    const table = document.getElementById(sel.getAttribute("data-rows-cap"));
+    if (!table) return;
+    const apply = () => {
+      const n = parseInt(sel.value, 10) || Infinity;
+      table.querySelectorAll("tr[data-recency]").forEach((r) => {
+        if (+r.dataset.recency > n) r.dataset.rowHide = "1";
+        else delete r.dataset.rowHide;
+      });
+      table.dataset.page = "1";
+      applyTableFilters(table);
+    };
+    sel.addEventListener("change", apply);
+    apply();   // 初始也按默认值切一次
+  });
+});
+
 /* 表格过滤+分页 (组合生效, 全部即时):
    - 文本搜索:  <input  data-table-filter="表id">        整行模糊匹配
    - 列下拉筛选: <select data-col-filter="表id:列序号">   选项自动取该列去重值
@@ -161,6 +183,7 @@ function applyTableFilters(table) {
   const rows = [...table.querySelectorAll("tr")].slice(1)
     .filter((r) => r.closest("table") === table && !r.querySelector("td[colspan]")); // 空态/嵌套子表行不动
   const matched = rows.filter((r) => {
+    if (r.dataset.rowHide) return false;   // 外部开关(如 data-rows-cap 切片)标记排除的行
     if (q !== "" && !r.textContent.toLowerCase().includes(q)) return false;
     for (const [col, v] of colFilters) {
       if ((r.children[col]?.textContent || "").trim() !== v) return false;
