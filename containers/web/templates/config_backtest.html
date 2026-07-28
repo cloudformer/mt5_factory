@@ -117,6 +117,15 @@
         onsubmit="return confirm('恢复默认口径 SMA200 / SMA20 / ATR14 / 252日 / 0.5分位?(只改配置, 生效需去 Regime 页点重建)')">
     <button class="small">恢复默认(SMA200/SMA20/ATR14/252/0.5)</button>
   </form>
+  {# 档位速查提示(2026-07-28, 默认折叠): 暖机 = max(长均线, 短均线, ATR+波动窗)+10 — 历史短于暖机出不了格子 #}
+  <details style="margin-top:6px">
+    <summary class="muted" style="cursor:pointer">档位速查: 正式评定 SMA200/SMA20/ATR14/252/0.5(暖机~276日) · 调试档 SMA30/SMA10/ATR14/20/0.5(~44日) · 极短史 SMA20/SMA5/ATR5/20/0.5(~35日) — 点开看说明</summary>
+    <p class="muted" style="margin:4px 0 0">
+      暖机 = max(长均线, 短均线, ATR+波动窗) + 10 个交易日, 历史短于它出不了格子;
+      调试档的"长趋势"只是月级中趋势, 语义已变味, 数字属玩具级(小样本=未证实) —
+      正式口径评定必须在长历史上用默认档位族。
+    </p>
+  </details>
 </section>
 
 <section>

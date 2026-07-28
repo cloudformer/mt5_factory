@@ -127,7 +127,7 @@
         <td class="mono">{% if data.distinct %}{{ data.distinct.vol_ratio }}× · t={{ data.distinct.trend_t }}{% else %}<span class="muted">未算(点上方「算区分度③」)</span>{% endif %}</td>
         <td class="muted">≥1.5× · |t|≥2</td>
         <td>{% if data.distinct and data.distinct.vol_ratio %}{{ '✅' if data.distinct.vol_ratio >= 1.5 and data.distinct.trend_t is not none and (data.distinct.trend_t | abs) >= 2 else '❌' }}{% else %}—{% endif %}</td></tr>
-    <tr><td>④ 维度不冗余</td><td>两维最大一致率 {{ st.agree }}</td>
+    <tr><td>④ 维度不冗余</td><td>两维同向一致率: {% for k, v in st.agree.items() %}{{ k }} <b class="mono">{{ v }}%</b>{{ ' · ' if not loop.last }}{% endfor %}(取最大)</td>
         <td class="mono">{{ st.agree_max }}%</td><td class="muted">≤75%(≥90%=换定义)</td>
         <td>{{ '✅' if st.agree_max <= 75 else ('⚠' if st.agree_max < 90 else '❌') }}</td></tr>
   </table>
