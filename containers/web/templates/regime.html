@@ -42,11 +42,6 @@
   </div>
   {% endfor %}
   {% endif %}
-  <p class="muted" style="margin-top:6px">
-    {% for k in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
-    <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ m.regime_color(k) }};vertical-align:-1px"></span>
-    {{ k }} {{ m.regime_cn(k) }}　{% endfor %}
-  </p>
 </section>
 
 {# ===== 2. 当前状态(横排一条 + 今日价) ===== #}
@@ -78,7 +73,7 @@
   {# 评定流程步骤条: ③区分度按"当前配置"现算, ①②④来自"上次重建的时间线" — 顺序必须钉死 #}
   <div style="margin:0 0 8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <span class="tag">评定流程</span>
-    <span>① <a class="small" href="{{ url_for('symbols.backtest_params') }}">改口径(配置页)</a></span>
+    <span>① 改口径(配置页)</span>
     <span class="badge" title="长趋势均线 / 短趋势均线(D1 收盘在其上=牛)">{{ data.params.long_ma | upper }} / {{ data.params.short_ma | upper }}</span>
     <span class="badge" title="波动维: ATR 周期 vs 回看窗的分位阈值">ATR{{ data.params.atr_n }} · {{ data.params.vol_win }}日 · {{ (data.params.vol_q * 100) | round | int }}分位</span>
     <span class="muted">→</span>
