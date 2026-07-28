@@ -82,12 +82,12 @@ def regime():
             score = {"validity": None, "quality": quality, "passed": None, "total": None}
         score["parts"] = {"③波幅比(30)+t值(30)": score["validity"],
                           "①持续性(20)": round(q1), "②覆盖(12)": round(q2), "④不冗余(8)": round(q4)}
-    # 色带按月分行(2026-07-28 Frank 定: 免悬停定位, 一年12行, 多年也能扫): [(月份, [rows])]
+    # 色带按季分行(2026-07-28 Frank 定: 月分行太窄, 3个月一行, 默认近一年=4行): [(季度, [rows])]
     band_months = []
     for r in (data or {}).get("rows", [])[-365:]:
-        mon = r["date"][:7]
-        if not band_months or band_months[-1][0] != mon:
-            band_months.append((mon, []))
+        q = f"{r['date'][:4]} Q{(int(r['date'][5:7]) - 1) // 3 + 1}"
+        if not band_months or band_months[-1][0] != q:
+            band_months.append((q, []))
         band_months[-1][1].append(r)
     # 象限图显示准备: 每格一行"N天 · P%"(稀格标红), 今天所在格 + 海明距离1的三个邻格
     cell_lines, neighbors = {}, []
