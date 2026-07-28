@@ -57,6 +57,31 @@ def regime():
             data = api.get(f"/regime/{symbol}", days=days, **({"full": 1} if full else {}))
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
+    # 两层参考分(2026-07-28 Frank 定, 仅参考不做门禁): 假的东西谈不上好坏 —
+    # 及格层=③区分度60分(真伪: 波幅比30+t值30); 好坏层40分(①持续性20 ②覆盖12 ④不冗余8);
+    # 闸门: ③两个门槛都过线才计好坏层; ③未算=不出总分(没验真伪就没有分)。
+    score = None
+    st_ = (data or {}).get("stats") or {}
+    if st_.get("days"):
+        cap = lambda v: max(0.0, min(1.0, v))  # noqa: E731
+        d = st_["dwell"]
+        q1 = (cap(d["long"] / 20) + cap(d["short"] / 5) + cap(d["vol"] / 5)
+              + cap(st_["combo_median"] / 3)
+              + cap(60 / st_["flips_per_year"] if st_["flips_per_year"] else 1)) / 5 * 20
+        q2 = (cap(st_["cov_min"] / 5) + cap(35 / st_["cov_max"] if st_["cov_max"] else 1)) / 2 * 12
+        a = st_["agree_max"]
+        q4 = (1.0 if a <= 75 else (cap((90 - a) / 15) if a < 90 else 0.0)) * 8
+        quality = round(q1 + q2 + q4)   # 好坏层 0~40
+        dt = (data or {}).get("distinct") or {}
+        if dt.get("vol_ratio") is not None:
+            validity = round(cap(dt["vol_ratio"] / 1.5) * 30 + cap(abs(dt["trend_t"] or 0) / 2) * 30)
+            passed = dt["vol_ratio"] >= 1.5 and dt.get("trend_t") is not None and abs(dt["trend_t"]) >= 2
+            score = {"validity": validity, "quality": quality, "passed": passed,
+                     "total": validity + (quality if passed else 0)}
+        else:   # ③未算: 只亮好坏层预览, 不出总分
+            score = {"validity": None, "quality": quality, "passed": None, "total": None}
+        score["parts"] = {"③波幅比(30)+t值(30)": score["validity"],
+                          "①持续性(20)": round(q1), "②覆盖(12)": round(q2), "④不冗余(8)": round(q4)}
     # 象限图显示准备: 每格一行"N天 · P%"(稀格标红), 今天所在格 + 海明距离1的三个邻格
     cell_lines, neighbors = {}, []
     if data and data.get("stats", {}).get("cells"):
@@ -68,7 +93,8 @@ def regime():
         cur = data["current"]["regime"]
         neighbors = [cur[:i] + ("B" if cur[i] == "A" else "A") + cur[i + 1:] for i in range(3)]
     return render_template("regime.html", symbols=symbols, symbol=symbol, days=days,
-                           full=full, data=data, cell_lines=cell_lines, neighbors=neighbors)
+                           full=full, data=data, cell_lines=cell_lines, neighbors=neighbors,
+                           score=score)
 
 
 @bp.post("/regime/rebuild")
