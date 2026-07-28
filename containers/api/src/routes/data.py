@@ -37,6 +37,10 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
     regs = [r["regime"] for r in rows]
     out = {"symbol": name, "error": err, "params": params,
            "stats": regime.stats(regs),
+           # 最新价(库内最后一根 M1 收盘, 券商时间口径) — 页面当前状态条显示"今日 xxx"
+           "last_close": await pool.fetchval(
+               "SELECT close FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
+               " ORDER BY time DESC LIMIT 1", name),
            "current": {"date": rows[-1]["date"].isoformat(), "regime": rows[-1]["regime"]},
            # 色带(最近365天)与演变表(最近 days 天)同源, 前端各取所需
            "rows": [{"date": r["date"].isoformat(), "regime": r["regime"]}
