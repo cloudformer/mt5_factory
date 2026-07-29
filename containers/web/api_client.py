@@ -25,9 +25,10 @@ def _identity_headers() -> dict:
     return {}
 
 
-def get(path: str, **params):
+def get(path: str, timeout: int = 15, **params):
+    # timeout 是保留形参(不进查询串): 长现算端点(如候选族对比)显式放宽
     try:
-        r = requests.get(f"{API_URL}{path}", params=params or None, timeout=15,
+        r = requests.get(f"{API_URL}{path}", params=params or None, timeout=timeout,
                          headers=_identity_headers())
         r.raise_for_status()
         return r.json()

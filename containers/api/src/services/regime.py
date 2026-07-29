@@ -188,8 +188,24 @@ def _runs(seq: list) -> list:
     return runs
 
 
+def _dwell_w(runs: list) -> float:
+    """按天加权中位格龄(2026-07-29 与 Frank 定, 指标改良): "随便挑一天, 它所在段有多长"
+    的中位数 — 按段数的朴素中位会被穿越期碎段淹没(XAUUSD 实证: SMA200 长牛大段动辄
+    数百天, 但穿越抖动制造大量 2~3 天碎段, 按段中位只剩 5 天, 完全失真)。
+    实现 = 段长的加权中位(权重=段长): 排序后取累计天数过半处的段长。"""
+    lens = sorted(runs)
+    half = sum(lens) / 2
+    acc = 0
+    for ln in lens:
+        acc += ln
+        if acc >= half:
+            return float(ln)
+    return float(lens[-1])
+
+
 def stats(regimes: list[str]) -> dict:
-    """四标准原始值(v2.5 口径评定用, 全中性指标) — 页面即记分卡"""
+    """四标准原始值(v2.5 口径评定用, 全中性指标) — 页面即记分卡。
+    格龄以按天加权中位(dwell/combo_median)为判定值; 按段朴素中位(_seg 后缀)留作参考。"""
     n = len(regimes)
     if n < 30:
         return {"days": n}
@@ -200,13 +216,33 @@ def stats(regimes: list[str]) -> dict:
     agree = {"长vs短": round(sum(a == b for a, b in zip(dims[0], dims[1])) / n * 100),
              "长vs波": round(sum(a == b for a, b in zip(dims[0], dims[2])) / n * 100),
              "短vs波": round(sum(a == b for a, b in zip(dims[1], dims[2])) / n * 100)}
+    dim_runs = {name: _runs(d) for name, d in zip(("long", "short", "vol"), dims)}
     return {
         "days": n, "years": round(years, 1),
-        "dwell": {name: float(np.median(_runs(d)))
-                  for name, d in zip(("long", "short", "vol"), dims)},
-        "combo_median": float(np.median(combo_runs)),
+        # 判定值 = 按天加权; _seg = 按段朴素中位(参考, 页面括注, 观察一段时间后退役)
+        "dwell": {name: _dwell_w(r) for name, r in dim_runs.items()},
+        "dwell_seg": {name: float(np.median(r)) for name, r in dim_runs.items()},
+        "combo_median": _dwell_w(combo_runs),
+        "combo_median_seg": float(np.median(combo_runs)),
         "flips_per_year": round((len(combo_runs) - 1) / years, 1),
         "cells": cells, "cov_min": min(cells.values()), "cov_max": max(cells.values()),
         "agree": agree, "agree_max": max(agree.values()),
         "current_run_days": combo_runs[-1],
     }
+
+
+def distinct(h, l, c, dims, start) -> dict | None:
+    """标准③区分度(中性指标): 高/低波格日均真实波幅比 + 长趋势A/B次日收益t值。
+    从 routes 内联提出来(2026-07-29): 单品种记分卡与候选族对比(evaluate)共用同一算法。"""
+    if dims is None or len(c) - start <= 300:
+        return None
+    tr = (h[start:] - l[start:]) / c[start:] * 100
+    va = dims[2][start:] == "A"
+    la = dims[0][start:] == "A"
+    ret = np.concatenate((np.diff(np.log(c[start:])), [np.nan]))
+    ra, rb = ret[la & ~np.isnan(ret)], ret[~la & ~np.isnan(ret)]
+    se = (np.sqrt(ra.var(ddof=1) / len(ra) + rb.var(ddof=1) / len(rb))
+          if len(ra) > 30 and len(rb) > 30 else 0)
+    return {"vol_ratio": round(float(tr[va].mean() / tr[~va].mean()), 2)
+                         if va.any() and (~va).any() else None,
+            "trend_t": round(float((ra.mean() - rb.mean()) / se), 1) if se else None}

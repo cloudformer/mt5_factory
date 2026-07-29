@@ -13,6 +13,35 @@ bp = Blueprint("datasync", __name__, url_prefix="/datasync")
 TF_ROLE = {"M1": "回测", "D1": "regime"}
 
 
+def _two_tier_score(st_, dt) -> dict | None:
+    """两层参考分(2026-07-28 Frank 定, 仅参考不做门禁): 假的东西谈不上好坏 —
+    及格层=③区分度60分(真伪: 波幅比30+t值30); 好坏层40分(①持续性20 ②覆盖12 ④不冗余8);
+    闸门: ③两个门槛都过线才计好坏层; ③未算=不出总分(没验真伪就没有分)。
+    单品种记分卡与候选族对比页共用(2026-07-29 提出); 格龄用按天加权值(尺子改良)。"""
+    if not st_.get("days"):
+        return None
+    cap = lambda v: max(0.0, min(1.0, v))  # noqa: E731
+    d = st_["dwell"]
+    q1 = (cap(d["long"] / 20) + cap(d["short"] / 5) + cap(d["vol"] / 5)
+          + cap(st_["combo_median"] / 3)
+          + cap(60 / st_["flips_per_year"] if st_["flips_per_year"] else 1)) / 5 * 20
+    q2 = (cap(st_["cov_min"] / 5) + cap(35 / st_["cov_max"] if st_["cov_max"] else 1)) / 2 * 12
+    a = st_["agree_max"]
+    q4 = (1.0 if a <= 75 else (cap((90 - a) / 15) if a < 90 else 0.0)) * 8
+    quality = round(q1 + q2 + q4)   # 好坏层 0~40
+    if (dt or {}).get("vol_ratio") is not None:
+        validity = round(cap(dt["vol_ratio"] / 1.5) * 30 + cap(abs(dt["trend_t"] or 0) / 2) * 30)
+        passed = (dt["vol_ratio"] >= 1.5 and dt.get("trend_t") is not None
+                  and abs(dt["trend_t"]) >= 2)
+        score = {"validity": validity, "quality": quality, "passed": passed,
+                 "total": validity + (quality if passed else 0)}
+    else:   # ③未算: 只亮好坏层预览, 不出总分
+        score = {"validity": None, "quality": quality, "passed": None, "total": None}
+    score["parts"] = {"③波幅比(30)+t值(30)": score["validity"],
+                      "①持续性(20)": round(q1), "②覆盖(12)": round(q2), "④不冗余(8)": round(q4)}
+    return score
+
+
 @bp.get("/")
 def index():
     data = {"symbols": [], "orphans": [], "sync": {}, "hosts": [], "timeframes": [],
@@ -87,31 +116,7 @@ def regime():
             data = api.get(f"/regime/{symbol}", days=days, **({"full": 1} if full else {}))
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-    # 两层参考分(2026-07-28 Frank 定, 仅参考不做门禁): 假的东西谈不上好坏 —
-    # 及格层=③区分度60分(真伪: 波幅比30+t值30); 好坏层40分(①持续性20 ②覆盖12 ④不冗余8);
-    # 闸门: ③两个门槛都过线才计好坏层; ③未算=不出总分(没验真伪就没有分)。
-    score = None
-    st_ = (data or {}).get("stats") or {}
-    if st_.get("days"):
-        cap = lambda v: max(0.0, min(1.0, v))  # noqa: E731
-        d = st_["dwell"]
-        q1 = (cap(d["long"] / 20) + cap(d["short"] / 5) + cap(d["vol"] / 5)
-              + cap(st_["combo_median"] / 3)
-              + cap(60 / st_["flips_per_year"] if st_["flips_per_year"] else 1)) / 5 * 20
-        q2 = (cap(st_["cov_min"] / 5) + cap(35 / st_["cov_max"] if st_["cov_max"] else 1)) / 2 * 12
-        a = st_["agree_max"]
-        q4 = (1.0 if a <= 75 else (cap((90 - a) / 15) if a < 90 else 0.0)) * 8
-        quality = round(q1 + q2 + q4)   # 好坏层 0~40
-        dt = (data or {}).get("distinct") or {}
-        if dt.get("vol_ratio") is not None:
-            validity = round(cap(dt["vol_ratio"] / 1.5) * 30 + cap(abs(dt["trend_t"] or 0) / 2) * 30)
-            passed = dt["vol_ratio"] >= 1.5 and dt.get("trend_t") is not None and abs(dt["trend_t"]) >= 2
-            score = {"validity": validity, "quality": quality, "passed": passed,
-                     "total": validity + (quality if passed else 0)}
-        else:   # ③未算: 只亮好坏层预览, 不出总分
-            score = {"validity": None, "quality": quality, "passed": None, "total": None}
-        score["parts"] = {"③波幅比(30)+t值(30)": score["validity"],
-                          "①持续性(20)": round(q1), "②覆盖(12)": round(q2), "④不冗余(8)": round(q4)}
+    score = _two_tier_score((data or {}).get("stats") or {}, (data or {}).get("distinct") or {})
     # 色带按半年分行(2026-07-29 Frank 定: 半年一行, 默认显示3年, 跨度下拉前端切片):
     # 全历史都建 [(半年标签, [rows])], 模板给每行标序号, JS 只显示最后 N 行 — 零请求切换
     band_months = []
@@ -133,6 +138,46 @@ def regime():
     return render_template("regime.html", symbols=symbols, symbol=symbol, days=days,
                            full=full, data=data, cell_lines=cell_lines, neighbors=neighbors,
                            score=score, band_months=band_months)
+
+
+@bp.get("/regime/eval")
+def regime_eval():
+    """候选口径族对比(v2.5 评定流程"记分卡"): 8 候选 × 全部下载品种现算(只读不落库)。
+    每格 = 两层参考分; 每候选给 中位/最差(评定按整体, 不因单品种贴线否决); 展开看四标准中位值"""
+    data, rows = None, []
+    try:
+        data = api.get("/regime/evaluate", timeout=300)
+    except api.ApiError as e:
+        flash(f"api 不可用: {e}", "error")
+    import statistics
+    for cand in (data or {}).get("candidates", []):
+        cells, crit = {}, {"dl": [], "ds": [], "dv": [], "cm": [], "fy": [],
+                           "cmin": [], "cmax": [], "vr": [], "tt": [], "ag": []}
+        for sym, v in cand["per_symbol"].items():
+            st_, dt = v.get("stats") or {}, v.get("distinct") or {}
+            sc = _two_tier_score(st_, dt)
+            cells[sym] = sc
+            if st_.get("days"):
+                crit["dl"].append(st_["dwell"]["long"]); crit["ds"].append(st_["dwell"]["short"])
+                crit["dv"].append(st_["dwell"]["vol"]); crit["cm"].append(st_["combo_median"])
+                crit["fy"].append(st_["flips_per_year"])
+                crit["cmin"].append(st_["cov_min"]); crit["cmax"].append(st_["cov_max"])
+                crit["ag"].append(st_["agree_max"])
+            if dt.get("vol_ratio") is not None:
+                crit["vr"].append(dt["vol_ratio"])
+                if dt.get("trend_t") is not None:
+                    crit["tt"].append(abs(dt["trend_t"]))
+        totals = [c["total"] for c in cells.values() if c and c["total"] is not None]
+        med = lambda xs: round(statistics.median(xs), 1) if xs else None  # noqa: E731
+        rows.append({"label": cand["label"], "cells": cells,
+                     "median": med(totals), "worst": min(totals) if totals else None,
+                     # 校准用: 每指标 中位(最差) — 门槛定歪一眼可见
+                     "crit": {k: (med(v), (min(v) if k not in ("fy", "cmax", "ag") else max(v)) if v else None)
+                              for k, v in crit.items()}})
+    rows.sort(key=lambda r: -(r["median"] or -1))
+    return render_template("regime_eval.html", data=data, rows=rows,
+                           symbols=(data or {}).get("symbols", []),
+                           skipped=(data or {}).get("skipped", []))
 
 
 @bp.post("/regime/rebuild")

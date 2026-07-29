@@ -124,6 +124,9 @@
     </span>
     <span class="muted">→</span>
     <span>③ 看下方记分卡与总评 <span class="muted">(改口径后不重建 = 新旧口径混算)</span></span>
+    <span class="muted">·</span>
+    <a class="small" href="{{ url_for('datasync.regime_eval') }}"
+       title="8 候选口径 × 全部下载品种的记分卡矩阵(现算只读, 几秒~几十秒) — 评定期选口径/校准门槛的主工具">候选族对比 →</a>
   </div>
   {# 四标准判定(与表内一致, 供总评汇总) #}
   {% set c1 = st.dwell.long >= 20 and st.dwell.short >= 5 and st.dwell.vol >= 5 and st.combo_median >= 3 and st.flips_per_year <= 60 %}
@@ -132,14 +135,20 @@
   {% set c4 = st.agree_max <= 75 %}
   <table class="dense">
     <tr><th>标准</th><th>指标</th><th>实测</th><th>参考门槛</th><th>初判</th></tr>
+    {# 格龄=按天加权中位(2026-07-29 尺子改良: 按段中位被穿越碎段淹没 — XAUUSD 长牛实证
+       按段只剩5天完全失真); 括注旧按段值供对照, 观察一段时间后退役 #}
     <tr><td rowspan="4">① 持续性</td>
-        <td>长趋势中位格龄</td><td class="mono">{{ st.dwell.long }} 天</td><td class="muted">≥20</td>
+        <td title="按天加权中位: 随便挑一天, 它所在段有多长(的中位) — 格龄/持仓比的本意">长趋势中位格龄(按天)</td>
+        <td class="mono">{{ st.dwell.long }} 天 <span class="muted">(按段 {{ st.dwell_seg.long if st.dwell_seg else '—' }})</span></td><td class="muted">≥20</td>
         <td>{{ '✅' if st.dwell.long >= 20 else '❌' }}</td></tr>
-    <tr><td>短趋势中位格龄</td><td class="mono">{{ st.dwell.short }} 天</td><td class="muted">≥5</td>
+    <tr><td>短趋势中位格龄(按天)</td>
+        <td class="mono">{{ st.dwell.short }} 天 <span class="muted">(按段 {{ st.dwell_seg.short if st.dwell_seg else '—' }})</span></td><td class="muted">≥5</td>
         <td>{{ '✅' if st.dwell.short >= 5 else '❌' }}</td></tr>
-    <tr><td>波动中位格龄</td><td class="mono">{{ st.dwell.vol }} 天</td><td class="muted">≥5</td>
+    <tr><td>波动中位格龄(按天)</td>
+        <td class="mono">{{ st.dwell.vol }} 天 <span class="muted">(按段 {{ st.dwell_seg.vol if st.dwell_seg else '—' }})</span></td><td class="muted">≥5</td>
         <td>{{ '✅' if st.dwell.vol >= 5 else '❌' }}</td></tr>
-    <tr><td>组合格中位 / 年翻转</td><td class="mono">{{ st.combo_median }} 天 / {{ st.flips_per_year }} 次</td>
+    <tr><td>组合格中位(按天) / 年翻转</td>
+        <td class="mono">{{ st.combo_median }} 天 <span class="muted">(按段 {{ st.combo_median_seg if st.combo_median_seg is defined else '—' }})</span> / {{ st.flips_per_year }} 次</td>
         <td class="muted">≥3 / ≤60</td>
         <td>{{ '✅' if st.combo_median >= 3 and st.flips_per_year <= 60 else '❌' }}</td></tr>
     <tr><td>② 覆盖均衡</td><td>最稀格 / 最密格</td>

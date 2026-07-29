@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('Regime 候选口径族对比', 'v2.5 评定流程产出物"记分卡": 8 候选 × 全部下载品种, 每格现算(只读不落库不碰时间线)。评定按整体(中位+最差), 不因单品种单项贴线否决; 选定一组后连门槛一并冻结写回文档') }}
+
+<section>
+  <h2>候选 × 品种 · 两层参考分 <span class="muted" style="font-weight:normal">按中位分降序 · 每格: 总分(及格层没过线时=仅及格层得分) · —=区分度未算/历史不足</span></h2>
+  {% if skipped %}<p class="muted">历史不足暖机被跳过的品种: {{ skipped | join('、') }} — 补长历史(D1)后自动纳入。</p>{% endif %}
+  <table class="dense">
+    <tr><th>候选口径</th>
+      {% for sym in symbols %}<th class="mono">{{ sym }}</th>{% endfor %}
+      <th title="有总分的品种取中位 — 评定的主排序键">中位</th>
+      <th title="最差品种的总分 — 短板检查(评定看整体但短板要心里有数)">最差</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td class="mono" title="长趋势均线/短趋势均线·高波分位(ATR14/252日窗固定)">{{ r.label }}</td>
+      {% for sym in symbols %}
+      {% set c = r.cells.get(sym) %}
+      <td class="mono">{% if c and c.total is not none %}
+          <span class="{{ 'pos' if c.passed else '' }}" title="及格层 {{ c.validity }}/60{{ ' 过线' if c.passed else ' 未过线(好坏层不计)' }} · 好坏层 {{ c.quality }}/40">{{ c.total }}</span>
+        {% elif c %}<span class="muted" title="区分度未算(历史<300日)">—</span>
+        {% else %}<span class="muted">—</span>{% endif %}</td>
+      {% endfor %}
+      <td class="mono"><b>{{ r.median if r.median is not none else '—' }}</b></td>
+      <td class="mono muted">{{ r.worst if r.worst is not none else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">及格层(60) = 波幅比 + 趋势t值(真伪); 好坏层(40) = 持续性/覆盖/不冗余 — 及格才计入。
+    格龄已用<b>按天加权中位</b>(2026-07-29 尺子改良: 按段中位被穿越碎段淹没)。</p>
+</section>
+
+<section>
+  <h2>四标准原始值 · 每候选跨品种 中位(最差) <span class="muted" style="font-weight:normal">门槛校准用: 门槛定歪(如 t≥2 对日粒度太苛)在这里一眼可见 — 校准机会只有一次, 花在看全数据之后</span></h2>
+  <table class="dense">
+    <tr><th>候选口径</th>
+      <th title="按天加权中位格龄, ≥20">长格龄</th><th title="≥5">短格龄</th><th title="≥5">波格龄</th>
+      <th title="≥3">组合格龄</th><th title="≤60, 最差取最大">年翻转</th>
+      <th title="≥5%">最稀格%</th><th title="≤35%, 最差取最大">最密格%</th>
+      <th title="≥1.5">波幅比</th><th title="|t|≥2">|t|</th><th title="≤75%, 最差取最大">一致率%</th></tr>
+    {% for r in rows %}
+    <tr><td class="mono">{{ r.label }}</td>
+      {% for k in ['dl', 'ds', 'dv', 'cm', 'fy', 'cmin', 'cmax', 'vr', 'tt', 'ag'] %}
+      {% set v = r.crit.get(k) %}
+      <td class="mono">{% if v and v[0] is not none %}{{ v[0] }} <span class="muted">({{ v[1] }})</span>{% else %}—{% endif %}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+<p><a href="{{ url_for('datasync.regime') }}">← 返回 Regime 页</a></p>
+{% endblock %}

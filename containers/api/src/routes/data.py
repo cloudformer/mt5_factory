@@ -18,6 +18,47 @@ router = APIRouter()
 
 
 # ---------- 市场状态 Regime(v2.5 阶段一: 尺子先行, 只读展示, 无任何选拔逻辑) ----------
+# 注意: /regime/evaluate 必须注册在 /regime/{symbol} 之前, 否则 'evaluate' 被当品种名解析。
+# 候选口径族(v2.5 评定流程, 文档定死 ≤8 组): 长 {SMA200/EMA200} × 短 {SMA20/SMA50}
+# × 波动分位 {0.5 中位/0.67 前三分之一}; ATR14/252日窗固定。评定完成后选定一组冻结。
+EVAL_CANDIDATES = [
+    {"long_ma": lm, "short_ma": sm, "atr_n": 14, "vol_win": 252, "vol_q": q}
+    for lm in ("sma200", "ema200") for sm in ("sma20", "sma50") for q in (0.5, 0.67)]
+
+
+@router.get("/regime/evaluate")
+async def regime_evaluate(request: Request):
+    """候选口径族对比(v2.5 评定流程产出物"记分卡"): 8 候选 × 全部下载品种,
+    每格现算四标准 + 区分度 — 全程内存只读, 不写库不碰 regime_timeline。
+    历史不足暖机的品种如实跳过(skipped)。约几秒~几十秒(D1 每品种只载一次)。"""
+    pool = request.app.state.pool
+    symbols = [r["symbol"] for r in await pool.fetch(
+        "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
+    need = max(regime.warmup_days(c) for c in EVAL_CANDIDATES) + 260  # 暖机后至少再有一年
+    d1s, skipped = {}, []
+    for sym in symbols:
+        d1 = await regime._d1(pool, sym, need)
+        if d1 is None:
+            skipped.append(sym)
+        else:
+            d1s[sym] = d1
+    out = []
+    for cand in EVAL_CANDIDATES:
+        label = (f"{cand['long_ma'].upper()}/{cand['short_ma'].upper()}"
+                 f"·q{cand['vol_q']:g}")
+        per = {}
+        for sym, (dates, h, low, c) in d1s.items():
+            dims, start = regime.compute_regimes(h, low, c, cand)
+            if dims is None or start >= len(dates):
+                continue
+            regs = [dims[0][i] + dims[1][i] + dims[2][i] for i in range(start, len(dates))]
+            per[sym] = {"stats": regime.stats(regs),
+                        "distinct": regime.distinct(h, low, c, dims, start)}
+        out.append({"label": label, "params": cand, "per_symbol": per})
+    return {"candidates": out, "symbols": sorted(d1s), "skipped": skipped}
+
+
+
 @router.get("/regime/{symbol}")
 async def regime_timeline(symbol: str, request: Request, days: int = 90, full: int = 0):
     """品种的 regime 时间线 + 四标准统计(页面即记分卡)。读时自愈补算(无定时任务)。
@@ -45,24 +86,14 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
            # 色带与演变表同源, 全量返回(2026-07-29: 色带跨度可选1~20年, 前端切片; 20年≈5200行)
            "rows": [{"date": r["date"].isoformat(), "regime": r["regime"]}
                     for r in rows]}
-    if full:  # 标准③区分度: 高/低波格日均真实波幅比 + 长趋势A/B次日收益t值(中性指标)
+    if full:  # 标准③区分度: 算法在 services/regime.distinct(与候选族对比共用)
         d1 = await regime._d1(pool, name, regime.warmup_days(params))
         if d1 is not None:
-            import numpy as np
             dates, h, low, c = d1
             dims, start = regime.compute_regimes(h, low, c, params)
-            if dims is not None and len(dates) - start > 300:
-                tr = (h[start:] - low[start:]) / c[start:] * 100
-                va = dims[2][start:] == "A"
-                la = dims[0][start:] == "A"
-                ret = np.concatenate((np.diff(np.log(c[start:])), [np.nan]))
-                ra, rb = ret[la & ~np.isnan(ret)], ret[~la & ~np.isnan(ret)]
-                se = (np.sqrt(ra.var(ddof=1) / len(ra) + rb.var(ddof=1) / len(rb))
-                      if len(ra) > 30 and len(rb) > 30 else 0)
-                out["distinct"] = {
-                    "vol_ratio": round(float(tr[va].mean() / tr[~va].mean()), 2)
-                                 if va.any() and (~va).any() else None,
-                    "trend_t": round(float((ra.mean() - rb.mean()) / se), 1) if se else None}
+            d = regime.distinct(h, low, c, dims, start)
+            if d is not None:
+                out["distinct"] = d
     return out
 
 
