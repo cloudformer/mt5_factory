@@ -36,19 +36,23 @@
     <span>{{ symbol }} · 库内共 {{ data.rows | length }} 交易日</span>
     <span>至 {{ band_months[-1][1][-1].date }}</span>
   </div>
-  {% for mon, mdays in band_months %}
-  {# data-bh = 距最后一行的序号(0=最新半年), JS 按跨度显隐 #}
-  <div data-bh="{{ band_months | length - loop.index }}" data-from="{{ mdays[0].date }}"
-       style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-    <span class="mono muted" style="width:60px;flex:none">{{ mon }}</span>
-    <div style="display:flex;gap:1px;flex-wrap:wrap">
-      {% for r in mdays %}
-      <span title="{{ r.date }}  {{ r.regime }}({{ m.regime_cn(r.regime) }})"
-            style="width:6px;height:18px;border-radius:1px;background:{{ m.regime_color(r.regime) }}"></span>
-      {% endfor %}
-    </div>
-  </div>
-  {% endfor %}
+  {# 表格两列: 左=半年标签, 右=色带(格子 flex 均分整行, 永不换行不留空) #}
+  <table style="width:100%;max-width:1020px;border-collapse:collapse">
+    {% for mon, mdays in band_months %}
+    {# data-bh = 距最后一行的序号(0=最新半年), JS 按跨度显隐 #}
+    <tr data-bh="{{ band_months | length - loop.index }}" data-from="{{ mdays[0].date }}">
+      <td class="mono muted" style="width:60px;padding:1px 8px 1px 0;border:0">{{ mon }}</td>
+      <td style="padding:1px 0;border:0">
+        <div style="display:flex;gap:1px;height:18px">
+          {% for r in mdays %}
+          <span title="{{ r.date }}  {{ r.regime }}({{ m.regime_cn(r.regime) }})"
+                style="flex:1 1 0;border-radius:1px;background:{{ m.regime_color(r.regime) }}"></span>
+          {% endfor %}
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
   <script>
   (function () {
     const sel = document.getElementById("band-span");
