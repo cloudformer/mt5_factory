@@ -25,7 +25,6 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
 
 # 统一配置: 与 Linux docker compose 共用 env/.dev.env (整仓 clone 到 Windows)
 load_dotenv(Path(__file__).resolve().parents[2] / "env" / ".dev.env")
@@ -413,13 +412,16 @@ def _run_download_task(api_base: str, headers: dict, task: dict) -> None:
         with _mt5_lock:
             mt5.symbol_select(symbol, True)
             data = mt5.copy_rates_range(symbol, mt5.TIMEFRAME_M1, cursor, chunk_end)
-        if data is None:   # 确定性失败(品种不可用/历史深度不够等): 原因如实上报, job 记 FAILED
+        if data is None:
+            # 超出券商历史深度的老区间, 部分终端返回 None 而非空数组 — 不判死刑:
+            # 记日志当空段跳过, 继续往后巡逻到有数据的年份(2026-07-28 修, 配合深挖 data_start)。
+            # 真拉不到的品种 = 全程空转, 任务完成时 written=0 如实可见; 品种可用性由 announce 校验兜底。
             with _mt5_lock:
                 err = mt5.last_error()
-            post({"job_id": job_id,
-                  "error": f"copy_rates_range {symbol} {cursor:%Y-%m-%d}~{chunk_end:%Y-%m-%d}"
-                           f" failed: {err}"})
-            return
+            logger.warning("download job #%s %s %s~%s 无数据(%s), 跳过继续",
+                           job_id, symbol, cursor.strftime("%Y-%m-%d"),
+                           chunk_end.strftime("%Y-%m-%d"), err)
+            data = []
         bars = [{"time": int(b["time"]),
                  "open": float(b["open"]), "high": float(b["high"]),
                  "low": float(b["low"]), "close": float(b["close"]),
