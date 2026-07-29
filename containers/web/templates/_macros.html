@@ -68,7 +68,9 @@
   <tr title="做什么: worker 的 HTTP 服务(端口8020), 数据下载/心跳/重启/流水都经它。&#10;这行只要能显示就说明 bridge 活着; 它挂了整台 worker 在列表里就是『离线』">
       <td>bridge</td>
       <td><span class="badge ok">运行中</span></td>
-      <td class="muted">端口 {{ h.port }} · 代码版本 {{ hb.version or '—' }}</td></tr>
+      <td class="muted">端口 {{ h.port }} · 代码版本 {{ hb.version or '—' }}
+        {%- if hb.up_since %} · 本次上线 {{ lts(hb.up_since) }}
+        <span title="bridge 进程本次启动时刻 — update/重启后核对: 这个时间变新 + 版本号变新 = 换血成功">ⓘ</span>{% endif %}</td></tr>
   <tr title="做什么: MT5 终端进程与 bridge 的连接。&#10;未连接: 终端没起或卡死 → 点『重启』(会杀僵尸终端重拉)。&#10;交易许可=是: 算法交易开关已开(下单前提)">
       <td>MT5 终端</td>
       <td><span class="badge {{ 'ok' if hb.mt5_connected else 'error' }}">{{ '已连接' if hb.mt5_connected else '未连接' }}</span></td>

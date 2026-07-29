@@ -60,6 +60,8 @@ def _git_version() -> str:
 
 
 VERSION = _git_version()  # 启动时取一次即可: 代码变了必然经过重启
+UP_SINCE = datetime.now(timezone.utc).isoformat()  # 本次上线(进程启动)时刻 —
+# 随心跳上报, Workers 详情显示"本次上线": update/重启后有没有真的换血一眼可查
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -602,8 +604,8 @@ def health():
 
     if not mt5_up:
         return {"status": "degraded", "mt5_connected": False, "runner": runner,
-                "selftest": _selftest(), "version": VERSION, "dl_poll": True,
-                "services": services, "summary": summary}
+                "selftest": _selftest(), "version": VERSION, "up_since": UP_SINCE,
+                "dl_poll": True, "services": services, "summary": summary}
     try:   # 持仓快照(v7.2 #5 单向化): 每拍随心跳覆盖到 last_health, web 流水页读它
         positions = _positions_snapshot()   # 不再反向拉 — 失败给空+日志, 不拖垮心跳
     except Exception as e:
@@ -612,6 +614,7 @@ def health():
     return {
         "status": "healthy",
         "version": VERSION,
+        "up_since": UP_SINCE,
         "dl_poll": True,   # 能力标记(v7.2 #3): 本机会轮询领下载任务 → api 走 jobs 模式不再反向拉
         "mt5_connected": True,
         "trade_allowed": account["trade_allowed"],

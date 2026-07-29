@@ -8,7 +8,8 @@
   <table>
     <tr><th>ID</th><th>名称</th><th>地址</th><th>下载</th><th>运行</th><th>状态 (点开看详情)</th><th>最后心跳</th><th>操作</th></tr>
     {% for h in hosts %}
-    <tr>
+    {# data-host/data-status: 心跳轮询锚点 — 时间戳就地更新, 状态变了整页刷新(徽章服务端渲染) #}
+    <tr data-host="{{ h.id }}" data-status="{{ h.status }}{{ '' if h.enabled else ':off' }}">
       <td>{{ h.id }}</td>
       <td>{{ h.name }}</td>
       <td>{{ h.host }}:{{ h.port }}</td>
@@ -18,9 +19,9 @@
         <button class="status-btn" data-json-toggle="health-{{ h.id }}">
           {{ m.worker_status(h) }} <span class="caret">▾</span></button>
         {# 被动推送数据的最后更新(2026-07-26 定): <1小时相对时间, 超1小时绝对时间 #}
-        <span class="muted">{{ m.rel(h.last_heartbeat) }}</span>
+        <span class="muted" data-hb-rel="{{ h.id }}">{{ m.rel(h.last_heartbeat) }}</span>
       </td>
-      <td class="muted">{{ m.lts(h.last_heartbeat) }}</td>
+      <td class="muted" data-hb-abs="{{ h.id }}">{{ m.lts(h.last_heartbeat) }}</td>
       <td>
         {# 左组: 角色切换(状态机, 有角色→空闲 / 空闲→demo·live), 点击需确认 #}
         {% if h.runner %}
@@ -116,4 +117,31 @@
 })();
 </script>
 
+{# 心跳轮询(2026-07-28 Frank 定): 相对时间自己跳字但数据是首屏快照, 越跳越旧 —
+   每30秒拉一次 /workers/heartbeats 把 data-utc 换成真值并立即重渲染;
+   状态/启停变了(徽章是服务端渲染)整页刷新一次对齐 #}
+<script>
+(function () {
+  const poll = async () => {
+    try {
+      const d = await fetch("{{ url_for('workers.heartbeats') }}").then((r) => r.json());
+      if (!d.hosts) return;
+      for (const h of d.hosts) {
+        const row = document.querySelector(`tr[data-host="${h.id}"]`);
+        if (!row) { location.reload(); return; }     // 新 worker 上报了: 刷新出新行
+        const st = h.status + (h.enabled ? "" : ":off");
+        if (row.dataset.status !== st) { location.reload(); return; }
+        if (h.last_heartbeat) {
+          row.querySelectorAll(`[data-hb-rel="${h.id}"] .reltime, ` +
+                               `[data-hb-abs="${h.id}"] .localtime`)
+             .forEach((el) => el.setAttribute("data-utc", h.last_heartbeat));
+        }
+      }
+      if (window.renderReltimes) window.renderReltimes();
+      if (window.renderLocaltimes) window.renderLocaltimes();
+    } catch (e) { /* 网络抖动: 下一轮再试 */ }
+  };
+  setInterval(poll, 30000);
+})();
+</script>
 {% endblock %}

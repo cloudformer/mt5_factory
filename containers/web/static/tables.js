@@ -277,29 +277,33 @@ document.addEventListener("DOMContentLoaded", () => {
    只作用于系统时间(心跳/创建等); 交易/bar 时间是券商服务器时间, 不带此类, 保持原样 */
 document.addEventListener("DOMContentLoaded", () => {
   const p = (n) => String(n).padStart(2, "0");
-  document.querySelectorAll(".localtime[data-utc]").forEach((el) => {
-    const raw = el.getAttribute("data-utc");
-    const d = new Date(raw);
-    if (isNaN(d)) return;
-    el.textContent = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
-      + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-    el.title = "本地时间(存储为 UTC)";
-  });
+  /* 两个渲染器挂 window: AJAX 更新 data-utc 后调它们立即重渲染(workers 页心跳轮询用) */
+  window.renderLocaltimes = () => {
+    document.querySelectorAll(".localtime[data-utc]").forEach((el) => {
+      const d = new Date(el.getAttribute("data-utc"));
+      if (isNaN(d)) return;
+      el.textContent = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
+        + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+      el.title = "本地时间(存储为 UTC)";
+    });
+  };
   /* 相对时间(被动推送数据的"最后更新"标注, 2026-07-26 与 Frank 定):
-     <1小时 → "40秒前/5分钟前"(每30秒自刷新), ≥1小时 → 本地绝对时间 */
-  document.querySelectorAll(".reltime[data-utc]").forEach((el) => {
-    const d = new Date(el.getAttribute("data-utc"));
-    if (isNaN(d)) return;
-    const render = () => {
+     <1小时 → "40秒前/5分钟前"(每30秒自刷新), ≥1小时 → 本地绝对时间。
+     每次渲染现读 data-utc — 轮询改了属性即取到新值, 不锁死首屏时间戳 */
+  window.renderReltimes = () => {
+    document.querySelectorAll(".reltime[data-utc]").forEach((el) => {
+      const d = new Date(el.getAttribute("data-utc"));
+      if (isNaN(d)) return;
       const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
       el.textContent = s < 90 ? `${Math.round(s)} 秒前`
         : s < 3600 ? `${Math.round(s / 60)} 分钟前`
         : `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-    };
-    render();
-    setInterval(render, 30000);
-    el.title = "最后更新时间(本地时区)";
-  });
+      el.title = "最后更新时间(本地时区)";
+    });
+  };
+  window.renderLocaltimes();
+  window.renderReltimes();
+  setInterval(window.renderReltimes, 30000);
 });
 
 /* 表格列宽拖拽 (全站统一, 电子表格式: 拖谁只动谁, 别的列不跳):

@@ -114,11 +114,15 @@ async def claim_download_job(pool: asyncpg.Pool, worker: str, server: str | None
 async def download_progress(pool: asyncpg.Pool):
     """jobs 模式进度, 拼成与旧内存 state 同形 → web 下载页零改动。无下载 jobs = None(用旧 state)。"""
     rows = await pool.fetch(
-        "SELECT status, worker, error, payload FROM jobs WHERE kind=$1", DOWNLOAD_KIND)
+        "SELECT status, worker, error, payload, finished_at FROM jobs WHERE kind=$1",
+        DOWNLOAD_KIND)
     if not rows:
         return None
+    # 上次同步完成(Last Sync): 本批全部结束时间(最后一个任务的 finished_at); 有任务还在跑=None
+    fins = [r["finished_at"] for r in rows]
+    last_sync = max(fins).isoformat() if all(fins) else None
     out = {"running": False, "current": {}, "symbols": [], "bars_written": 0,
-           "done": [], "errors": [], "mode": "jobs"}
+           "done": [], "errors": [], "mode": "jobs", "last_sync": last_sync}
     for r in rows:
         p = r["payload"]
         sym = p.get("symbol", "?")

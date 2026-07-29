@@ -39,6 +39,19 @@ def index():
     return render_template("workers.html", hosts=hosts)
 
 
+@bp.get("/heartbeats")
+def heartbeats():
+    """心跳轮询 JSON(2026-07-28 Frank 定: 相对时间只跳字不换数据 → 页面每30秒拉一次真数据):
+    只回轮询要用的最小字段; 状态变化由前端整页刷新(徽章/详情是服务端渲染)"""
+    try:
+        hosts = api.get("/hosts")["hosts"]
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+    return {"hosts": [{"id": h["id"], "last_heartbeat": h.get("last_heartbeat"),
+                       "status": h.get("status"), "enabled": h.get("enabled")}
+                      for h in hosts]}
+
+
 @bp.post("/assign")
 def assign():
     """给已自动上报的 worker 指派运行状态(空闲/demo/live)。

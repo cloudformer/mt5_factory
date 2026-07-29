@@ -13,6 +13,11 @@
     {% else %}
       <span class="muted">下载 worker: {% for h in hosts %}{{ h.name }}{% if not loop.last %}、{% endif %}{% endfor %} ({{ hosts | length }} 台并行)</span>
     {% endif %}
+    {% if not sync.running and sync.last_sync %}
+      {# 上次同步完成(Last Sync, 任务级): 最近一批下载任务全部结束的时刻;
+         数据级的新鲜度看下方覆盖表每品种"数据水位"(库内 M1 最新时间) #}
+      <span class="muted" title="最近一批下载任务全部结束的时刻(任务级); 每品种数据新到哪看下方覆盖表">上次同步完成: {{ m.lts(sync.last_sync) }}</span>
+    {% endif %}
     {% if sync.running %}
       <span id="ds-progress" data-running="1">
         <span class="badge ok"><span class="ds-done">{{ sync.done | length }}</span>/<span class="ds-total">{{ sync.symbols | length }}</span> 品种</span>
