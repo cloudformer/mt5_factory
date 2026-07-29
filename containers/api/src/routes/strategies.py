@@ -11,7 +11,7 @@
 import asyncio
 import logging
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -323,6 +323,22 @@ async def set_status(strategy_id: int, req: StatusRequest, request: Request):
     return dict(row)
 
 
+
+async def _trail_window(pool, strategy_id: int, symbol: str):
+    """移动止损对比/调优批跑的数据窗口(2026-07-29 时间窗保护): 优先用该策略主品种
+    成绩单(backtests)存的 from/to — 对比三铁律: 和被比较的排名成绩同窗才可比;
+    没跑过回测则回落 config 批量默认窗口(从现在往回数)。"""
+    row = await pool.fetchrow(
+        "SELECT from_time, to_time FROM backtests WHERE strategy_id=$1 AND symbol=$2",
+        strategy_id, symbol)
+    if row:
+        return row["from_time"], row["to_time"]
+    win = int(await pool.fetchval(
+        "SELECT value FROM config WHERE key='backtest_window_days'") or 180)
+    now = datetime.now(timezone.utc)
+    return now - timedelta(days=win), now
+
+
 @router.get("/strategies/{strategy_id}/trail_compare")
 async def trail_compare(strategy_id: int, request: Request, variant: Optional[str] = None,
                         gap: Optional[int] = None, start: Optional[int] = None,
@@ -340,9 +356,8 @@ async def trail_compare(strategy_id: int, request: Request, variant: Optional[st
         raise HTTPException(status_code=404, detail="strategy not found")
     if not s["point"] or s["timeframe"] not in backtest.TF_SECONDS:
         raise HTTPException(status_code=400, detail="品种未登记或周期不支持")
-    m1 = await backtest.load_m1(pool, s["symbol"],
-                                datetime(2015, 1, 1, tzinfo=timezone.utc),
-                                datetime.now(timezone.utc))
+    w_from, w_to = await _trail_window(pool, strategy_id, s["symbol"])
+    m1 = await backtest.load_m1(pool, s["symbol"], w_from, w_to)
     if m1 is None:
         raise HTTPException(status_code=400, detail=f"{s['symbol']} 无 M1 数据, 先去下载")
     cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
@@ -896,9 +911,8 @@ async def trail_batch(strategy_id: int, req: TrailBatchRequest, request: Request
         raise HTTPException(status_code=404, detail="strategy not found")
     if not s["point"] or s["timeframe"] not in backtest.TF_SECONDS:
         raise HTTPException(status_code=400, detail="品种未登记或周期不支持")
-    m1 = await backtest.load_m1(pool, s["symbol"],
-                                datetime(2015, 1, 1, tzinfo=timezone.utc),
-                                datetime.now(timezone.utc))
+    w_from, w_to = await _trail_window(pool, strategy_id, s["symbol"])
+    m1 = await backtest.load_m1(pool, s["symbol"], w_from, w_to)
     if m1 is None:
         raise HTTPException(status_code=400, detail=f"{s['symbol']} 无 M1 数据, 先去下载")
     cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}

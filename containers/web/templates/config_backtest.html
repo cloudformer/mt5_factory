@@ -32,6 +32,8 @@
     <label>滑点 <input name="slippage_points" value="{{ costs.get('slippage_points', 3) }}" size="3" title="单边滑点(点)"></label>
     <label>佣金 <input name="commission_points" value="{{ costs.get('commission_points', 7) }}" size="3" title="往返佣金(点数等值)"></label>
     <label>点差 <input name="spread_points" value="{{ costs.get('spread_points') if costs.get('spread_points') is not none else '' }}" placeholder="真实" size="4" title="固定点差(点); 留空=用每根bar记录的真实点差"></label>
+    <label>批量回测窗口(天) <input name="window_days" value="{{ window_days or '' }}" size="5"
+        title="批量/筛选回测的数据窗口: 从提交时刻往回数这么多天(默认180)。按ID点名时页面可临时选1/5/10/20年不受此限。同一批同窗口, 不同窗口的成绩不要互比(对比三铁律)"></label>
     <label>回测单批上限 <input name="batch_limit" value="{{ batch_limit }}" size="5"
         title="一次批量回测最多跑多少个策略(防失控保护)。策略总数超过它时'全部'跑不全 — 调大到不小于策略总数"></label>
     <label>OOS训练占比 <input name="oos_split" value="{{ '%g' % oos_split }}" size="4"

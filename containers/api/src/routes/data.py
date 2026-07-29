@@ -106,7 +106,8 @@ CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
                "trail_default",   # 移动止损全局默认(v0.9): null=关; 结构见 strategy_core/trailing.py
                "worker_params",   # worker 上报节奏/批量(v7.2, schema/046): announce 应答下发
                "regime_params",   # Regime 口径(v2.5, schema/048): 评定期配置页可换, 改完重建时间线
-               "download_timeframes"}  # 下载周期层(2026-07-29, schema/049): M1 必含 + 可选高周期
+               "download_timeframes",  # 下载周期层(2026-07-29, schema/049): M1 必含 + 可选高周期
+               "backtest_window_days"}  # 批量回测默认窗口天数(2026-07-29, schema/051)
 
 # worker_params 各项允许区间(用户按网络自调, 区间防脚枪):
 # heartbeat 上限 60 = 轮询侧"新鲜推送"窗口 75s 的安全边界(推得比窗口慢会推/拉来回抖)
@@ -301,6 +302,9 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
             v = req.value.get(k)
             if not isinstance(v, int) or not lo <= v <= hi:
                 raise HTTPException(status_code=400, detail=f"worker_params.{k} 须为 {lo}~{hi} 的整数")
+    if key == "backtest_window_days":  # 批量回测默认窗口(天): 30天~20年
+        if not isinstance(req.value, int) or not 30 <= req.value <= 7400:
+            raise HTTPException(status_code=400, detail="backtest_window_days 须为 30~7400 的整数(天)")
     if key == "download_timeframes":  # 下载周期层: M1 必含(唯一原始数据), 其余须为已知周期
         allowed_tf = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]
         if (not isinstance(req.value, list) or "M1" not in req.value

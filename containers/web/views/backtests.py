@@ -10,8 +10,11 @@ bp = Blueprint("backtests", __name__, url_prefix="/backtests")
 def index():
     """策略回测页(纯执行): 批量/单策略回测 + 进度 + 孤儿警告。结果排名在「策略列表排名」。"""
     bt, costs, brokers, symbols, orphans, templates = {}, {}, [], [], [], []
+    window_days = None  # 唯一源=config(schema/051); api不可用即空
     try:
-        costs = api.get("/config")["config"].get("backtest_costs", {})
+        cfg = api.get("/config")["config"]
+        costs = cfg.get("backtest_costs", {})
+        window_days = cfg.get("backtest_window_days")
         bt = api.get("/backtest/status")
         # 运行表单筛选下拉的选项从库里拉 (货币对/券商), 默认全部; 与 worker 无关
         syms = api.get("/symbols")["symbols"]
@@ -24,7 +27,7 @@ def index():
         flash(f"api 不可用: {e}", "error")
     return render_template("backtests.html", bt=bt, costs=costs,
                            brokers=brokers, symbols=symbols, orphans=orphans,
-                           templates=templates)
+                           templates=templates, window_days=window_days)
 
 
 @bp.get("/status")
@@ -82,6 +85,9 @@ def save_costs():
         if request.form.get("oos_split", "").strip():  # OOS 训练占比(0~1); 换比例必全量收敛
             api.put("/config/backtest_oos_split",
                     {"value": float(request.form["oos_split"])})
+        if request.form.get("window_days", "").strip():  # 批量回测默认窗口(天, 2026-07-29)
+            api.put("/config/backtest_window_days",
+                    {"value": int(request.form["window_days"])})
         flash("策略参数已保存", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
         flash(f"保存失败: {e}", "error")
@@ -104,6 +110,8 @@ def run():
         except ValueError:
             flash("策略ID必须是数字, 逗号分隔", "error")
             return redirect(url_for("backtests.index"))
+        if request.form.get("window_days", "").strip():   # 点名模式的时间窗(默认5年)
+            payload["window_days"] = int(request.form["window_days"])
     else:  # 按筛选圈一批
         if request.form.get("template"):
             payload["template"] = request.form["template"]

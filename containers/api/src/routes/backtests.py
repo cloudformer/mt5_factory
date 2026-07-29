@@ -84,6 +84,10 @@ class BacktestRequest(BaseModel):
     strategy_ids: Optional[list[int]] = None
     from_time: Optional[datetime] = None
     to_time: Optional[datetime] = None
+    # 时间窗保护(2026-07-29 与 Frank 定, M1挖到20年后必须有): 从提交时刻往回数的天数。
+    # 不传 = config backtest_window_days(批量默认180); 按ID点名时页面给 1/5/10/20年 选择器。
+    # from_time 显式传入时以它为准(window_days 忽略) — 老调用零影响
+    window_days: Optional[int] = None
     # 单批上限(防失控保护): 不传则用 config 表 backtest_batch_limit(配置页可改), 再兜底 500
     limit: Optional[int] = None
     # 成本模型: 不传则用 config 表 backtest_costs 的系统默认 (web 可改)
@@ -150,8 +154,12 @@ async def run(req: BacktestRequest, request: Request):
     }
     # 展开成 每策略×品种 一个 job: 主品种必测(排名要它); 跨品种再并上全 download 品种
     # (反过拟合空间维度)。时间窗冻结在投递时刻; 品种是否存在等校验留给执行时(错误落在 job 行)
-    t_from = req.from_time or datetime(2015, 1, 1, tzinfo=timezone.utc)
+    if req.window_days is not None and not 30 <= req.window_days <= 7400:
+        raise HTTPException(status_code=400, detail="window_days 须为 30~7400 的整数(天)")
+    win = req.window_days or int(await pool.fetchval(
+        "SELECT value FROM config WHERE key='backtest_window_days'") or 180)
     t_to = req.to_time or datetime.now(timezone.utc)
+    t_from = req.from_time or t_to - timedelta(days=win)
     universe = (set(r["symbol"] for r in
                     await pool.fetch("SELECT symbol FROM symbols WHERE download"))
                 if req.cross_symbol else set())
