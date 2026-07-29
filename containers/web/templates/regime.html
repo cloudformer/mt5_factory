@@ -106,7 +106,7 @@
     {# 参考分右上角(2026-07-29 Frank 定): 进页面第一眼看到总分; 明细仍在下方总评行 #}
     {% if score %}
     <span class="badge {{ 'ok' if score.passed else ('warn' if score.passed is none else 'error') }}" style="font-size:14px"
-          title="两层参考分(仅参考不做门禁): 及格层=③区分度60, 过线才计好坏层40。分项: {% for k, v in score.parts.items() %}{{ k }}={{ v if v is not none else '未算' }} {% endfor %}">
+          title="两层参考分(仅参考不做门禁): 总分=两层相加, 及格层=③区分度60(权重大)+好坏层40; ③过线与否只标注。分项: {% for k, v in score.parts.items() %}{{ k }}={{ v if v is not none else '未算' }} {% endfor %}">
       {% if score.total is not none %}参考分 <b>{{ score.total }}</b>/100
       {% else %}参考分 —(先点③补算区分度) · 好坏层 {{ score.quality }}/40{% endif %}</span>
     {% endif %}
@@ -181,7 +181,7 @@
     <span class="badge {{ 'ok' if score.passed else ('warn' if score.passed is none else 'error') }}"
           title="两层参考分(仅参考不做门禁): 及格层=③区分度60(真伪: 波幅比30+t值30), 两门槛都过线才计好坏层40(①持续性20 ②覆盖12 ④不冗余8) — 假的东西谈不上好坏。分项: {% for k, v in score.parts.items() %}{{ k }}={{ v if v is not none else '未算' }} {% endfor %}">
       {% if score.total is not none %}
-      参考分 <b>{{ score.total }}</b>/100(及格层 {{ score.validity }}/60{% if score.passed %} + 好坏层 {{ score.quality }}/40{% else %} 未过线, 好坏层 {{ score.quality }}/40 暂不计{% endif %})
+      参考分 <b>{{ score.total }}</b>/100(及格层 {{ score.validity }}/60 + 好坏层 {{ score.quality }}/40{% if not score.passed %} · ③未过线{% endif %})
       {% else %}
       参考分待补算③(真伪未验没有分; 好坏层预览 {{ score.quality }}/40)
       {% endif %}</span>

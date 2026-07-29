@@ -4,7 +4,7 @@
 {{ m.page_header('Regime 候选口径族对比', 'v2.5 评定流程产出物"记分卡": 8 候选 × 全部下载品种, 每格现算(只读不落库不碰时间线)。评定按整体(中位+最差), 不因单品种单项贴线否决; 选定一组后连门槛一并冻结写回文档') }}
 
 <section>
-  <h2>候选 × 品种 · 两层参考分 <span class="muted" style="font-weight:normal">按中位分降序 · 每格: 总分(及格层没过线时=仅及格层得分) · —=区分度未算/历史不足</span></h2>
+  <h2>候选 × 品种 · 两层参考分 <span class="muted" style="font-weight:normal">按中位分降序 · 每格: 总分=及格层+好坏层直接相加(③过线与否只标注颜色) · —=区分度未算/历史不足</span></h2>
   {% if skipped %}<p class="muted">历史不足暖机被跳过的品种: {{ skipped | join('、') }} — 补长历史(D1)后自动纳入。</p>{% endif %}
   <table class="dense">
     <tr><th>候选口径</th>
@@ -17,7 +17,7 @@
       {% for sym in symbols %}
       {% set c = r.cells.get(sym) %}
       <td class="mono">{% if c and c.total is not none %}
-          <span class="{{ 'pos' if c.passed else '' }}" title="及格层 {{ c.validity }}/60{{ ' 过线' if c.passed else ' 未过线(好坏层不计)' }} · 好坏层 {{ c.quality }}/40">{{ c.total }}</span>
+          <span class="{{ 'pos' if c.passed else '' }}" title="及格层 {{ c.validity }}/60{{ ' 过线' if c.passed else ' 未过线' }} · 好坏层 {{ c.quality }}/40 · 相加">{{ c.total }}</span>
         {% elif c %}<span class="muted" title="区分度未算(历史<300日)">—</span>
         {% else %}<span class="muted">—</span>{% endif %}</td>
       {% endfor %}
@@ -26,7 +26,7 @@
     </tr>
     {% endfor %}
   </table>
-  <p class="muted">及格层(60) = 波幅比 + 趋势t值(真伪); 好坏层(40) = 持续性/覆盖/不冗余 — 及格才计入。
+  <p class="muted">总分 = 及格层(60, 波幅比+趋势t值, 权重大) + 好坏层(40, 持续性/覆盖/不冗余) 直接相加; ③过线与否只标注。
     格龄已用<b>按天加权中位</b>(2026-07-29 尺子改良: 按段中位被穿越碎段淹没)。</p>
 </section>
 

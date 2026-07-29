@@ -14,10 +14,10 @@ TF_ROLE = {"M1": "回测", "D1": "regime"}
 
 
 def _two_tier_score(st_, dt) -> dict | None:
-    """两层参考分(2026-07-28 Frank 定, 仅参考不做门禁): 假的东西谈不上好坏 —
-    及格层=③区分度60分(真伪: 波幅比30+t值30); 好坏层40分(①持续性20 ②覆盖12 ④不冗余8);
-    闸门: ③两个门槛都过线才计好坏层; ③未算=不出总分(没验真伪就没有分)。
-    单品种记分卡与候选族对比页共用(2026-07-29 提出); 格龄用按天加权值(尺子改良)。"""
+    """两层参考分(2026-07-29 Frank 修订, 仅参考不做门禁): 总分 = 两层直接相加 —
+    及格层=③区分度60分(真伪: 波幅比30+t值30, 权重大); 好坏层40分(①20 ②12 ④8)。
+    ③门槛过没过只作标注(passed, 徽章颜色)不再压分; ③未算=不出总分(没验真伪就没有分)。
+    细则未来再探讨。单品种记分卡与候选族对比页共用; 格龄用按天加权值(尺子改良)。"""
     if not st_.get("days"):
         return None
     cap = lambda v: max(0.0, min(1.0, v))  # noqa: E731
@@ -34,7 +34,7 @@ def _two_tier_score(st_, dt) -> dict | None:
         passed = (dt["vol_ratio"] >= 1.5 and dt.get("trend_t") is not None
                   and abs(dt["trend_t"]) >= 2)
         score = {"validity": validity, "quality": quality, "passed": passed,
-                 "total": validity + (quality if passed else 0)}
+                 "total": validity + quality}   # 两层直接相加(2026-07-29 修订)
     else:   # ③未算: 只亮好坏层预览, 不出总分
         score = {"validity": None, "quality": quality, "passed": None, "total": None}
     score["parts"] = {"③波幅比(30)+t值(30)": score["validity"],
