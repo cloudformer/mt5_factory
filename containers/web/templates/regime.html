@@ -106,7 +106,7 @@
     {# 参考分右上角(2026-07-29 Frank 定): 进页面第一眼看到总分; 明细仍在下方总评行 #}
     {% if score %}
     <span class="badge {{ 'ok' if score.passed else ('warn' if score.passed is none else 'error') }}" style="font-size:14px"
-          title="两层参考分(仅参考不做门禁): 总分=两层相加, 及格层=③区分度60(权重大)+好坏层40; ③过线与否只标注。分项: {% for k, v in score.parts.items() %}{{ k }}={{ v if v is not none else '未算' }} {% endfor %}">
+          title="两层参考分(仅参考不做门禁): 总分=两层相加, 及格层=③同期波幅比60(收口后趋势收益t不计分, 见文档)+好坏层40。分项: {% for k, v in score.parts.items() %}{{ k }}={{ v if v is not none else '未算' }} {% endfor %}">
       {% if score.total is not none %}参考分 <b>{{ score.total }}</b>/100
       {% else %}参考分 —(先点③补算区分度) · 好坏层 {{ score.quality }}/40{% endif %}</span>
     {% endif %}
@@ -140,7 +140,8 @@
   {# 四标准判定(与表内一致, 供总评汇总) #}
   {% set c1 = st.dwell.long >= 20 and st.dwell.short >= 5 and st.dwell.vol >= 5 and st.combo_median >= 3 and st.flips_per_year <= 60 %}
   {% set c2 = st.cov_min >= 5 and st.cov_max <= 35 %}
-  {% set c3 = (data.distinct.vol_ratio >= 1.5 and data.distinct.trend_t is not none and (data.distinct.trend_t | abs) >= 2) if (data.distinct and data.distinct.vol_ratio) else none %}
+  {# ③ 收口(2026-07-29): 准入=同期波幅比≥1.3(唯一名副其实的性格断言); 趋势收益t只作参考不计分 #}
+  {% set c3 = (data.distinct.vol_ratio >= 1.3) if (data.distinct and data.distinct.vol_ratio) else none %}
   {% set c4 = st.agree_max <= 75 %}
   <table class="dense">
     <tr><th>标准</th><th>指标</th><th>实测</th><th>参考门槛</th><th>初判</th></tr>
@@ -163,11 +164,12 @@
     <tr><td>② 覆盖均衡</td><td>最稀格 / 最密格</td>
         <td class="mono">{{ st.cov_min }}% / {{ st.cov_max }}%</td><td class="muted">≥5% / ≤35%</td>
         <td>{{ '✅' if c2 else '❌' }}</td></tr>
-    <tr><td>③ 区分度<br><span class="muted" style="font-weight:normal">同期性格·非预测</span></td><td>高/低波幅比 · 趋势A/B<b>同期日收益</b>t值</td>
-        <td class="mono">{% if data.distinct %}{{ data.distinct.vol_ratio }}× · t={{ data.distinct.trend_t }}
+    <tr><td>③ 区分度<br><span class="muted" style="font-weight:normal">同期性格·非预测</span></td>
+        <td>高/低波幅比<b>(准入)</b> · 趋势A/B同期日收益t值<span class="muted">(参考·不计分)</span></td>
+        <td class="mono">{% if data.distinct %}{{ data.distinct.vol_ratio }}× · <span class="muted">t={{ data.distinct.trend_t }}</span>
           {% else %}<a class="small" href="{{ url_for('datasync.regime', symbol=symbol, days=days, full=1) }}"
               title="按当前配置重扫全量M1现算(几秒~几十秒)。前提: 改过口径要先完成上方②重建, 否则本行是新口径、其余三行是旧口径 = 混合假记分卡">补算区分度(几秒~几十秒)</a>{% endif %}</td>
-        <td class="muted">≥1.5× · |t|≥2</td>
+        <td class="muted">≥1.3×<br><span class="muted">t 仅参考</span></td>
         <td>{% if c3 is not none %}{{ '✅' if c3 else '❌' }}{% else %}—{% endif %}</td></tr>
     <tr><td>④ 维度不冗余</td><td>两维同向一致率: {% for k, v in st.agree.items() %}{{ k }} <b class="mono">{{ v }}%</b>{{ ' · ' if not loop.last }}{% endfor %}(取最大)</td>
         <td class="mono">{{ st.agree_max }}%</td><td class="muted">≤75%(≥90%=换定义)</td>
@@ -179,7 +181,7 @@
     <span class="tag">总评</span>
     {% if score %}
     <span class="badge {{ 'ok' if score.passed else ('warn' if score.passed is none else 'error') }}"
-          title="两层参考分(仅参考不做门禁): 及格层=③区分度60(真伪: 波幅比30+t值30), 两门槛都过线才计好坏层40(①持续性20 ②覆盖12 ④不冗余8) — 假的东西谈不上好坏。分项: {% for k, v in score.parts.items() %}{{ k }}={{ v if v is not none else '未算' }} {% endfor %}">
+          title="两层参考分(仅参考不做门禁): 及格层=③同期波幅比60(收口: 趋势真伪靠①②④+色带, 收益t不计分)+好坏层40(①20 ②12 ④8)。分项: {% for k, v in score.parts.items() %}{{ k }}={{ v if v is not none else '未算' }} {% endfor %}">
       {% if score.total is not none %}
       参考分 <b>{{ score.total }}</b>/100(及格层 {{ score.validity }}/60 + 好坏层 {{ score.quality }}/40{% if not score.passed %} · ③未过线{% endif %})
       {% else %}

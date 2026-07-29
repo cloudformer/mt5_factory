@@ -30,14 +30,15 @@ def _two_tier_score(st_, dt) -> dict | None:
     q4 = (1.0 if a <= 75 else (cap((90 - a) / 15) if a < 90 else 0.0)) * 8
     quality = round(q1 + q2 + q4)   # 好坏层 0~40
     if (dt or {}).get("vol_ratio") is not None:
-        validity = round(cap(dt["vol_ratio"] / 1.5) * 30 + cap(abs(dt["trend_t"] or 0) / 2) * 30)
-        passed = (dt["vol_ratio"] >= 1.5 and dt.get("trend_t") is not None
-                  and abs(dt["trend_t"]) >= 2)
+        # ③ 收口(2026-07-29 Frank 定): 准入=同期波幅比(唯一名副其实的性格断言), 门槛1.3(校准自1.5);
+        # 趋势维真伪由 ①持续性+②覆盖+④不冗余+色带背书, 收益t值日噪音大只作参考不计分
+        validity = round(cap(dt["vol_ratio"] / 1.3) * 60)
+        passed = dt["vol_ratio"] >= 1.3
         score = {"validity": validity, "quality": quality, "passed": passed,
-                 "total": validity + quality}   # 两层直接相加(2026-07-29 修订)
+                 "total": validity + quality}   # 两层直接相加
     else:   # ③未算: 只亮好坏层预览, 不出总分
         score = {"validity": None, "quality": quality, "passed": None, "total": None}
-    score["parts"] = {"③波幅比(30)+t值(30)": score["validity"],
+    score["parts"] = {"③波幅比(60)": score["validity"],
                       "①持续性(20)": round(q1), "②覆盖(12)": round(q2), "④不冗余(8)": round(q4)}
     return score
 
