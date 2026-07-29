@@ -29,8 +29,11 @@ router = APIRouter()
 
 
 @router.get("/symbols")
-async def list_symbols(request: Request):
-    """全部已登记品种 + 每品种 M1 数据覆盖 (下载页/策略生成都读这里)。
+async def list_symbols(request: Request, coverage: bool = False):
+    """全部已登记品种(下载页/策略生成/回测页/Regime 页都读这里)。
+    coverage=1 附每品种×每周期数据覆盖 — 只有下载页/首页要它(2026-07-29 性能修复:
+    覆盖统计要对整张 historical_bars 聚合, 千万行级后每次几秒; 之前所有页面都在付这笔钱,
+    数据爆量后全站变慢的根因)。
     orphans: historical_bars 里有数据、但 symbols 表没登记的品种 —
     直接暴露出来防"看不到的藏数据", 页面可一键清空。"""
     pool = request.app.state.pool
@@ -38,28 +41,30 @@ async def list_symbols(request: Request):
         "SELECT s.symbol, s.broker, s.digits, s.point, s.volume_min, s.stops_level,"
         "       s.download, s.data_start, s.verified_at, s.verify_error"
         "  FROM symbols s ORDER BY s.symbol")
-    # 每品种×每周期覆盖(2026-07-29 补盲区: 页面之前只显示 M1, D1 下没下只能查库)。
-    # 一条 GROUP BY 全拿(比每行 LATERAL 便宜), 键=周期 — 下载什么层页面就显示什么层,
-    # 将来加 H1 等自动出现, 不用改这里。cov 结构: {tf: {first_bar,last_bar,bars}}
+    # 每品种×每周期覆盖: 一条 GROUP BY 全拿, 键=周期 — 下载什么层页面就显示什么层。
+    # cov 结构: {tf: {first_bar,last_bar,bars}}
     cov: dict = {}
-    for c in await pool.fetch(
-            "SELECT symbol, timeframe, min(time) AS first_bar, max(time) AS last_bar,"
-            "       count(*) AS bars FROM historical_bars GROUP BY 1, 2"):
-        cov.setdefault(c["symbol"], {})[c["timeframe"]] = {
-            "first_bar": c["first_bar"], "last_bar": c["last_bar"], "bars": c["bars"]}
+    if coverage:
+        for c in await pool.fetch(
+                "SELECT symbol, timeframe, min(time) AS first_bar, max(time) AS last_bar,"
+                "       count(*) AS bars FROM historical_bars GROUP BY 1, 2"):
+            cov.setdefault(c["symbol"], {})[c["timeframe"]] = {
+                "first_bar": c["first_bar"], "last_bar": c["last_bar"], "bars": c["bars"]}
     out = []
     for r in rows:
         d = dict(r)
         d["cov"] = cov.get(r["symbol"], {})
-        m1 = d["cov"].get("M1", {})   # 老字段保留(策略生成/regime 页等消费者零改动)
+        m1 = d["cov"].get("M1", {})   # 老字段保留(消费者零改动); 无 coverage 时为 None
         d["first_bar"], d["last_bar"], d["bars"] = (
             m1.get("first_bar"), m1.get("last_bar"), m1.get("bars"))
         out.append(d)
-    orphans = await pool.fetch(
-        "SELECT symbol, min(time) AS first_bar, max(time) AS last_bar, count(*) AS bars"
-        "  FROM historical_bars"
-        " WHERE symbol NOT IN (SELECT symbol FROM symbols)"
-        " GROUP BY symbol ORDER BY symbol")
+    orphans = []
+    if coverage:   # 孤儿检查同样是全表聚合, 只有下载页显示它 — 同门控(2026-07-29 性能修复)
+        orphans = await pool.fetch(
+            "SELECT symbol, min(time) AS first_bar, max(time) AS last_bar, count(*) AS bars"
+            "  FROM historical_bars"
+            " WHERE symbol NOT IN (SELECT symbol FROM symbols)"
+            " GROUP BY symbol ORDER BY symbol")
     return {"symbols": out, "orphans": [dict(r) for r in orphans]}
 
 

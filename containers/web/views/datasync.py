@@ -47,7 +47,7 @@ def index():
     data = {"symbols": [], "orphans": [], "sync": {}, "hosts": [], "timeframes": [],
             "wp": {}, "batch_tfs": []}
     try:
-        s = api.get("/symbols")
+        s = api.get("/symbols", coverage=1)
         data["symbols"], data["orphans"] = s["symbols"], s.get("orphans", [])
         data["sync"] = api.get("/syncdata/status")
         data["hosts"] = [h for h in api.get("/hosts")["hosts"]
