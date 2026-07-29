@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import socket
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -257,11 +256,12 @@ def fetch_strategies(run_status: str) -> list:
 def filling_mode(info):
     """按品种支持的成交模式自适应(2026-07-26 事故: live 策略#23 下单连拒 retcode 10030
     "Unsupported filling mode" — 写死 IOC 撞上不支持 IOC 的品种/券商)。
-    info.filling_mode 位掩码: FOK=1 / IOC=2; 优先 IOC(与原行为一致: 部分成交余量撤销),
-    不支持则 FOK, 两者都没有(常见于做市商 Market 执行) → RETURN。"""
-    if info.filling_mode & mt5.SYMBOL_FILLING_IOC:
+    info.filling_mode 位掩码用字面值(MQL5 文档定值 FOK=1/IOC=2): Python 的 MetaTrader5 包
+    没有 SYMBOL_FILLING_* 常量(2026-07-29 实证: AttributeError 炸掉下单)。
+    优先 IOC(与原行为一致: 部分成交余量撤销), 不支持则 FOK, 都没有(做市商 Market 执行) → RETURN。"""
+    if info.filling_mode & 2:      # SYMBOL_FILLING_IOC(MQL5 定值)
         return mt5.ORDER_FILLING_IOC
-    if info.filling_mode & mt5.SYMBOL_FILLING_FOK:
+    if info.filling_mode & 1:      # SYMBOL_FILLING_FOK(MQL5 定值)
         return mt5.ORDER_FILLING_FOK
     return mt5.ORDER_FILLING_RETURN
 

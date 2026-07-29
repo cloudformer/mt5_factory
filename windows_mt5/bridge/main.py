@@ -945,9 +945,10 @@ def ordertest(symbol: str = "XAUUSD"):
             raise HTTPException(status_code=400, detail="算法交易开关未开 (工具栏 Algo Trading)")
         volume = max(info.volume_min, 0.01)
         dist = max(info.trade_stops_level * 3, 500) * info.point
-        # 成交模式自适应(与 runner 同修, 2026-07-26 事故 retcode 10030): 品种支持什么用什么
-        fm = (mt5.ORDER_FILLING_IOC if info.filling_mode & mt5.SYMBOL_FILLING_IOC
-              else mt5.ORDER_FILLING_FOK if info.filling_mode & mt5.SYMBOL_FILLING_FOK
+        # 成交模式自适应(与 runner 同修, 2026-07-26 事故 retcode 10030): 品种支持什么用什么。
+        # 位掩码字面值(MQL5 定值 FOK=1/IOC=2): Python 包没有 SYMBOL_FILLING_* 常量
+        fm = (mt5.ORDER_FILLING_IOC if info.filling_mode & 2
+              else mt5.ORDER_FILLING_FOK if info.filling_mode & 1
               else mt5.ORDER_FILLING_RETURN)
         req = {"action": mt5.TRADE_ACTION_DEAL, "symbol": symbol, "volume": volume,
                "type": mt5.ORDER_TYPE_BUY, "price": tick.ask,
