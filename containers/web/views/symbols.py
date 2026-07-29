@@ -91,9 +91,11 @@ def save_worker_params():
     """保存 worker 参数(config: worker_params)— 上报节奏/批量, 用户按网络自调;
     下发走 announce 应答, worker 1~2 分钟自动领到, 无需重启"""
     try:
-        api.put("/config/worker_params", {"value": {
+        # PUT 要求键完整: 本表单只管4个上报键, 下载节流2键(下载页管)从现值合并带上
+        cur = api.get("/config")["config"].get("worker_params") or {}
+        api.put("/config/worker_params", {"value": {**cur, **{
             k: int(request.form[k]) for k in
-            ("heartbeat_seconds", "announce_seconds", "bars_batch", "decision_keep_days")}})
+            ("heartbeat_seconds", "announce_seconds", "bars_batch", "decision_keep_days")}}})
         flash("worker 参数已保存 — 各 worker 下次报到(约1分钟)自动领取生效", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
         flash(f"保存失败: {e}", "error")

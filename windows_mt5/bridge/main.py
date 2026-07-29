@@ -418,6 +418,9 @@ def _run_download_task(api_base: str, headers: dict, task: dict) -> None:
 
     cursor = frm
     seen_data = False   # 本任务是否已经拉到过数据 — None 的裁决依据(头部 vs 中途)
+    rest_bars = _wparam("dl_rest_bars", 1000000, 0, 5_000_000)  # 节流: 每拉N根歇一会(0=不歇)
+    rest_secs = _wparam("dl_rest_secs", 30, 5, 600)
+    pulled_since_rest = 0
     while cursor < to:
         chunk_end = min(cursor + chunk, to)
         data = None
@@ -453,6 +456,14 @@ def _run_download_task(api_base: str, headers: dict, task: dict) -> None:
         if post({"job_id": job_id, "bars": bars, "done": chunk_end >= to}) is None:
             return
         cursor = chunk_end
+        # 节流(2026-07-29 Frank 定): 满速首灌会把 CPU/库打满且心跳饿死(bridge MT5 锁全局
+        # 串行) — 每拉够 N 根在锁外歇一会, 终端降温 + 心跳插队。api 10分钟怠工阈值远大于此。
+        pulled_since_rest += len(bars)
+        if rest_bars and pulled_since_rest >= rest_bars and cursor < to:
+            logger.info("download job #%s throttle: %d bars pulled, resting %ds",
+                        job_id, pulled_since_rest, rest_secs)
+            pulled_since_rest = 0
+            time.sleep(rest_secs)
     logger.info("download job #%s %s done", job_id, symbol)
 
 

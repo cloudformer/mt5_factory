@@ -33,6 +33,15 @@
       </span>
     {% endif %}
   </form>
+  {# 下载节流(2026-07-29 Frank 定): 满速首灌把 Windows CPU/库打满 → 拉一阵歇一阵 #}
+  <form method="post" action="{{ url_for('datasync.throttle') }}" class="inline" style="margin-top:6px">
+    <label>单次拉取 <input name="dl_rest_bars" value="{{ wp.get('dl_rest_bars', 1000000) }}" size="8"
+        title="每拉够这么多根就休息一次(0 = 不休息全速跑); 默认 1000000, 防 Windows CPU 打满/心跳饿死"> 根</label>
+    <label>休息 <input name="dl_rest_secs" value="{{ wp.get('dl_rest_secs', 30) }}" size="3"
+        title="每次休息秒数(5~600): 终端降温 + 心跳趁隙上报(下载期间不再假离线)"> 秒</label>
+    <button class="small">保存节流</button>
+    <span class="muted">worker 报到自动领取(约1分钟), 跑着的任务下一批生效 · 唯一源=config(worker_params)</span>
+  </form>
   {% for e in sync.errors %}<div class="flash error">{{ e }}</div>{% endfor %}
   <p class="muted">只同步开启下载的品种，各用自己的起始日期。断点续传：中断后再点即从上次位置继续。M1 为唯一原始数据，高周期自动聚合。</p>
 </section>

@@ -15,7 +15,8 @@ TF_ROLE = {"M1": "回测", "D1": "regime"}
 
 @bp.get("/")
 def index():
-    data = {"symbols": [], "orphans": [], "sync": {}, "hosts": [], "timeframes": []}
+    data = {"symbols": [], "orphans": [], "sync": {}, "hosts": [], "timeframes": [],
+            "wp": {}}
     try:
         s = api.get("/symbols")
         data["symbols"], data["orphans"] = s["symbols"], s.get("orphans", [])
@@ -23,8 +24,10 @@ def index():
         data["hosts"] = [h for h in api.get("/hosts")["hosts"]
                          if h["enabled"] and h["download"]]
         # 本次同步的周期层勾选项 = 配置 download_timeframes(唯一源, 配置页可改)
-        tfs = api.get("/config")["config"].get("download_timeframes") or []
+        cfg = api.get("/config")["config"]
+        tfs = cfg.get("download_timeframes") or []
         data["timeframes"] = [{"tf": t, "role": TF_ROLE.get(t, "")} for t in tfs]
+        data["wp"] = cfg.get("worker_params") or {}   # 下载节流两键的现值(节流表单用)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("datasync.html", **data)
@@ -47,6 +50,21 @@ def run():
         flash(f"同步已启动({'+'.join(tfs)})", "ok")
     except api.ApiError as e:
         flash(f"启动同步失败: {e}", "error")
+    return redirect(url_for("datasync.index"))
+
+
+@bp.post("/throttle")
+def throttle():
+    """保存下载节流(worker_params 里的 dl_rest_bars/dl_rest_secs, 2026-07-29 Frank 定):
+    每拉 N 根歇 S 秒 — 首灌深历史防 CPU 打满; 值走 announce 下发, 约1分钟生效(含跑着的任务)"""
+    try:
+        cur = api.get("/config")["config"].get("worker_params") or {}
+        api.put("/config/worker_params", {"value": {**cur,
+                "dl_rest_bars": int(request.form["dl_rest_bars"]),
+                "dl_rest_secs": int(request.form["dl_rest_secs"])}})
+        flash("下载节流已保存 — worker 下次报到(约1分钟)领取, 正在跑的任务从下一批生效", "ok")
+    except (api.ApiError, ValueError, KeyError) as e:
+        flash(f"保存失败: {e}", "error")
     return redirect(url_for("datasync.index"))
 
 

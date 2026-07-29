@@ -111,7 +111,10 @@ CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
 # worker_params 各项允许区间(用户按网络自调, 区间防脚枪):
 # heartbeat 上限 60 = 轮询侧"新鲜推送"窗口 75s 的安全边界(推得比窗口慢会推/拉来回抖)
 WORKER_PARAM_RANGES = {"heartbeat_seconds": (10, 60), "announce_seconds": (30, 300),
-                       "bars_batch": (1000, 200000), "decision_keep_days": (3, 90)}
+                       "bars_batch": (1000, 200000), "decision_keep_days": (3, 90),
+                       # 下载节流(2026-07-29, schema/050): 每拉 N 根歇一会(0=不歇),
+                       # 首灌深历史防 CPU 打满/心跳饿死; 歇息秒数 5~600
+                       "dl_rest_bars": (0, 5_000_000), "dl_rest_secs": (5, 600)}
 
 
 # ---------- 数据同步 ----------
