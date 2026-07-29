@@ -43,10 +43,11 @@
     <tr data-bh="{{ band_months | length - loop.index }}" data-from="{{ mdays[0].date }}">
       <td class="mono muted" style="width:60px;padding:1px 8px 1px 0;border:0">{{ mon }}</td>
       <td style="padding:1px 0;border:0">
+        {# 格子固定宽(2026-07-29 Frank 定): 满半年自然占满, 没满的半年自然短一截 — 不满即短, 不拉伸不骗人 #}
         <div style="display:flex;gap:1px;height:18px">
           {% for r in mdays %}
           <span title="{{ r.date }}  {{ r.regime }}({{ m.regime_cn(r.regime) }})"
-                style="flex:1 1 0;border-radius:1px;background:{{ m.regime_color(r.regime) }}"></span>
+                style="width:6px;flex:none;border-radius:1px;background:{{ m.regime_color(r.regime) }}"></span>
           {% endfor %}
         </div>
       </td>
