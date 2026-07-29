@@ -66,8 +66,9 @@ async def submit_download_jobs(pool: asyncpg.Pool) -> dict:
             "SELECT min(time) AS first, max(time) AS last"
             "  FROM historical_bars WHERE symbol=$1 AND timeframe='M1'", it["symbol"])
         # 起点三分法(2026-07-28 修头部缺口盲区): 空库=data_start; 头部有缺口(最早一根晚于
-        # data_start 超7天容差, 周末/假日不算) = 回到 data_start 整段重下(入库幂等, 已有段
-        # 重拉无害) — 改 data_start 往前挖历史靠这条生效; 头部完整 = 从最新断点续传。
+        # data_start 超7天容差, 周末/假日不算) = 回到 data_start 整段重下到现在 —
+        # 改 data_start 往前挖历史靠这条生效; 分段深挖(先2020再2018)会重拉已有段, 幂等无害,
+        # 宁可白跑不可漏段(2026-07-28 Frank 定); 头部完整 = 从最新断点续传。
         head_gap = (span["first"] is not None
                     and span["first"] > it["data_start"] + timedelta(days=7))
         frm = it["data_start"] if (span["first"] is None or head_gap) else span["last"]

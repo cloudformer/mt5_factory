@@ -407,21 +407,34 @@ def _run_download_task(api_base: str, headers: dict, task: dict) -> None:
         return None
 
     cursor = frm
+    seen_data = False   # 本任务是否已经拉到过数据 — None 的裁决依据(头部 vs 中途)
     while cursor < to:
         chunk_end = min(cursor + chunk, to)
-        with _mt5_lock:
-            mt5.symbol_select(symbol, True)
-            data = mt5.copy_rates_range(symbol, mt5.TIMEFRAME_M1, cursor, chunk_end)
+        data = None
+        for attempt in range(3):    # None 先重试: 瞬时故障(终端忙/历史在同步)几秒就好
+            with _mt5_lock:
+                mt5.symbol_select(symbol, True)
+                data = mt5.copy_rates_range(symbol, mt5.TIMEFRAME_M1, cursor, chunk_end)
+            if data is not None:
+                break
+            time.sleep(3)
         if data is None:
-            # 超出券商历史深度的老区间, 部分终端返回 None 而非空数组 — 不判死刑:
-            # 记日志当空段跳过, 继续往后巡逻到有数据的年份(2026-07-28 修, 配合深挖 data_start)。
-            # 真拉不到的品种 = 全程空转, 任务完成时 written=0 如实可见; 品种可用性由 announce 校验兜底。
             with _mt5_lock:
                 err = mt5.last_error()
-            logger.warning("download job #%s %s %s~%s 无数据(%s), 跳过继续",
+            # 裁决(2026-07-28 Frank 定"可以空跑但不能乱跳开"): 还没见过数据 = 超出券商
+            # 历史深度的头部, 允许跳过继续巡逻(空跑); 中途出 None = 真故障, 如实报错
+            # FAILED 重派 — 重派整段幂等重下, 宁可重跑不留洞。
+            if seen_data:
+                post({"job_id": job_id,
+                      "error": f"copy_rates_range {symbol} {cursor:%Y-%m-%d}~{chunk_end:%Y-%m-%d}"
+                               f" 中途失败(重试3次): {err} — 任务将重派整段重下"})
+                return
+            logger.warning("download job #%s %s %s~%s 头部无数据(%s), 跳过继续巡逻",
                            job_id, symbol, cursor.strftime("%Y-%m-%d"),
                            chunk_end.strftime("%Y-%m-%d"), err)
             data = []
+        if len(data):
+            seen_data = True
         bars = [{"time": int(b["time"]),
                  "open": float(b["open"]), "high": float(b["high"]),
                  "low": float(b["low"]), "close": float(b["close"]),
