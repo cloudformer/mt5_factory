@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from src.services import backtest, identity, instances, usage, verify
+from src.services import backtest, identity, instances, regime, usage, verify
 from strategy_core import TEMPLATES, TF_SECONDS, grid_combos, random_combo
 
 logger = logging.getLogger("strategies")
@@ -378,6 +378,14 @@ async def trail_compare(strategy_id: int, request: Request, variant: Optional[st
     # variant=某档: 只算那一档并附全量逐笔(点「明细」用) — 同样内存现算不落库
     types = (variant,) if variant in ("off", "fixed", "breakeven", "atr") \
         else ("off", "fixed", "breakeven", "atr")
+    tl = {}
+    if variant:  # 明细模式附每笔入场日格子(v2.5, 现拼不落库); 时间线缺失不挡明细
+        try:
+            await regime.ensure_timeline(pool, s["symbol"])
+        except Exception as e:
+            logger.warning("regime ensure %s failed: %s", s["symbol"], e)
+        tl = {r["date"]: r["regime"] for r in await pool.fetch(
+            "SELECT date, regime FROM regime_timeline WHERE symbol=$1", s["symbol"])}
     rows = []
     for t in types:
         p = dict(s["params"] or {})
@@ -395,12 +403,15 @@ async def trail_compare(strategy_id: int, request: Request, variant: Optional[st
                "max_dd_points": mtr.get("max_dd_points"),
                "tsl": sum(1 for x in res["trades"]
                           if str(x.get("reason", "")).startswith("tsl"))}
-        if variant:  # 明细模式: 附逐笔(紧凑列式, 与成绩单同构)
+        if variant:  # 明细模式: 附逐笔(紧凑列式, 与成绩单同构) + 入场日 regime 格子
             row["detail"] = {"cols": ["entry_time", "exit_time", "dir", "entry", "exit",
-                                      "points", "reason"],
+                                      "points", "reason", "regime"],
                              "rows": [[x["entry_time"], x.get("exit_time"), x.get("dir"),
                                        x.get("entry"), x.get("exit"), x.get("points"),
-                                       x.get("reason")] for x in res["trades"]]}
+                                       x.get("reason"),
+                                       tl.get(datetime.fromtimestamp(
+                                           x["entry_time"], tz=timezone.utc).date())]
+                                      for x in res["trades"]]}
         rows.append(row)
     return {"strategy_id": strategy_id, "current": own.get("active"),
             "probe_gap": probe_gap, "variants": rows}

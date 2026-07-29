@@ -111,6 +111,7 @@
     {% if recon.pairs %}
     {% macro pair_cells(p) %}
         <td>{{ p.actual.entry if p.actual else p.bt.entry }}</td>
+        <td>{{ m.regime_chip(p.regime) }}</td>
         <td>{% if p.actual %}{{ '买' if (p.actual.dir or '') | upper == 'BUY' else '卖' }} ·
           {% if p.actual.win %}<span class="pos">胜</span>{% else %}<span class="neg">负</span>{% endif %}
           {% else %}<span class="muted">无</span>{% endif %}</td>
@@ -145,7 +146,9 @@
     {# 用全宽正表(subtable 是详情小表: 不撑满+首列锁90px, 五列表格会挤死) #}
     <table>
       <tr><th title="对比窗口 = 运行区间±{{ recon.tol_minutes }}分钟(重叠合并); 无区间的实盘笔用单笔±{{ recon.tol_minutes }}分钟兜底。两边只在窗口内互相找对家">对比窗口</th>
-          <th>时间</th><th>实盘(demo/live)</th><th>回测</th><th>描述</th></tr>
+          <th>时间</th>
+          <th title="入场当天的市场状态格子(现拼自主品种 regime_timeline; —=时间线未覆盖)">Regime</th>
+          <th>实盘(demo/live)</th><th>回测</th><th>描述</th></tr>
       {% set shown = namespace(n=0) %}
       {% for w in recon.windows %}
         {% set rows = recon.pairs | selectattr('window', 'equalto', loop.index0) | list %}
@@ -173,6 +176,12 @@
     {% set empty_w = recon.windows_total - shown.n %}
     {% if empty_w > 0 %}
     <p class="muted">另有 {{ empty_w }} 段对比窗口两边均无成交(策略在跑、双方都没信号 = 一致,不占版面)。</p>
+    {% endif %}
+    {# Regime 八格对账(v2.5): 同格对照 实盘 vs 回测 胜率 — 对账窗口短样本天然少, 只看方向不下结论 #}
+    {% if recon_regime_lines %}
+    <h3>Regime 八格对账 <span class="muted" style="font-weight:normal">每格: 实盘/回测 各自笔数与胜率(仅对账窗口内) · 样本少 = 未证实, 只对方向</span></h3>
+    {{ m.regime_grid(recon_regime_lines) }}
+    {% if recon.regime_unlabeled %}<p class="muted">另有 {{ recon.regime_unlabeled }} 行入场日时间线未覆盖(暖机期/历史缺口), 未计入八格。</p>{% endif %}
     {% endif %}
     {% endif %}
     {% endif %}
@@ -214,6 +223,12 @@
   <div id="act-sum">
   <h3>细分归因(方向 / 出场 / 时段 / 星期)</h3>
   {{ m.attr_grid(ana.actual.direction, ana.actual.reasons, ana.actual.by_hour, ana.actual.by_weekday) }}
+  {# Regime 八格战绩·实盘(v2.5): 与回测页签同一张图同一口径(主品种时间线现拼), 直接对照 #}
+  {% if act_regime_lines %}
+  <h3>Regime 八格战绩 · 实盘 <span class="muted" style="font-weight:normal">按入场日贴格(主品种时间线现拼) · 与「回测分析」页签同图同口径, 可直接对照</span></h3>
+  {{ m.regime_grid(act_regime_lines) }}
+  {% if ana.actual.regime_unlabeled %}<p class="muted">另有 {{ ana.actual.regime_unlabeled }} 笔入场日时间线未覆盖(暖机期/历史缺口), 未计入八格。</p>{% endif %}
+  {% endif %}
   <p class="muted" style="margin:8px 0 0">实盘无拟合判别 —— 样本外(训练/测试)与跨品种是<b>回测专属</b>的反过拟合工具;实盘只跑一个品种、无法重切样本外。</p>
   </div>
   <div id="act-det" hidden>
@@ -366,6 +381,11 @@
     }
     btn.disabled = false;
   });
+  // Regime 格子小徽章(JS 版): 颜色/中文名由 _macros 唯一定义处渲染进来, 不在 JS 里二抄
+  const RG = { {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}"{{ c }}": ["{{ m.regime_color(c) }}", "{{ m.regime_cn(c) }}"]{{ "," if not loop.last }}{% endfor %} };
+  const rchip = (c) => (c && RG[c])
+    ? `<span class="mono" title="${RG[c][1]}"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${RG[c][0]};vertical-align:-1px"></span>${c}</span>`
+    : '<span class="muted">—</span>';
   // 某档逐笔明细: 单独现算那一档(内存不落库), 展开在对比表下方
   document.addEventListener("click", async (e) => {
     const b = e.target.closest(".trail-det");
@@ -387,10 +407,13 @@
       let h = `<h4 style="margin:10px 0 4px">${ZH[v.type]} · 逐笔 ${v.detail.rows.length} 笔`
         + ` <span class="muted">(内存现算, 不落库)</span></h4>`
         + '<div style="max-height:320px;overflow:auto"><table class="dense">'
-        + '<tr><th>#</th><th>入场</th><th>出场</th><th>向</th><th>入价</th><th>出价</th><th>净点</th><th>原因</th></tr>';
+        + '<tr><th>#</th><th>入场</th><th>出场</th><th>向</th>'
+        + '<th title="入场当天的市场状态格子(现拼自 regime_timeline; —=时间线未覆盖)">Regime</th>'
+        + '<th>入价</th><th>出价</th><th>净点</th><th>原因</th></tr>';
       v.detail.rows.forEach((r, i) => {
         h += `<tr><td class="muted">${i + 1}</td><td class="mono">${fmt(r[0])}</td>`
           + `<td class="mono">${fmt(r[1])}</td><td>${r[2] === "BUY" ? "买" : "卖"}</td>`
+          + `<td>${rchip(r[7])}</td>`
           + `<td class="mono">${r[3]}</td><td class="mono">${r[4]}</td>`
           + `<td class="mono ${r[5] > 0 ? "pos" : "neg"}">${r[5]}</td><td>${r[6]}</td></tr>`;
       });

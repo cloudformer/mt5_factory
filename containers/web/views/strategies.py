@@ -145,6 +145,19 @@ def _regime_lines(ana) -> dict:
     return lines
 
 
+def _recon_regime_lines(recon) -> dict:
+    """对账八格显示行(v2.5): 每格 实盘/回测 各自笔数+胜率 — 同格对照"回测的赢法实盘还成立吗"。
+    对账窗口本来就短(样本小), 不做<20灰显压制, 由页面总注"样本少=未证实"兜底"""
+    lines = {}
+    for cell, v in ((recon or {}).get("regime_recon") or {}).items():
+        def _ln(tag, n, w):
+            if not n:
+                return f'<span class="muted">{tag} 0 笔</span>'
+            return f'{tag} {n} 笔 · 胜 {round(w / n * 100)}%'
+        lines[cell] = [_ln("实", v["act_n"], v["act_w"]), _ln("回", v["bt_n"], v["bt_w"])]
+    return lines
+
+
 @bp.get("/analysis")
 def analysis():
     """策略分析: 关2对账(输入策略id → 回测 vs 实盘 match%); v1.4 更多归因维度待建"""
@@ -163,7 +176,9 @@ def analysis():
         except api.ApiError as e:
             flash(f"分析失败: {e}", "error")
     return render_template("strategy_analysis.html", recon=recon, ana=ana, sid=sid,
-                           regime_lines=_regime_lines(ana))
+                           regime_lines=_regime_lines(ana),
+                           act_regime_lines=_regime_lines((ana or {}).get("actual")),
+                           recon_regime_lines=_recon_regime_lines(recon))
 
 
 @bp.post("/<int:strategy_id>/set_visibility")

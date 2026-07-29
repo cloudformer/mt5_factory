@@ -8,8 +8,7 @@
 """
 import asyncio
 import logging
-import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 
@@ -657,12 +656,19 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all",
         td = await pool.fetchval("SELECT value FROM config WHERE key='trail_default'")
         if isinstance(td, dict) and td.get("active"):
             params_eff = {**params_eff, "trail": td}
+    # Regime 时间线(v2.5): 逐笔对照行贴入场日格子, 现拼不落库(reconciliations 只存 metrics)
+    try:
+        await regime.ensure_timeline(pool, strat["symbol"])
+    except Exception as e:
+        logger.warning("regime ensure %s failed: %s", strat["symbol"], e)
+    tl = {r["date"]: r["regime"] for r in await pool.fetch(
+        "SELECT date, regime FROM regime_timeline WHERE symbol=$1", strat["symbol"])}
     by_acct: dict = {}
     for a in actual:
         by_acct.setdefault(a["account"], []).append(a)
     accounts = sorted(by_acct, key=lambda k: -len(by_acct[k]))   # 主账户(笔数最多)在前
     results = {a: await _reconcile_account(pool, strat, strategy_id, scope, a, by_acct[a],
-                                           tol, params_eff)
+                                           tol, params_eff, tl)
                for a in accounts}
     # 落库: 该(策略,scope)整组删旧插新 — 账户集合变化不留孤儿行(含旧口径 account=0 行)
     async with pool.acquire() as conn:
@@ -714,9 +720,11 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all",
 
 
 async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account: int,
-                             actual: list, tol: int, params_eff=None) -> dict:
+                             actual: list, tol: int, params_eff=None,
+                             tl: Optional[dict] = None) -> dict:
     """单账户对账全流程(窗口→起点对齐重放→配对→缺口归因); actual=该账户成交, 已按时间排序。
-    params_eff: 生效参数(含 trail 回落后的), 重放用它 — 守"统一配置(含插件)"铁律"""
+    params_eff: 生效参数(含 trail 回落后的), 重放用它 — 守"统一配置(含插件)"铁律。
+    tl: 主品种 regime 时间线映射(date→格子, 调用方取好共用) — 逐笔对照行贴格子用"""
     if params_eff is None:
         params_eff = strat["params"]
     out = {"strategy_id": strategy_id, "scope": scope, "symbol": strat["symbol"],
@@ -812,6 +820,9 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
     bt_iv = [(t["entry_time"], t["exit_time"]) for t in bt_all if t.get("exit_time")]
     for p in pairs:  # 每行: ①归属窗口(逐笔对照按窗口分组显示) ②缺口归因(单边有单时, 两个方向都归)
         ts = (p["actual"] or p["bt"])["ts"]
+        # 入场日格子(v2.5 现拼): 时间线未覆盖 = None(页面显 —); 交易时间=券商时间, 与时间线同口径
+        p["regime"] = (tl or {}).get(
+            datetime.fromtimestamp(ts, tz=timezone.utc).date())
         p["window"] = next((k for k, (w0, w1) in enumerate(windows) if w0 <= ts <= w1), None)
         if p["bt"] is not None:
             p["bt"].pop("ts", None)
@@ -836,6 +847,23 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
     if cascade and metrics.get("union"):
         metrics["decascaded_count_rate"] = round(
             metrics["paired"] / max(1, metrics["union"] - cascade), 3)
+    # Regime 八格汇总(v2.5): 逐笔对照按格子聚合 实盘/回测 各自的笔数与胜数 —
+    # 只进返回体不进 metrics(reconciliations 落库保持不变, 数据干净可随时撤)
+    rg: dict = {}
+    rg_unlabeled = 0
+    for p in pairs:
+        if p.get("regime") is None:
+            rg_unlabeled += 1
+            continue
+        c = rg.setdefault(p["regime"], {"act_n": 0, "act_w": 0, "bt_n": 0, "bt_w": 0})
+        if p["actual"] is not None:
+            c["act_n"] += 1
+            c["act_w"] += 1 if p["actual"].get("win") else 0
+        if p["bt"] is not None:
+            c["bt_n"] += 1
+            c["bt_w"] += 1 if p["bt"].get("win") else 0
+    out["regime_recon"] = rg
+    out["regime_unlabeled"] = rg_unlabeled
     def _fmt(ts):
         return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%m-%d %H:%M")
     win_view = [{  # 每段窗口 + 两边笔数(逐笔对照的分组表头); 上限100段防撑爆
@@ -1056,6 +1084,37 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
     out["trades_capped"] = len(st) > 1000
     # 实盘同款归因: 与回测归因对照看"回测的赢法实盘还成立吗"(共用函数, AI成绩单也用它)
     out["actual"] = await actual_attribution(pool, strategy_id)
+    # 实盘逐笔也贴格子 + 八格汇总(v2.5): 实盘只交易主品种 → 用主品种时间线
+    # (sym 是归因下拉选的品种, 可能不是主品种, 不能混用)
+    act = out["actual"]
+    if act.get("has_data") and act.get("trades"):
+        tl_m = tl if sym == strat["symbol"] else {
+            r["date"]: r["regime"] for r in await pool.fetch(
+                "SELECT date, regime FROM regime_timeline WHERE symbol=$1", strat["symbol"])}
+        a_cells: dict = {}
+        a_unlabeled = 0
+        for view in act["trades"]:   # entry = "YYYY-MM-DD HH:MM"(券商时间, 与时间线同口径)
+            cell = tl_m.get(date.fromisoformat(view["entry"][:10]))
+            view["regime"] = cell
+            if cell is None:
+                a_unlabeled += 1
+                continue
+            c = a_cells.setdefault(cell, {"trades": 0, "wins": 0, "net": 0.0,
+                                          "gp": 0.0, "gl": 0.0})
+            p = float(view.get("points") or 0)
+            c["trades"] += 1
+            c["wins"] += 1 if p > 0 else 0
+            c["net"] += p
+            if p > 0:
+                c["gp"] += p
+            else:
+                c["gl"] -= p
+        act["regime_cells"] = {
+            k: {"trades": v["trades"], "win_rate": round(v["wins"] / v["trades"] * 100, 1),
+                "net": round(v["net"], 1),
+                "pf": round(v["gp"] / v["gl"], 2) if v["gl"] > 0 else None}
+            for k, v in a_cells.items()}
+        act["regime_unlabeled"] = a_unlabeled
     return out
 
 
