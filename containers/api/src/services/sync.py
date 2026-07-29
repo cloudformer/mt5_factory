@@ -105,7 +105,8 @@ async def submit_download_jobs(pool: asyncpg.Pool, only_tfs: list | None = None)
     return {"jobs": len(rows), "symbols": [r[1]["symbol"] for r in rows]}
 
 
-async def claim_download_job(pool: asyncpg.Pool, worker: str, server: str | None):
+async def claim_download_job(pool: asyncpg.Pool, worker: str, server: str | None,
+                             tf_capable: bool = False):
     """领任务: SKIP LOCKED 抢单(多 download 机并发安全, 铁律6), 快者多得但**必须券商匹配**
     (纪律: 数据从实际交易的券商服务器下载) — 品种 broker == worker 登录 server 才可领;
     品种无券商标注(老行) = 谁都可领; worker 未上报账户(server=None) = 只能领无标注的。
@@ -128,9 +129,11 @@ async def claim_download_job(pool: asyncpg.Pool, worker: str, server: str | None
         "             LEFT JOIN symbols s ON s.symbol = j.payload->>'symbol'"
         "             WHERE j.kind=$1 AND j.status='PENDING'"
         "               AND (s.broker IS NULL OR s.broker = $3)"   # 券商匹配
+        # 防污染保险①: 非 M1 任务只给带 dl_tf 能力标记的 worker(老 worker 拉不了高周期)
+        "               AND (COALESCE(j.payload->>'timeframe', 'M1') = 'M1' OR $4)"
         # FOR UPDATE OF j: 只锁 jobs 行 — 裸 FOR UPDATE 会碰外连接可空侧(symbols)直接报错
         "             ORDER BY (j.payload->>'symbol'), j.id LIMIT 1 FOR UPDATE OF j SKIP LOCKED)"
-        " RETURNING id, payload", DOWNLOAD_KIND, worker, server)
+        " RETURNING id, payload", DOWNLOAD_KIND, worker, server, tf_capable)
 
 
 async def download_progress(pool: asyncpg.Pool):

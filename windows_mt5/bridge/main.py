@@ -624,7 +624,7 @@ def health():
     if not mt5_up:
         return {"status": "degraded", "mt5_connected": False, "runner": runner,
                 "selftest": _selftest(), "version": VERSION, "up_since": UP_SINCE,
-                "dl_poll": True, "services": services, "summary": summary}
+                "dl_poll": True, "dl_tf": True, "services": services, "summary": summary}
     try:   # 持仓快照(v7.2 #5 单向化): 每拍随心跳覆盖到 last_health, web 流水页读它
         positions = _positions_snapshot()   # 不再反向拉 — 失败给空+日志, 不拖垮心跳
     except Exception as e:
@@ -635,6 +635,7 @@ def health():
         "version": VERSION,
         "up_since": UP_SINCE,
         "dl_poll": True,   # 能力标记(v7.2 #3): 本机会轮询领下载任务 → api 走 jobs 模式不再反向拉
+        "dl_tf": True,     # 能力标记(2026-07-29): 认识任务的 timeframe 字段 → 才配领非 M1 任务
         "mt5_connected": True,
         "trade_allowed": account["trade_allowed"],
         "login": account["login"],

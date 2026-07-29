@@ -160,15 +160,20 @@ async def download_task(request: Request, name: str):
     无任务 → {"task": null}; 拒领时给明确原因(未注册/停用/无下载职能)。"""
     pool = request.app.state.pool
     h = await pool.fetchrow(
-        "SELECT id, enabled, download, mt5_server FROM mt5_hosts WHERE name=$1", name)
+        "SELECT id, enabled, download, mt5_server, last_health FROM mt5_hosts WHERE name=$1",
+        name)
     if h is None:
         raise HTTPException(status_code=404, detail=f"worker {name} 未注册 — 等 announce 建档")
     if not h["enabled"]:
         raise HTTPException(status_code=403, detail=f"worker {name} 已停用, 不派任务")
     if not h["download"]:
         raise HTTPException(status_code=403, detail=f"worker {name} 无下载职能, 不派任务")
+    # 防污染保险①(2026-07-29 实证补): 老版 worker 不认识任务的 timeframe 字段, 领了 D1 任务
+    # 照拉 M1 → 被错贴 D1 标签入库(XAUUSD 686万根假D1)。非 M1 任务只派给心跳里带
+    # dl_tf 能力标记的新 worker; 老 worker 只配领 M1(它只会拉 M1, 标签永远是对的)。
+    tf_capable = bool((h["last_health"] or {}).get("dl_tf"))
     # 券商匹配领单(纪律: 数据从实际交易的券商下载): server 来自心跳同步的登录账户
-    row = await sync.claim_download_job(pool, name, h["mt5_server"])
+    row = await sync.claim_download_job(pool, name, h["mt5_server"], tf_capable)
     if row is None:
         return {"task": None}
     return {"task": {"job_id": row["id"], **row["payload"]}}
@@ -201,6 +206,19 @@ async def download_bars(req: BarsUpload, request: Request):
             "UPDATE jobs SET status='FAILED', error=$2, finished_at=now() WHERE id=$1",
             req.job_id, req.error[:500])
         return {"accepted": True, "failed": True}
+    # 防污染保险②(2026-07-29): bar 时间必须落在任务周期的整点格上(D1=日界, H1=整点…) —
+    # "M1 数据贴高周期标签"在第一批就被当场拒收记 FAILED, 不入库不扩散
+    tf = job["payload"].get("timeframe", "M1")
+    tf_secs = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800,
+               "H1": 3600, "H4": 14400, "D1": 86400}.get(tf, 60)
+    bad = next((b for b in req.bars if int(b.get("time", 0)) % tf_secs), None)
+    if bad is not None:
+        msg = (f"bar 时间 {bad['time']} 与周期 {tf} 不对齐 — 典型指纹: 老版 worker 不认识"
+               " timeframe 拉了 M1 贴高周期标签; 先 update.bat 更新该 worker 再重试")
+        await pool.execute(
+            "UPDATE jobs SET status='FAILED', error=$2, finished_at=now() WHERE id=$1",
+            req.job_id, msg)
+        raise HTTPException(status_code=400, detail=msg)
     written = 0
     if req.bars:
         try:

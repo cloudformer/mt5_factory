@@ -16,7 +16,7 @@ TF_ROLE = {"M1": "回测", "D1": "regime"}
 @bp.get("/")
 def index():
     data = {"symbols": [], "orphans": [], "sync": {}, "hosts": [], "timeframes": [],
-            "wp": {}}
+            "wp": {}, "batch_tfs": []}
     try:
         s = api.get("/symbols")
         data["symbols"], data["orphans"] = s["symbols"], s.get("orphans", [])
@@ -28,6 +28,10 @@ def index():
         tfs = cfg.get("download_timeframes") or []
         data["timeframes"] = [{"tf": t, "role": TF_ROLE.get(t, "")} for t in tfs]
         data["wp"] = cfg.get("worker_params") or {}   # 下载节流两键的现值(节流表单用)
+        # 正在跑的批实际包含哪些层(从任务名现算, 带·后缀=高周期): 跑批时显示它而非勾选框 —
+        # 勾选框默认全勾, 刷新后看起来像"M1也在跑"(2026-07-29 Frank 指出的误导显示 bug)
+        data["batch_tfs"] = sorted({x.split("·")[1] if "·" in x else "M1"
+                                    for x in (data["sync"].get("symbols") or [])})
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("datasync.html", **data)
