@@ -3,7 +3,7 @@ v7.2 收口(2026-07-26 与 Frank 定): api 对 worker 零出站 — 本模块不
 数据全部由 worker 推(心跳/成交/K线上传), api 只收货 + 看门狗判离线。"""
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import asyncpg
 
@@ -62,11 +62,17 @@ async def submit_download_jobs(pool: asyncpg.Pool) -> dict:
     now = datetime.now(timezone.utc)
     rows = []
     for it in items:
-        last = await pool.fetchval(
-            "SELECT max(time) FROM historical_bars WHERE symbol=$1 AND timeframe='M1'",
-            it["symbol"])
+        span = await pool.fetchrow(
+            "SELECT min(time) AS first, max(time) AS last"
+            "  FROM historical_bars WHERE symbol=$1 AND timeframe='M1'", it["symbol"])
+        # 起点三分法(2026-07-28 修头部缺口盲区): 空库=data_start; 头部有缺口(最早一根晚于
+        # data_start 超7天容差, 周末/假日不算) = 回到 data_start 整段重下(入库幂等, 已有段
+        # 重拉无害) — 改 data_start 往前挖历史靠这条生效; 头部完整 = 从最新断点续传。
+        head_gap = (span["first"] is not None
+                    and span["first"] > it["data_start"] + timedelta(days=7))
+        frm = it["data_start"] if (span["first"] is None or head_gap) else span["last"]
         rows.append((DOWNLOAD_KIND, {"symbol": it["symbol"], "written": 0,
-                                     "from": (last or it["data_start"]).isoformat(),
+                                     "from": frm.isoformat(),
                                      "to": now.isoformat()}))
     async with pool.acquire() as conn:
         async with conn.transaction():
