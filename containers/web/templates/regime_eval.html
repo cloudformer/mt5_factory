@@ -92,13 +92,13 @@
 </section>
 
 <section>
-  <h2>四标准原始值 · 每候选跨品种 中位(最差) <span class="muted" style="font-weight:normal">门槛校准用: 门槛定歪(如 t≥2 对日粒度太苛)在这里一眼可见 — 校准机会只有一次, 花在看全数据之后</span></h2>
+  <h2>四标准原始值 · 每候选跨品种 中位(最差) <span class="muted" style="font-weight:normal">门槛校准用 · ③是同期性格描述(非预测): 高波格当天更颠 / 牛市当天在涨 — 标签名副其实即可</span></h2>
   <table class="dense">
     <tr><th>候选口径</th>
       <th title="按天加权中位格龄, ≥20">长格龄</th><th title="≥5">短格龄</th><th title="≥5">波格龄</th>
       <th title="≥3">组合格龄</th><th title="≤60, 最差取最大">年翻转</th>
       <th title="≥5%">最稀格%</th><th title="≤35%, 最差取最大">最密格%</th>
-      <th title="≥1.5">波幅比</th><th title="长趋势A/B两态前瞻20日收益差的t值(非重叠取样), |t|≥2">|t|</th><th title="≤75%, 最差取最大">一致率%</th></tr>
+      <th title="≥1.5">波幅比</th><th title="牛/熊态同期日收益均值差的t值(描述当天性格, 非预测未来), |t|≥2">|t|</th><th title="≤75%, 最差取最大">一致率%</th></tr>
     {% for r in rows %}
     <tr><td class="mono">{{ r.label }}</td>
       {% for k in ['dl', 'ds', 'dv', 'cm', 'fy', 'cmin', 'cmax', 'vr', 'tt', 'ag'] %}

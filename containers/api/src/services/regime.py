@@ -231,31 +231,25 @@ def stats(regimes: list[str]) -> dict:
     }
 
 
-TREND_HORIZON = 20   # 趋势区分度前瞻窗(交易日≈1个月); 2026-07-29 改: 次日→前瞻H日
-
-
-def distinct(h, l, c, dims, start, horizon: int = TREND_HORIZON) -> dict | None:
-    """标准③区分度(中性市场统计量, 非策略盈利 — 不违"禁止用答案选口径"):
-    - 高/低波格 日均真实波幅比(波动维标签是否真把两类日子分开);
-    - 长趋势 A/B 两态 **前瞻 H 日收益** 均值差 t 值(2026-07-29 改, 见下)。
-    趋势指标粒度修订: 原"次日收益 t"对 150 天尺度的长趋势天生测不出(8口径×9品种全线
-    |t|≈0.5 的均匀性=指标量错粒度, 非口径的错)。改为前瞻 H 日(默认20≈1月)累计收益 —
-    问"这段趋势后续一个月漂移方向对不对", 才是趋势该负责的粒度。
-    **非重叠取样**(每 H 天取一个点)保证样本近独立, t 值不被重叠窗虚高。
+def distinct(h, l, c, dims, start) -> dict | None:
+    """标准③ 描述性区分度(同期性格, 非预测 — 2026-07-29 与 Frank 定的收口):
+    regime 只描述"今天什么天气", 不预测明天赚不赚(那是策略的事, 且有效市场测不出)。
+    区分度 = 标签是否对应**真实的同期市场性格差异**, 不是能否预测未来收益。
+    - 波动: 高/低波格 同期日均真实波幅比(高波格当天确实更颠 → 波动标签名副其实);
+    - 趋势: 牛/熊态 同期日收益均值差 t 值(牛市那些天市场当天确实在往上走 → 趋势标签属实)。
+    两者都刻画"当天性格", 零前瞻。此前用"前瞻/次日收益 t"是错尺子(逼 regime 做预测),
+    全线测不出后又被迫换维度=不知目的地的乱导航 — 已废弃, 见 v2.5 文档收口记录。
     单品种记分卡与候选族对比(evaluate)共用同一算法。"""
     if dims is None or len(c) - start <= 300:
         return None
     tr = (h[start:] - l[start:]) / c[start:] * 100
     va = dims[2][start:] == "A"
-    cc, la = c[start:], (dims[0][start:] == "A")
-    # 前瞻 H 日对数收益, 非重叠取样(步长=H): 第 i 点 = 从 i 到 i+H 的累计, i 走 0,H,2H,…
-    idx = np.arange(0, len(cc) - horizon, horizon)
-    fwd = np.log(cc[idx + horizon] / cc[idx])   # 各取样点的前瞻 H 日收益
-    lab = la[idx]                                # 取样点当日的长趋势态
-    ra, rb = fwd[lab], fwd[~lab]                 # 牛态 / 熊态 各自的前瞻收益
+    la = dims[0][start:] == "A"
+    ret = np.diff(np.log(c[start:]))   # 相邻收盘的日收益; ret[i] = 第 i→i+1 天
+    lab = la[1:]                       # 与 ret 对齐: 用当日(i+1)的趋势态标注当日的收益
+    ra, rb = ret[lab], ret[~lab]       # 牛态 / 熊态 各自的同期日收益
     se = (np.sqrt(ra.var(ddof=1) / len(ra) + rb.var(ddof=1) / len(rb))
           if len(ra) > 30 and len(rb) > 30 else 0)
     return {"vol_ratio": round(float(tr[va].mean() / tr[~va].mean()), 2)
                          if va.any() and (~va).any() else None,
-            "trend_t": round(float((ra.mean() - rb.mean()) / se), 1) if se else None,
-            "trend_horizon": horizon}
+            "trend_t": round(float((ra.mean() - rb.mean()) / se), 1) if se else None}

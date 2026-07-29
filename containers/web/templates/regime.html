@@ -163,7 +163,7 @@
     <tr><td>② 覆盖均衡</td><td>最稀格 / 最密格</td>
         <td class="mono">{{ st.cov_min }}% / {{ st.cov_max }}%</td><td class="muted">≥5% / ≤35%</td>
         <td>{{ '✅' if c2 else '❌' }}</td></tr>
-    <tr><td>③ 区分度</td><td>高/低波幅比 · 趋势A/B<b>前瞻{{ data.distinct.trend_horizon if data.distinct and data.distinct.trend_horizon else 20 }}日</b>收益t值</td>
+    <tr><td>③ 区分度<br><span class="muted" style="font-weight:normal">同期性格·非预测</span></td><td>高/低波幅比 · 趋势A/B<b>同期日收益</b>t值</td>
         <td class="mono">{% if data.distinct %}{{ data.distinct.vol_ratio }}× · t={{ data.distinct.trend_t }}
           {% else %}<a class="small" href="{{ url_for('datasync.regime', symbol=symbol, days=days, full=1) }}"
               title="按当前配置重扫全量M1现算(几秒~几十秒)。前提: 改过口径要先完成上方②重建, 否则本行是新口径、其余三行是旧口径 = 混合假记分卡">补算区分度(几秒~几十秒)</a>{% endif %}</td>
