@@ -15,6 +15,11 @@ env/*.env
 # Claude Code
 .claude/settings.local.json
 
+# Windows worker 运行时生成文件(自检结果/announce领回的参数/重启旗标) — 不入 git
+windows_mt5/selftest_result.json
+windows_mt5/worker_params.json
+windows_mt5/restart.flag
+
 # IDE / OS
 .vscode/
 .idea/

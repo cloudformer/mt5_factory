@@ -23,6 +23,10 @@ Start-Sleep -Seconds 2
 
 Write-Host "=== Update code ===" -ForegroundColor Cyan
 if ((Test-Path "$repo\.git") -and (Get-Command git -ErrorAction SilentlyContinue)) {
+    # worker is a stateless clone (iron rule 5): no local edits are legitimate here.
+    # Discard any local changes (runtime-generated files once tracked by mistake,
+    # e.g. selftest_result.json / worker_params.json) so pull never conflicts.
+    git -C $repo checkout -- .
     git -C $repo pull
     Assert-LastExitCode "git pull"
 } else {
