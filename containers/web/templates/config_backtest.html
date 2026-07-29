@@ -131,17 +131,22 @@
 </section>
 
 <section>
-  <h2>下载周期层 <span class="muted" style="font-weight:normal">每品种同步时按勾选的周期各派一条下载任务, 共用该品种的起始日期</span></h2>
-  <form method="post" action="{{ url_for('symbols.save_download_timeframes') }}" class="inline">
-    <label title="唯一原始数据: 回测/对账/高周期聚合的原料, 永远必下, 不可取消">
-      <input type="checkbox" checked disabled> M1(必含)</label>
-    {% for tf in ['M5', 'M15', 'M30', 'H1', 'H4', 'D1'] %}
-    <label title="{{ '原生 D1: regime/长视野补头用(MetaQuotes 实测 M1 仅存~4个月, D1 有16年+); 回测仍只读 M1, 尺子不换料' if tf == 'D1' else '默认不下: 目前无消费者; 回测不吃原生高周期(撮合悲观规则依赖 M1 拆bar, 混用=两把尺子)' }}">
-      <input type="checkbox" name="tf" value="{{ tf }}" {% if tf in download_timeframes %}checked{% endif %}> {{ tf }}</label>
+  <h2>下载周期层 <span class="muted" style="font-weight:normal">系统固定下载 M1(回测)+D1(regime), 只展示不可配置 — 防手滑改坏污染数据</span></h2>
+  {# 只读展示(2026-07-29 Frank 定): M1+D1 锁定必含, 中间层灰掉不可选。
+     唯一源=config schema/049 ["M1","D1"], 不给 UI 配置入口, 杜绝误改层导致乱下污染库 #}
+  <div class="inline">
+    {% for tf, lock, on, tip in [
+        ('M1', True, True, '唯一原始数据: 回测/对账/高周期聚合的原料, 必含'),
+        ('M5', False, False, '不下: 无消费者; 回测不吃原生高周期(撮合依赖 M1 拆bar)'),
+        ('M15', False, False, '不下: 同上'), ('M30', False, False, '不下: 同上'),
+        ('H1', False, False, '不下: 同上'), ('H4', False, False, '不下: 同上'),
+        ('D1', True, True, '原生 D1: regime/长视野用(M1 仅~4个月, D1 有16年+); 回测仍只读 M1, 必含')] %}
+    <label title="{{ tip }}" style="{{ '' if on else 'color:#999' }}">
+      <input type="checkbox" {% if on %}checked{% endif %} disabled>
+      {{ tf }}{% if lock %}(必含){% endif %}</label>
     {% endfor %}
-    <button class="small">保存</button>
-    <span class="muted">唯一源=config 表(schema/049); 下次点「触发同步」按新层派任务 · 深度上限由券商决定(拉不到的年份空跑跳过)</span>
-  </form>
+    <span class="muted">唯一源=config 表(schema/049)=["M1","D1"] · 本次同步下哪层在「数据下载」页勾</span>
+  </div>
 </section>
 
 <section>
