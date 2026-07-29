@@ -81,7 +81,12 @@
     <tr><th data-nosort>#</th><th>品种</th><th>券商</th>
         <th title="是否参与同步; 只同步打勾的品种">下载</th>
         <th title="从哪天开始下载; 每品种独立">起始日期</th>
-        <th title="K线时间=券商服务器时间, 库按 UTC 存储, 此处原样显示不转换(铁律: 交易/K线时间永不转换)">覆盖范围 (UTC)</th><th>已下载(M1)</th><th>校验</th><th data-nosort>操作</th></tr>
+        <th title="K线时间=券商服务器时间, 库按 UTC 存储, 此处原样显示不转换(铁律: 交易/K线时间永不转换)">覆盖范围 (UTC)</th>
+        {# 覆盖列随配置变(2026-07-29 Frank 定): 下载什么层显示什么层, 加新层自动出现 #}
+        {% for t in timeframes %}
+        <th title="{{ 'M1=唯一原始数据(回测/对账/聚合的原料)' if t.tf == 'M1' else '原生 ' + t.tf + ' 层' + ('(' + t.role + ' 用)' if t.role else '') + ', 回测仍只读 M1' }}: 根数, 悬停看覆盖范围">已下载({{ t.tf }})</th>
+        {% endfor %}
+        <th>校验</th><th data-nosort>操作</th></tr>
     {% for s in symbols %}
     <tr>
       <td class="rownum muted"></td>
@@ -99,7 +104,10 @@
         </form>
       </td>
       <td class="muted">{{ m.ts(s.first_bar) }} → {{ m.ts(s.last_bar) }}</td>
-      <td>{% if s.bars %}{{ "{:,}".format(s.bars) }}{% else %}<span class="muted">无</span>{% endif %}</td>
+      {% for t in timeframes %}
+      {% set c = s.cov.get(t.tf) %}
+      <td>{% if c and c.bars %}<span title="{{ m.ts(c.first_bar) }} → {{ m.ts(c.last_bar) }}">{{ "{:,}".format(c.bars) }}</span>{% else %}<span class="muted">无</span>{% endif %}</td>
+      {% endfor %}
       <td>{% if s.verified_at %}<span class="badge ok"
             title="券商已确认存在 · 精度 {{ s.digits }}·{{ s.point }} · 最小手 {{ s.volume_min if s.volume_min is not none else '—' }} · 停损位 {{ s.stops_level if s.stops_level is not none else '—' }}">已校验</span>
           {% elif s.verify_error %}<span class="badge error" title="{{ s.verify_error }} — 改名后重新登记即重试">校验失败</span>
@@ -122,7 +130,7 @@
       </td>
     </tr>
     {% else %}
-    {% call m.empty(9) %}还没有品种 — 去 <a href="{{ url_for('symbols.index') }}">配置</a> 页登记{% endcall %}
+    {% call m.empty(8 + timeframes | length) %}还没有品种 — 去 <a href="{{ url_for('symbols.index') }}">配置</a> 页登记{% endcall %}
     {% endfor %}
   </table>
 </section>

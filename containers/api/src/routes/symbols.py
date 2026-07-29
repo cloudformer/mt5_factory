@@ -36,19 +36,31 @@ async def list_symbols(request: Request):
     pool = request.app.state.pool
     rows = await pool.fetch(
         "SELECT s.symbol, s.broker, s.digits, s.point, s.volume_min, s.stops_level,"
-        "       s.download, s.data_start, s.verified_at, s.verify_error,"
-        "       c.first_bar, c.last_bar, c.bars"
-        "  FROM symbols s"
-        "  LEFT JOIN LATERAL (SELECT min(time) AS first_bar, max(time) AS last_bar,"
-        "                            count(*) AS bars FROM historical_bars"
-        "                      WHERE symbol = s.symbol AND timeframe='M1') c ON true"
-        " ORDER BY s.symbol")
+        "       s.download, s.data_start, s.verified_at, s.verify_error"
+        "  FROM symbols s ORDER BY s.symbol")
+    # 每品种×每周期覆盖(2026-07-29 补盲区: 页面之前只显示 M1, D1 下没下只能查库)。
+    # 一条 GROUP BY 全拿(比每行 LATERAL 便宜), 键=周期 — 下载什么层页面就显示什么层,
+    # 将来加 H1 等自动出现, 不用改这里。cov 结构: {tf: {first_bar,last_bar,bars}}
+    cov: dict = {}
+    for c in await pool.fetch(
+            "SELECT symbol, timeframe, min(time) AS first_bar, max(time) AS last_bar,"
+            "       count(*) AS bars FROM historical_bars GROUP BY 1, 2"):
+        cov.setdefault(c["symbol"], {})[c["timeframe"]] = {
+            "first_bar": c["first_bar"], "last_bar": c["last_bar"], "bars": c["bars"]}
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["cov"] = cov.get(r["symbol"], {})
+        m1 = d["cov"].get("M1", {})   # 老字段保留(策略生成/regime 页等消费者零改动)
+        d["first_bar"], d["last_bar"], d["bars"] = (
+            m1.get("first_bar"), m1.get("last_bar"), m1.get("bars"))
+        out.append(d)
     orphans = await pool.fetch(
         "SELECT symbol, min(time) AS first_bar, max(time) AS last_bar, count(*) AS bars"
         "  FROM historical_bars"
         " WHERE symbol NOT IN (SELECT symbol FROM symbols)"
         " GROUP BY symbol ORDER BY symbol")
-    return {"symbols": [dict(r) for r in rows], "orphans": [dict(r) for r in orphans]}
+    return {"symbols": out, "orphans": [dict(r) for r in orphans]}
 
 
 class SymbolRegister(BaseModel):
