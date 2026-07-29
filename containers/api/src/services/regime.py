@@ -231,18 +231,31 @@ def stats(regimes: list[str]) -> dict:
     }
 
 
-def distinct(h, l, c, dims, start) -> dict | None:
-    """标准③区分度(中性指标): 高/低波格日均真实波幅比 + 长趋势A/B次日收益t值。
-    从 routes 内联提出来(2026-07-29): 单品种记分卡与候选族对比(evaluate)共用同一算法。"""
+TREND_HORIZON = 20   # 趋势区分度前瞻窗(交易日≈1个月); 2026-07-29 改: 次日→前瞻H日
+
+
+def distinct(h, l, c, dims, start, horizon: int = TREND_HORIZON) -> dict | None:
+    """标准③区分度(中性市场统计量, 非策略盈利 — 不违"禁止用答案选口径"):
+    - 高/低波格 日均真实波幅比(波动维标签是否真把两类日子分开);
+    - 长趋势 A/B 两态 **前瞻 H 日收益** 均值差 t 值(2026-07-29 改, 见下)。
+    趋势指标粒度修订: 原"次日收益 t"对 150 天尺度的长趋势天生测不出(8口径×9品种全线
+    |t|≈0.5 的均匀性=指标量错粒度, 非口径的错)。改为前瞻 H 日(默认20≈1月)累计收益 —
+    问"这段趋势后续一个月漂移方向对不对", 才是趋势该负责的粒度。
+    **非重叠取样**(每 H 天取一个点)保证样本近独立, t 值不被重叠窗虚高。
+    单品种记分卡与候选族对比(evaluate)共用同一算法。"""
     if dims is None or len(c) - start <= 300:
         return None
     tr = (h[start:] - l[start:]) / c[start:] * 100
     va = dims[2][start:] == "A"
-    la = dims[0][start:] == "A"
-    ret = np.concatenate((np.diff(np.log(c[start:])), [np.nan]))
-    ra, rb = ret[la & ~np.isnan(ret)], ret[~la & ~np.isnan(ret)]
+    cc, la = c[start:], (dims[0][start:] == "A")
+    # 前瞻 H 日对数收益, 非重叠取样(步长=H): 第 i 点 = 从 i 到 i+H 的累计, i 走 0,H,2H,…
+    idx = np.arange(0, len(cc) - horizon, horizon)
+    fwd = np.log(cc[idx + horizon] / cc[idx])   # 各取样点的前瞻 H 日收益
+    lab = la[idx]                                # 取样点当日的长趋势态
+    ra, rb = fwd[lab], fwd[~lab]                 # 牛态 / 熊态 各自的前瞻收益
     se = (np.sqrt(ra.var(ddof=1) / len(ra) + rb.var(ddof=1) / len(rb))
           if len(ra) > 30 and len(rb) > 30 else 0)
     return {"vol_ratio": round(float(tr[va].mean() / tr[~va].mean()), 2)
                          if va.any() and (~va).any() else None,
-            "trend_t": round(float((ra.mean() - rb.mean()) / se), 1) if se else None}
+            "trend_t": round(float((ra.mean() - rb.mean()) / se), 1) if se else None,
+            "trend_horizon": horizon}

@@ -26,36 +26,78 @@ EVAL_CANDIDATES = [
     for lm in ("sma200", "ema200") for sm in ("sma20", "sma50") for q in (0.5, 0.67)]
 
 
+def _eval_key(p: dict) -> str:
+    """口径规范串(缓存主键): 长|短|atr|窗|分位 — 与 schema/052 注释同格式"""
+    return f"{p['long_ma']}|{p['short_ma']}|{p['atr_n']}|{p['vol_win']}|{p['vol_q']:g}"
+
+
+async def _eval_one(pool, cand: dict, d1s: dict) -> dict:
+    """现算一个候选口径 × 已载入的各品种 D1 → per_symbol {stats, distinct}"""
+    per = {}
+    for sym, (dates, h, low, c) in d1s.items():
+        dims, start = regime.compute_regimes(h, low, c, cand)
+        if dims is None or start >= len(dates):
+            continue
+        regs = [dims[0][i] + dims[1][i] + dims[2][i] for i in range(start, len(dates))]
+        per[sym] = {"stats": regime.stats(regs),
+                    "distinct": regime.distinct(h, low, c, dims, start)}
+    return per
+
+
 @router.get("/regime/evaluate")
 async def regime_evaluate(request: Request):
-    """候选口径族对比(v2.5 评定流程产出物"记分卡"): 8 候选 × 全部下载品种,
-    每格现算四标准 + 区分度 — 全程内存只读, 不写库不碰 regime_timeline。
-    历史不足暖机的品种如实跳过(skipped)。约几秒~几十秒(D1 每品种只载一次)。"""
+    """候选口径族对比(v2.5 评定流程"记分卡"): 8 候选 × 全部下载品种。
+    默认(无 refresh)=纯读缓存(regime_eval_cache, 按口径存一份), 加载即出不动数据;
+    refresh=missing=只对缓存缺失的候选现算并入库(全部命中=秒回);
+    refresh=all=8 候选全部重扫全品种 D1 覆盖缓存(数据更新/加品种后用)。
+    评分是调试期只读产物, 不进交易/归因链路, 换配置/加品种无残留(手动重算即最新)。"""
     pool = request.app.state.pool
     symbols = [r["symbol"] for r in await pool.fetch(
         "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
-    need = max(regime.warmup_days(c) for c in EVAL_CANDIDATES) + 260  # 暖机后至少再有一年
+    cached = {r["params_key"]: r for r in await pool.fetch(
+        "SELECT params_key, params, symbols, per_symbol, computed_at FROM regime_eval_cache")}
+    refresh = str(request.query_params.get("refresh", "")).lower()
+    # 只有显式 refresh 才现算(否则纯读缓存, 空缓存=空结果, 页面提示去重算):
+    #   all/force=全部重算; missing=只补缺失候选
+    if refresh in ("all", "force"):
+        to_compute = list(EVAL_CANDIDATES)
+    elif refresh == "missing":
+        to_compute = [c for c in EVAL_CANDIDATES if _eval_key(c) not in cached]
+    else:
+        to_compute = []
     d1s, skipped = {}, []
-    for sym in symbols:
-        d1 = await regime._d1(pool, sym, need)
-        if d1 is None:
-            skipped.append(sym)
-        else:
-            d1s[sym] = d1
-    out = []
+    if to_compute:
+        need = max(regime.warmup_days(c) for c in EVAL_CANDIDATES) + 260
+        for sym in symbols:
+            d1 = await regime._d1(pool, sym, need)
+            if d1 is None:
+                skipped.append(sym)
+            else:
+                d1s[sym] = d1
+        for cand in to_compute:
+            per = await _eval_one(pool, cand, d1s)
+            await pool.execute(
+                "INSERT INTO regime_eval_cache (params_key, params, symbols, per_symbol,"
+                "   computed_at) VALUES ($1, $2, $3, $4, now())"
+                " ON CONFLICT (params_key) DO UPDATE SET params=$2, symbols=$3,"
+                "   per_symbol=$4, computed_at=now()",
+                _eval_key(cand), cand, sorted(d1s), per)
+            cached[_eval_key(cand)] = {"params": cand, "symbols": sorted(d1s),
+                                       "per_symbol": per, "computed_at": None}
+    # 组装(全部从 cached 出, 保持 EVAL_CANDIDATES 顺序)
+    out, all_syms = [], set()
     for cand in EVAL_CANDIDATES:
-        label = (f"{cand['long_ma'].upper()}/{cand['short_ma'].upper()}"
-                 f"·q{cand['vol_q']:g}")
-        per = {}
-        for sym, (dates, h, low, c) in d1s.items():
-            dims, start = regime.compute_regimes(h, low, c, cand)
-            if dims is None or start >= len(dates):
-                continue
-            regs = [dims[0][i] + dims[1][i] + dims[2][i] for i in range(start, len(dates))]
-            per[sym] = {"stats": regime.stats(regs),
-                        "distinct": regime.distinct(h, low, c, dims, start)}
-        out.append({"label": label, "params": cand, "per_symbol": per})
-    return {"candidates": out, "symbols": sorted(d1s), "skipped": skipped}
+        row = cached.get(_eval_key(cand))
+        per = (row["per_symbol"] if row else {}) or {}
+        all_syms |= set(per)
+        out.append({
+            "label": f"{cand['long_ma'].upper()}/{cand['short_ma'].upper()}·q{cand['vol_q']:g}",
+            "params": cand, "per_symbol": per,
+            "cached_symbols": (row["symbols"] if row else []) or [],
+            "computed_at": (row["computed_at"].isoformat()
+                            if row and row.get("computed_at") else None)})
+    return {"candidates": out, "symbols": sorted(all_syms), "skipped": skipped,
+            "current_symbols": symbols}   # 当前下载品种集(与 cached_symbols 比 = 缓存是否旧)
 
 
 

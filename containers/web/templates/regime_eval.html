@@ -98,7 +98,7 @@
       <th title="按天加权中位格龄, ≥20">长格龄</th><th title="≥5">短格龄</th><th title="≥5">波格龄</th>
       <th title="≥3">组合格龄</th><th title="≤60, 最差取最大">年翻转</th>
       <th title="≥5%">最稀格%</th><th title="≤35%, 最差取最大">最密格%</th>
-      <th title="≥1.5">波幅比</th><th title="|t|≥2">|t|</th><th title="≤75%, 最差取最大">一致率%</th></tr>
+      <th title="≥1.5">波幅比</th><th title="长趋势A/B两态前瞻20日收益差的t值(非重叠取样), |t|≥2">|t|</th><th title="≤75%, 最差取最大">一致率%</th></tr>
     {% for r in rows %}
     <tr><td class="mono">{{ r.label }}</td>
       {% for k in ['dl', 'ds', 'dv', 'cm', 'fy', 'cmin', 'cmax', 'vr', 'tt', 'ag'] %}
