@@ -118,6 +118,10 @@
         <th data-nosort title="可见性(v5.4): 私有=只有自己 / 公开=市场全可见可复制 / 共享=市场只给汇总战绩; 默认私有, 上市场是逐个主动打标; 执法在v5.6, 现在只是标签">可见性</th>
         <th>笔数</th><th title="回测的胜率(跨所有测过品种合计)">回测胜率</th><th>净点数</th><th>PF</th><th>最大回撤</th>
         <th title="样本外两段净点(笔数): 训练段=前段用来选; 留出段=后段(策略没见过)一票否决。绿=盈利红=亏。留出崩=过拟合嫌疑。比例见表上说明">训练/留出段<br><span class="muted">(净点)</span></th>
+        {# Regime 前三格(v2.5): 主品种回测逐笔×时间线现拼, 只列合格格(≥20笔), 按胜率降序 #}
+        {% for i in [1, 2, 3] %}
+        <th data-nosort title="该策略胜率第{{ i }}高的 Regime 合格格(主品种回测, 只算 ≥20 笔的格子, 未证实纪律): 格子 胜率(笔数)。— = 没有第{{ i }}个合格格或时间线未建; 口径评定冻结前仅看管道, 不作结论">R{{ i }}</th>
+        {% endfor %}
         <th title="该策略实盘(demo+live合并)胜率与笔数 — 其余成绩列都是回测数据, 这列才是真金/模拟">实盘胜率</th>
         <th title="点开: 实盘(demo/live) → 主品种回测 → 跨品种回测, 三源并列; 及参数/magic">健壮性</th>
         <th data-nosort title="策略挂在哪台 worker(一策略可挂多台=多账户同时跑); 每挂载点独立手数; ×=卸载该机">挂载</th>
@@ -161,6 +165,14 @@
       <td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>
       <td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>
       {% endif %}
+      {# R槽位如实报: 合格格(≥20笔按胜率) → —(不够20笔, 有格子但未证实) → —(无交易) #}
+      {% set rtop = r.regime_top or [] %}
+      {% for i in range(3) %}
+      <td class="nowrap">
+        {%- if rtop | length > i %}{{ m.regime_chip(rtop[i].cell) }} {{ rtop[i].win_rate }}% <span class="muted">({{ rtop[i].trades }})</span>
+        {%- elif (r.regime_sub20 or 0) > i - rtop | length %}<span class="muted" title="有格子有交易, 但不足20笔 = 未证实, 不入榜">—(不够20笔)</span>
+        {%- else %}<span class="muted" title="没有更多有交易的格子(或时间线未建)">—(无交易)</span>{% endif %}</td>
+      {% endfor %}
       <td>{% if r.actual and r.actual.win_rate is not none %}<b>{{ m.pct(r.actual.win_rate * 100) }}</b> <span class="muted">({{ r.actual.trades }})</span>{% else %}<span class="muted">—</span>{% endif %}</td>
       <td class="cell-robust">
         <button class="status-btn" data-json-toggle="st-bd-{{ r.strategy_id }}"
@@ -196,7 +208,7 @@
         </form></td>
     </tr>
     <tr id="st-bd-{{ r.strategy_id }}" class="detail-row" hidden>
-      <td colspan="21">
+      <td colspan="24">
         <p class="mono" style="margin:2px 0 8px">参数 {{ r.params }} · magic {{ r.magic_number or '未分配(进DEMO时分配)' }}</p>
         {% if r.actual or r.breakdown %}
         <table class="subtable">

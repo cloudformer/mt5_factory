@@ -457,6 +457,32 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
                             "win_rate": round(s["w"] / s["t"], 3) if s["t"] else None,
                             "broker": " / ".join(bk.get(d["strategy_id"]) or []) or None}
                            if s and s["t"] else None)
+        # Regime 前三格(v2.5, 2026-07-28 与 Frank 定): 当页策略主品种回测逐笔 × 时间线现拼,
+        # 只取合格格(≥20 笔, 未证实纪律), 按胜率降序前三 — 只展示不参与服务端排序。
+        # 不在热路径做时间线自愈(ensure_timeline 归 Regime/分析页); 时间线没建 = 该行显 —。
+        rg_rows = await pool.fetch(
+            "SELECT b.strategy_id, rt.regime, count(*) AS n,"
+            "       count(*) FILTER (WHERE (t->>'points')::float > 0) AS w"
+            "  FROM backtests b"
+            "  JOIN strategies s2 ON s2.id = b.strategy_id AND b.symbol = s2.symbol"
+            " CROSS JOIN LATERAL jsonb_array_elements(b.trades) t"
+            "  JOIN regime_timeline rt ON rt.symbol = b.symbol"
+            "   AND rt.date = (to_timestamp((t->>'entry_time')::bigint)"
+            "                  AT TIME ZONE 'UTC')::date"
+            " WHERE b.strategy_id = ANY($1)"
+            " GROUP BY 1, 2", page_ids)
+        rg_by_sid: dict[int, list] = {}
+        for r in rg_rows:
+            rg_by_sid.setdefault(r["strategy_id"], []).append(
+                {"cell": r["regime"], "trades": r["n"],
+                 "win_rate": round(r["w"] / r["n"] * 100, 1)})
+        for d in page_cands:
+            cells = rg_by_sid.get(d["strategy_id"], [])
+            tops = sorted((c for c in cells if c["trades"] >= 20),
+                          key=lambda x: (-x["win_rate"], -x["trades"]))
+            d["regime_top"] = tops[:3]
+            # 排不满的槽位如实报原因: 有格子但<20笔(未证实) vs 连交易都没有
+            d["regime_sub20"] = sum(1 for c in cells if c["trades"] < 20)
     return {"results": page_cands, "total": total, "page": page, "page_size": limit}
 
 
