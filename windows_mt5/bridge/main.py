@@ -381,12 +381,20 @@ def _run_download_task(api_base: str, headers: dict, task: dict) -> None:
       上传网络失败        → 单批重试3次, 仍败=放弃(api 10分钟无上传自动收回重派);
       任务已失效(404/409) → 明确放弃, 回去重新领。"""
     job_id, symbol = task["job_id"], task["symbol"]
+    tf_name = str(task.get("timeframe") or "M1").upper()   # 老 api 不带 = M1(向后兼容)
+    tf = TIMEFRAMES.get(tf_name)
+    tf_minutes = {"M1": 1, "M5": 5, "M15": 15, "M30": 30,
+                  "H1": 60, "H4": 240, "D1": 1440}.get(tf_name)
+    if tf is None or tf_minutes is None:
+        logger.warning("download job #%s %s 未知周期 %s, 跳过", job_id, symbol, tf_name)
+        return
     frm = datetime.fromisoformat(task["from"])
     to = datetime.fromisoformat(task["to"])
     batch = _wparam("bars_batch", 50000, 1000, 200000)
-    chunk = timedelta(minutes=batch)   # M1 一根一分钟: batch 根 ≈ batch 分钟
-    logger.info("download job #%s %s %s → %s (batch=%d bars)",
-                job_id, symbol, frm.strftime("%Y-%m-%d"), to.strftime("%Y-%m-%d"), batch)
+    chunk = timedelta(minutes=batch * tf_minutes)   # batch 根 × 每根分钟数 = 切片时长
+    logger.info("download job #%s %s %s %s → %s (batch=%d bars)",
+                job_id, symbol, tf_name, frm.strftime("%Y-%m-%d"), to.strftime("%Y-%m-%d"),
+                batch)
 
     def post(payload: dict):
         for attempt in range(1, 4):
@@ -416,7 +424,7 @@ def _run_download_task(api_base: str, headers: dict, task: dict) -> None:
         for attempt in range(3):    # None 先重试: 瞬时故障(终端忙/历史在同步)几秒就好
             with _mt5_lock:
                 mt5.symbol_select(symbol, True)
-                data = mt5.copy_rates_range(symbol, mt5.TIMEFRAME_M1, cursor, chunk_end)
+                data = mt5.copy_rates_range(symbol, tf, cursor, chunk_end)
             if data is not None:
                 break
             time.sleep(3)

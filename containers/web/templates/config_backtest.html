@@ -129,6 +129,20 @@
 </section>
 
 <section>
+  <h2>下载周期层 <span class="muted" style="font-weight:normal">每品种同步时按勾选的周期各派一条下载任务, 共用该品种的起始日期</span></h2>
+  <form method="post" action="{{ url_for('symbols.save_download_timeframes') }}" class="inline">
+    <label title="唯一原始数据: 回测/对账/高周期聚合的原料, 永远必下, 不可取消">
+      <input type="checkbox" checked disabled> M1(必含)</label>
+    {% for tf in ['M5', 'M15', 'M30', 'H1', 'H4', 'D1'] %}
+    <label title="{{ '原生 D1: regime/长视野补头用(MetaQuotes 实测 M1 仅存~4个月, D1 有16年+); 回测仍只读 M1, 尺子不换料' if tf == 'D1' else '默认不下: 目前无消费者; 回测不吃原生高周期(撮合悲观规则依赖 M1 拆bar, 混用=两把尺子)' }}">
+      <input type="checkbox" name="tf" value="{{ tf }}" {% if tf in download_timeframes %}checked{% endif %}> {{ tf }}</label>
+    {% endfor %}
+    <button class="small">保存</button>
+    <span class="muted">唯一源=config 表(schema/049); 下次点「触发同步」按新层派任务 · 深度上限由券商决定(拉不到的年份空跑跳过)</span>
+  </form>
+</section>
+
+<section>
   <h2>worker 参数(上报节奏/批量 — 按你的网络自调)</h2>
   <form method="post" action="{{ url_for('symbols.save_worker_params') }}" class="inline">
     <label>心跳上报(秒) <input name="heartbeat_seconds" value="{{ worker_params.get('heartbeat_seconds', 30) }}" size="3"

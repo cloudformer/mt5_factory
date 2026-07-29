@@ -9,15 +9,22 @@ import api_client as api
 bp = Blueprint("datasync", __name__, url_prefix="/datasync")
 
 
+# 周期层用途标注(下载页勾选项显示用): 谁吃这层数据一眼可见
+TF_ROLE = {"M1": "回测", "D1": "regime"}
+
+
 @bp.get("/")
 def index():
-    data = {"symbols": [], "orphans": [], "sync": {}, "hosts": []}
+    data = {"symbols": [], "orphans": [], "sync": {}, "hosts": [], "timeframes": []}
     try:
         s = api.get("/symbols")
         data["symbols"], data["orphans"] = s["symbols"], s.get("orphans", [])
         data["sync"] = api.get("/syncdata/status")
         data["hosts"] = [h for h in api.get("/hosts")["hosts"]
                          if h["enabled"] and h["download"]]
+        # 本次同步的周期层勾选项 = 配置 download_timeframes(唯一源, 配置页可改)
+        tfs = api.get("/config")["config"].get("download_timeframes") or []
+        data["timeframes"] = [{"tf": t, "role": TF_ROLE.get(t, "")} for t in tfs]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("datasync.html", **data)
@@ -34,9 +41,10 @@ def status():
 
 @bp.post("/run")
 def run():
+    tfs = request.form.getlist("tf")   # 本次只下勾中的层; 全不勾在 api 侧被明确拒绝
     try:
-        api.post("/syncdata")
-        flash("同步已启动", "ok")
+        api.post("/syncdata", {"timeframes": tfs})
+        flash(f"同步已启动({'+'.join(tfs)})", "ok")
     except api.ApiError as e:
         flash(f"启动同步失败: {e}", "error")
     return redirect(url_for("datasync.index"))

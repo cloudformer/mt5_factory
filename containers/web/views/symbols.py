@@ -27,6 +27,7 @@ def backtest_params():
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
     runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
     generate_limit, worker_params, regime_params = 500, {}, {}
+    download_timeframes = []  # 唯一源=config表(schema/049种子); api不可用即空
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空(铁律欠账4)
     volume_default = None
     try:
@@ -44,6 +45,7 @@ def backtest_params():
         recon_tol = cfg.get("recon_pair_tol_minutes", 2)
         worker_params = cfg.get("worker_params") or {}
         regime_params = cfg.get("regime_params") or {}
+        download_timeframes = cfg.get("download_timeframes") or []
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
@@ -52,7 +54,8 @@ def backtest_params():
                            oos_split=oos_split, mt5_days=mt5_days,
                            runtime_write=runtime_write, runtime_gap=runtime_gap, gate=gate,
                            recon_tol=recon_tol, worker_params=worker_params,
-                           regime_params=regime_params)
+                           regime_params=regime_params,
+                           download_timeframes=download_timeframes)
 
 
 @bp.post("/config/volume-presets")
@@ -93,6 +96,19 @@ def save_worker_params():
             ("heartbeat_seconds", "announce_seconds", "bars_batch", "decision_keep_days")}})
         flash("worker 参数已保存 — 各 worker 下次报到(约1分钟)自动领取生效", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
+
+
+@bp.post("/config/download-timeframes")
+def save_download_timeframes():
+    """保存下载周期层(config: download_timeframes) — M1 固定必含(唯一原始数据),
+    高周期按需勾选(D1 默认勾, regime 长视野用); 下次点同步按新层派任务"""
+    try:
+        api.put("/config/download_timeframes",
+                {"value": ["M1"] + request.form.getlist("tf")})
+        flash("下载周期已保存 — 下次触发同步按新周期层派任务", "ok")
+    except api.ApiError as e:
         flash(f"保存失败: {e}", "error")
     return redirect(url_for("symbols.backtest_params"))
 

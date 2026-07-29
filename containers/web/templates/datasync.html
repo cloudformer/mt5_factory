@@ -6,6 +6,12 @@
 <section>
   <h2>同步</h2>
   <form method="post" action="{{ url_for('datasync.run') }}" class="inline">
+    {# 周期层勾选(2026-07-29 Frank 定): 本次同步只下勾中的层 — 比如只补 20 年 D1 就不勾 M1,
+       免陪跑空巡逻。选项由配置 download_timeframes 生成(配置页可增删层), 默认全勾 #}
+    {% for t in timeframes %}
+    <label title="{{ '唯一原始数据: 回测/对账/聚合的原料' if t.tf == 'M1' else '原生高周期: ' + (t.role or '按配置') + ' 用, 深度上限由券商决定' }}">
+      <input type="checkbox" name="tf" value="{{ t.tf }}" checked> {{ t.tf }}{% if t.role %}({{ t.role }}){% endif %}</label>
+    {% endfor %}
     <button {% if sync.running or not hosts %}disabled{% endif %}>触发同步</button>
     {% if not hosts %}
       <span class="badge warn">没有可用的下载 worker</span>

@@ -21,14 +21,18 @@ async def load_download_symbols(pool: asyncpg.Pool) -> list:
             for r in rows]
 
 
-async def insert_bars(conn: asyncpg.Connection, symbol: str, bars: list) -> int:
-    """K线幂等入库(主键 ON CONFLICT DO NOTHING): 旧编排拉取 与 新 jobs 上传 共用同一落库。"""
-    return await _insert_bars(conn, symbol, bars)
+async def insert_bars(conn: asyncpg.Connection, symbol: str, bars: list,
+                      timeframe: str = "M1") -> int:
+    """K线幂等入库(主键 ON CONFLICT DO NOTHING): 旧编排拉取 与 新 jobs 上传 共用同一落库。
+    timeframe: M1(唯一原始数据) / D1(例外补下, 2026-07-29 定: MetaQuotes M1 仅存~4个月
+    而 D1 有16年+, regime 长视野用原生 D1 补头; 回测/对账仍只读 M1, 尺子不换料)"""
+    return await _insert_bars(conn, symbol, bars, timeframe)
 
 
-async def _insert_bars(conn: asyncpg.Connection, symbol: str, bars: list) -> int:
+async def _insert_bars(conn: asyncpg.Connection, symbol: str, bars: list,
+                       timeframe: str = "M1") -> int:
     records = [
-        (symbol, "M1", datetime.fromtimestamp(b["time"], tz=timezone.utc),
+        (symbol, timeframe, datetime.fromtimestamp(b["time"], tz=timezone.utc),
          b["open"], b["high"], b["low"], b["close"],
          b["tick_volume"], b["spread"], b["real_volume"])
         for b in bars
@@ -54,27 +58,45 @@ DOWNLOAD_MAX_ATTEMPTS = 5     # 同一任务被收回重派的上限, 超过 = F
 DOWNLOAD_IDLE_MINUTES = 10    # RUNNING 且 N 分钟没有任何上传动作 = 怠工, 收回重派
 
 
-async def submit_download_jobs(pool: asyncpg.Pool) -> dict:
-    """每个下载品种一条 job(from=库内断点, to=提交时刻), 先清后插(与回测批同款)。"""
+async def submit_download_jobs(pool: asyncpg.Pool, only_tfs: list | None = None) -> dict:
+    """每个下载品种×每个周期层一条 job(from=库内断点, to=提交时刻), 先清后插(与回测批同款)。
+    only_tfs: 本次只下这些层(下载页勾选, 须为配置层的子集); None/空 = 配置的全部层。"""
     items = await load_download_symbols(pool)
     if not items:
         return {"jobs": 0, "error": "没有开启下载的品种 — 在下载页登记品种(会向券商校验)"}
     now = datetime.now(timezone.utc)
+    # 下载周期层(2026-07-29 与 Frank 定, 配置唯一源=数据库 schema/049 种子, 配置页可见可改):
+    # 默认 ["M1","D1"] — M1=唯一原始数据(回测/对账/聚合的原料); D1=例外补下(MetaQuotes
+    # M1 仅存~4个月而 D1 有16年+, regime 长视野靠原生 D1 补头; 行量可忽略, 20年≈5200行)。
+    # 两层共用 data_start, 各取所能: M1 空跑过没有数据的年份, D1 吃满。
+    # 中间层(H1/M15)默认不下 — 回测尺子不换料; 要下去配置页勾选。
+    tfs = await pool.fetchval("SELECT value FROM config WHERE key='download_timeframes'")
+    if not tfs:   # 配置缺失 = schema 种子没跑到, 如实报错(兜底默认值不落代码)
+        return {"jobs": 0, "error": "config download_timeframes 缺失 — 重启 api 让 schema/049 种子落库"}
+    if only_tfs:   # 下载页本次勾选: 只允许配置层的子集(选项由配置生成, 越界如实拒)
+        bad = [t for t in only_tfs if t not in tfs]
+        if bad:
+            return {"jobs": 0, "error": f"周期 {bad} 不在配置的下载层 {tfs} 里 — 先去配置页勾选"}
+        tfs = [t for t in tfs if t in only_tfs]
+        if not tfs:
+            return {"jobs": 0, "error": "至少勾选一个周期层"}
     rows = []
     for it in items:
-        span = await pool.fetchrow(
-            "SELECT min(time) AS first, max(time) AS last"
-            "  FROM historical_bars WHERE symbol=$1 AND timeframe='M1'", it["symbol"])
-        # 起点三分法(2026-07-28 修头部缺口盲区): 空库=data_start; 头部有缺口(最早一根晚于
-        # data_start 超7天容差, 周末/假日不算) = 回到 data_start 整段重下到现在 —
-        # 改 data_start 往前挖历史靠这条生效; 分段深挖(先2020再2018)会重拉已有段, 幂等无害,
-        # 宁可白跑不可漏段(2026-07-28 Frank 定); 头部完整 = 从最新断点续传。
-        head_gap = (span["first"] is not None
-                    and span["first"] > it["data_start"] + timedelta(days=7))
-        frm = it["data_start"] if (span["first"] is None or head_gap) else span["last"]
-        rows.append((DOWNLOAD_KIND, {"symbol": it["symbol"], "written": 0,
-                                     "from": frm.isoformat(),
-                                     "to": now.isoformat()}))
+        for tf in tfs:
+            span = await pool.fetchrow(
+                "SELECT min(time) AS first, max(time) AS last"
+                "  FROM historical_bars WHERE symbol=$1 AND timeframe=$2",
+                it["symbol"], tf)
+            # 起点三分法(2026-07-28 修头部缺口盲区): 空库=data_start; 头部有缺口(最早一根晚于
+            # data_start 超7天容差, 周末/假日不算) = 回到 data_start 整段重下到现在 —
+            # 改 data_start 往前挖历史靠这条生效; 分段深挖(先2020再2018)会重拉已有段, 幂等无害,
+            # 宁可白跑不可漏段(2026-07-28 Frank 定); 头部完整 = 从最新断点续传。
+            head_gap = (span["first"] is not None
+                        and span["first"] > it["data_start"] + timedelta(days=7))
+            frm = it["data_start"] if (span["first"] is None or head_gap) else span["last"]
+            rows.append((DOWNLOAD_KIND, {"symbol": it["symbol"], "timeframe": tf,
+                                         "written": 0, "from": frm.isoformat(),
+                                         "to": now.isoformat()}))
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DELETE FROM jobs WHERE kind=$1", DOWNLOAD_KIND)
@@ -126,6 +148,8 @@ async def download_progress(pool: asyncpg.Pool):
     for r in rows:
         p = r["payload"]
         sym = p.get("symbol", "?")
+        if p.get("timeframe", "M1") != "M1":   # D1 补头任务在进度里带周期后缀, 与 M1 区分
+            sym = f"{sym}·{p['timeframe']}"
         out["symbols"].append(sym)
         out["bars_written"] += int(p.get("written") or 0)
         if r["status"] == "DONE":

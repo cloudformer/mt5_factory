@@ -105,7 +105,8 @@ CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
                "recon_pair_tol_minutes", "volume_presets", "volume_default",
                "trail_default",   # 移动止损全局默认(v0.9): null=关; 结构见 strategy_core/trailing.py
                "worker_params",   # worker 上报节奏/批量(v7.2, schema/046): announce 应答下发
-               "regime_params"}   # Regime 口径(v2.5, schema/048): 评定期配置页可换, 改完重建时间线
+               "regime_params",   # Regime 口径(v2.5, schema/048): 评定期配置页可换, 改完重建时间线
+               "download_timeframes"}  # 下载周期层(2026-07-29, schema/049): M1 必含 + 可选高周期
 
 # worker_params 各项允许区间(用户按网络自调, 区间防脚枪):
 # heartbeat 上限 60 = 轮询侧"新鲜推送"窗口 75s 的安全边界(推得比窗口慢会推/拉来回抖)
@@ -114,8 +115,14 @@ WORKER_PARAM_RANGES = {"heartbeat_seconds": (10, 60), "announce_seconds": (30, 3
 
 
 # ---------- 数据同步 ----------
+class SyncRequest(BaseModel):
+    # 本次同步只下这些周期层(2026-07-29 下载页勾选): None/空 = 配置的全部层。
+    # 必须是配置 download_timeframes 的子集 — 下载页选项即由配置生成, 不给幻想
+    timeframes: list[str] | None = None
+
+
 @router.post("/syncdata")
-async def start_sync(request: Request):
+async def start_sync(request: Request, req: SyncRequest | None = None):
     """触发全量/增量同步(断点续传)。v7.2 收口后唯一路径 = jobs 模式:
     api 只写任务表, download worker 轮询领取 + 自拉 MT5 + 分批上传(单向)。"""
     pool = request.app.state.pool
@@ -129,7 +136,8 @@ async def start_sync(request: Request):
             "SELECT EXISTS (SELECT 1 FROM jobs WHERE kind=$1"
             " AND status IN ('PENDING','RUNNING'))", sync.DOWNLOAD_KIND):
         raise HTTPException(status_code=409, detail="download jobs already running")
-    res = await sync.submit_download_jobs(pool)
+    res = await sync.submit_download_jobs(
+        pool, only_tfs=(req.timeframes if req else None))
     if res.get("error"):
         raise HTTPException(status_code=400, detail=res["error"])
     return {"started": True, "mode": "jobs", **res}
@@ -194,7 +202,9 @@ async def download_bars(req: BarsUpload, request: Request):
     if req.bars:
         try:
             async with pool.acquire() as conn:
-                written = await sync.insert_bars(conn, job["payload"]["symbol"], req.bars)
+                written = await sync.insert_bars(
+                    conn, job["payload"]["symbol"], req.bars,
+                    job["payload"].get("timeframe", "M1"))   # D1 补头任务(2026-07-29)
         except (KeyError, TypeError, ValueError) as e:   # 形状不合法: 400 带具体字段错误
             raise HTTPException(status_code=400,
                                 detail=f"bars 形状不合法({type(e).__name__}: {e}) — "
@@ -270,6 +280,13 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
             v = req.value.get(k)
             if not isinstance(v, int) or not lo <= v <= hi:
                 raise HTTPException(status_code=400, detail=f"worker_params.{k} 须为 {lo}~{hi} 的整数")
+    if key == "download_timeframes":  # 下载周期层: M1 必含(唯一原始数据), 其余须为已知周期
+        allowed_tf = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]
+        if (not isinstance(req.value, list) or "M1" not in req.value
+                or not set(req.value) <= set(allowed_tf)):
+            raise HTTPException(status_code=400,
+                                detail=f"download_timeframes 须为包含 M1 的列表, 可选值 {allowed_tf}")
+        req.value = [t for t in allowed_tf if t in req.value]   # 去重并按周期从细到粗定序
     if key == "regime_params":  # Regime 口径: 键完整 + 均线格式 + 数值区间(services/regime 消费)
         want = {"long_ma", "short_ma", "atr_n", "vol_win", "vol_q"}
         if not isinstance(req.value, dict) or set(req.value) != want:

@@ -106,12 +106,21 @@ def compute_regimes(h: np.ndarray, low: np.ndarray, c: np.ndarray, params: dict)
 
 
 async def _d1(pool: asyncpg.Pool, symbol: str, min_days: int):
-    """D1 从 M1 现场聚合(券商时间日界); 不足 min_days 返回 None"""
+    """D1 双源合并(2026-07-29 与 Frank 定"M1+D1 两层"): 有 M1 的日子用 M1 现场聚合
+    (与交易/回测同源, 券商时间日界); 更早的头部用原生 D1 行补
+    (MetaQuotes M1 仅存~4个月而 D1 有16年+ — regime 长视野靠它)。
+    重叠日以 M1 聚合优先; 不足 min_days 返回 None"""
     rows = await pool.fetch(
-        "SELECT time::date AS d, max(high) AS h, min(low) AS l,"
-        "       (array_agg(close ORDER BY time DESC))[1] AS c"
-        "  FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
-        " GROUP BY 1 ORDER BY 1", symbol)
+        "WITH m1 AS (SELECT time::date AS d, max(high) AS h, min(low) AS l,"
+        "                   (array_agg(close ORDER BY time DESC))[1] AS c"
+        "              FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
+        "             GROUP BY 1)"
+        " SELECT d, h, l, c FROM m1"
+        " UNION ALL"
+        " SELECT time::date, high, low, close FROM historical_bars"
+        "  WHERE symbol=$1 AND timeframe='D1'"
+        "    AND time::date < COALESCE((SELECT min(d) FROM m1), 'infinity'::date)"
+        " ORDER BY d", symbol)
     if len(rows) < min_days:
         return None
     return ([r["d"] for r in rows],
