@@ -21,26 +21,53 @@
 {% else %}
 {% set st = data.stats %}
 
-{# ===== 1. 近一年色带 ===== #}
+{# ===== 1. 演变色带(2026-07-29 Frank 定: 半年一行, 跨度可选默认3年, 前端切片零请求) ===== #}
 <section>
-  <h2>近一年演变色带 <span class="muted" style="font-weight:normal">按季分行(3个月一行) · 一格一天(周末休市空缺) · 悬停看具体日</span></h2>
+  <div class="flex-between" style="max-width:1020px">
+    <h2 style="margin:0">演变色带 <span class="muted" style="font-weight:normal">半年一行 · 一格一天(周末休市空缺) · 悬停看具体日</span></h2>
+    <label class="muted">跨度 <select id="band-span" title="显示最近几年, 即时切换不刷新页面">
+      {% for y, zh in [(1, '1 年'), (3, '3 年'), (5, '5 年'), (10, '10 年'), (0, '全部')] %}
+      <option value="{{ y }}" {% if y == 3 %}selected{% endif %}>{{ zh }}</option>{% endfor %}
+    </select></label>
+  </div>
   {% if band_months %}
-  <div class="mono muted" style="display:flex;justify-content:space-between;max-width:720px;margin-bottom:4px">
-    <span>{{ band_months[0][1][0].date }} 起</span>
-    <span>{{ symbol }} · 共 {{ data.rows | length }} 交易日</span>
+  <div class="mono muted" style="display:flex;justify-content:space-between;max-width:1020px;margin:2px 0 4px">
+    <span id="band-from">{{ band_months[0][1][0].date }} 起</span>
+    <span>{{ symbol }} · 库内共 {{ data.rows | length }} 交易日</span>
     <span>至 {{ band_months[-1][1][-1].date }}</span>
   </div>
   {% for mon, mdays in band_months %}
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+  {# data-bh = 距最后一行的序号(0=最新半年), JS 按跨度显隐 #}
+  <div data-bh="{{ band_months | length - loop.index }}" data-from="{{ mdays[0].date }}"
+       style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
     <span class="mono muted" style="width:60px;flex:none">{{ mon }}</span>
-    <div style="display:flex;gap:2px;flex-wrap:wrap">
+    <div style="display:flex;gap:1px;flex-wrap:wrap">
       {% for r in mdays %}
       <span title="{{ r.date }}  {{ r.regime }}({{ m.regime_cn(r.regime) }})"
-            style="width:9px;height:20px;border-radius:2px;background:{{ m.regime_color(r.regime) }}"></span>
+            style="width:6px;height:18px;border-radius:1px;background:{{ m.regime_color(r.regime) }}"></span>
       {% endfor %}
     </div>
   </div>
   {% endfor %}
+  <script>
+  (function () {
+    const sel = document.getElementById("band-span");
+    const rows = [...document.querySelectorAll("[data-bh]")];
+    const from = document.getElementById("band-from");
+    const apply = () => {
+      const yrs = parseInt(sel.value, 10);
+      let first = null;
+      rows.forEach((r) => {
+        const show = !yrs || parseInt(r.dataset.bh, 10) < yrs * 2;  // 半年一行: N年=2N行
+        r.style.display = show ? "" : "none";
+        if (show && (!first || r.dataset.from < first)) first = r.dataset.from;
+      });
+      if (from && first) from.textContent = first + " 起";
+    };
+    sel.addEventListener("change", apply);
+    apply();
+  })();
+  </script>
   {% endif %}
 </section>
 

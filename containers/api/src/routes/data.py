@@ -42,9 +42,9 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
                "SELECT close FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
                " ORDER BY time DESC LIMIT 1", name),
            "current": {"date": rows[-1]["date"].isoformat(), "regime": rows[-1]["regime"]},
-           # 色带(最近365天)与演变表(最近 days 天)同源, 前端各取所需
+           # 色带与演变表同源, 全量返回(2026-07-29: 色带跨度可选1~20年, 前端切片; 20年≈5200行)
            "rows": [{"date": r["date"].isoformat(), "regime": r["regime"]}
-                    for r in rows[-max(days, 365):]]}
+                    for r in rows]}
     if full:  # 标准③区分度: 高/低波格日均真实波幅比 + 长趋势A/B次日收益t值(中性指标)
         d1 = await regime._d1(pool, name, regime.warmup_days(params))
         if d1 is not None:
