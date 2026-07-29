@@ -224,34 +224,37 @@
 <span class="mono" title="{{ regime_cn(cell) }}"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:{{ regime_color(cell) }};vertical-align:-1px"></span>{{ cell or '—' }}</span>
 {%- endmacro %}
 
-{# 八格象限图(标准组件): 按波动分左右两屏, 每屏 2×2(行=长趋势, 列=短趋势)。
-   同位置左右两格 = 只差波动位(距离1); 同屏相邻 = 差长或短一位 — 海明邻域直接画在图上。
+{# 八格象限图(标准组件, 2026-07-28 Frank 定版式): 单张 2×4, 权重即布局 —
+   第一权重 长趋势 = 上下两行(牛市家族/熊市家族); 第二权重 短趋势 = 左右两半(中缝隔开);
+   第三权重 波动 = 半内相邻两格。每行左→右恰为色阶渐变序(与图例同序)。
+   海明邻居方位固定: 波邻格=紧挨着的, 短邻格=跳过中缝的同位格, 长邻格=正上/正下。
    lines: {格子: [显示行, ...]}(Regime页装天数占比, 策略页装胜率净点 — 同一张图两处用);
    current: 实线圈(今天所在格); neighbors: 虚线圈(距离1邻格) #}
 {% macro regime_grid(lines, current=None, neighbors=[]) -%}
-<div class="regime-grids">
-  {% for vol in ['A', 'B'] %}
-  <div>
-    <div class="regime-quad-title">波 <span class="{{ 'pos' if vol == 'A' else 'neg' }}">{{ '↑' if vol == 'A' else '↓' }}</span></div>
-    <div class="regime-quad">
-      <div></div>
-      <div class="regime-axis">短 <span class="pos">↑</span></div>
-      <div class="regime-axis">短 <span class="neg">↓</span></div>
-      {% for lt in ['A', 'B'] %}
-      <div class="regime-axis" style="align-self:center">长 <span class="{{ 'pos' if lt == 'A' else 'neg' }}">{{ '↑' if lt == 'A' else '↓' }}</span></div>
-      {% for stt in ['A', 'B'] %}
-      {% set cell = lt ~ stt ~ vol %}
-      <div class="regime-cell {{ 'cur' if cell == current }} {{ 'nb' if cell in neighbors and cell != current }}"
-           style="--cell:{{ regime_color(cell) }}" title="{{ cell }} {{ regime_cn(cell) }}{{ ' · 今天' if cell == current }}{{ ' · 距今天一位之差(邻格)' if cell in neighbors and cell != current }}">
-        <div><b class="mono">{{ cell }}</b> {{ regime_arrows(cell) }}
-          {% if cell == current %}<span class="badge ok">今天</span>{% endif %}</div>
-        {# lines 由服务端拼好(可含 span 着色), 信任渲染 #}
-        {% for ln in lines.get(cell, []) %}<div class="regime-cell-line">{{ ln | safe }}</div>{% endfor %}
-      </div>
-      {% endfor %}
-      {% endfor %}
-    </div>
+<div class="regime-quad" style="grid-template-columns:auto 1fr 1fr 18px 1fr 1fr">
+  <div></div>
+  <div class="regime-axis" style="grid-column:2/4">短 <span class="pos">↑</span></div>
+  <div class="regime-axis" style="grid-column:5/7">短 <span class="neg">↓</span></div>
+  <div></div>
+  {% for stt, vol in [('A','A'), ('A','B'), (None, None), ('B','A'), ('B','B')] %}
+    {% if stt is none %}<div></div>{% else %}
+    <div class="regime-axis">波动性 <span class="{{ 'pos' if vol == 'A' else 'neg' }}">{{ '↑' if vol == 'A' else '↓' }}</span></div>
+    {% endif %}
+  {% endfor %}
+  {% for lt in ['A', 'B'] %}
+  <div class="regime-axis" style="align-self:center">长 <span class="{{ 'pos' if lt == 'A' else 'neg' }}">{{ '↑' if lt == 'A' else '↓' }}</span></div>
+  {% for stt, vol in [('A','A'), ('A','B'), (None, None), ('B','A'), ('B','B')] %}
+  {% if stt is none %}<div></div>{% else %}
+  {% set cell = lt ~ stt ~ vol %}
+  <div class="regime-cell {{ 'cur' if cell == current }} {{ 'nb' if cell in neighbors and cell != current }}"
+       style="--cell:{{ regime_color(cell) }}" title="{{ cell }} {{ regime_cn(cell) }}{{ ' · 今天' if cell == current }}{{ ' · 距今天一位之差(邻格)' if cell in neighbors and cell != current }}">
+    <div><b class="mono">{{ cell }}</b> {{ regime_arrows(cell) }}
+      {% if cell == current %}<span class="badge ok">今天</span>{% endif %}</div>
+    {# lines 由服务端拼好(可含 span 着色), 信任渲染 #}
+    {% for ln in lines.get(cell, []) %}<div class="regime-cell-line">{{ ln | safe }}</div>{% endfor %}
   </div>
+  {% endif %}
+  {% endfor %}
   {% endfor %}
 </div>
 {%- endmacro %}
