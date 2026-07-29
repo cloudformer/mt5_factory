@@ -145,11 +145,20 @@ def regime_eval():
     """候选口径族对比(v2.5 评定流程"记分卡"): 8 候选 × 全部下载品种现算(只读不落库)。
     每格 = 两层参考分; 每候选给 中位/最差(评定按整体, 不因单品种贴线否决); 展开看四标准中位值"""
     data, rows = None, []
+    # refresh=missing(默认, 只补缓存缺失的候选) / all(强制全算); 读缓存则无 refresh 参数
+    refresh = request.args.get("refresh")
     try:
-        data = api.get("/regime/evaluate", timeout=300)
+        data = api.get("/regime/evaluate", timeout=300,
+                       **({"refresh": refresh} if refresh else {}))
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     import statistics
+    # 缓存新鲜度: 有任一候选的 cached_symbols 与当前下载品种集不一致 = 缓存旧(加了/减了品种)
+    cur_syms = set((data or {}).get("current_symbols", []))
+    stale = any(set(c.get("cached_symbols") or []) != cur_syms
+                for c in (data or {}).get("candidates", []) if c.get("cached_symbols"))
+    computed = next((c.get("computed_at") for c in (data or {}).get("candidates", [])
+                     if c.get("computed_at")), None)
     for cand in (data or {}).get("candidates", []):
         cells, crit = {}, {"dl": [], "ds": [], "dv": [], "cm": [], "fy": [],
                            "cmin": [], "cmax": [], "vr": [], "tt": [], "ag": []}
@@ -174,10 +183,30 @@ def regime_eval():
                      # 校准用: 每指标 中位(最差) — 门槛定歪一眼可见
                      "crit": {k: (med(v), (min(v) if k not in ("fy", "cmax", "ag") else max(v)) if v else None)
                               for k, v in crit.items()}})
+    # 每候选带自己的缓存时间(哪些是缓存/新旧一眼可见) — 匹配 label 回填到 rows
+    ca = {c["label"]: c.get("computed_at") for c in (data or {}).get("candidates", [])}
+    for r in rows:
+        r["computed_at"] = ca.get(r["label"])
     rows.sort(key=lambda r: -(r["median"] or -1))
     return render_template("regime_eval.html", data=data, rows=rows,
                            symbols=(data or {}).get("symbols", []),
-                           skipped=(data or {}).get("skipped", []))
+                           skipped=(data or {}).get("skipped", []),
+                           computed=computed, stale=stale, refreshed=bool(refresh))
+
+
+@bp.post("/regime/eval/refresh")
+def regime_eval_refresh():
+    """候选族评分重算(AJAX): scope=missing(补缺失) / all(全部重扫)。
+    现算 + UPSERT 缓存, 返回 {ok, computed_at, candidates, symbols}; 前端拿到即刷新页面。
+    长任务(30秒~2分钟), api_client 超时放宽到 300 秒。"""
+    scope = "all" if request.form.get("scope") == "all" else "missing"
+    try:
+        d = api.get("/regime/evaluate", timeout=300, refresh=scope)
+        have = sum(1 for c in d.get("candidates", []) if c.get("per_symbol"))
+        return {"ok": True, "candidates": have, "symbols": len(d.get("symbols", [])),
+                "scope": scope}
+    except api.ApiError as e:
+        return {"ok": False, "error": str(e)}, 502
 
 
 @bp.post("/regime/rebuild")

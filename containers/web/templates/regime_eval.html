@@ -1,19 +1,80 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('Regime 候选口径族对比', 'v2.5 评定流程产出物"记分卡": 8 候选 × 全部下载品种, 每格现算(只读不落库不碰时间线, 千万行级数据下约需30秒~2分钟, 打开页面即开始算请耐心)。评定按整体(中位+最差), 不因单品种单项贴线否决; 选定一组后连门槛一并冻结写回文档') }}
+{{ m.page_header('Regime 候选口径族对比', 'v2.5 评定流程产出物"记分卡": 8 候选 × 全部下载品种。按口径缓存一份, 打开即读缓存(秒回); 数据/品种变了点"重算"才现算覆盖 — 评分是调试期只读产物, 不进交易/归因链路') }}
+
+{# 缓存状态条(2026-07-29 Frank 定: 评分只调试时看, 按口径缓存, AJAX 重算带进度) #}
+<section>
+  <div class="flex-between">
+    <span class="muted">
+      {% if computed %}<span class="badge ok">缓存</span> 最近更新 {{ m.rel(computed) }}
+      {% else %}<span class="badge warn">尚无缓存</span> — 点"重算缺失"首次生成{% endif %}
+      {% if stale %} · <span class="neg">⚠ 缓存品种集与当前下载不一致(加/减过品种), 建议"全部重算"</span>{% endif %}
+    </span>
+    <span id="eval-actions">
+      <button type="button" class="small" data-refresh="missing"
+         title="只对缓存里没有的候选现算并存入(全部已缓存=秒回); 首次进来点这个">重算缺失</button>
+      <button type="button" class="small hl" data-refresh="all"
+         title="8 候选全部重扫全品种 D1 覆盖缓存(约30秒~2分钟) — 数据更新/加品种后用">全部重算</button>
+      <span id="eval-prog" class="muted" style="margin-left:8px"></span>
+    </span>
+  </div>
+</section>
+
+<script>
+(function () {
+  const box = document.getElementById("eval-actions");
+  const prog = document.getElementById("eval-prog");
+  if (!box) return;
+  box.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-refresh]");
+    if (!btn) return;
+    const scope = btn.dataset.refresh;
+    box.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    // 诚实进度: 无法廉价拿到 X/8(耗时大头在加载各品种 D1, 候选间共享), 用已用秒数 + 转轮
+    const t0 = Date.now();
+    const spin = ["◜", "◝", "◞", "◟"];
+    let i = 0;
+    const timer = setInterval(() => {
+      const s = Math.round((Date.now() - t0) / 1000);
+      prog.textContent = `${spin[i++ % 4]} 计算中… 已用 ${s} 秒(首次约1~2分钟, 之后读缓存秒开)`;
+    }, 250);
+    try {
+      const r = await fetch("{{ url_for('datasync.regime_eval_refresh') }}", {
+        method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: "scope=" + scope,
+      }).then((x) => x.json());
+      clearInterval(timer);
+      if (r.ok) {
+        prog.textContent = `✓ 完成: ${r.candidates}/8 候选 · ${r.symbols} 品种, 正在刷新…`;
+        location.reload();   // 缓存已热, 刷新即秒出(渲染/评分逻辑只在 Flask 一处, 不在 JS 重复)
+      } else {
+        prog.innerHTML = '<span class="neg">✗ 失败: ' + (r.error || "未知") + "</span>";
+        box.querySelectorAll("button").forEach((b) => (b.disabled = false));
+      }
+    } catch (err) {
+      clearInterval(timer);
+      prog.innerHTML = '<span class="neg">✗ 网络错误: ' + err.message + "</span>";
+      box.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    }
+  });
+})();
+</script>
 
 <section>
   <h2>候选 × 品种 · 两层参考分 <span class="muted" style="font-weight:normal">按中位分降序 · 每格: 总分=及格层+好坏层直接相加(③过线与否只标注颜色) · —=区分度未算/历史不足</span></h2>
   {% if skipped %}<p class="muted">历史不足暖机被跳过的品种: {{ skipped | join('、') }} — 补长历史(D1)后自动纳入。</p>{% endif %}
   <table class="dense">
     <tr><th>候选口径</th>
+      <th title="该候选的缓存状态与时间 — 哪些是缓存、新旧一眼可见">缓存</th>
       {% for sym in symbols %}<th class="mono">{{ sym }}</th>{% endfor %}
       <th title="有总分的品种取中位 — 评定的主排序键">中位</th>
       <th title="最差品种的总分 — 短板检查(评定看整体但短板要心里有数)">最差</th></tr>
     {% for r in rows %}
     <tr>
       <td class="mono" title="长趋势均线/短趋势均线·高波分位(ATR14/252日窗固定)">{{ r.label }}</td>
+      <td>{% if r.computed_at %}<span class="badge ok" title="缓存于该时刻(现算后存的)">已缓存</span> <span class="muted">{{ m.rel(r.computed_at) }}</span>
+        {% else %}<span class="badge warn" title="这个口径还没算过 — 点上方重算生成">未算</span>{% endif %}</td>
       {% for sym in symbols %}
       {% set c = r.cells.get(sym) %}
       <td class="mono">{% if c and c.total is not none %}
