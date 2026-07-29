@@ -101,7 +101,16 @@
 
 {# ===== 4. 口径记分卡(含总评 + 评定流程) ===== #}
 <section>
-  <h2>口径记分卡 <span class="muted" style="font-weight:normal">全历史 {{ st.days }} 交易日(约 {{ st.years }} 年) · 门槛为初始参考值, 见 v2.5 文档</span></h2>
+  <div class="flex-between">
+    <h2 style="margin:0">口径记分卡 <span class="muted" style="font-weight:normal">全历史 {{ st.days }} 交易日(约 {{ st.years }} 年) · 门槛为初始参考值, 见 v2.5 文档</span></h2>
+    {# 参考分右上角(2026-07-29 Frank 定): 进页面第一眼看到总分; 明细仍在下方总评行 #}
+    {% if score %}
+    <span class="badge {{ 'ok' if score.passed else ('warn' if score.passed is none else 'error') }}" style="font-size:14px"
+          title="两层参考分(仅参考不做门禁): 及格层=③区分度60, 过线才计好坏层40。分项: {% for k, v in score.parts.items() %}{{ k }}={{ v if v is not none else '未算' }} {% endfor %}">
+      {% if score.total is not none %}参考分 <b>{{ score.total }}</b>/100
+      {% else %}参考分 —(先点③补算区分度) · 好坏层 {{ score.quality }}/40{% endif %}</span>
+    {% endif %}
+  </div>
   {# 评定流程步骤条: ③区分度按"当前配置"现算, ①②④来自"上次重建的时间线" — 顺序必须钉死 #}
   <div style="margin:0 0 8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <span class="tag">评定流程</span>
