@@ -184,6 +184,8 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
                 "exit_time": int(m1["time"][j]), "entry": round(pos["entry"], 6),
                 "exit": round(exit_price, 6), "points": round(points, 1), "reason": reason,
                 "mae": round(pos["mae"], 1), "mfe": round(pos["mfe"], 1),
+                # 开仓时的 SL(2026-07-29): 对账据此判"止损<券商最小停损距离→实盘会被拒"
+                "sl": round(pos["sl"], 6) if pos.get("sl") is not None else None,
             })
             pos = None
 

@@ -81,7 +81,8 @@
       <tr><td>实盘跨度</td><td>{{ m.lts(recon.window_from) }} → {{ m.lts(recon.window_to) }} · 实盘 <b>{{ recon.actual_trades }}</b> 笔</td></tr>
       <tr><td>回测笔数</td><td>窗口内 <b>{{ recon.bt_trades }}</b> · 重放期内 {{ recon.bt_total }}</td></tr>
       <tr><td>记录不评判</td><td>信号 {{ m.pct(mt.signal_hit_rate * 100) }} · 涨跌 {{ m.pct(mt.outcome_match_rate * 100) }}
-        {%- if mt.cascade_gaps %} · <span title="级联缺单(持仓占位, 同一根因的下游症状)从并集折掉后的笔数率 — 参考读数, 综合分与达标判定不用它(尺子从严不变)">根因参考 {{ m.pct(mt.decascaded_count_rate * 100) }}(级联缺单 {{ mt.cascade_gaps }} 笔已折算)</span>{% endif %}</td></tr>
+        {%- if mt.cascade_gaps %} · <span title="级联缺单(持仓占位, 同一根因的下游症状)从并集折掉后的笔数率 — 参考读数, 综合分与达标判定不用它(尺子从严不变)">根因参考 {{ m.pct(mt.decascaded_count_rate * 100) }}(级联缺单 {{ mt.cascade_gaps }} 笔已折算)</span>{% endif %}
+        {%- if mt.stops_rejected %} · <span title="回测信号止损<本券商最小停损距离, 实盘发单被 10016 被动拒 — 信号+执行都到位, 已记为匹配(券商执行差异, 非系统问题)">止损太紧被拒 {{ mt.stops_rejected }} 笔(已记为匹配)</span>{% endif %}</td></tr>
       {% if mt.entry_diff_avg is defined %}
       <tr><td>入场精度</td><td>均差 {{ mt.entry_diff_avg }}
         {%- if mt.entry_diff_buy is defined %} · 买 {{ '%+g' % mt.entry_diff_buy }}({{ mt.entry_diff_buy_n }}笔){% endif %}
@@ -137,7 +138,8 @@
             {% elif p.gap == 'data_missing' %}<span class="neg">数据未下载</span> — 库内 M1 未到该时间 → 先去「数据下载」
             {% else %}<span class="neg">回测无信号</span>{% endif %}
           {% elif p.gap == 'live_holding' %}<span class="warn">实盘持仓占位(级联)</span> — 实盘此刻被持仓占着开不了单; 根因=更早某笔配对单的出场时间差
-          {# 占位/数据都解释不了时如实说"没有归因"(2026-07-26 实证: 占位级联是主因, 真漏单待 worker 上报佐证) #}
+          {% elif p.gap == 'stops_too_tight' %}<span class="pos">✅ 记为匹配</span> · <span class="warn">实盘下单被券商拒(止损太紧)</span> — 信号+执行都到位, 该信号止损 &lt; 本券商最小停损距离, 被 10016 被动拒(非策略/系统问题, 不同券商规则不一); 对账推算, 不依赖日志
+          {# 占位/数据/止损都解释不了时如实说"没有归因"(2026-07-26 实证: 占位级联是主因, 真漏单待 worker 上报佐证) #}
           {% else %}<span class="neg">实盘未下单</span> — 没有归因, 疑似 runner 漏单 / 无报价
           {% endif %}
         </td>

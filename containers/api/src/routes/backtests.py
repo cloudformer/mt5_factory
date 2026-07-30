@@ -524,13 +524,16 @@ def _merge_windows(windows: list) -> list:
 
 
 def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
-                       one_sided: bool = False):
+                       one_sided: bool = False, stops_level: int = 0, point=None):
     """纯函数: 实际成交 vs 回测信号 → (metrics, pairs)。
     actual 项: {dir(buy/sell), ts(epoch), profit, entry(显示串)}
-    bt 项:     {dir(BUY/SELL), entry_time(epoch), points, entry(价), exit(价)}
+    bt 项:     {dir(BUY/SELL), entry_time(epoch), points, entry(价), exit(价), sl}
     配对: 每笔实际找最近的未匹配回测笔(entry 差 ≤ tol, 默认±20分钟)。
     one_sided: 无运行区间记录的降级口径 — 回测池只剩实盘附近的信号, 抓不了漏单,
-    分母用实盘笔数(并集里回测侧被清空, 再用并集会虚高得没意义)。"""
+    分母用实盘笔数(并集里回测侧被清空, 再用并集会虚高得没意义)。
+    stops_level/point(2026-07-30 与 Frank 定): 回测信号的止损 < 券商最小停损距离 →
+    实盘发了单被券商 10016 被动拒 → 系统信号+执行都到位, **记为 full match**(被拒非系统问题);
+    原因对账自己推算(SL vs stops_level), 不依赖 worker 日志(日志会归档、非结构化)。"""
     n_a, n_b = len(actual), len(bt)
     used, pairs = set(), []
     for a in actual:
@@ -553,21 +556,29 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
                     "dir": m["dir"], "win": m["points"] > 0, "points": m.get("points"),
                     "price": m.get("entry"), "exit_price": m.get("exit"), "ts": m["entry_time"]}),
             "dir_match": dir_match, "outcome_match": outcome_match})
-    paired = sum(1 for p in pairs if p["bt"] is not None)
+    matched = sum(1 for p in pairs if p["bt"] is not None)
     dir_ok = sum(1 for p in pairs if p["dir_match"])
     outcome_ok = sum(1 for p in pairs if p["outcome_match"])
-    union = n_a + n_b - paired                          # 两边并集: 配对 + 实盘多 + 回测多
+    # 止损太紧被券商拒(记为 full match, 见 docstring): 未配对的回测信号里, SL 距离 < stops_level 的
+    rej_idx = {i for i, t in enumerate(bt)
+               if i not in used and stops_level and point and t.get("sl") is not None
+               and t.get("entry") is not None
+               and abs(float(t["entry"]) - float(t["sl"])) / point < stops_level}
+    n_rej = len(rej_idx)
+    paired = matched + n_rej                            # 有效匹配(真配对 + 被拒记为匹配), 进分子
+    union = n_a + n_b - matched                         # 并集用真配对: 被拒仍是回测侧一笔真实信号
     denom = n_a if one_sided else union                 # 分母: 双边=并集, 单边=实盘笔数
-    count_rate = paired / denom if denom else 1.0        # 笔数正确率 = 两边都有 / 分母
-    dir_rate = dir_ok / denom if denom else 0.0          # 趋势正确率 = 配对且方向对 / 分母
-    outcome_rate = outcome_ok / denom if denom else 0.0  # 涨跌正确率 = 配对且盈亏方向对 / 分母
-    signal_hit = paired / n_a if n_a else 0.0            # 辅助: 实盘有信号回测也有
+    count_rate = paired / denom if denom else 1.0        # 笔数正确率 = 有效匹配 / 分母
+    dir_rate = (dir_ok + n_rej) / denom if denom else 0.0     # 方向: 被拒信号方向也到位, +n_rej
+    outcome_rate = (outcome_ok + n_rej) / denom if denom else 0.0  # 涨跌: 被拒被动, 记为匹配
+    signal_hit = matched / n_a if n_a else 0.0          # 辅助: 实盘有信号回测也有(被拒非实盘信号, 用真配对)
     metrics = {
         "count_match_rate": round(count_rate, 3),      # 笔数正确率(配对/分母, step1)
         "signal_hit_rate": round(signal_hit, 3),       # 实际有信号回测也有(辅助)
         "dir_match_rate": round(dir_rate, 3),          # 趋势正确率(配对且方向对/分母, step2)
         "outcome_match_rate": round(outcome_rate, 3),  # 涨跌正确率(配对且盈亏对/分母, step2)
         "union": union, "paired": paired,
+        "stops_rejected": n_rej,                        # 其中"止损太紧被券商拒"记为匹配的笔数(参考)
         "denominator": denom,                          # 页面显示实际用的分母
         "mode": "one_sided" if one_sided else "segments",  # 对账口径入库, 历史分数不混淆
     }
@@ -606,10 +617,14 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
     for i, t in enumerate(bt):
         if i not in used:
             pairs.append({
-                "actual": None, "dir_match": False, "outcome_match": False,
+                "actual": None,
+                # 止损太紧被拒 = full match(方向也对); 其余 bt-only 才是真未配对
+                "dir_match": i in rej_idx, "outcome_match": i in rej_idx,
+                "gap": "stops_too_tight" if i in rej_idx else None,  # reconcile 不再覆盖已标的
                 "bt": {"entry": datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).strftime("%m-%d %H:%M"),
                        "dir": t["dir"], "win": t["points"] > 0, "points": t.get("points"),
-                       "price": t.get("entry"), "ts": t["entry_time"]}})
+                       "price": t.get("entry"), "sl": t.get("sl"),
+                       "ts": t["entry_time"]}})
     return metrics, pairs
 
 
@@ -665,7 +680,8 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all",
     (该策略×scope 整组删旧插新); 返回指定账户(缺省主账户)的完整详情 + accounts 汇总列表。
     单账户时与旧口径逐字节等价。"""
     strat = await pool.fetchrow(
-        "SELECT s.symbol, s.timeframe, s.template, s.params, sym.point FROM strategies s"
+        "SELECT s.symbol, s.timeframe, s.template, s.params, sym.point, sym.stops_level"
+        "  FROM strategies s"
         " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
     if strat is None:
         raise HTTPException(status_code=404, detail="strategy not found")
@@ -818,12 +834,14 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
             logger.warning("reconcile replay failed for #%s: %s", strategy_id, e)
     bt = [t for t in bt_all if wf_ts - tol <= t["entry_time"] <= wt_ts
           and any(w0 <= t["entry_time"] <= w1 for w0, w1 in windows)]
+    point = float(strat["point"]) if strat["point"] else None
+    stops_level = strat["stops_level"] or 0   # 券商最小停损距离(点); 判"止损太紧会被拒→记为匹配"
     metrics, pairs = _reconcile_metrics(
         [{"dir": a["direction"], "ts": a["entry_time"].timestamp(), "profit": a["profit"],
           "entry": a["entry_time"].strftime("%m-%d %H:%M"),
           "price": a["entry_price"], "exit_price": a["exit_price"], "net": a["net_points"]}
          for a in actual],
-        bt, tol=tol, one_sided=(mode == "one_sided"))
+        bt, tol=tol, one_sided=(mode == "one_sided"), stops_level=stops_level, point=point)
     # 覆盖信息: 回测侧=重放实际吃到的范围(重放现算, 永远新鲜; 只剩'数据没下载'/'真没信号'两类)
     bt_from = datetime.fromtimestamp(wf_ts - tol, tz=timezone.utc) if replay_to_ts else None
     bt_to = datetime.fromtimestamp(replay_to_ts, tz=timezone.utc) if replay_to_ts else None
@@ -832,7 +850,6 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
     out["broker"] = await pool.fetchval(  # 品种主档的券商 — 补数据提示里点名"下哪家的哪个品种"
         "SELECT broker FROM symbols WHERE symbol=$1", strat["symbol"])
     data_to_ts = data_to.timestamp() if data_to else None
-    point = float(strat["point"]) if strat["point"] else None
     for p in pairs:  # 配对行补每笔差值(页面详情显示): 入场/出场价差(点+%), 净点差(点+%)
         if p["actual"] is not None and p["bt"] is not None:
             if point and p["actual"].get("price") is not None and p["bt"].get("price") is not None:
@@ -854,12 +871,15 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
     bt_iv = [(t["entry_time"], t["exit_time"]) for t in bt_all if t.get("exit_time")]
     for p in pairs:  # 每行: ①归属窗口(逐笔对照按窗口分组显示) ②缺口归因(单边有单时, 两个方向都归)
         ts = (p["actual"] or p["bt"])["ts"]
+        p["sort_ts"] = ts   # 按入场时间排序键(2026-07-30 Frank 定: 匹配/未下单交错回时间线, 看得出何时出问题)
         # 入场日格子(v2.5 现拼): 时间线未覆盖 = None(页面显 —); 交易时间=券商时间, 与时间线同口径
         p["regime"] = (tl or {}).get(
             datetime.fromtimestamp(ts, tz=timezone.utc).date())
         p["window"] = next((k for k, (w0, w1) in enumerate(windows) if w0 <= ts <= w1), None)
         if p["bt"] is not None:
             p["bt"].pop("ts", None)
+        if p.get("gap") == "stops_too_tight":
+            continue                        # 已在 _reconcile_metrics 标好(止损太紧被拒=记为匹配)
         if p["actual"] is None:
             if any(t0 < ts < t1 for t0, t1 in live_iv):
                 p["gap"] = "live_holding"   # 回测有实盘无: 实盘正被持仓占着(级联)
@@ -873,6 +893,7 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
             p["gap"] = "bt_holding"      # 实盘有回测无: 重放正被持仓占着(级联)
         else:
             p["gap"] = "not_triggered"   # 重放已覆盖该时间、空仓、仍无信号 = 真差异
+    pairs.sort(key=lambda p: p.get("sort_ts") or 0)   # 全表按入场时间排序 → 窗口内也是时间序
     # 根因参考率(2026-07-26 与 Frank 定, 记录不评判 — 综合分与达标一分不动):
     # 级联缺单(占位)是同一根因的下游症状, 从并集折掉后 = "去级联笔数率",
     # 一眼看出"70% 里其实只有几次真分歧"。尺子从严不变, 这只是参考读数。
