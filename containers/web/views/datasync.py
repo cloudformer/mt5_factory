@@ -2,7 +2,8 @@
 
 品种在『品种』页维护(唯一数据源 symbols 表); 本页只负责把数据拉下来。
 """
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import (Blueprint, flash, make_response, redirect, render_template,
+                   request, url_for)
 
 import api_client as api
 
@@ -75,9 +76,13 @@ def coverage():
     不阻塞渲染(治本 web 卡顿 + CI 冒烟超时)。超时放宽到 60s(慢查询, 前端显示加载中)。"""
     try:
         s = api.get("/symbols", coverage=1, timeout=60)
-        return {"symbols": s["symbols"], "orphans": s.get("orphans", [])}
+        resp = make_response({"symbols": s["symbols"], "orphans": s.get("orphans", [])})
+        # 浏览器缓存 5 分钟(2026-07-30 Frank 定): 覆盖只在下载时变, 平时几乎不看 → 省重复聚合。
+        # 窗口内普通刷新读缓存(秒出); 要看最新用硬刷新(Ctrl+Shift+R)绕过。零服务端状态。
+        resp.headers["Cache-Control"] = "max-age=300"
+        return resp
     except api.ApiError as e:
-        return {"error": str(e)}, 502
+        return {"error": str(e)}, 502   # 错误不缓存(默认无 max-age)
 
 
 @bp.get("/status")
