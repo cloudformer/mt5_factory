@@ -103,10 +103,10 @@
           <button class="small">改</button>
         </form>
       </td>
-      <td class="muted">{{ m.ts(s.first_bar) }} → {{ m.ts(s.last_bar) }}</td>
+      {# 覆盖懒加载(2026-07-30): 范围+计数由 JS 拉 /datasync/coverage 填 — 页面先秒开 #}
+      <td class="muted" data-cov-range="{{ s.symbol }}"><span class="muted">…</span></td>
       {% for t in timeframes %}
-      {% set c = s.cov.get(t.tf) %}
-      <td>{% if c and c.bars %}<span title="{{ m.ts(c.first_bar) }} → {{ m.ts(c.last_bar) }}">{{ "{:,}".format(c.bars) }}</span>{% else %}<span class="muted">无</span>{% endif %}</td>
+      <td data-cov="{{ s.symbol }}|{{ t.tf }}"><span class="muted">…</span></td>
       {% endfor %}
       <td>{% if s.verified_at %}<span class="badge ok"
             title="券商已确认存在 · 精度 {{ s.digits }}·{{ s.point }} · 最小手 {{ s.volume_min if s.volume_min is not none else '—' }} · 停损位 {{ s.stops_level if s.stops_level is not none else '—' }}">已校验</span>
@@ -117,14 +117,13 @@
           <button class="small" title="向券商重新确认并刷新精度/券商(需下载worker在线)">校验</button>
         </form>
         <span class="op-sep">│</span>
-        {% if s.bars %}
+        {# 覆盖懒加载后不知道确切根数, 清空恒显(空库清空=删0行无害); 删除有数据由 api 拦(409) #}
         <form method="post" action="{{ url_for('symbols.purge', symbol=s.symbol) }}" class="inline"
-              onsubmit="return confirm('清空 {{ s.symbol }} 的 {{ '{:,}'.format(s.bars) }} 根历史数据? 不可恢复(删除登记前的必经步骤)')">
+              onsubmit="return confirm('清空 {{ s.symbol }} 的全部历史数据? 不可恢复(删除登记前的必经步骤)')">
           <button class="small hl danger">清空数据</button>
         </form>
-        {% endif %}
         <form method="post" action="{{ url_for('symbols.delete', symbol=s.symbol) }}" class="inline"
-              onsubmit="return confirm('删除品种 {{ s.symbol }} 的登记?{% if s.bars %}(还有数据会被拦, 先点左边清空){% endif %}')">
+              onsubmit="return confirm('删除品种 {{ s.symbol }} 的登记?(还有数据会被拦, 先清空)')">
           <button class="small hl danger">删除</button>
         </form>
       </td>
@@ -135,27 +134,53 @@
   </table>
 </section>
 
-{% if orphans %}
-<section>
-  <h2><span class="badge error">孤儿数据 ({{ orphans | length }})</span></h2>
+{# 孤儿数据(懒加载填充): 有历史K线但无品种登记 — 覆盖 AJAX 回来若有则显示 #}
+<section id="orphan-sec" hidden>
+  <h2><span class="badge error">孤儿数据 (<span id="orphan-n">0</span>)</span></h2>
   <p class="muted">这些品种在数据库里有历史 K线、却没有品种登记(改名/直接操作数据库遗留)——暴露出来一键清空, 不留看不到的藏数据。</p>
   <table>
     <tr><th>品种</th><th>K线数</th><th title="K线时间=券商服务器时间, 库按 UTC 存储, 原样显示不转换">覆盖范围 (UTC)</th><th>操作</th></tr>
-    {% for o in orphans %}
-    <tr>
-      <td>{{ o.symbol }}</td>
-      <td>{{ "{:,}".format(o.bars) }}</td>
-      <td class="muted">{{ m.ts(o.first_bar) }} → {{ m.ts(o.last_bar) }}</td>
-      <td>
-        <form method="post" action="{{ url_for('symbols.purge', symbol=o.symbol) }}" class="inline"
-              onsubmit="return confirm('清空孤儿数据 {{ o.symbol }} 的 {{ '{:,}'.format(o.bars) }} 根? 不可恢复')">
-          <button class="small danger">清空数据</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
+    <tbody id="orphan-body"></tbody>
   </table>
 </section>
-{% endif %}
+
+{# 覆盖懒加载(2026-07-30 Frank 定): 页面秒开后异步拉 范围+计数 填表, 治本 web 卡顿 + CI 超时 #}
+<script>
+(function () {
+  const tfs = [{% for t in timeframes %}"{{ t.tf }}"{{ "," if not loop.last }}{% endfor %}];
+  const fmt = (s) => s ? String(s).replace("T", " ").slice(0, 16) : "—";
+  const num = (n) => n ? Number(n).toLocaleString() : "无";
+  const purgeUrl = (sym) => "{{ url_for('symbols.purge', symbol='__S__') }}".replace("__S__", sym);
+  const fail = (t) => document.querySelectorAll("[data-cov],[data-cov-range]")
+    .forEach((e) => (e.innerHTML = '<span class="neg">' + t + "</span>"));
+  fetch("{{ url_for('datasync.coverage') }}").then((r) => r.json()).then((d) => {
+    if (d.error) return fail("覆盖加载失败: " + d.error);
+    for (const s of d.symbols || []) {
+      const cov = s.cov || {}, m1 = cov.M1 || {};
+      const rng = document.querySelector('[data-cov-range="' + s.symbol + '"]');
+      if (rng) rng.textContent = m1.first_bar ? fmt(m1.first_bar) + " → " + fmt(m1.last_bar) : "—";
+      for (const tf of tfs) {
+        const cell = document.querySelector('[data-cov="' + s.symbol + "|" + tf + '"]');
+        if (!cell) continue;
+        const c = cov[tf];
+        cell.innerHTML = (c && c.bars)
+          ? '<span title="' + fmt(c.first_bar) + " → " + fmt(c.last_bar) + '">' + num(c.bars) + "</span>"
+          : '<span class="muted">无</span>';
+      }
+    }
+    const orph = d.orphans || [];
+    if (orph.length) {
+      document.getElementById("orphan-n").textContent = orph.length;
+      document.getElementById("orphan-body").innerHTML = orph.map((o) =>
+        '<tr><td>' + o.symbol + '</td><td>' + num(o.bars) + '</td>'
+        + '<td class="muted">' + fmt(o.first_bar) + " → " + fmt(o.last_bar) + '</td>'
+        + '<td><form method="post" action="' + purgeUrl(o.symbol) + '" class="inline" '
+        + 'onsubmit="return confirm(\'清空孤儿数据 ' + o.symbol + ' 全部K线? 不可恢复\')">'
+        + '<button class="small danger">清空数据</button></form></td></tr>').join("");
+      document.getElementById("orphan-sec").hidden = false;
+    }
+  }).catch((e) => fail("覆盖加载失败: " + e.message));
+})();
+</script>
 
 {% endblock %}

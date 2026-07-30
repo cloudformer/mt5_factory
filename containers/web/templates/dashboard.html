@@ -19,8 +19,8 @@
   </div>
   <div class="stat">
     <div class="stat-label">数据品种</div>
-    <div class="stat-value">{{ coverage | length }}</div>
-    <div class="stat-sub">{{ "{:,}".format(coverage | sum(attribute='bars')) }} 根 M1</div>
+    <div class="stat-value" id="cov-count">…</div>
+    <div class="stat-sub"><span id="cov-bars">…</span> 根 M1</div>
   </div>
   <div class="stat">
     <div class="stat-label">任务</div>
@@ -99,21 +99,35 @@
 </section>
 
 <section>
-  <h2>数据覆盖 (M1)</h2>
+  <h2>数据覆盖 (M1) <span class="muted" style="font-weight:normal">懒加载,稍候</span></h2>
   <table>
     <tr><th>品种</th><th>券商</th><th>起</th><th>止</th><th>K线数</th></tr>
-    {% for c in coverage %}
-    <tr>
-      <td>{{ c.symbol }}</td>
-      <td class="muted">{{ c.broker or '—' }}</td>
-      <td class="muted">{{ m.ts(c.first_bar) }}</td>
-      <td class="muted">{{ m.ts(c.last_bar) }}</td>
-      <td>{{ "{:,}".format(c.bars) }}</td>
-    </tr>
-    {% else %}
-    {% call m.empty(5) %}暂无数据 — 到 <a href="{{ url_for('datasync.index') }}">下载</a> 页触发同步{% endcall %}
-    {% endfor %}
+    <tbody id="cov-body"><tr><td colspan="5" class="muted">加载中…</td></tr></tbody>
   </table>
 </section>
+
+{# 覆盖懒加载(2026-07-30 Frank 定): 首页秒开, 覆盖(大表 GROUP BY 慢)异步拉 #}
+<script>
+(function () {
+  const fmt = (s) => s ? String(s).replace("T", " ").slice(0, 16) : "—";
+  const num = (n) => Number(n || 0).toLocaleString();
+  fetch("{{ url_for('datasync.coverage') }}").then((r) => r.json()).then((d) => {
+    const rows = (d.symbols || []).filter((s) => (s.cov && s.cov.M1 && s.cov.M1.bars));
+    document.getElementById("cov-count").textContent = rows.length;
+    document.getElementById("cov-bars").textContent =
+      num(rows.reduce((a, s) => a + (s.cov.M1.bars || 0), 0));
+    document.getElementById("cov-body").innerHTML = rows.length ? rows.map((s) => {
+      const m1 = s.cov.M1;
+      return '<tr><td>' + s.symbol + '</td><td class="muted">' + (s.broker || "—")
+        + '</td><td class="muted">' + fmt(m1.first_bar) + '</td><td class="muted">'
+        + fmt(m1.last_bar) + '</td><td>' + num(m1.bars) + '</td></tr>';
+    }).join("") : '<tr><td colspan="5" class="muted">暂无数据 — 到<a href="{{ url_for('datasync.index') }}">下载</a>页触发同步</td></tr>';
+  }).catch(() => {
+    document.getElementById("cov-count").textContent = "—";
+    document.getElementById("cov-bars").textContent = "—";
+    document.getElementById("cov-body").innerHTML = '<tr><td colspan="5" class="neg">覆盖加载失败</td></tr>';
+  });
+})();
+</script>
 
 {% endblock %}

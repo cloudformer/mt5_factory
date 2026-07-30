@@ -14,8 +14,8 @@ def index():
         data["hosts"] = api.get("/hosts")["hosts"]
         data["sync"] = api.get("/syncdata/status")
         data["backtest"] = api.get("/backtest/status")
-        # 数据覆盖来自品种主档 (symbols 表随附每品种 M1 覆盖)
-        data["coverage"] = [s for s in api.get("/symbols", coverage=1)["symbols"] if s.get("bars")]
+        # 覆盖懒加载(2026-07-30 Frank 定): 覆盖统计(大表 GROUP BY)慢 → 首页秒开, 覆盖卡片/表
+        # 由页面 AJAX 走 /datasync/coverage 异步填(见 dashboard.html)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("dashboard.html", **data)

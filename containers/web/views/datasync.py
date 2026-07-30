@@ -48,8 +48,9 @@ def index():
     data = {"symbols": [], "orphans": [], "sync": {}, "hosts": [], "timeframes": [],
             "wp": {}, "batch_tfs": []}
     try:
-        s = api.get("/symbols", coverage=1)
-        data["symbols"], data["orphans"] = s["symbols"], s.get("orphans", [])
+        # 轻量版(2026-07-30 Frank 定, 覆盖懒加载): 只拉品种主档(秒回), 覆盖(范围+计数, 大表
+        # GROUP BY 慢)由页面 AJAX 走 /datasync/coverage 异步填 — 页面秒开, 治本 web 卡顿
+        data["symbols"] = api.get("/symbols")["symbols"]
         data["sync"] = api.get("/syncdata/status")
         data["hosts"] = [h for h in api.get("/hosts")["hosts"]
                          if h["enabled"] and h["download"]]
@@ -65,6 +66,18 @@ def index():
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("datasync.html", **data)
+
+
+@bp.get("/coverage")
+def coverage():
+    """覆盖懒加载 JSON(2026-07-30 Frank 定): 每品种每周期 范围+计数 + 孤儿数据。
+    对大表 GROUP BY count(*), 数据涨到千万级后慢(十几秒) → 首页/下载页秒开后异步拉这个,
+    不阻塞渲染(治本 web 卡顿 + CI 冒烟超时)。超时放宽到 60s(慢查询, 前端显示加载中)。"""
+    try:
+        s = api.get("/symbols", coverage=1, timeout=60)
+        return {"symbols": s["symbols"], "orphans": s.get("orphans", [])}
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
 
 
 @bp.get("/status")
