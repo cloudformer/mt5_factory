@@ -1,0 +1,1 @@
+{"bars_batch": 50000, "dl_rest_bars": 500000, "dl_rest_secs": 20, "announce_seconds": 60, "heartbeat_seconds": 30, "decision_keep_days": 14}
