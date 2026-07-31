@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('Regime 策略分析(九币矩阵)', '一个策略 × 全部回测品种 → 八格战绩: 该策略在哪种市场状态里赚钱 · 现算不落库, 重跑回测/重建时间线后自动更新') }}
+
+<form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+  <input type="number" name="strategy_id" value="{{ sid or '' }}" placeholder="策略 ID" required style="width:110px">
+  <button type="submit">载入</button>
+  {% if data %}
+  <span class="muted">#{{ data.strategy_id }} {{ data.name }} · {{ data.template }} · 主品种 {{ data.main_symbol }} {{ data.timeframe }} · {{ m.strategy_status(data.status) }}</span>
+  <button type="button" id="rm-run" style="margin-left:auto">跑九币回测(重跑)</button>
+  <span id="rm-hint"></span>
+  {% endif %}
+</form>
+
+{% if data %}
+  {% if not data.symbols %}
+  <p class="muted">该策略还没有任何回测记录 — 点上方「跑九币回测」: 主品种 + 全部 download 品种, 统一窗口各回测一行(UPSERT 覆盖, 不留流水)。</p>
+  {% else %}
+
+  {% if not data.window_consistent %}
+  <p class="warn">⚠️ 各品种回测窗口不一致 — 对比三铁律: 跨品种数字无效, 请点「跑九币回测」统一窗口重跑。</p>
+  {% endif %}
+
+  <h2>汇总八格(全部品种同格相加)
+    <span class="muted">共 {{ data.total_trades }} 笔 · {{ data.symbols|length }} 品种{% if data.total_unlabeled %} · {{ data.total_unlabeled }} 笔无时间线标签未计入{% endif %}</span></h2>
+  {{ m.regime_grid(total_lines) }}
+  <p class="muted">汇总格口径: 笔数/胜率真实可比(纯计数); 净点/PF 跨品种混单位(金点≠欧点, 大点值品种主导)只作参考故灰显; &lt;20 笔=未证实。</p>
+
+  <h2>每品种八格 <span class="muted">行内四项全部真实(同品种同单位)</span></h2>
+  {% set CELLS = ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
+  <table class="dense">
+    <tr><th>品种</th><th>回测区间</th><th>笔数</th>
+      {% for cell in CELLS %}<th>{{ m.regime_chip(cell) }}</th>{% endfor %}</tr>
+    {% for s in data.symbols %}
+    <tr>
+      <td class="mono">{{ s.symbol }}{% if s.symbol == data.main_symbol %} <span class="badge ok">主</span>{% endif %}
+        {% if s.no_timeline %}<br><span class="neg">无时间线</span>{% endif %}</td>
+      <td class="muted">{{ s.from_time[:10] }} ~ {{ s.to_time[:10] }}</td>
+      <td>{{ s.trades }}{% if s.unlabeled %} <span class="muted" title="无时间线标签未计入八格">(-{{ s.unlabeled }})</span>{% endif %}</td>
+      {% for cell in CELLS %}
+      {% set v = s.cells.get(cell) %}
+      <td>{% if not v %}<span class="muted">—</span>{% else %}
+        {{ v.trades }}笔 {{ v.win_rate }}%<br>
+        <span class="{{ 'pos' if v.net >= 0 else 'neg' }}">{{ '%+g'|format(v.net) }}</span> · PF {{ v.pf if v.pf is not none else '∞' }}
+      {% endif %}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+<script>
+// 「跑九币回测」: 复用 ai_backtest(点名即信任不卡交叉门槛) → 轮询进度 → 完成重载本页
+(() => {
+  const btn = document.getElementById("rm-run"), hint = document.getElementById("rm-hint");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (!confirm("重跑 #{{ sid }} 全品种回测?\n\n主品种 + 全部 download 品种, 统一窗口, UPSERT 覆盖旧行。")) return;
+    btn.disabled = true; btn.textContent = "启动中…";
+    try {
+      const fd = new URLSearchParams({ ids: "{{ sid }}", cross_symbol: "on" });
+      const r = await fetch("{{ url_for('strategies.ai_backtest') }}", {
+        method: "POST", headers: { "X-Requested-With": "fetch" }, body: fd });
+      const j = await r.json();
+      if (!r.ok || j.error) {
+        btn.disabled = false; btn.textContent = "跑九币回测(重跑)";
+        hint.innerHTML = '<span class="neg">启动失败: ' + (j.error || r.status) + "</span>(可能有批次在跑, 稍后再点)";
+        return;
+      }
+      hint.innerHTML = '<span class="pos">已启动</span> — 回测中…';
+      poll();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "跑九币回测(重跑)";
+      hint.innerHTML = '<span class="neg">启动失败: ' + e.message + "</span>";
+    }
+  });
+  function poll() {
+    const tick = async () => {
+      try {
+        const s = await fetch("{{ url_for('backtests.status') }}").then((r) => r.json());
+        if (!s.running) {
+          hint.innerHTML = '<span class="pos">✅ 回测完成 — 重载中…</span>';
+          location.href = "{{ url_for('strategies.regime_matrix', strategy_id=sid) }}";
+          return;
+        }
+        hint.innerHTML = '<span class="pos">回测中 ' + s.done + "/" + s.total + "</span>"
+          + (s.current ? ' <span class="muted">' + s.current + "</span>" : "");
+      } catch (e) { /* 网络抖动忽略, 下一拍再试 */ }
+      setTimeout(tick, 2000);
+    };
+    setTimeout(tick, 1500);
+  }
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -181,6 +181,35 @@ def analysis():
                            recon_regime_lines=_recon_regime_lines(recon))
 
 
+def _matrix_total_lines(data) -> dict:
+    """九币矩阵汇总八格显示行: 第1行笔数+胜率(纯计数, 跨品种真实可比);
+    第2行净点+PF 灰显(混单位, 金点≠欧点, 只作参考); <20笔=未证实(小样本纪律同口径)"""
+    lines = {}
+    for cell, v in ((data or {}).get("total_cells") or {}).items():
+        if v["trades"] < 20:
+            lines[cell] = [f'<span class="muted">{v["trades"]} 笔 · 未证实(&lt;20)</span>']
+        else:
+            lines[cell] = [f'{v["trades"]} 笔 · 胜 {v["win_rate"]}%',
+                           f'<span class="muted">{v["net"]:+g} 点 · PF '
+                           f'{v["pf"] if v["pf"] is not None else "∞"}</span>']
+    return lines
+
+
+@bp.get("/regime_matrix")
+def regime_matrix():
+    """Regime 策略分析(九币矩阵): 输入策略id → 顶部汇总八格(全品种同格相加)
+    + 每品种一行八格。重跑按钮复用 ai_backtest(点名+cross_symbol), 现算不落库。"""
+    sid = request.args.get("strategy_id", type=int)
+    data = None
+    if sid:
+        try:
+            data = api.get("/backtest/regime_matrix", strategy_id=sid)
+        except api.ApiError as e:
+            flash(f"载入失败: {e}", "error")
+    return render_template("regime_matrix.html", data=data, sid=sid,
+                           total_lines=_matrix_total_lines(data))
+
+
 @bp.post("/<int:strategy_id>/set_visibility")
 def set_visibility(strategy_id: int):
     """改可见性(私有/公开/共享) — 打标动作, 低频, 普通提交+flash"""

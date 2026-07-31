@@ -1075,6 +1075,79 @@ def _analyze_trades(trades: list, oos: dict, breakdown: list) -> dict:
             "overfit": overfit}
 
 
+def _acc_cell(raw: dict, cell: str, points: float) -> None:
+    """八格累加器: 一笔计入一格(共用: 分析页回测/实盘归因、九币矩阵)"""
+    c = raw.setdefault(cell, {"trades": 0, "wins": 0, "net": 0.0, "gp": 0.0, "gl": 0.0})
+    c["trades"] += 1
+    c["wins"] += 1 if points > 0 else 0
+    c["net"] += points
+    if points > 0:
+        c["gp"] += points
+    else:
+        c["gl"] -= points
+
+
+def _fmt_cells(raw: dict) -> dict:
+    """八格累加结果 → 显示指标(trades/win_rate/net/pf; 无亏损 PF=None=∞)"""
+    return {k: {"trades": v["trades"], "win_rate": round(v["wins"] / v["trades"] * 100, 1),
+                "net": round(v["net"], 1),
+                "pf": round(v["gp"] / v["gl"], 2) if v["gl"] > 0 else None}
+            for k, v in raw.items()}
+
+
+@router.get("/backtest/regime_matrix")
+async def backtest_regime_matrix(request: Request, strategy_id: int):
+    """九币 regime 矩阵(v2.5): 一个策略在所有已回测品种上的八格战绩。
+    每品种逐笔按入场日贴【当品种】时间线; 顶部汇总 = 各品种同格相加。
+    现算不落库 — 数据源 = backtests(strategy_id, symbol) 现有行, 重跑 UPSERT 后自动变新;
+    改口径重建时间线后自动更新。跨品种口径(2026-07-30 与 Frank 定):
+    汇总格只有笔数/胜率是真实可比(纯计数); 净点/PF 混单位(金点≠欧点, 大点值品种主导)只作参考;
+    每品种行内四项全部真实。窗口不一致时 window_consistent=false(对比三铁律: 数字无效需重跑)。"""
+    pool = request.app.state.pool
+    await identity.assert_strategy_visible(pool, request, strategy_id)
+    strat = await pool.fetchrow(
+        "SELECT name, symbol, timeframe, template, status FROM strategies WHERE id=$1",
+        strategy_id)
+    if strat is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    rows = await pool.fetch(
+        "SELECT symbol, from_time, to_time, trades FROM backtests"
+        " WHERE strategy_id=$1 ORDER BY symbol", strategy_id)
+    total_raw: dict = {}
+    symbols, windows, total_unlabeled = [], set(), 0
+    for r in rows:
+        sym = r["symbol"]
+        try:
+            await regime.ensure_timeline(pool, sym)   # 读时自愈; 单品种失败不挡其他品种
+        except Exception as e:
+            logger.warning("regime ensure %s failed: %s", sym, e)
+        tl = {t["date"]: t["regime"] for t in await pool.fetch(
+            "SELECT date, regime FROM regime_timeline WHERE symbol=$1", sym)}
+        raw, unlabeled = {}, 0
+        trades = r["trades"] or []
+        for t in trades:
+            cell = tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
+            if cell is None:
+                unlabeled += 1
+                continue
+            p = float(t.get("points") or 0)
+            _acc_cell(raw, cell, p)
+            _acc_cell(total_raw, cell, p)
+        total_unlabeled += unlabeled
+        windows.add((r["from_time"], r["to_time"]))
+        symbols.append({"symbol": sym, "from_time": r["from_time"].isoformat(),
+                        "to_time": r["to_time"].isoformat(), "trades": len(trades),
+                        "cells": _fmt_cells(raw), "unlabeled": unlabeled,
+                        "no_timeline": not tl})
+    return {"strategy_id": strategy_id, "name": strat["name"],
+            "main_symbol": strat["symbol"], "timeframe": strat["timeframe"],
+            "template": strat["template"], "status": strat["status"],
+            "symbols": symbols, "total_cells": _fmt_cells(total_raw),
+            "total_trades": sum(s["trades"] for s in symbols),
+            "total_unlabeled": total_unlabeled,
+            "window_consistent": len(windows) <= 1}
+
+
 @router.get("/analysis/{strategy_id}")
 async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional[str] = None):
     """单策略【回测】胜负归因(维度二期1): 读指定品种(默认主品种) backtests.trades + oos + 跨品种行。
@@ -1125,20 +1198,8 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
         if cell is None:
             unlabeled += 1
             continue
-        c = cells.setdefault(cell, {"trades": 0, "wins": 0, "net": 0.0, "gp": 0.0, "gl": 0.0})
-        p = float(t.get("points") or 0)
-        c["trades"] += 1
-        c["wins"] += 1 if p > 0 else 0
-        c["net"] += p
-        if p > 0:
-            c["gp"] += p
-        else:
-            c["gl"] -= p
-    out["regime_cells"] = {
-        k: {"trades": v["trades"], "win_rate": round(v["wins"] / v["trades"] * 100, 1),
-            "net": round(v["net"], 1),
-            "pf": round(v["gp"] / v["gl"], 2) if v["gl"] > 0 else None}
-        for k, v in cells.items()}
+        _acc_cell(cells, cell, float(t.get("points") or 0))
+    out["regime_cells"] = _fmt_cells(cells)
     out["regime_unlabeled"] = unlabeled   # 时间线覆盖不到的笔数(暖机期/历史缺口), 如实报
     out["trades_capped"] = len(st) > 1000
     # 实盘同款归因: 与回测归因对照看"回测的赢法实盘还成立吗"(共用函数, AI成绩单也用它)
@@ -1158,21 +1219,8 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
             if cell is None:
                 a_unlabeled += 1
                 continue
-            c = a_cells.setdefault(cell, {"trades": 0, "wins": 0, "net": 0.0,
-                                          "gp": 0.0, "gl": 0.0})
-            p = float(view.get("points") or 0)
-            c["trades"] += 1
-            c["wins"] += 1 if p > 0 else 0
-            c["net"] += p
-            if p > 0:
-                c["gp"] += p
-            else:
-                c["gl"] -= p
-        act["regime_cells"] = {
-            k: {"trades": v["trades"], "win_rate": round(v["wins"] / v["trades"] * 100, 1),
-                "net": round(v["net"], 1),
-                "pf": round(v["gp"] / v["gl"], 2) if v["gl"] > 0 else None}
-            for k, v in a_cells.items()}
+            _acc_cell(a_cells, cell, float(view.get("points") or 0))
+        act["regime_cells"] = _fmt_cells(a_cells)
         act["regime_unlabeled"] = a_unlabeled
     return out
 
