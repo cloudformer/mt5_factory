@@ -1,5 +1,5 @@
 ENV_FILE ?= env/.dev.env
-WORKERS ?= 4   # 回测 worker 副本数(唯一源, 进git=CI生效): 0=只有api内1路(原行为); 要并行改这里提交, 临时 make scale WORKERS=N
+WORKERS ?= 9   # 回测 worker 副本数(唯一源, 进git=CI生效): 0=只有api内1路(原行为); 要并行改这里提交, 临时 make scale WORKERS=N
 COMPOSE = docker compose --env-file $(ENV_FILE)
 
 .PHONY: up down build logs ps psql health test clean scale
