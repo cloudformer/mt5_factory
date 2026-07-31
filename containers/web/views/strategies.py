@@ -529,6 +529,9 @@ def ai_backtest():
         payload = {"strategy_ids": [int(s) for s in ids]}
         if request.form.get("cross_symbol") == "on":
             payload["cross_symbol"] = True
+        wd = request.form.get("window_days", type=int)   # 九币矩阵页: 5/10/15/20年统一窗口
+        if wd:
+            payload["window_days"] = wd
         api.post("/backtest/run", payload)
         if is_fetch:
             return {"started": len(ids)}

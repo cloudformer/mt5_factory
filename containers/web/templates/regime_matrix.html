@@ -8,7 +8,14 @@
   <button type="submit">载入</button>
   {% if data %}
   <span class="muted">#{{ data.strategy_id }} {{ data.name }} · {{ data.template }} · 主品种 {{ data.main_symbol }} {{ data.timeframe }} · {{ m.strategy_status(data.status) }}</span>
-  <button type="button" id="rm-run" style="margin-left:auto">跑九币回测(重跑)</button>
+  <select id="rm-win" title="回测窗口 — 九品种统一(对比三铁律)" style="margin-left:auto">
+    <option value="">默认窗口</option>
+    <option value="1825">5 年</option>
+    <option value="3650">10 年</option>
+    <option value="5475">15 年</option>
+    <option value="7300">20 年</option>
+  </select>
+  <button type="button" id="rm-run">跑九币回测(重跑)</button>
   <span id="rm-hint"></span>
   {% endif %}
 </form>
@@ -56,10 +63,13 @@
   const btn = document.getElementById("rm-run"), hint = document.getElementById("rm-hint");
   if (!btn) return;
   btn.addEventListener("click", async () => {
-    if (!confirm("重跑 #{{ sid }} 全品种回测?\n\n主品种 + 全部 download 品种, 统一窗口, UPSERT 覆盖旧行。")) return;
+    const win = document.getElementById("rm-win");
+    const winTxt = win.value ? win.options[win.selectedIndex].text : "默认窗口";
+    if (!confirm("重跑 #{{ sid }} 全品种回测?\n\n主品种 + 全部 download 品种, 统一窗口(" + winTxt + "), UPSERT 覆盖旧行。")) return;
     btn.disabled = true; btn.textContent = "启动中…";
     try {
       const fd = new URLSearchParams({ ids: "{{ sid }}", cross_symbol: "on" });
+      if (win.value) fd.set("window_days", win.value);
       const r = await fetch("{{ url_for('strategies.ai_backtest') }}", {
         method: "POST", headers: { "X-Requested-With": "fetch" }, body: fd });
       const j = await r.json();
