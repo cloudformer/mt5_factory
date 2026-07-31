@@ -1095,9 +1095,21 @@ def _fmt_cells(raw: dict) -> dict:
             for k, v in raw.items()}
 
 
+def _merge_raw(dst: dict, src: dict) -> None:
+    """八格累加器合并(sweep 汇总用): 同格逐字段相加"""
+    for k, v in src.items():
+        d = dst.setdefault(k, {"trades": 0, "wins": 0, "net": 0.0, "gp": 0.0, "gl": 0.0})
+        for f in d:
+            d[f] += v[f]
+
+
+SWEEP_YEARS = (1, 2, 3, 5, 10, 15, 20)   # 展示窗口档位(提示词 sweep 同源)
+
+
 @router.get("/backtest/regime_matrix")
 async def backtest_regime_matrix(request: Request, strategy_id: int,
-                                 show_years: Optional[int] = None):
+                                 show_years: Optional[int] = None,
+                                 sweep: bool = False):
     """九币 regime 矩阵(v2.5): 一个策略在所有已回测品种上的八格战绩。
     每品种逐笔按入场日贴【当品种】时间线; 顶部汇总 = 各品种同格相加。
     现算不落库 — 数据源 = backtests(strategy_id, symbol) 现有行, 重跑 UPSERT 后自动变新;
@@ -1115,6 +1127,7 @@ async def backtest_regime_matrix(request: Request, strategy_id: int,
         "SELECT symbol, from_time, to_time, trades FROM backtests"
         " WHERE strategy_id=$1 ORDER BY symbol", strategy_id)
     total_raw: dict = {}
+    total_sweep: dict = {}   # sweep 模式: {窗口标签: 累加器} 全品种同格相加
     symbols, windows, total_unlabeled = [], set(), 0
     for r in rows:
         sym = r["symbol"]
@@ -1124,34 +1137,56 @@ async def backtest_regime_matrix(request: Request, strategy_id: int,
             logger.warning("regime ensure %s failed: %s", sym, e)
         tl = {t["date"]: t["regime"] for t in await pool.fetch(
             "SELECT date, regime FROM regime_timeline WHERE symbol=$1", sym)}
-        raw, unlabeled = {}, 0
-        trades = r["trades"] or []
+
+        def _bucket(ts):
+            """逐笔按入场日贴格 → (累加器, 无标签笔数)"""
+            raw, unl = {}, 0
+            for t in ts:
+                cell = tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
+                if cell is None:
+                    unl += 1
+                    continue
+                _acc_cell(raw, cell, float(t.get("points") or 0))
+            return raw, unl
+
+        full_trades = r["trades"] or []
+        trades = full_trades
         # 展示窗口(只筛显示不重跑): 取最近 N 年的逐笔再贴格; 不传/超过区间 = 全量, 无额外校验
         if show_years:
             cut_ts = (r["to_time"] - timedelta(days=int(show_years * 365.25))).timestamp()
             trades = [t for t in trades if t["entry_time"] >= cut_ts]
-        for t in trades:
-            cell = tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
-            if cell is None:
-                unlabeled += 1
-                continue
-            p = float(t.get("points") or 0)
-            _acc_cell(raw, cell, p)
-            _acc_cell(total_raw, cell, p)
+        raw, unlabeled = _bucket(trades)
+        _merge_raw(total_raw, raw)
         total_unlabeled += unlabeled
         windows.add((r["from_time"], r["to_time"]))
-        symbols.append({"symbol": sym, "from_time": r["from_time"].isoformat(),
-                        "to_time": r["to_time"].isoformat(), "trades": len(trades),
-                        "cells": _fmt_cells(raw), "unlabeled": unlabeled,
-                        "no_timeline": not tl})
-    return {"strategy_id": strategy_id, "name": strat["name"],
-            "main_symbol": strat["symbol"], "timeframe": strat["timeframe"],
-            "template": strat["template"], "status": strat["status"],
-            "symbols": symbols, "total_cells": _fmt_cells(total_raw),
-            "total_trades": sum(s["trades"] for s in symbols),
-            "total_unlabeled": total_unlabeled,
-            "show_years": show_years,
-            "window_consistent": len(windows) <= 1}
+        row = {"symbol": sym, "from_time": r["from_time"].isoformat(),
+               "to_time": r["to_time"].isoformat(), "trades": len(trades),
+               "cells": _fmt_cells(raw), "unlabeled": unlabeled,
+               "no_timeline": not tl}
+        # sweep(提示词用): 各展示窗口(严格小于回测区间)的切片八格, 全量即 cells 不重复给
+        if sweep:
+            row_days = (r["to_time"] - r["from_time"]).days
+            sw = {}
+            for y in SWEEP_YEARS:
+                if y * 365 > row_days - 30:
+                    continue
+                cut = (r["to_time"] - timedelta(days=int(y * 365.25))).timestamp()
+                w_raw, _ = _bucket([t for t in full_trades if t["entry_time"] >= cut])
+                sw[f"近{y}年"] = _fmt_cells(w_raw)
+                _merge_raw(total_sweep.setdefault(f"近{y}年", {}), w_raw)
+            row["sweep"] = sw
+        symbols.append(row)
+    out = {"strategy_id": strategy_id, "name": strat["name"],
+           "main_symbol": strat["symbol"], "timeframe": strat["timeframe"],
+           "template": strat["template"], "status": strat["status"],
+           "symbols": symbols, "total_cells": _fmt_cells(total_raw),
+           "total_trades": sum(s["trades"] for s in symbols),
+           "total_unlabeled": total_unlabeled,
+           "show_years": show_years,
+           "window_consistent": len(windows) <= 1}
+    if sweep:
+        out["total_sweep"] = {label: _fmt_cells(raw) for label, raw in total_sweep.items()}
+    return out
 
 
 @router.get("/analysis/{strategy_id}")

@@ -117,7 +117,7 @@
   if (cp) cp.addEventListener("click", async () => {
     cp.disabled = true; cp.textContent = "取词中…";
     try {
-      const r = await fetch("{{ url_for('strategies.regime_matrix_prompt_txt', strategy_id=sid, show_years=show_years or None) }}");
+      const r = await fetch("{{ url_for('strategies.regime_matrix_prompt_txt', strategy_id=sid) }}");
       const t = await r.text();
       if (!r.ok) throw new Error(t);
       await navigator.clipboard.writeText(t);

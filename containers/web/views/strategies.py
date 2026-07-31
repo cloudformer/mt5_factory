@@ -255,24 +255,38 @@ _REGIME_MATRIX_PROMPT = """\
 ## 结果 JSON 格式(数据附在最后)
 - strategy_id/name/template/main_symbol/timeframe/status: 策略身份(main_symbol=原生品种)
 - symbols[]: 每品种一行 — from_time/to_time 回测区间, trades 总笔数,
-  unlabeled 无标签未计入笔数, cells = 该品种八格:
+  unlabeled 无标签未计入笔数, cells = 该品种【全区间】八格:
   cells.XXX = {trades 笔数, win_rate 胜率%, net 净点(该品种单位), pf 盈亏比(null=无亏损=∞)}
-- total_cells: 全部品种同格相加的汇总八格(结构同 cells)
+- symbols[].sweep: 该品种各【展示窗口】切片八格 — {"近1年": cells, "近2年": ..., "近5年"...}
+  (窗口=从回测终点往回数 N 年, 只列严格短于回测区间的; 全区间即 cells, 不重复)
+- total_cells / total_sweep: 全部品种同格相加的汇总(结构同上)
 - window_consistent: 各品种窗口是否一致(false 则跨品种对比无效)
 
 ## 口径警告(分析前必读)
-1. 汇总(total_cells)里只有【笔数、胜率】跨品种真实可比(纯计数); 【净点、PF】混单位——
+1. 汇总(total_*)里只有【笔数、胜率】跨品种真实可比(纯计数); 【净点、PF】混单位——
    不同品种一"点"价值不同, XAUUSD 这类大点值品种会主导汇总, 只作参考。
-2. 每品种行内(symbols[].cells)四项都真实(同品种同单位)。
-3. 单格 <20 笔 = 样本不足, 结论只能是"未证实", 不是"已证明"。
-4. 判定"有规律"的标准: 格间胜率/PF 明显拉开, 且同一格在【多数品种上同向】——
-   一两个品种撑起来的亮格是噪音/单品种主导, 不算规律。
+2. 每品种行内(symbols[].cells / .sweep)四项都真实(同品种同单位)。
+3. 单格 <40 笔标 ⚠(样本薄, 数字仅参考); <20 笔 = 未证实。
+4. 判定"有规律"的双判据(缺一不可):
+   - 时间稳健: 同一格在【≥2/3 的窗口切片】同向(排除单窗口运气);
+   - 跨品种一致: 同一格在【≥2/3 的品种】同向(排除单品种主导)。
+5. 掩码归纳: 若多个达标格共享两位字母(如 ABA+BBA 共享 ?BA=短↓+高波), 归纳为掩码报告;
+   PF < 1.1 一律标注"薄利"。
 
-## 请回答(结论简短, 每条 1-3 句, 用数据支撑, 不确定就写"未证实")
-1. 规律: 该策略的盈亏与 regime 有无规律?(格间是否拉开 + 跨品种是否同向)
-2. 结构: 盈亏主要由哪些格/哪些品种贡献? 汇总里的亮格是真规律还是单一品种(如金)主导?
-3. 最佳象限: 哪个格表现最好? 依据(笔数/胜率/跨品种一致性)可信吗?
-4. 结论: 该策略整体是否达标值得保留? 若限定只在某些 regime 交易能否救活? 都不行就直说淘汰。
+## 输出格式(严格按此模板, 表格用 markdown)
+
+### 一、前三 Regime(按跨窗口稳定性排序, 汇总口径)
+| 展示窗口 | ① XXX 箭头 | ② XXX 箭头 | ③ XXX 箭头 |
+每行一个窗口(近1年→全区间), 格内"净点 · PF x.xx", <40笔加 ⚠;
+末行【稳定性】= 各格"正窗口数/总窗口数"; 表后一行【掩码归纳】。
+
+### 二、建议货币对 Top3(该策略该在哪个品种上用)
+| # | 品种 | 依据(前三格在该品种的表现) | 主货币 |
+依据写"格 X/Y 窗口正 + PF 范围"; 主货币列: 该行品种 = main_symbol 时写 match, 否则留空。
+表后【淘汰提示】: 前三格全窗口负的品种点名勿碰。
+
+### 三、一句话结论
+掩码/格 + 双判据数字 + 薄利标注 + 建议(主用/备选/淘汰), 不确定就写"未证实"。
 
 ## 数据
 """
@@ -283,12 +297,11 @@ def regime_matrix_prompt_txt():
     """九币矩阵 AI 提示词(纯文本): 实验说明+regime原理+JSON格式+要回答的问题+结果JSON。
     复制整段粘给任意 AI 用(与 ai/prompt.txt 同模式)"""
     sid = request.args.get("strategy_id", type=int)
-    show_years = request.args.get("show_years", type=int)  # 与页面展示同口径
     if not sid:
         return "error: 缺 strategy_id", 400, {"Content-Type": "text/plain; charset=utf-8"}
     try:
-        data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120,
-                       **({"show_years": show_years} if show_years else {}))
+        # sweep=全维度(全窗口×全品种切片): AI 做时间稳健+跨品种双判据, 与页面当前展示窗口无关
+        data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120, sweep=1)
     except api.ApiError as e:
         return f"error: {e}", 502, {"Content-Type": "text/plain; charset=utf-8"}
     import json as _json
