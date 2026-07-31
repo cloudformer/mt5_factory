@@ -523,17 +523,37 @@ def _merge_windows(windows: list) -> list:
     return merged
 
 
+def _finalize_recon(matched: int, dir_ok: int, outcome_ok: int, n_a: int, n_b: int,
+                    one_sided: bool, forgiven: int = 0) -> dict:
+    """配对计数 → 率/分/达标(唯一公式源)。forgiven(2026-07-30 与 Frank 定) = 被原谅缺口
+    (拒单 / 持仓占位级联 / 数据缺)记为 **full match** 的笔数 — 信号/方向/涨跌全算匹配,
+    不算漏单(只有真漏单/无归因才扣分, 不过度严苛)。并集用真配对(被原谅的仍是真实信号)。"""
+    union = n_a + n_b - matched
+    denom = n_a if one_sided else union
+    paired = matched + forgiven
+    cr = paired / denom if denom else 1.0                # 笔数: 有效匹配/分母
+    dr = (dir_ok + forgiven) / denom if denom else 0.0   # 方向: 被原谅信号方向也到位
+    orr = (outcome_ok + forgiven) / denom if denom else 0.0  # 涨跌: 被拒被动, 记为匹配
+    sh = matched / n_a if n_a else 0.0                   # 信号率(辅助不评判): 真配对/实盘笔数
+    return {
+        "count_match_rate": round(cr, 3), "signal_hit_rate": round(sh, 3),
+        "dir_match_rate": round(dr, 3), "outcome_match_rate": round(orr, 3),
+        "union": union, "paired": paired, "denominator": denom,
+        "mode": "one_sided" if one_sided else "segments",
+        "match_score": round(100 * (0.4 * sh + 0.2 * cr + 0.2 * dr + 0.2 * orr), 1),
+        "q10_pass": (cr >= 0.9 and dr >= 0.9), "q10_target": 0.9,
+    }
+
+
 def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
-                       one_sided: bool = False, stops_level: int = 0, point=None):
-    """纯函数: 实际成交 vs 回测信号 → (metrics, pairs)。
+                       one_sided: bool = False):
+    """纯函数: 实际成交 vs 回测信号 → (metrics, pairs)。**严格值**(无缺口原谅) —
+    被原谅口径(拒单/持仓占位/数据缺记为匹配)统一在 reconcile() 判完缺口后按 _finalize_recon 重算。
     actual 项: {dir(buy/sell), ts(epoch), profit, entry(显示串)}
     bt 项:     {dir(BUY/SELL), entry_time(epoch), points, entry(价), exit(价), sl}
     配对: 每笔实际找最近的未匹配回测笔(entry 差 ≤ tol, 默认±20分钟)。
     one_sided: 无运行区间记录的降级口径 — 回测池只剩实盘附近的信号, 抓不了漏单,
-    分母用实盘笔数(并集里回测侧被清空, 再用并集会虚高得没意义)。
-    stops_level/point(2026-07-30 与 Frank 定): 回测信号的止损 < 券商最小停损距离 →
-    实盘发了单被券商 10016 被动拒 → 系统信号+执行都到位, **记为 full match**(被拒非系统问题);
-    原因对账自己推算(SL vs stops_level), 不依赖 worker 日志(日志会归档、非结构化)。"""
+    分母用实盘笔数(并集里回测侧被清空, 再用并集会虚高得没意义)。"""
     n_a, n_b = len(actual), len(bt)
     used, pairs = set(), []
     for a in actual:
@@ -559,31 +579,10 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
     matched = sum(1 for p in pairs if p["bt"] is not None)
     dir_ok = sum(1 for p in pairs if p["dir_match"])
     outcome_ok = sum(1 for p in pairs if p["outcome_match"])
-    # 止损太紧被券商拒(记为 full match, 见 docstring): 未配对的回测信号里, SL 距离 < stops_level 的
-    rej_idx = {i for i, t in enumerate(bt)
-               if i not in used and stops_level and point and t.get("sl") is not None
-               and t.get("entry") is not None
-               and abs(float(t["entry"]) - float(t["sl"])) / point < stops_level}
-    n_rej = len(rej_idx)
-    paired = matched + n_rej                            # 有效匹配(真配对 + 被拒记为匹配), 进分子
-    union = n_a + n_b - matched                         # 并集用真配对: 被拒仍是回测侧一笔真实信号
-    denom = n_a if one_sided else union                 # 分母: 双边=并集, 单边=实盘笔数
-    count_rate = paired / denom if denom else 1.0        # 笔数正确率 = 有效匹配 / 分母
-    dir_rate = (dir_ok + n_rej) / denom if denom else 0.0     # 方向: 被拒信号方向也到位, +n_rej
-    outcome_rate = (outcome_ok + n_rej) / denom if denom else 0.0  # 涨跌: 被拒被动, 记为匹配
-    signal_hit = matched / n_a if n_a else 0.0          # 辅助: 实盘有信号回测也有(被拒非实盘信号, 用真配对)
-    metrics = {
-        "count_match_rate": round(count_rate, 3),      # 笔数正确率(配对/分母, step1)
-        "signal_hit_rate": round(signal_hit, 3),       # 实际有信号回测也有(辅助)
-        "dir_match_rate": round(dir_rate, 3),          # 趋势正确率(配对且方向对/分母, step2)
-        "outcome_match_rate": round(outcome_rate, 3),  # 涨跌正确率(配对且盈亏对/分母, step2)
-        "union": union, "paired": paired,
-        "stops_rejected": n_rej,                        # 其中"止损太紧被券商拒"记为匹配的笔数(参考)
-        "denominator": denom,                          # 页面显示实际用的分母
-        "mode": "one_sided" if one_sided else "segments",  # 对账口径入库, 历史分数不混淆
-    }
-    metrics["match_score"] = round(100 * (0.4 * signal_hit + 0.2 * count_rate
-                                          + 0.2 * dir_rate + 0.2 * outcome_rate), 1)
+    metrics = _finalize_recon(matched, dir_ok, outcome_ok, n_a, n_b, one_sided)
+    # 原始配对计数入 metrics(下划线内部键): reconcile() 判完缺口后按"被原谅数"重算率, 见 _finalize_recon
+    metrics.update({"_matched": matched, "_dir_ok": dir_ok, "_outcome_ok": outcome_ok,
+                    "_n_a": n_a, "_n_b": n_b})
     # 精度偏差(记录不评判, AI 校准用): 配对笔的 入场价均差 / 净点均差 / 总账偏差%
     md = [p for p in pairs if p["bt"] is not None
           and p["actual"].get("price") is not None and p["bt"].get("price") is not None]
@@ -609,18 +608,11 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
         sum_b = sum(float(p["bt"]["points"]) for p in mn)
         metrics["net_bias_pct"] = (round((sum_b - sum_a) / abs(sum_a) * 100, 2)
                                    if sum_a else None)  # 正=回测偏乐观
-    # 回测质量v1 达标: 只判 笔数(trade) & 方向(direction) 两率 ≥ 90%(阈值暂写死, 未来进config);
-    # 信号(indicator)/涨跌(outcome) 照算照存, 记录/展示用, 不进 v1 考核
-    metrics["q10_pass"] = (count_rate >= 0.9 and dir_rate >= 0.9)
-    metrics["q10_target"] = 0.9
-    # 两边对账: 补"回测有信号、实盘没下单"那一边(能抓 runner 漏单)。不计入上面的率, 仅显示
+    # 两边对账: 补"回测有信号、实盘没下单"那一边(gap 与被原谅由 reconcile() 判)。sl 供判止损太紧
     for i, t in enumerate(bt):
         if i not in used:
             pairs.append({
-                "actual": None,
-                # 止损太紧被拒 = full match(方向也对); 其余 bt-only 才是真未配对
-                "dir_match": i in rej_idx, "outcome_match": i in rej_idx,
-                "gap": "stops_too_tight" if i in rej_idx else None,  # reconcile 不再覆盖已标的
+                "actual": None, "dir_match": False, "outcome_match": False, "gap": None,
                 "bt": {"entry": datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).strftime("%m-%d %H:%M"),
                        "dir": t["dir"], "win": t["points"] > 0, "points": t.get("points"),
                        "price": t.get("entry"), "sl": t.get("sl"),
@@ -841,7 +833,7 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
           "entry": a["entry_time"].strftime("%m-%d %H:%M"),
           "price": a["entry_price"], "exit_price": a["exit_price"], "net": a["net_points"]}
          for a in actual],
-        bt, tol=tol, one_sided=(mode == "one_sided"), stops_level=stops_level, point=point)
+        bt, tol=tol, one_sided=(mode == "one_sided"))
     # 覆盖信息: 回测侧=重放实际吃到的范围(重放现算, 永远新鲜; 只剩'数据没下载'/'真没信号'两类)
     bt_from = datetime.fromtimestamp(wf_ts - tol, tz=timezone.utc) if replay_to_ts else None
     bt_to = datetime.fromtimestamp(replay_to_ts, tz=timezone.utc) if replay_to_ts else None
@@ -878,30 +870,42 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
         p["window"] = next((k for k, (w0, w1) in enumerate(windows) if w0 <= ts <= w1), None)
         if p["bt"] is not None:
             p["bt"].pop("ts", None)
-        if p.get("gap") == "stops_too_tight":
-            continue                        # 已在 _reconcile_metrics 标好(止损太紧被拒=记为匹配)
-        if p["actual"] is None:
+        if p["actual"] is None:            # 回测有信号、实盘无单 → 判为什么没下
             if any(t0 < ts < t1 for t0, t1 in live_iv):
-                p["gap"] = "live_holding"   # 回测有实盘无: 实盘正被持仓占着(级联)
-            continue                        # 否则维持无归因(模板显示"没有归因, 疑似漏单/无报价")
+                p["gap"] = "live_holding"   # 实盘正被持仓占着(级联)
+            elif (stops_level and point and p["bt"] and p["bt"].get("sl") is not None
+                  and p["bt"].get("price") is not None
+                  and abs(float(p["bt"]["price"]) - float(p["bt"]["sl"])) / point < stops_level):
+                p["gap"] = "stops_too_tight"  # 止损<券商最小停损距离, 实盘发单被 10016 被动拒
+            continue                        # 否则维持无归因(=真漏单/无报价, 才扣分)
         p["actual"].pop("ts", None)
         if p["bt"] is not None:
             continue
         if replay_to_ts is None or ts > replay_to_ts:
-            p["gap"] = "data_missing"    # 库内 M1 未到该时间 → 先下载(重放现算, 无"回测过期")
+            p["gap"] = "data_missing"    # 库内 M1 未到该时间 → 重放跑不了(非真差异)
         elif any(t0 < ts < t1 for t0, t1 in bt_iv):
             p["gap"] = "bt_holding"      # 实盘有回测无: 重放正被持仓占着(级联)
         else:
-            p["gap"] = "not_triggered"   # 重放已覆盖该时间、空仓、仍无信号 = 真差异
+            p["gap"] = "not_triggered"   # 重放已覆盖该时间、空仓、仍无信号 = 真差异(扣分)
     pairs.sort(key=lambda p: p.get("sort_ts") or 0)   # 全表按入场时间排序 → 窗口内也是时间序
-    # 根因参考率(2026-07-26 与 Frank 定, 记录不评判 — 综合分与达标一分不动):
-    # 级联缺单(占位)是同一根因的下游症状, 从并集折掉后 = "去级联笔数率",
-    # 一眼看出"70% 里其实只有几次真分歧"。尺子从严不变, 这只是参考读数。
-    cascade = sum(1 for p in pairs if p.get("gap") in ("live_holding", "bt_holding"))
-    metrics["cascade_gaps"] = cascade
-    if cascade and metrics.get("union"):
-        metrics["decascaded_count_rate"] = round(
-            metrics["paired"] / max(1, metrics["union"] - cascade), 3)
+    # 被原谅口径统一(2026-07-30 与 Frank 定, 不过度严苛): 拒单/持仓占位(级联)/数据缺 → 记为 full match
+    # (信号+方向+涨跌都算), 只有真漏单(无归因)/回测真无信号(not_triggered) 才扣分。判完缺口后重算。
+    FORGIVEN = ("stops_too_tight", "live_holding", "bt_holding", "data_missing")
+    n_forgiven = sum(1 for p in pairs if p.get("gap") in FORGIVEN)
+    metrics.update(_finalize_recon(metrics["_matched"], metrics["_dir_ok"], metrics["_outcome_ok"],
+                                   metrics["_n_a"], metrics["_n_b"],
+                                   one_sided=(mode == "one_sided"), forgiven=n_forgiven))
+    for k in ("_matched", "_dir_ok", "_outcome_ok", "_n_a", "_n_b"):
+        metrics.pop(k, None)   # 内部计数不外泄
+    # 被原谅明细(展示用, 不评判): 各原因笔数
+    metrics["forgiven"] = {
+        "stops": sum(1 for p in pairs if p.get("gap") == "stops_too_tight"),
+        "holding": sum(1 for p in pairs if p.get("gap") in ("live_holding", "bt_holding")),
+        "data": sum(1 for p in pairs if p.get("gap") == "data_missing"),
+    }
+    metrics["real_miss"] = sum(1 for p in pairs   # 真扣分的: 真漏单(无归因) + 回测真无信号
+                               if (p["actual"] is None and not p.get("gap"))
+                               or p.get("gap") == "not_triggered")
     # Regime 八格汇总(v2.5): 逐笔对照按格子聚合 实盘/回测 各自的笔数与胜数 —
     # 只进返回体不进 metrics(reconciliations 落库保持不变, 数据干净可随时撤)
     rg: dict = {}
