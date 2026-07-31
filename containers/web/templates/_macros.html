@@ -223,10 +223,6 @@
 {{- {'AAA': '牛·牛·高波', 'AAB': '牛·牛·低波', 'ABA': '牛市回调·高波', 'ABB': '牛市回调·低波',
      'BAA': '熊市反弹·高波', 'BAB': '熊市反弹·低波', 'BBA': '熊·熊·高波', 'BBB': '熊·熊·低波'}.get(cell, '未标注') -}}
 {%- endmacro %}
-{# 三箭头: A=绿↑ B=红↓(长/短/波三位同一套符号, 不搞翻译) #}
-{% macro regime_arrows(cell) -%}
-{%- if cell %}{% for ch in cell %}<span class="{{ 'pos' if ch == 'A' else 'neg' }}">{{ '↑' if ch == 'A' else '↓' }}</span>{% endfor %}{% endif -%}
-{%- endmacro %}
 {% macro regime_chip(cell) -%}
 <span class="mono" title="{{ regime_cn(cell) }}"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:{{ regime_color(cell) }};vertical-align:-1px"></span>{{ cell or '—' }}</span>
 {%- endmacro %}
@@ -256,7 +252,7 @@
   {% set cell = lt ~ stt ~ vol %}
   <div class="regime-cell {{ 'cur' if cell == current }} {{ 'nb' if cell in neighbors and cell != current }}"
        style="--cell:{{ regime_color(cell) }}{% if fills and fills.get(cell) %};--fill:{{ fills.get(cell) }}{% endif %}" title="{{ cell }} {{ regime_cn(cell) }}{{ ' · 今天' if cell == current }}{{ ' · 距今天一位之差(邻格)' if cell in neighbors and cell != current }}">
-    <div><b class="mono">{{ cell }}</b> {{ regime_arrows(cell) }}
+    <div><b class="mono">{{ cell }}</b>
       {% if cell == current %}<span class="badge ok">今天</span>{% endif %}</div>
     {# lines 由服务端拼好(可含 span 着色), 信任渲染 #}
     {% for ln in lines.get(cell, []) %}<div class="regime-cell-line">{{ ln | safe }}</div>{% endfor %}
