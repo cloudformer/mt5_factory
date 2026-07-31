@@ -17,8 +17,8 @@
   </select>
   <button type="button" id="rm-run">跑九币回测(重跑)</button>
   {% if data and data.symbols %}
-  <a href="{{ url_for('strategies.regime_matrix_prompt_txt', strategy_id=sid) }}" target="_blank"
-     title="实验说明+regime原理+JSON格式+问题清单+结果JSON, 整段复制粘给任意 AI"><button type="button">AI 提示词</button></a>
+  <button type="button" id="rm-copy-prompt"
+          title="实验说明+regime原理+JSON格式+问题清单+结果JSON, 粘给任意 AI">复制提示词</button>
   {% endif %}
   <span id="rm-hint"></span>
   {% endif %}
@@ -88,6 +88,19 @@
       btn.disabled = false; btn.textContent = "跑九币回测(重跑)";
       hint.innerHTML = '<span class="neg">启动失败: ' + e.message + "</span>";
     }
+  });
+  // 「复制提示词」: 后台取 prompt.txt(说明+原理+JSON) → 剪贴板, 与 AI 策略分析页同交互
+  const cp = document.getElementById("rm-copy-prompt");
+  if (cp) cp.addEventListener("click", async () => {
+    cp.disabled = true; cp.textContent = "取词中…";
+    try {
+      const r = await fetch("{{ url_for('strategies.regime_matrix_prompt_txt', strategy_id=sid) }}");
+      const t = await r.text();
+      if (!r.ok) throw new Error(t);
+      await navigator.clipboard.writeText(t);
+      cp.textContent = "已复制 ✓";
+    } catch (e) { cp.textContent = "复制失败"; }
+    cp.disabled = false;
   });
   function poll() {
     const tick = async () => {
