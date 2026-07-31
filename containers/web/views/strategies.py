@@ -207,8 +207,12 @@ def regime_matrix():
             data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120)
         except api.ApiError as e:
             flash(f"载入失败: {e}", "error")
+    # 汇总格底色=盈亏方向(绿赚/红亏, 样本<20灰), 左色条保持 regime 本色 — 2026-07-30 Frank 定
+    fills = {cell: ("#94a3b8" if v["trades"] < 20 else
+                    "#16a34a" if v["net"] >= 0 else "#dc2626")
+             for cell, v in ((data or {}).get("total_cells") or {}).items()}
     return render_template("regime_matrix.html", data=data, sid=sid,
-                           total_lines=_matrix_total_lines(data))
+                           total_lines=_matrix_total_lines(data), matrix_fills=fills)
 
 
 # 九币矩阵 AI 提示词正文(结果 JSON 追加在末尾)。口径与页面注释一字同源:

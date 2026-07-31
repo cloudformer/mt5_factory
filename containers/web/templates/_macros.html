@@ -237,7 +237,8 @@
    海明邻居方位固定: 波邻格=紧挨着的, 短邻格=跳过中缝的同位格, 长邻格=正上/正下。
    lines: {格子: [显示行, ...]}(Regime页装天数占比, 策略页装胜率净点 — 同一张图两处用);
    current: 实线圈(今天所在格); neighbors: 虚线圈(距离1邻格) #}
-{% macro regime_grid(lines, current=None, neighbors=[]) -%}
+{# fills: 可选 {格子: 底色} — 底色改按业务含义着色(如九币矩阵盈亏绿/红), 左色条恒为 regime 本色 #}
+{% macro regime_grid(lines, current=None, neighbors=[], fills=None) -%}
 <div class="regime-quad" style="grid-template-columns:auto 1fr 1fr 18px 1fr 1fr">
   <div></div>
   <div class="regime-axis" style="grid-column:2/4">短 <span class="pos">↑</span></div>
@@ -254,7 +255,7 @@
   {% if stt is none %}<div></div>{% else %}
   {% set cell = lt ~ stt ~ vol %}
   <div class="regime-cell {{ 'cur' if cell == current }} {{ 'nb' if cell in neighbors and cell != current }}"
-       style="--cell:{{ regime_color(cell) }}" title="{{ cell }} {{ regime_cn(cell) }}{{ ' · 今天' if cell == current }}{{ ' · 距今天一位之差(邻格)' if cell in neighbors and cell != current }}">
+       style="--cell:{{ regime_color(cell) }}{% if fills and fills.get(cell) %};--fill:{{ fills.get(cell) }}{% endif %}" title="{{ cell }} {{ regime_cn(cell) }}{{ ' · 今天' if cell == current }}{{ ' · 距今天一位之差(邻格)' if cell in neighbors and cell != current }}">
     <div><b class="mono">{{ cell }}</b> {{ regime_arrows(cell) }}
       {% if cell == current %}<span class="badge ok">今天</span>{% endif %}</div>
     {# lines 由服务端拼好(可含 span 着色), 信任渲染 #}
