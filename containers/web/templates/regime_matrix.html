@@ -6,23 +6,45 @@
 <form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
   <input type="number" name="strategy_id" value="{{ sid or '' }}" placeholder="策略 ID" required style="width:110px">
   <button type="submit">载入</button>
+  {% if data and show_opts %}
+  <label class="muted">展示
+    <select name="show_years" onchange="this.form.submit()" title="只筛显示不重跑: 取回测结果里最近 N 年的逐笔再贴格">
+      <option value="">全部({{ win_label }})</option>
+      {% for y in show_opts %}<option value="{{ y }}" {% if show_years == y %}selected{% endif %}>近{{ y }}年</option>{% endfor %}
+    </select></label>
+  {% endif %}
   {% if data %}
-  <span class="muted">#{{ data.strategy_id }} {{ data.name }} · {{ data.template }} · 主品种 {{ data.main_symbol }} {{ data.timeframe }} · {{ m.strategy_status(data.status) }}</span>
-  <select id="rm-win" title="回测窗口 — 九品种统一(对比三铁律)" style="margin-left:auto">
-    <option value="">默认窗口</option>
-    <option value="1825">5 年</option>
-    <option value="3650">10 年</option>
-    <option value="5475">15 年</option>
-    <option value="7300">20 年</option>
-  </select>
+  <label class="muted" style="margin-left:auto">回测区间
+    <select id="rm-win" title="重跑窗口 — 九品种统一(对比三铁律)">
+      <option value="">默认窗口</option>
+      <option value="1825">5 年</option>
+      <option value="3650">10 年</option>
+      <option value="5475">15 年</option>
+      <option value="7300">20 年</option>
+    </select></label>
   <button type="button" id="rm-run">跑九币回测(重跑)</button>
-  {% if data and data.symbols %}
+  {% if data.symbols %}
   <button type="button" id="rm-copy-prompt"
           title="实验说明+regime原理+JSON格式+问题清单+结果JSON, 粘给任意 AI">复制提示词</button>
   {% endif %}
   <span id="rm-hint"></span>
   {% endif %}
 </form>
+
+{% if data %}
+<table class="dense" style="margin-bottom:12px">
+  <tr><th>策略</th><th>模板</th><th>主品种 · 周期</th><th>状态</th><th>结果窗口</th><th>品种数</th><th>总笔数</th></tr>
+  <tr>
+    <td class="mono">#{{ data.strategy_id }} {{ data.name }}</td>
+    <td>{{ data.template }}</td>
+    <td class="mono">{{ data.main_symbol }} {{ data.timeframe }}</td>
+    <td>{{ m.strategy_status(data.status) }}</td>
+    <td>{% if data.symbols %}{{ data.symbols[0].from_time[:10] }} ~ {{ data.symbols[0].to_time[:10] }} <span class="muted">({{ win_label }})</span>{% if show_years %} · <b>展示近{{ show_years }}年</b>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td>{{ data.symbols|length }}</td>
+    <td>{{ data.total_trades }}</td>
+  </tr>
+</table>
+{% endif %}
 
 {% if data %}
   {% if not data.symbols %}
@@ -95,7 +117,7 @@
   if (cp) cp.addEventListener("click", async () => {
     cp.disabled = true; cp.textContent = "取词中…";
     try {
-      const r = await fetch("{{ url_for('strategies.regime_matrix_prompt_txt', strategy_id=sid) }}");
+      const r = await fetch("{{ url_for('strategies.regime_matrix_prompt_txt', strategy_id=sid, show_years=show_years or None) }}");
       const t = await r.text();
       if (!r.ok) throw new Error(t);
       await navigator.clipboard.writeText(t);

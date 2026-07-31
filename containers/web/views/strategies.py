@@ -212,21 +212,26 @@ def regime_matrix():
     """Regime 策略分析(九币矩阵): 输入策略id → 顶部汇总八格(全品种同格相加)
     + 每品种一行八格。重跑按钮复用 ai_backtest(点名+cross_symbol), 现算不落库。"""
     sid = request.args.get("strategy_id", type=int)
+    show_years = request.args.get("show_years", type=int)  # 展示窗口: 只筛显示不重跑, 空=全部
     data = None
     if sid:
         try:
             # 九品种各自"自愈建时间线+逐笔贴格", 首次载入(时间线现算20年D1)远超默认15s
-            data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120)
+            data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120,
+                           **({"show_years": show_years} if show_years else {}))
         except api.ApiError as e:
             flash(f"载入失败: {e}", "error")
     fills = _cells_fills((data or {}).get("total_cells"))
     # 汇总标题只标"近X年"(汇总页不摆起止明细, 品种表每行有区间); 半年=近0.5年
-    win_label = ""
+    win_label, show_opts = "", []
     if data and data.get("symbols"):
         f, t = data["symbols"][0]["from_time"], data["symbols"][0]["to_time"]
         days = (datetime.fromisoformat(t) - datetime.fromisoformat(f)).days
         win_label = f"近{round(days / 365, 1):g}年"   # 5.0→近5年, 0.49→近0.5年, 10.0→近10年
+        # 展示窗口档位: 只列严格小于回测区间的(等长=「全部」已覆盖)
+        show_opts = [y for y in (1, 2, 3, 5, 10, 20) if y * 365 <= days - 30]
     return render_template("regime_matrix.html", data=data, sid=sid, win_label=win_label,
+                           show_years=show_years, show_opts=show_opts,
                            total_lines=_matrix_total_lines(data), matrix_fills=fills)
 
 
@@ -278,10 +283,12 @@ def regime_matrix_prompt_txt():
     """九币矩阵 AI 提示词(纯文本): 实验说明+regime原理+JSON格式+要回答的问题+结果JSON。
     复制整段粘给任意 AI 用(与 ai/prompt.txt 同模式)"""
     sid = request.args.get("strategy_id", type=int)
+    show_years = request.args.get("show_years", type=int)  # 与页面展示同口径
     if not sid:
         return "error: 缺 strategy_id", 400, {"Content-Type": "text/plain; charset=utf-8"}
     try:
-        data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120)
+        data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120,
+                       **({"show_years": show_years} if show_years else {}))
     except api.ApiError as e:
         return f"error: {e}", 502, {"Content-Type": "text/plain; charset=utf-8"}
     import json as _json

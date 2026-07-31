@@ -1096,7 +1096,8 @@ def _fmt_cells(raw: dict) -> dict:
 
 
 @router.get("/backtest/regime_matrix")
-async def backtest_regime_matrix(request: Request, strategy_id: int):
+async def backtest_regime_matrix(request: Request, strategy_id: int,
+                                 show_years: Optional[int] = None):
     """九币 regime 矩阵(v2.5): 一个策略在所有已回测品种上的八格战绩。
     每品种逐笔按入场日贴【当品种】时间线; 顶部汇总 = 各品种同格相加。
     现算不落库 — 数据源 = backtests(strategy_id, symbol) 现有行, 重跑 UPSERT 后自动变新;
@@ -1125,6 +1126,10 @@ async def backtest_regime_matrix(request: Request, strategy_id: int):
             "SELECT date, regime FROM regime_timeline WHERE symbol=$1", sym)}
         raw, unlabeled = {}, 0
         trades = r["trades"] or []
+        # 展示窗口(只筛显示不重跑): 取最近 N 年的逐笔再贴格; 不传/超过区间 = 全量, 无额外校验
+        if show_years:
+            cut_ts = (r["to_time"] - timedelta(days=int(show_years * 365.25))).timestamp()
+            trades = [t for t in trades if t["entry_time"] >= cut_ts]
         for t in trades:
             cell = tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
             if cell is None:
@@ -1145,6 +1150,7 @@ async def backtest_regime_matrix(request: Request, strategy_id: int):
             "symbols": symbols, "total_cells": _fmt_cells(total_raw),
             "total_trades": sum(s["trades"] for s in symbols),
             "total_unlabeled": total_unlabeled,
+            "show_years": show_years,
             "window_consistent": len(windows) <= 1}
 
 
