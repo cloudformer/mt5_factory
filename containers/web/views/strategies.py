@@ -203,7 +203,8 @@ def regime_matrix():
     data = None
     if sid:
         try:
-            data = api.get("/backtest/regime_matrix", strategy_id=sid)
+            # 九品种各自"自愈建时间线+逐笔贴格", 首次载入(时间线现算20年D1)远超默认15s
+            data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120)
         except api.ApiError as e:
             flash(f"载入失败: {e}", "error")
     return render_template("regime_matrix.html", data=data, sid=sid,
