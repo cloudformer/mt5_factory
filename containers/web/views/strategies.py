@@ -211,6 +211,65 @@ def regime_matrix():
                            total_lines=_matrix_total_lines(data))
 
 
+# 九币矩阵 AI 提示词正文(结果 JSON 追加在末尾)。口径与页面注释一字同源:
+# 汇总只有笔数/胜率可比、<20笔未证实、规律=格间拉开+跨品种同向
+_REGIME_MATRIX_PROMPT = """\
+# 任务: 判断一个交易策略的盈亏是否与市场状态(Regime)相关
+
+## 背景(这是在做什么)
+我们有一个策略工厂系统: 同一个策略(同一模板+同一套参数)在多个货币对上、统一时间窗口内
+做了悲观口径的历史回测(点差/滑点/佣金全算, SL/TP 同 bar 先碰止损)。每笔回测交易按【入场日】
+贴上当天该品种的市场状态标签(Regime), 汇总成"八格战绩"——看这个策略在哪种市场性格里赚钱/亏钱。
+
+## Regime 原理(三字母格子, 只描述当天性格, 绝不预测未来)
+每个品种每个交易日由三个二值维度组成一个格子(如 AAB):
+- 第1位 长趋势: D1 收盘 > SMA200 → A(长期上行), 否则 B(长期下行)
+- 第2位 短趋势: D1 收盘 > SMA20 → A(短期上行), 否则 B(短期下行)
+- 第3位 波动:   ATR14 > 过去252日 ATR 中位数 → A(高波动), 否则 B(低波动)
+无未来函数。八格 = AAA/AAB/ABA/ABB/BAA/BAB/BBA/BBB。
+
+## 结果 JSON 格式(数据附在最后)
+- strategy_id/name/template/main_symbol/timeframe/status: 策略身份(main_symbol=原生品种)
+- symbols[]: 每品种一行 — from_time/to_time 回测区间, trades 总笔数,
+  unlabeled 无标签未计入笔数, cells = 该品种八格:
+  cells.XXX = {trades 笔数, win_rate 胜率%, net 净点(该品种单位), pf 盈亏比(null=无亏损=∞)}
+- total_cells: 全部品种同格相加的汇总八格(结构同 cells)
+- window_consistent: 各品种窗口是否一致(false 则跨品种对比无效)
+
+## 口径警告(分析前必读)
+1. 汇总(total_cells)里只有【笔数、胜率】跨品种真实可比(纯计数); 【净点、PF】混单位——
+   不同品种一"点"价值不同, XAUUSD 这类大点值品种会主导汇总, 只作参考。
+2. 每品种行内(symbols[].cells)四项都真实(同品种同单位)。
+3. 单格 <20 笔 = 样本不足, 结论只能是"未证实", 不是"已证明"。
+4. 判定"有规律"的标准: 格间胜率/PF 明显拉开, 且同一格在【多数品种上同向】——
+   一两个品种撑起来的亮格是噪音/单品种主导, 不算规律。
+
+## 请回答(结论简短, 每条 1-3 句, 用数据支撑, 不确定就写"未证实")
+1. 规律: 该策略的盈亏与 regime 有无规律?(格间是否拉开 + 跨品种是否同向)
+2. 结构: 盈亏主要由哪些格/哪些品种贡献? 汇总里的亮格是真规律还是单一品种(如金)主导?
+3. 最佳象限: 哪个格表现最好? 依据(笔数/胜率/跨品种一致性)可信吗?
+4. 结论: 该策略整体是否达标值得保留? 若限定只在某些 regime 交易能否救活? 都不行就直说淘汰。
+
+## 数据
+"""
+
+
+@bp.get("/regime_matrix/prompt.txt")
+def regime_matrix_prompt_txt():
+    """九币矩阵 AI 提示词(纯文本): 实验说明+regime原理+JSON格式+要回答的问题+结果JSON。
+    复制整段粘给任意 AI 用(与 ai/prompt.txt 同模式)"""
+    sid = request.args.get("strategy_id", type=int)
+    if not sid:
+        return "error: 缺 strategy_id", 400, {"Content-Type": "text/plain; charset=utf-8"}
+    try:
+        data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120)
+    except api.ApiError as e:
+        return f"error: {e}", 502, {"Content-Type": "text/plain; charset=utf-8"}
+    import json as _json
+    txt = _REGIME_MATRIX_PROMPT + _json.dumps(data, ensure_ascii=False, indent=1, default=str)
+    return txt, 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @bp.post("/<int:strategy_id>/set_visibility")
 def set_visibility(strategy_id: int):
     """改可见性(私有/公开/共享) — 打标动作, 低频, 普通提交+flash"""

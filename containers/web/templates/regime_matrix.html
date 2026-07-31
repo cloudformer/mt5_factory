@@ -16,6 +16,10 @@
     <option value="7300">20 年</option>
   </select>
   <button type="button" id="rm-run">跑九币回测(重跑)</button>
+  {% if data and data.symbols %}
+  <a href="{{ url_for('strategies.regime_matrix_prompt_txt', strategy_id=sid) }}" target="_blank"
+     title="实验说明+regime原理+JSON格式+问题清单+结果JSON, 整段复制粘给任意 AI"><button type="button">AI 提示词</button></a>
+  {% endif %}
   <span id="rm-hint"></span>
   {% endif %}
 </form>
