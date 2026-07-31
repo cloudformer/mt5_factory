@@ -70,6 +70,34 @@ services:
       retries: 3
       start_period: 15s
 
+  # ========== 回测 worker(与 api 同镜像, 只跑 jobs 消费循环) ==========
+  # 无端口无状态: SKIP LOCKED 抢单 + 租约回收 + UPSERT 幂等, 加减副本/杀进程都不脏数据。
+  # 副本数唯一源 = Makefile WORKERS(默认0=原行为只有api内1路; 改Makefile提交即CI生效): make up/scale WORKERS=N
+  # 上限参考: N ≤ VM核数-1(CPU密集), 每路缓存当前品种 M1 会占内存, RAM 紧就调小
+  worker:
+    build:
+      context: .
+      dockerfile: containers/api/Dockerfile
+    # 不设 container_name: 多副本自动编号 worker-1..N(WORKER=容器名:pid, 租约互不撞)
+    restart: unless-stopped
+    command: ["python", "-m", "src.worker"]
+    environment:
+      ENV_NAME: ${ENV_NAME}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./containers/api/src:/app/src:ro       # 与 api 同源热更新
+      - ./strategy_core:/app/strategy_core:ro
+    depends_on:
+      api:
+        condition: service_healthy   # api healthy = schema 已对齐, worker 不碰建表
+    networks:
+      - mt5_network
+
   # ========== Web 前端 (Flask, 只调 api) ==========
   web:
     build:
