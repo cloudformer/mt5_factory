@@ -8,9 +8,14 @@
   <button type="submit">载入</button>
   {% if data and show_opts %}
   <label class="muted">展示
-    <select name="show_years" onchange="this.form.submit()" title="只筛显示不重跑: 取回测结果里最近 N 年的逐笔再贴格">
+    <select name="show_years" onchange="this.form.submit()" title="只筛显示不重跑: 近N年 / N年以前(排除近N年, OOS式对照), 同一切点两边互补">
       <option value="">全部({{ win_label }})</option>
+      <optgroup label="近 N 年">
       {% for y in show_opts %}<option value="{{ y }}" {% if show_years == y %}selected{% endif %}>近{{ y }}年</option>{% endfor %}
+      </optgroup>
+      <optgroup label="N 年以前(留出对照)">
+      {% for y in show_opts %}<option value="{{ -y }}" {% if show_years == -y %}selected{% endif %}>{{ y }}年以前</option>{% endfor %}
+      </optgroup>
     </select></label>
   {% endif %}
   {% if data %}
@@ -39,7 +44,7 @@
     <td>{{ data.template }}</td>
     <td class="mono">{{ data.main_symbol }} {{ data.timeframe }}</td>
     <td>{{ m.strategy_status(data.status) }}</td>
-    <td>{% if data.symbols %}{{ data.symbols[0].from_time[:10] }} ~ {{ data.symbols[0].to_time[:10] }} <span class="muted">({{ win_label }})</span>{% if show_years %} · <b>展示近{{ show_years }}年</b>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td>{% if data.symbols %}{{ data.symbols[0].from_time[:10] }} ~ {{ data.symbols[0].to_time[:10] }} <span class="muted">({{ win_label }})</span>{% if show_years %} · <b>{% if show_years > 0 %}展示近{{ show_years }}年{% else %}展示{{ -show_years }}年以前{% endif %}</b>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
     <td>{{ data.symbols|length }}</td>
     <td>{{ data.total_trades }}</td>
   </tr>

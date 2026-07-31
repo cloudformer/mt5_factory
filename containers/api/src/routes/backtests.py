@@ -1151,10 +1151,14 @@ async def backtest_regime_matrix(request: Request, strategy_id: int,
 
         full_trades = r["trades"] or []
         trades = full_trades
-        # 展示窗口(只筛显示不重跑): 取最近 N 年的逐笔再贴格; 不传/超过区间 = 全量, 无额外校验
+        # 展示窗口(只筛显示不重跑): 正 N=近 N 年, 负 N=N 年以前(排除近 N 年, OOS 式对照);
+        # 不传/超过区间 = 全量, 无额外校验 — 同一切点两边互补不重叠
         if show_years:
-            cut_ts = (r["to_time"] - timedelta(days=int(show_years * 365.25))).timestamp()
-            trades = [t for t in trades if t["entry_time"] >= cut_ts]
+            cut_ts = (r["to_time"] - timedelta(days=int(abs(show_years) * 365.25))).timestamp()
+            if show_years > 0:
+                trades = [t for t in trades if t["entry_time"] >= cut_ts]
+            else:
+                trades = [t for t in trades if t["entry_time"] < cut_ts]
         raw, unlabeled = _bucket(trades)
         _merge_raw(total_raw, raw)
         total_unlabeled += unlabeled
