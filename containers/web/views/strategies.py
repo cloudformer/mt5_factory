@@ -213,13 +213,12 @@ def regime_matrix():
     fills = {cell: ("#94a3b8" if v["trades"] < 20 else
                     "#16a34a" if v["net"] >= 0 else "#dc2626")
              for cell, v in ((data or {}).get("total_cells") or {}).items()}
-    # 汇总标题带统一窗口(起止+折算年限); 各品种窗口不一致时黄条已警告, 这里取首行仅供参考
+    # 汇总标题只标"近X年"(汇总页不摆起止明细, 品种表每行有区间); 半年=近0.5年
     win_label = ""
     if data and data.get("symbols"):
         f, t = data["symbols"][0]["from_time"], data["symbols"][0]["to_time"]
         days = (datetime.fromisoformat(t) - datetime.fromisoformat(f)).days
-        span = f"约{days / 365:.1f}年" if days >= 365 else f"{days}天"
-        win_label = f"{f[:10]} ~ {t[:10]}({span})"
+        win_label = f"近{round(days / 365, 1):g}年"   # 5.0→近5年, 0.49→近0.5年, 10.0→近10年
     return render_template("regime_matrix.html", data=data, sid=sid, win_label=win_label,
                            total_lines=_matrix_total_lines(data), matrix_fills=fills)
 
