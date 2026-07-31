@@ -247,9 +247,10 @@ a.btn:hover { background: #d9ecf9; }
 .regime-quad-title { font-weight: 600; margin: 0 0 6px; }
 .regime-quad { display: grid; grid-template-columns: auto 1fr 1fr; gap: 6px; align-items: stretch; }
 .regime-axis { font-size: 12px; color: var(--muted); text-align: center; align-self: end; padding: 0 4px; }
-/* --fill: 底色可与左色条分离(九币矩阵: 左条=regime本色, 底色=盈亏绿/红); 不传回退 --cell(其他页不变) */
+/* 八格统一模版(2026-07-31 Frank 定): 左色条恒=regime本色(认格子), 底色=涨跌含义 —
+   有盈亏数据的格传 --fill(绿赚/红亏/灰样本不足), 没有的(占比格/对账格)默认白底 */
 .regime-cell { border: 1px solid #e2e8f0; border-left: 5px solid var(--cell); border-radius: 6px;
-               padding: 6px 10px; min-width: 170px; background: color-mix(in srgb, var(--fill, var(--cell)) 9%, #fff); }
+               padding: 6px 10px; min-width: 170px; background: color-mix(in srgb, var(--fill, #fff) 9%, #fff); }
 .regime-cell.cur { outline: 2px solid #2563eb; outline-offset: 1px; }
 .regime-cell.nb  { outline: 2px dashed #93c5fd; outline-offset: 1px; }
 .regime-cell-line { font-size: 12.5px; margin-top: 3px; font-variant-numeric: tabular-nums; }

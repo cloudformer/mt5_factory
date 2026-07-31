@@ -30,7 +30,7 @@
    现拼自 regime_timeline(改口径重建后自动变新); <20笔=未证实灰显(小样本纪律) #}
 {% if regime_lines %}
 <h3>Regime 八格战绩 <span class="muted" style="font-weight:normal">该策略在哪种市场状态里赚钱 · 现算不落库, 改口径重建时间线后自动更新{% if ana.regime_unlabeled %} · {{ ana.regime_unlabeled }} 笔在时间线覆盖外(暖机期/历史缺口)未标注{% endif %}</span></h3>
-{{ m.regime_grid(regime_lines) }}
+{{ m.regime_grid(regime_lines, fills=regime_fills) }}
 {% elif ana.regime_unlabeled %}
 <h3>Regime 八格战绩</h3>
 <p class="muted">全部 {{ ana.regime_unlabeled }} 笔都在 regime 时间线覆盖之外 — 去「数据 → 市场状态 Regime」重建该品种时间线(历史不足则先下载更长历史)。</p>

@@ -179,8 +179,18 @@ def analysis():
             flash(f"分析失败: {e}", "error")
     return render_template("strategy_analysis.html", recon=recon, ana=ana, sid=sid,
                            regime_lines=_regime_lines(ana),
+                           regime_fills=_cells_fills((ana or {}).get("regime_cells")),
                            act_regime_lines=_regime_lines((ana or {}).get("actual")),
+                           act_regime_fills=_cells_fills(((ana or {}).get("actual") or {}).get("regime_cells")),
                            recon_regime_lines=_recon_regime_lines(recon))
+
+
+def _cells_fills(cells) -> dict:
+    """八格底色(统一模版): 净点≥0 绿 / <0 红 / 样本<20 灰 — 左色条恒为 regime 本色。
+    喂给 m.regime_grid(fills=); 无盈亏数据的格子(占比/对账)不传 = 白底"""
+    return {cell: ("#94a3b8" if v["trades"] < 20 else
+                   "#16a34a" if v["net"] >= 0 else "#dc2626")
+            for cell, v in (cells or {}).items()}
 
 
 def _matrix_total_lines(data) -> dict:
@@ -209,10 +219,7 @@ def regime_matrix():
             data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120)
         except api.ApiError as e:
             flash(f"载入失败: {e}", "error")
-    # 汇总格底色=盈亏方向(绿赚/红亏, 样本<20灰), 左色条保持 regime 本色 — 2026-07-30 Frank 定
-    fills = {cell: ("#94a3b8" if v["trades"] < 20 else
-                    "#16a34a" if v["net"] >= 0 else "#dc2626")
-             for cell, v in ((data or {}).get("total_cells") or {}).items()}
+    fills = _cells_fills((data or {}).get("total_cells"))
     # 汇总标题只标"近X年"(汇总页不摆起止明细, 品种表每行有区间); 半年=近0.5年
     win_label = ""
     if data and data.get("symbols"):
@@ -487,7 +494,8 @@ def analysis_fragment():
         except api.ApiError:
             ana = None
     return render_template("_attribution_body.html", ana=ana,
-                           regime_lines=_regime_lines(ana))
+                           regime_lines=_regime_lines(ana),
+                           regime_fills=_cells_fills((ana or {}).get("regime_cells")))
 
 
 @bp.get("/<int:strategy_id>/report.json")
