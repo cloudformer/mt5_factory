@@ -47,7 +47,7 @@ def _two_tier_score(st_, dt) -> dict | None:
 @bp.get("/")
 def index():
     data = {"symbols": [], "orphans": [], "sync": {}, "hosts": [], "timeframes": [],
-            "wp": {}, "batch_tfs": []}
+            "wp": {}, "batch_tfs": [], "auto_sync": {}}
     try:
         # 轻量版(2026-07-30 Frank 定, 覆盖懒加载): 只拉品种主档(秒回), 覆盖(范围+计数, 大表
         # GROUP BY 慢)由页面 AJAX 走 /datasync/coverage 异步填 — 页面秒开, 治本 web 卡顿
@@ -60,6 +60,9 @@ def index():
         tfs = cfg.get("download_timeframes") or []
         data["timeframes"] = [{"tf": t, "role": TF_ROLE.get(t, "")} for t in tfs]
         data["wp"] = cfg.get("worker_params") or {}   # 下载节流两键的现值(节流表单用)
+        # 自动同步状态(schema/055): 间隔+上次自动投递时刻 — 页面可见"是自动班还是手动班"
+        data["auto_sync"] = {"hours": cfg.get("auto_sync_hours"),
+                             "last": cfg.get("auto_sync_last")}
         # 正在跑的批实际包含哪些层(从任务名现算, 带·后缀=高周期): 跑批时显示它而非勾选框 —
         # 勾选框默认全勾, 刷新后看起来像"M1也在跑"(2026-07-29 Frank 指出的误导显示 bug)
         data["batch_tfs"] = sorted({x.split("·")[1] if "·" in x else "M1"
