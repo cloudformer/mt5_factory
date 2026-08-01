@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 from conn import stats
 from strategy_core import make_strategy
+from strategy_core.gate import gate_mult, regime_gate   # regime 门: 与回测引擎同一份裁决逻辑
 
 # 统一配置: 与 Linux docker compose 共用 env/.dev.env (整仓 clone 到 Windows)
 load_dotenv(Path(__file__).resolve().parents[2] / "env" / ".dev.env")
@@ -229,6 +230,11 @@ def fetch_strategies(run_status: str) -> list:
                 # 每轮拉取即刷新 → web 改手数下一单生效, 不用重启(runner 无状态)
                 "volume": float(s.get("volume") or default_vol),
                 "strategy": make_strategy(s["template"], params, info.point),
+                # regime 门(v0.3): metadata 有门则 api 随行下发当日格+日期(版本已钉死在门里);
+                # 无门 = None → 全量交易, 行为与历史一致
+                "gate": regime_gate(s.get("metadata")),
+                "gate_cell": s.get("regime_cell"),
+                "gate_cell_date": s.get("regime_cell_date"),
             })
         except Exception as e:
             logger.error("build strategy %s failed: %s", s.get("name"), e)
@@ -274,8 +280,9 @@ def position_dir(symbol: str, magic: int) -> str:
     return "flat"
 
 
-def send_order(inst: dict, sig) -> str:
-    """下单并返回决策日志的 act 结论: open_ok / refused:* / order_fail:<retcode>"""
+def send_order(inst: dict, sig, mult: float = 1.0) -> str:
+    """下单并返回决策日志的 act 结论: open_ok / refused:* / order_fail:<retcode>
+    mult: regime 门的手数倍率(0.5~1, 无门=1) — 撞最小手由挂载门槛前置执法, 这里不再兜底"""
     if not sig.sl or not sig.tp:  # 铁律: 无 SL/TP 不下单
         logger.error("%s signal without SL/TP, refused", inst["name"])
         return "refused:no_sltp"
@@ -289,7 +296,7 @@ def send_order(inst: dict, sig) -> str:
     # A: SL/TP 按券商 digits 取整 — 浮点原值(如 4083.8400000001)苛刻券商会拒 Invalid stops
     sl, tp = round(sig.sl, info.digits), round(sig.tp, info.digits)
     # B1: 手数不得低于品种最小手 (拒单前置成明确日志, 不留给券商猜)
-    volume = inst.get("volume") or VOLUME   # 每策略手数, 空=env 默认(兜底)
+    volume = round((inst.get("volume") or VOLUME) * mult, 2)  # 每策略手数 × 门倍率(无门=1)
     if info.volume_min and volume < info.volume_min:
         logger.error("%s volume %.2f < broker min %.2f, refused",
                      inst["name"], volume, info.volume_min)
@@ -355,7 +362,16 @@ def process(inst: dict, last_bar: dict) -> None:
     elif pos != "flat":
         act = "skip_pos"    # 占位: 有信号但被持仓占着 — 对账"占位级联"的最里层证据
     else:
-        act = send_order(inst, sig)
+        # regime 门(v0.3, 与回测引擎共用 gate_mult): 当日格裁决 — 门外/格子日期≠今天(时间线
+        # 未跟上, 保守不开)→ 跳过; 在门内 → 手数×倍率。无门 mult 恒 1, 路径与历史一致
+        cell = (inst.get("gate_cell")
+                if inst.get("gate_cell_date") == time.strftime("%Y-%m-%d", time.gmtime(bar_time))
+                else None)
+        mult = gate_mult(inst.get("gate"), cell)
+        if mult is None:
+            act = "skip_gate"   # 门外不开新仓(对账侧据 metadata 同门重放, 两边同判)
+        else:
+            act = send_order(inst, sig, mult)
         if act != "open_ok":               # 拒单/失败: 同一错误只报首个, 成功即清
             if _fail_last.get(inst["id"]) != act:
                 _fail_last[inst["id"]] = act

@@ -674,7 +674,8 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all",
     (该策略×scope 整组删旧插新); 返回指定账户(缺省主账户)的完整详情 + accounts 汇总列表。
     单账户时与旧口径逐字节等价。"""
     strat = await pool.fetchrow(
-        "SELECT s.symbol, s.timeframe, s.template, s.params, sym.point, sym.stops_level"
+        "SELECT s.symbol, s.timeframe, s.template, s.params, s.metadata,"
+        "       sym.point, sym.stops_level"
         "  FROM strategies s"
         " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
     if strat is None:
@@ -817,10 +818,12 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
                 datetime.fromtimestamp(wf_ts - tol - lead, tz=timezone.utc),
                 datetime.fromtimestamp(wt_ts, tz=timezone.utc) + timedelta(days=5))
             if m1 is not None and len(m1["time"]):
+                # regime 门(v0.3): 带门实例重放同门 — 实盘按门交易, 重放不带门会满屏假差异
+                g = await regime.gate_for(pool, strat["metadata"], strat["symbol"])
                 res = await asyncio.to_thread(
                     backtest.run_backtest, m1, strat["template"], params_eff,
                     strat["point"], strat["timeframe"], oos_split=None,
-                    start_ts=int(wf_ts - tol), **costs)  # 左端同容差放宽, 首笔信号不被切
+                    start_ts=int(wf_ts - tol), gate=g, **costs)  # 左端同容差放宽, 首笔信号不被切
                 bt_all = res["trades"]
                 replay_to_ts = int(m1["time"][-1])
         except Exception as e:  # 重放失败不挡对账页(降级为"回测侧无数据")

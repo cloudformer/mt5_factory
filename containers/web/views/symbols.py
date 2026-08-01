@@ -29,6 +29,7 @@ def backtest_params():
     runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
     generate_limit, worker_params, regime_params = 500, {}, {}
     regime_versions, regime_current = [], None
+    auto_sync_hours = None
     download_timeframes = []  # 唯一源=config表(schema/049种子); api不可用即空
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空(铁律欠账4)
     volume_default = None
@@ -48,6 +49,7 @@ def backtest_params():
         recon_tol = cfg.get("recon_pair_tol_minutes", 2)
         worker_params = cfg.get("worker_params") or {}
         download_timeframes = cfg.get("download_timeframes") or []
+        auto_sync_hours = cfg.get("auto_sync_hours")   # 只读展示(schema/055, 管理员库改)
         # Regime 口径版本化(v0.2): 唯一源 = regime_versions 表, 下拉选当前默认
         rv = api.get("/regime/versions")
         regime_versions = rv["versions"]
@@ -65,6 +67,7 @@ def backtest_params():
                            recon_tol=recon_tol, worker_params=worker_params,
                            regime_params=regime_params,
                            regime_versions=regime_versions, regime_current=regime_current,
+                           auto_sync_hours=auto_sync_hours,
                            download_timeframes=download_timeframes)
 
 

@@ -211,6 +211,34 @@ async def _touch_runtime(pool: asyncpg.Pool, ids: list[int], host: str):
 HEARTBEAT_LEADER_LOCK = 714002  # advisory lock key: 心跳循环选主(铁律6, 多副本只跑一份)
 
 
+async def _auto_sync_tick(pool: asyncpg.Pool) -> None:
+    """自动增量同步(2026-08-01 与 Frank 定, 心跳主节点搭车): 距上次 ≥ auto_sync_hours
+    小时就自动投一批增量下载(按配置周期层, 断点续传幂等) — 把"每天人肉点同步"自动化,
+    regime 当日格的原料保鲜靠它。规则:
+    - config auto_sync_hours(schema/055 种子 6, 配置页只读, 0=关闭);
+    - 有下载批次在跑(手动/上一班未完) → 本拍跳过不清人家的单, 30s 后再看;
+    - 上次时刻记 config auto_sync_last(UPSERT 一行, 无新表); 首次部署缺失 = 立即补一班
+      (增量便宜; 全新空库则等价于自动开始首轮全量, 本来也要下)。"""
+    hours = await pool.fetchval("SELECT value FROM config WHERE key='auto_sync_hours'")
+    if not hours or int(hours) <= 0:
+        return
+    now = datetime.now(timezone.utc)
+    last = await pool.fetchval("SELECT value FROM config WHERE key='auto_sync_last'")
+    if last and datetime.fromisoformat(last) > now - timedelta(hours=int(hours)):
+        return
+    active = await pool.fetchval(
+        "SELECT count(*) FROM jobs WHERE kind=$1 AND status IN ('PENDING','RUNNING')",
+        DOWNLOAD_KIND)
+    if active:
+        return   # 避让: submit 是先清后插, 不能打断在跑的批
+    r = await submit_download_jobs(pool)
+    await pool.execute(
+        "INSERT INTO config (key, value) VALUES ('auto_sync_last', $1)"
+        " ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()",
+        now.isoformat())
+    logger.info("auto sync submitted: %s jobs (every %sh)", r.get("jobs"), hours)
+
+
 async def heartbeat_loop(pool: asyncpg.Pool):
     """worker 在线看门狗(v7.2 收口后: api 零出站, 不再探测任何 worker)。
     worker 每 30s 主动推心跳(hosts.push_heartbeat 收货并置 ONLINE/DEGRADED);
@@ -242,6 +270,10 @@ async def heartbeat_loop(pool: asyncpg.Pool):
                         raise   # 池级连接故障 → 掉出主循环重新选主
                     except Exception as e:
                         logger.warning("heartbeat watchdog error: %s", e)
+                    try:   # 自动增量同步搭车(只有主节点跑到这里, 多副本天然不重复投)
+                        await _auto_sync_tick(pool)
+                    except Exception as e:
+                        logger.warning("auto sync tick error: %s", e)
                     if lock_conn.is_closed():   # 锁连接断 = 主身份已失效, 停止双写
                         raise asyncpg.PostgresConnectionError("leader lock conn lost")
                     await asyncio.sleep(30)

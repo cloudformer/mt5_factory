@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from strategy_core import TF_SECONDS, make_strategy
+from strategy_core.gate import gate_mult
 from strategy_core.trailing import atr_m1, trail_new_sl
 
 logger = logging.getLogger("backtest")
@@ -113,7 +114,8 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
                  commission_points: float = DEFAULT_COMMISSION_POINTS,
                  spread_points: float | None = None,
                  oos_split: float | None = 0.7,
-                 start_ts: int | None = None) -> dict:
+                 start_ts: int | None = None,
+                 gate: dict | None = None) -> dict:
     """单个策略实例回测, 返回 {metrics, trades}
 
     成本模型参数:
@@ -123,6 +125,10 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
     - oos_split:         样本外切分比例(训练段占比, 默认0.7; None=不切) → metrics["oos"]
     - start_ts:          该时刻(epoch)之前只喂指标不开新仓 — 对账重放用, 复现"实盘空仓上线"
                          (None=从头可开仓, 与历史行为逐字节一致)
+    - gate:              regime 门(v0.3): {"cells": {格:倍率}, "tl": {券商日期: 格}} —
+                         入场日格不在 cells / 无格 → 不开新仓(占位真实释放=级联语义);
+                         在 → 每笔带 mult, 指标按倍率加权(points 存原始价差, 对账可比)。
+                         None=无门, 路径与历史逐字节一致(裁决共用 strategy_core.gate)
     """
     strat = make_strategy(template, params, point)
     tf = aggregate(m1, TF_SECONDS[timeframe])
@@ -149,13 +155,21 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
             )
             if sig is None:
                 continue
+            mult = 1.0
+            if gate is not None:   # regime 门: 入场日的格子裁决(与 runner 共用 gate_mult)
+                cell = gate["tl"].get(datetime.fromtimestamp(
+                    int(m1["time"][j_from]), tz=timezone.utc).date())
+                m_ = gate_mult(gate, cell)
+                if m_ is None:
+                    continue   # 门外/当日无格: 不开新仓(仓位真实空出 — 占位级联语义)
+                mult = m_
             j = j_from
             if sig.direction == "BUY":  # 买在 ask + 滑点
                 entry = float(m1["open"][j] + _spread_at(m1, j, point, spread_points) + slip)
             else:  # 卖在 bid - 滑点
                 entry = float(m1["open"][j] - slip)
             pos = {"dir": sig.direction, "entry": entry, "sl": sig.sl, "tp": sig.tp,
-                   "entry_time": int(m1["time"][j]), "mae": 0.0, "mfe": 0.0}
+                   "entry_time": int(m1["time"][j]), "mae": 0.0, "mfe": 0.0, "mult": mult}
             if trail and trail.get("keep_tp") is False:   # 去掉TP让利润跑, 只靠移动SL出场
                 pos["tp"] = float("inf") if sig.direction == "BUY" else float("-inf")
 
@@ -186,6 +200,8 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
                 "mae": round(pos["mae"], 1), "mfe": round(pos["mfe"], 1),
                 # 开仓时的 SL(2026-07-29): 对账据此判"止损<券商最小停损距离→实盘会被拒"
                 "sl": round(pos["sl"], 6) if pos.get("sl") is not None else None,
+                # regime 门(v0.3): 带门实例记录该笔倍率(指标加权用); 无门不写键(载荷与历史一致)
+                **({"mult": pos["mult"]} if gate is not None else {}),
             })
             pos = None
 
@@ -213,7 +229,9 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
 def _metrics(trades: list) -> dict:
     if not trades:
         return {"trades": 0, "net_points": 0.0}
-    pts = np.array([t["points"] for t in trades])
+    # regime 门(v0.3): 带门实例每笔有 mult(0.5~1), 指标按倍率加权 = 经济视角;
+    # t["points"] 永远存原始价差(与实盘逐笔可比, 对账用) — 无门时 mult 缺省 1, 数值零变化
+    pts = np.array([t["points"] * t.get("mult", 1) for t in trades])
     gross_profit = float(pts[pts > 0].sum())
     gross_loss = float(-pts[pts < 0].sum())
     equity = np.cumsum(pts)
@@ -235,6 +253,6 @@ def _metrics(trades: list) -> dict:
     by_year: dict = {}
     for t in trades:
         y = str(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).year)
-        by_year[y] = round(by_year.get(y, 0.0) + t["points"], 1)
+        by_year[y] = round(by_year.get(y, 0.0) + t["points"] * t.get("mult", 1), 1)
     out["by_year"] = by_year
     return out

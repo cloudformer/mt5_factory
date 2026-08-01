@@ -220,6 +220,21 @@ async def ensure_timeline(pool: asyncpg.Pool, symbol: str,
     return await rebuild_symbol(pool, symbol, params, vid)
 
 
+async def gate_for(pool: asyncpg.Pool, metadata, symbol: str) -> dict | None:
+    """策略 metadata → 回测引擎的 regime 门(v0.3): {"cells": {格:倍率}, "tl": {日期:格}}。
+    无门(空 metadata) → None(引擎走原路径)。版本钉死在 metadata 里(不跟全局默认);
+    顺手自愈该版本该品种的时间线(job 在后台跑, 正是建时间线的好时机)。"""
+    g = metadata.get("regime") if isinstance(metadata, dict) else None
+    if not (isinstance(g, dict) and isinstance(g.get("cells"), dict) and g["cells"]):
+        return None
+    vid = int(g["version"])
+    try:
+        await ensure_timeline(pool, symbol, vid)
+    except Exception as e:   # 时间线建不出(历史不足等): 门照常生效, 无格日=不开仓, 如实
+        logger.warning("gate ensure v%d %s failed: %s", vid, symbol, e)
+    return {"cells": g["cells"], "tl": await tl_map(pool, symbol, vid)}
+
+
 def _runs(seq: list) -> list:
     runs, cur = [], 1
     for prev, now in zip(seq[:-1], seq[1:]):

@@ -94,9 +94,11 @@ async def create_instances(pool, template: str, symbol: str, timeframe: str,
             " VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING RETURNING id",
             name, template, symbol, timeframe, params, parent_id, basis)
         if row is None:  # 撞唯一约束 = 组合已存在(可能是死过的邻居) → 查现有ID给调用方
+            # metadata='{}' 钉住空门行(v0.3 唯一约束含 metadata 后, 同参数可有带门兄弟)
             existing = await pool.fetchrow(
                 "SELECT id, status FROM strategies"
-                " WHERE template=$1 AND symbol=$2 AND timeframe=$3 AND params=$4",
+                " WHERE template=$1 AND symbol=$2 AND timeframe=$3 AND params=$4"
+                "   AND metadata = '{}'::jsonb",
                 template, symbol, timeframe, params)
             out["existing_id"] = existing["id"] if existing else None
             out["existing_status"] = existing["status"] if existing else None

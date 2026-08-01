@@ -158,6 +158,11 @@
     {% endfor %}
     <span class="muted">唯一源=config 表(schema/049)=["M1","D1"] · 本次同步下哪层在「数据下载」页勾</span>
   </div>
+  <p class="muted" style="margin-top:6px">
+    Windows worker 自动下载同步时间间隔: <b>{{ auto_sync_hours if auto_sync_hours is not none else '—' }} 小时</b>
+    (只读, 管理员决定 — 改值库操作 config.auto_sync_hours, 0=关闭)。
+    心跳主节点每隔此时长自动投一批增量下载(断点续传幂等), 有批次在跑自动避让;
+    regime 当日格的原料保鲜靠它, 数据不新时带门策略保守不开仓。</p>
 </section>
 
 <section>

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import asyncpg
 
-from src.services import backtest
+from src.services import backtest, regime
 
 logger = logging.getLogger("jobs")
 
@@ -88,7 +88,7 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
     t_from = datetime.fromisoformat(payload["from"])
     t_to = datetime.fromisoformat(payload["to"])
     s = await pool.fetchrow(
-        "SELECT id, name, template, params, timeframe FROM strategies WHERE id=$1",
+        "SELECT id, name, template, params, timeframe, metadata FROM strategies WHERE id=$1",
         payload["strategy_id"])
     if s is None:
         raise ValueError("strategy deleted")
@@ -110,9 +110,11 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
         td = await pool.fetchval("SELECT value FROM config WHERE key='trail_default'")
         if isinstance(td, dict) and td.get("active"):
             params = {**params, "trail": td}
+    # regime 门(v0.3): metadata 有门 → 引擎带门跑(该品种时间线, 版本钉死); 无门 → None 原路径
+    gate = await regime.gate_for(pool, s["metadata"], sym)
     result = await asyncio.to_thread(
         backtest.run_backtest, cache["m1"], s["template"], params,
-        meta["point"], s["timeframe"], oos_split=oos_split, **payload["costs"])
+        meta["point"], s["timeframe"], oos_split=oos_split, gate=gate, **payload["costs"])
     # to_time 记"实际读到的最后一根 M1", 不用请求截止 t_to(默认=now)。
     # 否则数据滞后于 now 时跑的回测会把 to_time 记成 now, 让对账 bt_stale 误判为"新鲜"、
     # 把本该"重跑回测"的缺口错标成"真差异"(not_triggered) — 曾误导排查。

@@ -397,3 +397,68 @@ def test_run_backtest_keep_tp_false_removes_tp(monkeypatch):
     res = run_backtest(m1, "any", params, 0.01, "M1",
                        slippage_points=0, commission_points=0, spread_points=0, oos_split=None)
     assert res["trades"] == []   # TP被去掉且SL(gap极大)未被触发 → 持仓到数据尾不成交
+
+
+# ---------- regime 门(v0.3): 引擎按入场日裁决, 与 runner 共用 gate_mult ----------
+
+from datetime import datetime as _dt, timezone as _tz  # noqa: E402
+
+from strategy_core.gate import gate_mult, regime_gate  # noqa: E402
+
+
+def _entry_date(t0):
+    """_stub_m1 的入场 bar = M1[3](t0+180) 的券商日期"""
+    return _dt.fromtimestamp(t0 + 180, tz=_tz.utc).date()
+
+
+def test_gate_blocks_entry_cell_not_allowed(monkeypatch):
+    monkeypatch.setattr(bt, "make_strategy", lambda *a, **k: _StubOnce())
+    m1, t0 = _stub_m1()
+    gate = {"cells": {"ABA": 1}, "tl": {_entry_date(t0): "AAA"}}  # 当日 AAA 在门外
+    res = run_backtest(m1, "any", {}, 0.01, "M1", gate=gate,
+                       slippage_points=0, commission_points=0, spread_points=0, oos_split=None)
+    assert res["trades"] == []   # 门外不开新仓
+
+
+def test_gate_blocks_when_day_unlabeled(monkeypatch):
+    monkeypatch.setattr(bt, "make_strategy", lambda *a, **k: _StubOnce())
+    m1, _ = _stub_m1()
+    gate = {"cells": {"AAA": 1}, "tl": {}}   # 时间线缺当日行
+    res = run_backtest(m1, "any", {}, 0.01, "M1", gate=gate,
+                       slippage_points=0, commission_points=0, spread_points=0, oos_split=None)
+    assert res["trades"] == []   # 无格日=不知道天气就不交易(悲观)
+
+
+def test_gate_mult_weights_metrics_points_stay_raw(monkeypatch):
+    monkeypatch.setattr(bt, "make_strategy", lambda *a, **k: _StubOnce())
+    m1, t0 = _stub_m1()
+    gate = {"cells": {"AAA": 0.5}, "tl": {_entry_date(t0): "AAA"}}
+    res = run_backtest(m1, "any", {}, 0.01, "M1", gate=gate,
+                       slippage_points=0, commission_points=0, spread_points=0, oos_split=None)
+    tr = res["trades"][0]
+    assert tr["points"] == 50.0          # points 永远存原始价差(对账可比)
+    assert tr["mult"] == 0.5             # 倍率随笔记录
+    assert res["metrics"]["net_points"] == pytest.approx(25.0)   # 指标按倍率加权(经济视角)
+
+
+def test_gate_none_path_unchanged(monkeypatch):
+    monkeypatch.setattr(bt, "make_strategy", lambda *a, **k: _StubOnce())
+    m1, _ = _stub_m1()
+    res = run_backtest(m1, "any", {}, 0.01, "M1",
+                       slippage_points=0, commission_points=0, spread_points=0, oos_split=None)
+    assert "mult" not in res["trades"][0]           # 无门: 载荷与历史逐字节一致
+    assert res["metrics"]["net_points"] == pytest.approx(50.0)
+
+
+def test_gate_mult_shared_semantics():
+    """纯函数裁决 — 回测与 runner 的一致性就锚在这几行"""
+    g = {"cells": {"ABA": 1, "BBA": 0.5}}
+    assert gate_mult(None, "AAA") == 1.0        # 无门 = 全量
+    assert gate_mult(g, "ABA") == 1.0
+    assert gate_mult(g, "BBA") == 0.5
+    assert gate_mult(g, "AAB") is None          # 门外
+    assert gate_mult(g, None) is None           # 无格(时间线缺行/日期不匹配)
+    assert regime_gate({}) is None              # 空 metadata = 无门(唯一写法)
+    assert regime_gate(None) is None
+    assert regime_gate({"regime": {"version": 1, "cells": {}}}) is None   # 空 cells 视同无门
+    assert regime_gate({"regime": {"version": 1, "cells": {"ABA": 1}}})["cells"] == {"ABA": 1}

@@ -134,7 +134,7 @@ async def list_strategies(request: Request, status: Optional[str] = None,
                            f" AND m.enabled AND m.host_id = ${len(args)}")
             vol_expr = "COALESCE(m.volume, s.volume)"
     q = (f"SELECT s.id, s.name, s.template, s.symbol, s.timeframe, s.params, s.status,"
-         f"       s.magic_number, {vol_expr} AS volume, sy.broker,"
+         f"       s.metadata, s.magic_number, {vol_expr} AS volume, sy.broker,"
          f"       b.metrics AS backtest, st.stats"
          "  FROM strategies s"
          f"{join_mounts}"
@@ -161,10 +161,30 @@ async def list_strategies(request: Request, status: Optional[str] = None,
     args.append(limit)
     q += f" ORDER BY s.id LIMIT ${len(args)}"
     rows = await request.app.state.pool.fetch(q, *args)
+    out_rows = [dict(r) for r in rows]
+    # regime 门(v0.3): 带门策略随行下发当日格(版本钉死在 metadata 里) — runner 据此裁决入场。
+    # 只对带门策略做(常态列表零额外查询); 顺手自愈该版本时间线(新鲜时只是一次轻查询,
+    # 每日首拉触发重算 → "当日格"的每日计算就靠这里, 无定时任务)
+    pool = request.app.state.pool
+    for r in out_rows:
+        g = (r["metadata"] or {}).get("regime") if isinstance(r["metadata"], dict) else None
+        if not (isinstance(g, dict) and g.get("cells")):
+            continue
+        vid = int(g["version"])
+        try:
+            await regime.ensure_timeline(pool, r["symbol"], vid)
+        except Exception as e:
+            logger.warning("status gate ensure v%d %s failed: %s", vid, r["symbol"], e)
+        tl_last = await pool.fetchrow(
+            "SELECT date, regime FROM regime_timeline"
+            " WHERE version_id=$1 AND symbol=$2 ORDER BY date DESC LIMIT 1",
+            vid, r["symbol"])
+        r["regime_cell"] = tl_last["regime"] if tl_last else None
+        r["regime_cell_date"] = tl_last["date"].isoformat() if tl_last else None
     # 默认手数(config 唯一源): runner 对 volume 为空的策略用它; web 下拉显示「X(默认)」
-    vol_default = await request.app.state.pool.fetchval(
+    vol_default = await pool.fetchval(
         "SELECT value FROM config WHERE key='volume_default'")
-    return {"count": len(rows), "strategies": [dict(r) for r in rows],
+    return {"count": len(out_rows), "strategies": out_rows,
             "volume_default": vol_default}
 
 
