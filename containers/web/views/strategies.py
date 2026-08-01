@@ -214,6 +214,7 @@ def regime_matrix():
     sid = request.args.get("strategy_id", type=int)
     show_years = request.args.get("show_years", type=int)  # 展示窗口: 只筛显示不重跑, 空=全部
     regime_version = request.args.get("regime_version", type=int)  # 空=当前默认版本
+    sym_filter = (request.args.get("symbol") or "").strip().upper() or None  # 品种过滤: 空=全部
     data = None
     rv = {"current": None, "versions": []}
     if sid:
@@ -225,6 +226,14 @@ def regime_matrix():
                            **({"regime_version": regime_version} if regime_version else {}))
         except api.ApiError as e:
             flash(f"载入失败: {e}", "error")
+    # 品种过滤(纯展示层): 选单品种 → 汇总八格=它自己的八格(同单位四项全真), 品种表只剩一行
+    syms_all = [s["symbol"] for s in (data or {}).get("symbols") or []]
+    if data and sym_filter and sym_filter in syms_all:
+        only = next(s for s in data["symbols"] if s["symbol"] == sym_filter)
+        data["symbols"] = [only]
+        data["total_cells"] = only["cells"]
+        data["total_trades"] = only["trades"]
+        data["total_unlabeled"] = only["unlabeled"]
     fills = _cells_fills((data or {}).get("total_cells"))
     # 汇总标题只标"近X年"(汇总页不摆起止明细, 品种表每行有区间); 半年=近0.5年
     win_label, show_opts = "", []
@@ -238,6 +247,7 @@ def regime_matrix():
                            show_years=show_years, show_opts=show_opts,
                            regime_version=regime_version,
                            rv_current=rv["current"], rv_versions=rv["versions"],
+                           sym_filter=sym_filter, syms_all=syms_all,
                            total_lines=_matrix_total_lines(data), matrix_fills=fills)
 
 

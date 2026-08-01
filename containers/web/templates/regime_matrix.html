@@ -6,6 +6,14 @@
 <form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
   <input type="number" name="strategy_id" value="{{ sid or '' }}" placeholder="策略 ID" required style="width:110px">
   <button type="submit">载入</button>
+  {% if data and syms_all %}
+  <label class="muted">品种
+    <select name="symbol" onchange="this.form.submit()"
+            title="过滤到单品种: 汇总八格=该品种自己的八格(同单位, 净点/PF 也真实可信); 全部=十品种同格相加">
+      <option value="">全部</option>
+      {% for s in syms_all %}<option value="{{ s }}" {% if sym_filter == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select></label>
+  {% endif %}
   {% if data and rv_versions %}
   <label class="muted">Regime版本
     <select name="regime_version" onchange="this.form.submit()"
@@ -75,7 +83,8 @@
     <span class="muted">共 {{ data.total_trades }} 笔 · {{ data.symbols|length }} 品种{% if win_label %} · {{ win_label }}{% endif %}{% if data.total_unlabeled %} · {{ data.total_unlabeled }} 笔无时间线标签未计入{% endif %}</span></h2>
   {{ m.regime_grid(total_lines, fills=matrix_fills) }}
   <p class="muted">格子底色 = 净点方向(绿赚/红亏, 灰=样本&lt;20); 左侧色条 = regime 本色。
-    汇总格口径: 笔数/胜率真实可比(纯计数); 净点/PF 跨品种混单位(金点≠欧点, 大点值品种主导)只作参考故灰显; &lt;20 笔=未证实。</p>
+    {% if sym_filter %}单品种视图({{ sym_filter }}): 同品种同单位, 四项全部真实可信; &lt;20 笔=未证实。
+    {% else %}汇总格口径: 笔数/胜率真实可比(纯计数); 净点/PF 跨品种混单位(金点≠欧点, 大点值品种主导)只作参考故灰显; &lt;20 笔=未证实。{% endif %}</p>
 
   <h2>每品种八格 <span class="muted">行内四项全部真实(同品种同单位)</span></h2>
   {% set CELLS = ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
