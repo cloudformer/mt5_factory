@@ -193,15 +193,25 @@ async def rebuild_symbol(pool: asyncpg.Pool, symbol: str, params: dict,
     return None
 
 
-async def ensure_timeline(pool: asyncpg.Pool, symbol: str) -> str | None:
+async def ensure_timeline(pool: asyncpg.Pool, symbol: str,
+                          version_id: int | None = None) -> str | None:
     """读时自愈(无定时任务): timeline 落后于库内 M1 最新交易日才重算 —
-    每天最多一次, 新鲜时零开销。换口径的即时重算走 POST /regime/rebuild(显式动作)。"""
+    每天最多一次, 新鲜时零开销。换口径的即时重算走 POST /regime/rebuild(显式动作)。
+    version_id 不传=治当前默认版本; 指定=治该版本(矩阵页切版本 → 切谁治谁,
+    第一次切新版本自动建齐, 慢一次以后秒开)。"""
     last_bar = await pool.fetchval(
         "SELECT max(time)::date FROM historical_bars WHERE symbol=$1 AND timeframe='M1'",
         symbol)
     if last_bar is None:
         return f"{symbol} 库内无 M1 数据 — 先去「数据」页下载"
-    vid, params = await active_version(pool)
+    if version_id is None:
+        vid, params = await active_version(pool)
+    else:
+        p = await pool.fetchval(
+            "SELECT params FROM regime_versions WHERE id=$1", version_id)
+        if p is None:
+            return f"版本 v{version_id} 不存在"
+        vid, params = version_id, {**DEFAULT_PARAMS, **p}
     last_tl = await pool.fetchval(
         "SELECT max(date) FROM regime_timeline WHERE version_id=$1 AND symbol=$2",
         vid, symbol)

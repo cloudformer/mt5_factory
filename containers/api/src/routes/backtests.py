@@ -1134,7 +1134,8 @@ async def backtest_regime_matrix(request: Request, strategy_id: int,
     for r in rows:
         sym = r["symbol"]
         try:
-            await regime.ensure_timeline(pool, sym)   # 读时自愈; 单品种失败不挡其他品种
+            # 切谁治谁(v0.2): 看哪个版本就自愈哪个版本的时间线 — 第一次切新版本自动建齐
+            await regime.ensure_timeline(pool, sym, regime_version)
         except Exception as e:
             logger.warning("regime ensure %s failed: %s", sym, e)
         # 版本下拉(v0.2): 不传=当前默认; 指定=同一批trades换个版本的天气看归因(读时JOIN零重跑)

@@ -128,12 +128,19 @@ def _validate_regime_params(value) -> dict:
 async def _version_save(pool, params: dict) -> dict:
     """一套参数=一个版本(params UNIQUE 判重执法): 新参数→新版本; 撞上→匹配现有版本。
     保存即设为当前默认(config regime_version, 一处)。"""
-    row = await pool.fetchrow(
-        "INSERT INTO regime_versions (params) VALUES ($1)"
-        " ON CONFLICT (params) DO NOTHING RETURNING id", params)
-    created = row is not None
-    vid = row["id"] if row else await pool.fetchval(
-        "SELECT id FROM regime_versions WHERE params=$1", params)
+    # 先查后插: ON CONFLICT 会"先取号再撞墙"(序列非事务), 重复保存白烧版本号导致跳号 —
+    # 先 SELECT 命中就直接返回, 序列一号不动; 真新参数才 INSERT(并发撞车兜底再查一次)
+    vid = await pool.fetchval("SELECT id FROM regime_versions WHERE params=$1", params)
+    created = False
+    if vid is None:
+        row = await pool.fetchrow(
+            "INSERT INTO regime_versions (params) VALUES ($1)"
+            " ON CONFLICT (params) DO NOTHING RETURNING id", params)
+        if row is not None:
+            vid, created = row["id"], True
+        else:   # 极小概率并发撞车: 另一个请求刚插完 → 拿它的
+            vid = await pool.fetchval(
+                "SELECT id FROM regime_versions WHERE params=$1", params)
     await pool.execute(
         "INSERT INTO config (key, value) VALUES ('regime_version', $1)"
         " ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()", vid)
