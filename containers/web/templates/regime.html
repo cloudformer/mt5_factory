@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('市场状态 Regime', 'v2.5 阶段一 · 尺子先行只看不选: 三维八格(长趋势/短趋势/波动), 每日一格, 用前一日收盘判定(无未来函数)。口径未冻结(评定期): 配置页改口径 → 本页点重建 → 看新打分') }}
+{{ m.page_header('市场状态 Regime', 'v2.5 · 尺子先行只看不选: 三维八格(长趋势/短趋势/波动), 每日一格, 用前一日收盘判定(无未来函数)。口径已版本化(v0.2): 配置页存新口径=新版本 → 本页切版本+点重建 → 每版本一套时间线并存') }}
 
 {# 配色/中文名唯一定义在 _macros(m.regime_color / m.regime_cn): AAA绿→BBB红 八级渐变。
    页面排列(2026-07-28 Frank 定): 色带 → 当前状态 → 八格象限 → 记分卡(含评定流程) → 演变明细(翻页) #}
@@ -83,7 +83,16 @@
   <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:15px">
     <span style="display:inline-block;width:16px;height:16px;border-radius:3px;background:{{ m.regime_color(data.current.regime) }}"></span>
     <b class="mono" style="font-size:19px">{{ symbol }} · {{ data.current.regime }}</b>
-    <span class="muted mono" title="当前默认口径版本(配置页可切换/新建); 时间线按版本并存">口径 v{{ data.version }}</span>
+    <form method="post" action="{{ url_for('datasync.regime_version_select') }}" style="display:inline">
+      <input type="hidden" name="symbol" value="{{ symbol }}">
+      <label class="muted mono">口径
+        <select name="version_id" onchange="this.form.submit()"
+                title="切换=改全局默认版本(与配置页同一开关, 全站生效); 切到还没时间线的版本后点「重建」生成">
+          {% for v in rv_versions %}
+          <option value="{{ v.id }}" {% if v.id == rv_current %}selected{% endif %}>v{{ v.id }} · {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}/{{ v.params.vol_win }}日/{{ '%g' % v.params.vol_q }}</option>
+          {% endfor %}
+        </select></label>
+    </form>
     {% if data.last_close is not none %}<span title="库内最后一根 M1 的收盘价(券商时间口径)">今日 <b class="mono">{{ '%g' % data.last_close }}</b></span>{% endif %}
     <span title="长趋势: D1 收盘 vs {{ data.params.long_ma | upper }}">长 <b class="{{ 'pos' if data.current.regime[0] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[0] == 'A' else '↓' }}</b></span>
     <span title="短趋势: D1 收盘 vs {{ data.params.short_ma | upper }}">短 <b class="{{ 'pos' if data.current.regime[1] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[1] == 'A' else '↓' }}</b></span>

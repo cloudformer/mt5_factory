@@ -128,9 +128,11 @@ def regime():
     days = request.args.get("days", 90, type=int)
     full = request.args.get("full", 0, type=int)
     symbols, data = [], None
+    rv = {"current": None, "versions": []}
     try:
         symbols = [s["symbol"] for s in api.get("/symbols")["symbols"] if s.get("download")]
         symbol = symbol or (symbols[0] if symbols else None)
+        rv = api.get("/regime/versions")   # 版本下拉(v0.2): 本页切换=改全局默认(与配置页同一开关)
         if symbol:
             data = api.get(f"/regime/{symbol}", days=days, **({"full": 1} if full else {}))
     except api.ApiError as e:
@@ -156,7 +158,20 @@ def regime():
         neighbors = [cur[:i] + ("B" if cur[i] == "A" else "A") + cur[i + 1:] for i in range(3)]
     return render_template("regime.html", symbols=symbols, symbol=symbol, days=days,
                            full=full, data=data, cell_lines=cell_lines, neighbors=neighbors,
-                           score=score, band_months=band_months)
+                           score=score, band_months=band_months,
+                           rv_current=rv["current"], rv_versions=rv["versions"])
+
+
+@bp.post("/regime/version-select")
+def regime_version_select():
+    """Regime 页切版本 = 改全局默认(与配置页同一开关, 不造第二套口径), 切完留在本页"""
+    try:
+        vid = int(request.form.get("version_id", 0))
+        api.post("/regime/versions/select", {"id": vid})
+        flash(f"当前 Regime 版本 → v{vid} — 该版本无时间线的品种点「重建」生成", "ok")
+    except (api.ApiError, ValueError) as e:
+        flash(f"切换失败: {e}", "error")
+    return redirect(url_for("datasync.regime", symbol=request.form.get("symbol") or None))
 
 
 @bp.get("/regime/eval")
