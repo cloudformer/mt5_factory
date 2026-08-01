@@ -155,7 +155,7 @@
         ('M5', False, '默认不下: 无消费者; 回测不吃原生高周期(撮合依赖 M1 拆bar)'),
         ('M15', False, '默认不下: 同上'), ('M30', False, '默认不下: 同上'),
         ('H1', False, '默认不下: 同上'), ('H4', False, '默认不下: 同上'),
-        ('D1', False, '原生 D1: regime/长视野用(M1 仅~4个月, D1 有16年+); 回测仍只读 M1')] %}
+        ('D1', True, '原生 D1: regime/长视野的系统原料, 必含 — admin 也不可关(与 M1 同为铁律层)')] %}
     {% set on = lock or tf in download_timeframes %}
     <label title="{{ tip }}" style="{{ '' if on else 'color:#999' }}">
       <input type="checkbox" name="tf" value="{{ tf }}" {% if on %}checked{% endif %}

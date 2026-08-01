@@ -131,9 +131,11 @@ def save_download_timeframes():
     if not _admin_only():
         return redirect(url_for("symbols.backtest_params"))
     try:
+        # M1(回测原料)+D1(regime原料)= 系统铁律层, admin 也不可关 — 服务端固定并上,
+        # 不信任表单(勾选框 disabled 只是体验层); api 侧再去重定序
         api.put("/config/download_timeframes",
-                {"value": ["M1"] + request.form.getlist("tf")})
-        flash("下载周期已保存 — 下次触发同步按新周期层派任务", "ok")
+                {"value": ["M1", "D1"] + request.form.getlist("tf")})
+        flash("下载周期已保存(M1/D1 恒必含) — 下次触发同步按新周期层派任务", "ok")
     except api.ApiError as e:
         flash(f"保存失败: {e}", "error")
     return redirect(url_for("symbols.backtest_params"))
