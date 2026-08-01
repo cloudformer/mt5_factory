@@ -8,7 +8,7 @@
   <form method="post" action="{{ url_for('symbols.save_generate_limit') }}" class="inline">
     <label>单批收货上限 <input name="generate_limit" value="{{ generate_limit }}" size="5"
         title="所有生成入口(批量生成 / AI调参创建)单次最多收多少组参数, 超出的组不处理; 防失控倾倒"></label>
-    <button class="small">保存</button>
+    <button>保存</button>
     <span class="muted">config: generate_batch_limit — 生成页与 AI 调参页共用此上限</span>
   </form>
 </section>
@@ -21,7 +21,7 @@
         title="没设每策略手数的策略统一用这个下单; runner 每轮拉取即生效, 下拉显示「X(默认)」"></label>
     <label>预设值 <input name="volume_presets" value="{{ volume_presets | join(', ') }}" size="24"
         title="逗号分隔的手数选项; 策略列表的手数下拉由此渲染(选预设防误输, 如 0.1 敲成 1)"></label>
-    <button class="small">保存</button>
+    <button>保存</button>
     <span class="muted">config: volume_default / volume_presets — 默认给没单独设手数的策略; 预设是下拉可选项</span>
   </form>
 </section>
@@ -38,7 +38,7 @@
         title="一次批量回测最多跑多少个策略(防失控保护)。策略总数超过它时'全部'跑不全 — 调大到不小于策略总数"></label>
     <label>OOS训练占比 <input name="oos_split" value="{{ '%g' % oos_split }}" size="4"
         title="样本外切分: 0.7=训练7:留出3(推荐, 长期固定)。纪律: 换比例后必须'范围=全部'跑一次全量收敛, 否则库里新旧口径混着不可比"></label>
-    <button class="small">保存</button>
+    <button>保存</button>
     <span class="muted">成本 = 悲观撮合假设; 上限 = 单批保护值(排名取数跟它); OOS = 训练段选/留出段一票否决, 比例长期固定 7:3</span>
   </form>
 </section>
@@ -56,7 +56,7 @@
         title="主品种盈利因子下限; 零亏损(∞)视为通过; 空=不检查"></label>
     <label>回撤≤ <input name="max_dd_points" value="{{ '%g' % gate.max_dd_points if gate.get('max_dd_points') is not none else '' }}" size="6"
         title="主品种最大回撤(点)上限; 空=不检查"></label>
-    <button class="small">保存</button>
+    <button>保存</button>
     <span class="muted">主货币成绩过线才展开交叉品种(省算力);没过/没测过的只跑主品种,下一批自动够格。
       按 ID 点名回测不走门槛(点名即信任,随便交叉)。全留空 = 不设门槛(全交叉)</span>
   </form>
@@ -67,7 +67,7 @@
   <form method="post" action="{{ url_for('symbols.save_recon_tol') }}" class="inline">
     <label>回测与实盘时间窗口差距(分钟) <input name="recon_pair_tol_minutes" value="{{ recon_tol }}" size="3"
         title="逐笔配对容差 ±N分钟(对比窗口边缘放宽同值)。调大=更宽容(晚一根bar补单也算匹配), 调小=更严格(执行偏差如实暴露)"></label>
-    <button class="small">保存</button>
+    <button>保存</button>
     <span class="muted"><b>建议 2</b>。正常成交滞后 &lt;1 分钟(实测 3~8 秒), 2 已留足余量;
       设置过大容易把相邻的两笔不同交易误配成同一笔(误判匹配), 经验法则:容差 &lt; 最小K线周期的一半(M5→勿超2)</span>
   </form>
@@ -80,7 +80,7 @@
         title="策略运行状态写入间隔: 心跳30秒一次, 但 run_to 落后超过本值才真正写库(节流)。死机时区间终点的定格误差 ≤ 本值; 默认5足够"></label>
     <label>裂段阈值(分钟) <input name="runtime_gap_minutes" value="{{ runtime_gap }}" size="3"
         title="距上次运行记录超过本值 → 视为断开, 新开一段运行区间。必须明显大于写入间隔, 否则正常节流会被误判成断线; 短于本值的停机会被连成一段(偏严格方向, 多比不漏比)"></label>
-    <button class="small">保存</button>
+    <button>保存</button>
     <span class="muted">worker 心跳持续记录每个策略的真实运行区间 → 关2对账只比“在跑的时段”。
       写入间隔=运行状态多久落一次库(默认5); 裂段阈值=断多久算一次下架(默认15, 需&gt;写入间隔)</span>
   </form>
@@ -123,7 +123,7 @@
         title="ATR 与过去 N 个交易日的分位阈值比较, 20~1000(小值仅短历史调试用); 252≈一年"></label>
     <label>高波分位 <input name="vol_q" type="number" min="0.1" max="0.9" step="0.01" value="{{ '%g' % regime_params.get('vol_q', 0.5) }}" style="width:4em"
         title="0.1~0.9; 0.5=中位(高低各半), 0.67=前1/3算高波"></label>
-    <button class="small">保存为版本</button>
+    <button>保存为版本</button>
     <span class="muted">新参数=新版本; 保存后去「数据 → 市场状态 Regime」点重建、看记分卡。禁止用策略盈利调口径</span>
   </form>
   <form method="post" action="{{ url_for('symbols.reset_regime_params') }}" class="inline"
@@ -171,7 +171,7 @@
         title="下载数据分批上传的单批根数(1000~200000, 单向化#3启用): 网络差调小, 内网快调大"></label>
     <label>决策日志保留(天) <input name="decision_keep_days" value="{{ worker_params.get('decision_keep_days', 14) }}" size="3"
         title="runner 本地每bar决策日志(JSONL)滚动保留天数(3~90), 超期自动删 — 定容不增长"></label>
-    <button class="small">保存</button>
+    <button>保存</button>
     <span class="muted">唯一源=config 表; 各 worker 每次报到自动领取, 改完约 1 分钟生效, 无需重启</span>
   </form>
 </section>
@@ -181,7 +181,7 @@
   <form method="post" action="{{ url_for('symbols.save_mt5_days') }}" class="inline">
     <label>天数选项 <input name="mt5_trades_days" value="{{ mt5_days | join(', ') }}" size="18"
         title="逗号分隔的天数; 流水页(Worker/系统)据此渲染成『近N天』快捷 chips"></label>
-    <button class="small">保存</button>
+    <button>保存</button>
     <span class="muted">如 7, 30, 90 → 流水页出现「近7天/近30天/近90天」chips + 自定义区间</span>
   </form>
 </section>
