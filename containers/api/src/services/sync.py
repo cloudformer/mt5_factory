@@ -211,20 +211,32 @@ async def _touch_runtime(pool: asyncpg.Pool, ids: list[int], host: str):
 HEARTBEAT_LEADER_LOCK = 714002  # advisory lock key: 心跳循环选主(铁律6, 多副本只跑一份)
 
 
+async def record_trigger(pool: asyncpg.Pool, source: str, user: str | None = None) -> None:
+    """同步触发来源留痕(2026-08-01 Frank 定): 一个 config 键 UPSERT 覆盖, 无垃圾。
+    手动(带用户名)/自动 共用 — 下载页显示"上次投递: 手动(admin) / 自动 + 时刻";
+    自动计时也读它 → 手动同步天然重置自动班起点(数据已新鲜, 不白跑)。"""
+    v: dict = {"source": source, "at": datetime.now(timezone.utc).isoformat()}
+    if user:
+        v["user"] = user
+    await pool.execute(
+        "INSERT INTO config (key, value) VALUES ('sync_last_trigger', $1)"
+        " ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()", v)
+
+
 async def _auto_sync_tick(pool: asyncpg.Pool) -> None:
-    """自动增量同步(2026-08-01 与 Frank 定, 心跳主节点搭车): 距上次 ≥ auto_sync_hours
-    小时就自动投一批增量下载(按配置周期层, 断点续传幂等) — 把"每天人肉点同步"自动化,
-    regime 当日格的原料保鲜靠它。规则:
-    - config auto_sync_hours(schema/055 种子 6, 配置页只读, 0=关闭);
+    """自动增量同步(2026-08-01 与 Frank 定, 心跳主节点搭车): 距上次投递(手动或自动)
+    ≥ auto_sync_hours 小时就自动投一批增量下载(按配置周期层, 断点续传幂等) —
+    把"每天人肉点同步"自动化, regime 当日格的原料保鲜靠它。规则:
+    - config auto_sync_hours(schema/055 种子 6, admin 配置页可改, 0=关闭);
     - 有下载批次在跑(手动/上一班未完) → 本拍跳过不清人家的单, 30s 后再看;
-    - 上次时刻记 config auto_sync_last(UPSERT 一行, 无新表); 首次部署缺失 = 立即补一班
-      (增量便宜; 全新空库则等价于自动开始首轮全量, 本来也要下)。"""
+    - 计时基准 = sync_last_trigger(手动/自动共用, 手动同步重置自动起点);
+      首次部署缺失 = 立即补一班(增量便宜; 全新空库等价于自动开始首轮全量, 本来也要下)。"""
     hours = await pool.fetchval("SELECT value FROM config WHERE key='auto_sync_hours'")
     if not hours or int(hours) <= 0:
         return
     now = datetime.now(timezone.utc)
-    last = await pool.fetchval("SELECT value FROM config WHERE key='auto_sync_last'")
-    if last and datetime.fromisoformat(last) > now - timedelta(hours=int(hours)):
+    last = await pool.fetchval("SELECT value FROM config WHERE key='sync_last_trigger'")
+    if last and datetime.fromisoformat(last["at"]) > now - timedelta(hours=int(hours)):
         return
     active = await pool.fetchval(
         "SELECT count(*) FROM jobs WHERE kind=$1 AND status IN ('PENDING','RUNNING')",
@@ -232,10 +244,7 @@ async def _auto_sync_tick(pool: asyncpg.Pool) -> None:
     if active:
         return   # 避让: submit 是先清后插, 不能打断在跑的批
     r = await submit_download_jobs(pool)
-    await pool.execute(
-        "INSERT INTO config (key, value) VALUES ('auto_sync_last', $1)"
-        " ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()",
-        now.isoformat())
+    await record_trigger(pool, "auto")
     logger.info("auto sync submitted: %s jobs (every %sh)", r.get("jobs"), hours)
 
 

@@ -305,6 +305,11 @@ async def start_sync(request: Request, req: SyncRequest | None = None):
         pool, only_tfs=(req.timeframes if req else None))
     if res.get("error"):
         raise HTTPException(status_code=400, detail=res["error"])
+    # 触发来源留痕(2026-08-01 Frank 定样版): 手动记"谁点的"; 也重置自动计时
+    # (刚手动同步完, 数据已新鲜, 自动班从此刻重新起算 — 与 _auto_sync_tick 共用同一个键)
+    uid = getattr(request.state, "user_id", None)
+    uname = (await pool.fetchval("SELECT name FROM users WHERE id=$1", uid)) if uid else None
+    await sync.record_trigger(pool, "manual", user=uname or (f"id{uid}" if uid else "未知"))
     return {"started": True, "mode": "jobs", **res}
 
 

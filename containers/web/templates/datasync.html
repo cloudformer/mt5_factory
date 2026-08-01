@@ -28,10 +28,13 @@
          数据级的新鲜度看下方覆盖表每品种"数据水位"(库内 M1 最新时间) #}
       <span class="muted" title="最近一批下载任务全部结束的时刻(任务级); 每品种数据新到哪看下方覆盖表">上次同步完成: {{ m.lts(sync.last_sync) }}</span>
     {% endif %}
-    {% if auto_sync.hours %}
-      <span class="muted" title="api 心跳主节点每隔此时长自动投一批增量下载(断点续传幂等, 有批次在跑自动避让), 任务仍由下载 worker 执行。间隔只读=管理员定(config.auto_sync_hours, 0=关闭)">
-        · 自动同步: 每 {{ auto_sync.hours }} 小时 · 上次自动投递 {{ m.lts(auto_sync.last) if auto_sync.last else '待首班' }}</span>
+    {% if auto_sync.trigger %}
+      {% set trg = auto_sync.trigger %}
+      <span class="muted" title="投递=谁在几点把任务丢进队列(上面的'上次同步完成'=最后一个任务跑完的时刻, 两者对照可见这批跑了多久)。手动投递也重置自动计时(数据已新鲜, 自动班从投递时刻重新起算)">
+        · 上次投递: {% if trg.source == 'manual' %}手动({{ trg.user or '未知' }}){% else %}自动{% endif %} {{ m.lts(trg.at) }}</span>
     {% endif %}
+      <span class="muted" title="api 心跳主节点每隔此时长自动投一批增量下载(断点续传幂等, 有批次在跑自动避让), 任务由下载 worker 执行。间隔在配置页(仅 admin 可改, 0=关闭)">
+        · 自动同步: {% if auto_sync.hours %}每 {{ auto_sync.hours }} 小时{% else %}已关闭{% endif %}</span>
     {% if sync.running %}
       <span id="ds-progress" data-running="1">
         <span class="badge ok"><span class="ds-done">{{ sync.done | length }}</span>/<span class="ds-total">{{ sync.symbols | length }}</span> 品种</span>
