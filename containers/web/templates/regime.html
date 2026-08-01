@@ -8,11 +8,23 @@
 
 {# 品种选择器置顶(2026-07-28 Frank 定: 单品种页面, 切换入口必须在最上面) #}
 <section>
-  <form method="get" class="inline">
-    <label>货币对 <select name="symbol" data-autosubmit title="切换货币对 — 整页数据都随之切换">
-      {% for s in symbols %}<option {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
-    </select></label>
-  </form>
+  <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+    <form method="get" class="inline">
+      <label>货币对 <select name="symbol" data-autosubmit title="切换货币对 — 整页数据都随之切换">
+        {% for s in symbols %}<option {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      </select></label>
+    </form>
+    <form method="post" action="{{ url_for('datasync.regime_version_select') }}" class="inline">
+      <input type="hidden" name="symbol" value="{{ symbol }}">
+      <label>口径版本
+        <select name="version_id" onchange="this.form.submit()"
+                title="切换=改全局默认版本(与配置页同一开关, 全站生效); 切到还没时间线的版本后点「重建」生成">
+          {% for v in rv_versions %}
+          <option value="{{ v.id }}" {% if v.id == rv_current %}selected{% endif %}>v{{ v.id }} · {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}/{{ v.params.vol_win }}日/{{ '%g' % v.params.vol_q }}</option>
+          {% endfor %}
+        </select></label>
+    </form>
+  </div>
 </section>
 
 {% if data and data.error %}<div class="flash error">{{ data.error }}</div>{% endif %}
@@ -83,16 +95,7 @@
   <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:15px">
     <span style="display:inline-block;width:16px;height:16px;border-radius:3px;background:{{ m.regime_color(data.current.regime) }}"></span>
     <b class="mono" style="font-size:19px">{{ symbol }} · {{ data.current.regime }}</b>
-    <form method="post" action="{{ url_for('datasync.regime_version_select') }}" style="display:inline">
-      <input type="hidden" name="symbol" value="{{ symbol }}">
-      <label class="muted mono">口径
-        <select name="version_id" onchange="this.form.submit()"
-                title="切换=改全局默认版本(与配置页同一开关, 全站生效); 切到还没时间线的版本后点「重建」生成">
-          {% for v in rv_versions %}
-          <option value="{{ v.id }}" {% if v.id == rv_current %}selected{% endif %}>v{{ v.id }} · {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}/{{ v.params.vol_win }}日/{{ '%g' % v.params.vol_q }}</option>
-          {% endfor %}
-        </select></label>
-    </form>
+    <span class="muted mono" title="当前默认口径版本(顶部下拉可切换)">口径 v{{ data.version }}</span>
     {% if data.last_close is not none %}<span title="库内最后一根 M1 的收盘价(券商时间口径)">今日 <b class="mono">{{ '%g' % data.last_close }}</b></span>{% endif %}
     <span title="长趋势: D1 收盘 vs {{ data.params.long_ma | upper }}">长 <b class="{{ 'pos' if data.current.regime[0] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[0] == 'A' else '↓' }}</b></span>
     <span title="短趋势: D1 收盘 vs {{ data.params.short_ma | upper }}">短 <b class="{{ 'pos' if data.current.regime[1] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[1] == 'A' else '↓' }}</b></span>
