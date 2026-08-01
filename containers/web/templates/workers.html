@@ -66,13 +66,16 @@
         {# 最近事件(v7.2 小优化②): 异常类直接显示; 上下线等生命周期噪音默认收起 #}
         {% if h.events_bad %}
         <table class="subtable" style="margin-top:6px">
-          <tr><th>时间</th><th>异常事件</th><th>策略</th><th>详情</th></tr>
+          <tr><th>时间</th><th>异常事件</th><th>策略</th><th>详情</th><th>怎么修</th></tr>
           {% for e in h.events_bad %}
+          {% set note = e.detail.note if e.detail and e.detail.note else '' %}
           <tr>
             <td class="muted">{{ m.lts(e.created_at) }}</td>
             <td><span class="neg">{{ e.event }}</span></td>
             <td class="mono">{{ e.detail.sid if e.detail and e.detail.sid else '—' }}</td>
-            <td class="muted clip" title="{{ e.detail.note if e.detail else '' }}">{{ e.detail.note if e.detail and e.detail.note else '—' }}</td>
+            <td class="muted clip" title="{{ note }}">{{ note or '—' }}</td>
+            {% set fix = m.event_fix(e.event, note) %}
+            <td class="muted" style="max-width:420px" title="{{ fix }}">{{ fix or '—' }}</td>
           </tr>
           {% endfor %}
         </table>

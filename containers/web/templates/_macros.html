@@ -223,6 +223,39 @@
 {{- {'AAA': '牛·牛·高波', 'AAB': '牛·牛·低波', 'ABA': '牛市回调·高波', 'ABB': '牛市回调·低波',
      'BAA': '熊市反弹·高波', 'BAB': '熊市反弹·低波', 'BBA': '熊·熊·高波', 'BBB': '熊·熊·低波'}.get(cell, '未标注') -}}
 {%- endmacro %}
+{# 异常事件 → 修复方向(2026-08-01 Frank 定: 报错必须能"看见即知道怎么修")。
+   方向优先: 先说问题在哪端(Windows/MT5 还是 Linux/数据), 再给动作 #}
+{% macro event_fix(event, note) -%}
+{%- set n = note or '' -%}
+{%- if event == 'QUOTE_LOST' -%}
+Windows/MT5 侧: MT5 终端是否登录、品种是否在市场报价里、品种名与券商是否一致; 与 Linux 无关。恢复自动报 QUOTE_OK
+{%- elif event == 'GATE_STALE' -%}
+数据侧: 当日 regime 未生成 — ①下载页看自动同步/下载worker是否把今天的 M1 入库 ②Regime 页对该版本重建; 期间带门策略保守不开仓, 恢复自动报 GATE_OK
+{%- elif event == 'LOAD_FAIL' and 'bad_timeframe' in n -%}
+策略周期不受支持 — 改策略 timeframe 或淘汰该实例
+{%- elif event == 'LOAD_FAIL' -%}
+品种在该券商不可用/名字不符 — MT5 市场报价里加品种, 或核对品种名与券商拼写
+{%- elif 'order_fail:10016' in n or 'refused:stops_level' in n -%}
+SL/TP 距离小于券商最小停损(Invalid stops) — 加大策略 sl_points 或淘汰(该参数不适合此券商); 对账侧此类拒单已记为匹配
+{%- elif 'order_fail:10030' in n -%}
+填充模式不被券商支持 — 升级 worker 代码(update.ps1), 新版按品种能力位自动选 IOC/FOK
+{%- elif 'order_fail:10019' in n -%}
+账户资金不足 — 减小手数或换账户
+{%- elif 'order_fail:10018' in n -%}
+市场关闭(休市时段下单) — 正常现象, 开市自动恢复
+{%- elif 'refused:vol_min' in n -%}
+手数低于券商最小手 — 调大挂载/策略手数(带门策略注意最低挂载手数=最小手÷最小倍率)
+{%- elif 'refused:no_sltp' in n -%}
+策略信号没带 SL/TP, 铁律拒单 — 查该策略模板的信号生成
+{%- elif 'refused:no_tick' in n -%}
+拿不到报价 — 同 QUOTE_LOST 方向(MT5 终端/品种可用性)
+{%- elif event == 'ORDER_FAIL' -%}
+查 MT5 retcode 含义(note 里的数字), Windows 侧 runner 日志有完整请求
+{%- elif event == 'OFFLINE' -%}
+worker 90 秒无心跳 — Windows 侧看 bridge/runner 进程与网络; 恢复自动上线
+{%- endif -%}
+{%- endmacro %}
+
 {% macro regime_chip(cell) -%}
 <span class="mono" title="{{ regime_cn(cell) }}"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:{{ regime_color(cell) }};vertical-align:-1px"></span>{{ cell or '—' }}</span>
 {%- endmacro %}
