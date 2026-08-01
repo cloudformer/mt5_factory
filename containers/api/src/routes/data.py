@@ -101,6 +101,87 @@ async def regime_evaluate(request: Request):
 
 
 
+def _validate_regime_params(value) -> dict:
+    """Regime 口径参数校验(键完整 + 均线格式 + 数值区间) — 版本创建唯一入口用"""
+    want = {"long_ma", "short_ma", "atr_n", "vol_win", "vol_q"}
+    if not isinstance(value, dict) or set(value) != want:
+        raise HTTPException(status_code=400, detail=f"口径键必须恰好是 {sorted(want)}")
+    try:   # 周期区间与配置页 number 框一致(前后端同一边界, 不给幻想):
+        n_long = regime.parse_ma(value["long_ma"])[1]    # 长趋势 20~500
+        n_short = regime.parse_ma(value["short_ma"])[1]  # 短趋势 5~100
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not 20 <= n_long <= 500:   # 下限20: 短历史调试用(正式评定用200级)
+        raise HTTPException(status_code=400, detail="长趋势均线周期须为 20~500 交易日")
+    if not 5 <= n_short <= 100:
+        raise HTTPException(status_code=400, detail="短趋势均线周期须为 5~100 交易日")
+    if not isinstance(value["atr_n"], int) or not 2 <= value["atr_n"] <= 100:
+        raise HTTPException(status_code=400, detail="atr_n 须为 2~100 的整数")
+    if not isinstance(value["vol_win"], int) or not 20 <= value["vol_win"] <= 1000:
+        raise HTTPException(status_code=400, detail="vol_win 须为 20~1000 的整数(交易日)")
+    q = value["vol_q"]
+    if not isinstance(q, (int, float)) or not 0.1 <= q <= 0.9:
+        raise HTTPException(status_code=400, detail="vol_q 须为 0.1~0.9(高波阈值分位)")
+    return value
+
+
+async def _version_save(pool, params: dict) -> dict:
+    """一套参数=一个版本(params UNIQUE 判重执法): 新参数→新版本; 撞上→匹配现有版本。
+    保存即设为当前默认(config regime_version, 一处)。"""
+    row = await pool.fetchrow(
+        "INSERT INTO regime_versions (params) VALUES ($1)"
+        " ON CONFLICT (params) DO NOTHING RETURNING id", params)
+    created = row is not None
+    vid = row["id"] if row else await pool.fetchval(
+        "SELECT id FROM regime_versions WHERE params=$1", params)
+    await pool.execute(
+        "INSERT INTO config (key, value) VALUES ('regime_version', $1)"
+        " ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()", vid)
+    return {"id": vid, "created": created, "params": params}
+
+
+@router.get("/regime/versions")
+async def regime_versions_list(request: Request):
+    """版本清单(下拉用) + 当前默认。页面无删除口(v0.2): 删错版本=Frank 直接
+    DELETE FROM regime_versions WHERE id=N(级联清时间线), 自愈回落见 regime.active_version"""
+    pool = request.app.state.pool
+    vid, _ = await regime.active_version(pool)
+    rows = await pool.fetch(
+        "SELECT id, params, created_at FROM regime_versions ORDER BY id")
+    return {"current": vid,
+            "versions": [{"id": r["id"], "params": r["params"],
+                          "created_at": r["created_at"].isoformat()} for r in rows]}
+
+
+class RegimeVersionSave(BaseModel):
+    params: dict
+
+
+@router.post("/regime/versions")
+async def regime_version_save(req: RegimeVersionSave, request: Request):
+    """保存口径 → 版本化(v0.2): 新参数生成 v{新id}; 重复参数匹配回现有版本(提示"这是vN")。
+    只存不重建 — 重建仍是 Regime 页显式动作(对当前默认版本)。"""
+    return await _version_save(request.app.state.pool,
+                               _validate_regime_params(req.params))
+
+
+class RegimeVersionSelect(BaseModel):
+    id: int
+
+
+@router.post("/regime/versions/select")
+async def regime_version_select(req: RegimeVersionSelect, request: Request):
+    """切换当前默认版本(下拉选中即生效): 全部读时贴格/自愈重建随之走该版本时间线"""
+    pool = request.app.state.pool
+    p = await pool.fetchval("SELECT params FROM regime_versions WHERE id=$1", req.id)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"版本 v{req.id} 不存在")
+    await pool.execute(
+        "INSERT INTO config (key, value) VALUES ('regime_version', $1)"
+        " ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()", req.id)
+    return {"current": req.id, "params": p}
+
+
 @router.get("/regime/{symbol}")
 async def regime_timeline(symbol: str, request: Request, days: int = 90, full: int = 0):
     """品种的 regime 时间线 + 四标准统计(页面即记分卡)。读时自愈补算(无定时任务)。
@@ -110,15 +191,16 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
     pool = request.app.state.pool
     if not await pool.fetchval("SELECT 1 FROM symbols WHERE symbol=$1", name):
         raise HTTPException(status_code=404, detail=f"品种 {name} 未登记")
-    params = await regime.load_params(pool)
+    vid, params = await regime.active_version(pool)
     err = await regime.ensure_timeline(pool, name)
     rows = await pool.fetch(
-        "SELECT date, regime FROM regime_timeline WHERE symbol=$1 ORDER BY date", name)
+        "SELECT date, regime FROM regime_timeline"
+        " WHERE version_id=$1 AND symbol=$2 ORDER BY date", vid, name)
     if not rows:
         return {"symbol": name, "error": err or "无数据", "rows": [],
-                "stats": {}, "params": params}
+                "stats": {}, "params": params, "version": vid}
     regs = [r["regime"] for r in rows]
-    out = {"symbol": name, "error": err, "params": params,
+    out = {"symbol": name, "error": err, "params": params, "version": vid,
            "stats": regime.stats(regs),
            # 最新价(库内最后一根 M1 收盘, 券商时间口径) — 页面当前状态条显示"今日 xxx"
            "last_close": await pool.fetchval(
@@ -141,22 +223,19 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
 
 @router.post("/regime/params/reset")
 async def regime_params_reset(request: Request):
-    """口径恢复默认(SMA200/SMA20/ATR14/252/0.5) — 唯一权威 = services/regime.DEFAULT_PARAMS
-    (与 schema/048 种子同值)。只改配置不重建 — 重建仍是 Regime 页的显式动作。"""
-    await request.app.state.pool.execute(
-        "UPDATE config SET value=$1, updated_at=now() WHERE key='regime_params'",
-        regime.DEFAULT_PARAMS)
-    return {"params": regime.DEFAULT_PARAMS}
+    """口径恢复默认(SMA200/SMA20/ATR14/252/0.5) — 唯一权威 = services/regime.DEFAULT_PARAMS。
+    版本化后语义 = 匹配/创建默认参数的版本并设为当前(通常就是 v1)。"""
+    r = await _version_save(request.app.state.pool, dict(regime.DEFAULT_PARAMS))
+    return {"params": regime.DEFAULT_PARAMS, "id": r["id"], "created": r["created"]}
 
 
 @router.post("/regime/rebuild")
 async def regime_rebuild(request: Request, symbol: str | None = None):
-    """按当前口径(config regime_params)重算时间线 — 覆盖更新不删表
-    (同主键 UPSERT + 修剪新暖机起点前的头部残留)。
-    symbol=某品种只重建它(Regime 页按钮, 2026-07-27 Frank 定: 重建是显式动作);
+    """按当前默认版本口径重算时间线 — 覆盖更新不删表(同主键 UPSERT + 修剪头部残留),
+    只动本版本的行。symbol=某品种只重建它(Regime 页按钮, 重建是显式动作);
     不传=全部下载品种。逐品种给结果, 失败原因如实带回。"""
     pool = request.app.state.pool
-    params = await regime.load_params(pool)
+    vid, params = await regime.active_version(pool)
     if symbol:
         symbols = [symbol.strip().upper()]
     else:
@@ -165,11 +244,11 @@ async def regime_rebuild(request: Request, symbol: str | None = None):
     results = {}
     for s in symbols:
         try:
-            results[s] = await regime.rebuild_symbol(pool, s, params) or "ok"
+            results[s] = await regime.rebuild_symbol(pool, s, params, vid) or "ok"
         except Exception as e:   # 单品种失败不挡整批, 原因如实回
             logger.warning("regime rebuild %s failed: %s: %s", s, type(e).__name__, e)
             results[s] = f"失败: {type(e).__name__}: {e}"
-    return {"params": params, "results": results,
+    return {"params": params, "version": vid, "results": results,
             "ok": sum(1 for v in results.values() if v == "ok"), "total": len(symbols)}
 
 CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
@@ -178,7 +257,8 @@ CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
                "recon_pair_tol_minutes", "volume_presets", "volume_default",
                "trail_default",   # 移动止损全局默认(v0.9): null=关; 结构见 strategy_core/trailing.py
                "worker_params",   # worker 上报节奏/批量(v7.2, schema/046): announce 应答下发
-               "regime_params",   # Regime 口径(v2.5, schema/048): 评定期配置页可换, 改完重建时间线
+               # regime_params 已退役(053 版本化): 口径唯一入口 = POST /regime/versions;
+               # config 只留 regime_version 指针(由版本端点维护, 不走通用 PUT)
                "download_timeframes",  # 下载周期层(2026-07-29, schema/049): M1 必含 + 可选高周期
                "backtest_window_days"}  # 批量回测默认窗口天数(2026-07-29, schema/051)
 
@@ -385,26 +465,6 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
             raise HTTPException(status_code=400,
                                 detail=f"download_timeframes 须为包含 M1 的列表, 可选值 {allowed_tf}")
         req.value = [t for t in allowed_tf if t in req.value]   # 去重并按周期从细到粗定序
-    if key == "regime_params":  # Regime 口径: 键完整 + 均线格式 + 数值区间(services/regime 消费)
-        want = {"long_ma", "short_ma", "atr_n", "vol_win", "vol_q"}
-        if not isinstance(req.value, dict) or set(req.value) != want:
-            raise HTTPException(status_code=400, detail=f"regime_params 键必须恰好是 {sorted(want)}")
-        try:   # 周期区间与配置页 number 框一致(前后端同一边界, 不给幻想):
-            n_long = regime.parse_ma(req.value["long_ma"])[1]    # 长趋势 50~500
-            n_short = regime.parse_ma(req.value["short_ma"])[1]  # 短趋势 5~100
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        if not 20 <= n_long <= 500:   # 下限20: 短历史调试用(正式评定用200级)
-            raise HTTPException(status_code=400, detail="长趋势均线周期须为 20~500 交易日")
-        if not 5 <= n_short <= 100:
-            raise HTTPException(status_code=400, detail="短趋势均线周期须为 5~100 交易日")
-        if not isinstance(req.value["atr_n"], int) or not 2 <= req.value["atr_n"] <= 100:
-            raise HTTPException(status_code=400, detail="atr_n 须为 2~100 的整数")
-        if not isinstance(req.value["vol_win"], int) or not 20 <= req.value["vol_win"] <= 1000:
-            raise HTTPException(status_code=400, detail="vol_win 须为 20~1000 的整数(交易日)")
-        q = req.value["vol_q"]
-        if not isinstance(q, (int, float)) or not 0.1 <= q <= 0.9:
-            raise HTTPException(status_code=400, detail="vol_q 须为 0.1~0.9(高波阈值分位)")
     if key == "recon_pair_tol_minutes":  # 对账配对容差: 回测与实盘时间窗口差距(分钟)
         if not isinstance(req.value, int) or not 1 <= req.value <= 120:
             raise HTTPException(status_code=400,

@@ -28,6 +28,7 @@ def backtest_params():
     window_days = None
     runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
     generate_limit, worker_params, regime_params = 500, {}, {}
+    regime_versions, regime_current = [], None
     download_timeframes = []  # 唯一源=config表(schema/049种子); api不可用即空
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空(铁律欠账4)
     volume_default = None
@@ -46,8 +47,13 @@ def backtest_params():
         gate = cfg.get("cross_symbol_gate") or {}
         recon_tol = cfg.get("recon_pair_tol_minutes", 2)
         worker_params = cfg.get("worker_params") or {}
-        regime_params = cfg.get("regime_params") or {}
         download_timeframes = cfg.get("download_timeframes") or []
+        # Regime 口径版本化(v0.2): 唯一源 = regime_versions 表, 下拉选当前默认
+        rv = api.get("/regime/versions")
+        regime_versions = rv["versions"]
+        regime_current = rv["current"]
+        regime_params = next((v["params"] for v in regime_versions
+                              if v["id"] == regime_current), {})
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
@@ -58,6 +64,7 @@ def backtest_params():
                            runtime_write=runtime_write, runtime_gap=runtime_gap, gate=gate,
                            recon_tol=recon_tol, worker_params=worker_params,
                            regime_params=regime_params,
+                           regime_versions=regime_versions, regime_current=regime_current,
                            download_timeframes=download_timeframes)
 
 
@@ -120,20 +127,38 @@ def save_download_timeframes():
 
 @bp.post("/config/regime-params")
 def save_regime_params():
-    """保存 Regime 口径(config: regime_params) — 只存不重建(2026-07-27 Frank 定):
-    重建是显式动作, 去「数据 → 市场状态 Regime」页点「重建」, 想重建哪个货币点哪个。"""
+    """保存 Regime 口径 → 版本化(v0.2): 新参数生成 v{新id}并设为当前;
+    重复参数自动匹配回现有版本(提示"这是vN")。只存不重建 — 重建去 Regime 页显式点。"""
     try:
         # 表单是 下拉(类型)+数字(周期) — 边界显式化; 存储格式仍是 'sma200' 字符串
-        api.put("/config/regime_params", {"value": {
+        r = api.post("/regime/versions", {"params": {
             "long_ma": request.form.get("long_kind", "sma") + request.form.get("long_n", "200"),
             "short_ma": request.form.get("short_kind", "sma") + request.form.get("short_n", "20"),
             "atr_n": int(request.form.get("atr_n", 14)),
             "vol_win": int(request.form.get("vol_win", 252)),
             "vol_q": float(request.form.get("vol_q", 0.5)),
         }})
-        flash("Regime 口径已保存 — 去「数据 → 市场状态 Regime」点「按当前口径重建」生效并看新打分", "ok")
+        if r["created"]:
+            flash(f"已生成新版本 v{r['id']} 并设为当前 — 去「数据 → 市场状态 Regime」"
+                  f"页对它点重建生成时间线", "ok")
+        else:
+            flash(f"这套参数已是 v{r['id']} — 已切换为当前版本(时间线沿用, 无需重建)", "ok")
     except (api.ApiError, ValueError) as e:
         flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
+
+
+@bp.post("/config/regime-version-select")
+def select_regime_version():
+    """切换当前默认 Regime 版本(下拉即提交) — 全站读时贴格随之走该版本时间线"""
+    try:
+        vid = int(request.form.get("version_id", 0))
+        r = api.post("/regime/versions/select", {"id": vid})
+        p = r["params"]
+        flash(f"当前 Regime 版本 → v{vid}"
+              f"({p['long_ma']}/{p['short_ma']}/ATR{p['atr_n']}/{p['vol_win']}日/{p['vol_q']})", "ok")
+    except (api.ApiError, ValueError) as e:
+        flash(f"切换失败: {e}", "error")
     return redirect(url_for("symbols.backtest_params"))
 
 

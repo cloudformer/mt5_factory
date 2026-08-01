@@ -475,6 +475,8 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
             "  JOIN strategies s2 ON s2.id = b.strategy_id AND b.symbol = s2.symbol"
             " CROSS JOIN LATERAL jsonb_array_elements(b.trades) t"
             "  JOIN regime_timeline rt ON rt.symbol = b.symbol"
+            "   AND rt.version_id = COALESCE((SELECT (value #>> '{}')::int FROM config"
+            "                                  WHERE key='regime_version'), 1)"
             "   AND rt.date = (to_timestamp((t->>'entry_time')::bigint)"
             "                  AT TIME ZONE 'UTC')::date"
             " WHERE b.strategy_id = ANY($1)"
@@ -703,8 +705,7 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all",
         await regime.ensure_timeline(pool, strat["symbol"])
     except Exception as e:
         logger.warning("regime ensure %s failed: %s", strat["symbol"], e)
-    tl = {r["date"]: r["regime"] for r in await pool.fetch(
-        "SELECT date, regime FROM regime_timeline WHERE symbol=$1", strat["symbol"])}
+    tl = await regime.tl_map(pool, strat["symbol"])   # 当前默认版本(v0.2 版本化)
     by_acct: dict = {}
     for a in actual:
         by_acct.setdefault(a["account"], []).append(a)
@@ -1109,7 +1110,8 @@ SWEEP_YEARS = (1, 2, 3, 5, 10, 15, 20)   # 展示窗口档位(提示词 sweep �
 @router.get("/backtest/regime_matrix")
 async def backtest_regime_matrix(request: Request, strategy_id: int,
                                  show_years: Optional[int] = None,
-                                 sweep: bool = False):
+                                 sweep: bool = False,
+                                 regime_version: Optional[int] = None):
     """九币 regime 矩阵(v2.5): 一个策略在所有已回测品种上的八格战绩。
     每品种逐笔按入场日贴【当品种】时间线; 顶部汇总 = 各品种同格相加。
     现算不落库 — 数据源 = backtests(strategy_id, symbol) 现有行, 重跑 UPSERT 后自动变新;
@@ -1135,8 +1137,8 @@ async def backtest_regime_matrix(request: Request, strategy_id: int,
             await regime.ensure_timeline(pool, sym)   # 读时自愈; 单品种失败不挡其他品种
         except Exception as e:
             logger.warning("regime ensure %s failed: %s", sym, e)
-        tl = {t["date"]: t["regime"] for t in await pool.fetch(
-            "SELECT date, regime FROM regime_timeline WHERE symbol=$1", sym)}
+        # 版本下拉(v0.2): 不传=当前默认; 指定=同一批trades换个版本的天气看归因(读时JOIN零重跑)
+        tl = await regime.tl_map(pool, sym, regime_version)
 
         def _bucket(ts):
             """逐笔按入场日贴格 → (累加器, 无标签笔数)"""
@@ -1187,6 +1189,7 @@ async def backtest_regime_matrix(request: Request, strategy_id: int,
            "total_trades": sum(s["trades"] for s in symbols),
            "total_unlabeled": total_unlabeled,
            "show_years": show_years,
+           "regime_version": regime_version,   # None=当前默认版本
            "window_consistent": len(windows) <= 1}
     if sweep:
         out["total_sweep"] = {label: _fmt_cells(raw) for label, raw in total_sweep.items()}
@@ -1231,8 +1234,7 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
         await regime.ensure_timeline(pool, sym)   # 读时自愈; 历史不足等原因不挡归因页
     except Exception as e:
         logger.warning("regime ensure %s failed: %s", sym, e)
-    tl = {r["date"]: r["regime"] for r in await pool.fetch(
-        "SELECT date, regime FROM regime_timeline WHERE symbol=$1", sym)}
+    tl = await regime.tl_map(pool, sym)   # 当前默认版本(v0.2 版本化)
     def _cell(t):
         return tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
     for t, view in zip(st[:1000], out["trades"]):   # 明细行带当天格子(顺序一致)
@@ -1253,9 +1255,7 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
     # (sym 是归因下拉选的品种, 可能不是主品种, 不能混用)
     act = out["actual"]
     if act.get("has_data") and act.get("trades"):
-        tl_m = tl if sym == strat["symbol"] else {
-            r["date"]: r["regime"] for r in await pool.fetch(
-                "SELECT date, regime FROM regime_timeline WHERE symbol=$1", strat["symbol"])}
+        tl_m = tl if sym == strat["symbol"] else await regime.tl_map(pool, strat["symbol"])
         a_cells: dict = {}
         a_unlabeled = 0
         for view in act["trades"]:   # entry = "YYYY-MM-DD HH:MM"(券商时间, 与时间线同口径)

@@ -213,12 +213,16 @@ def regime_matrix():
     + 每品种一行八格。重跑按钮复用 ai_backtest(点名+cross_symbol), 现算不落库。"""
     sid = request.args.get("strategy_id", type=int)
     show_years = request.args.get("show_years", type=int)  # 展示窗口: 只筛显示不重跑, 空=全部
+    regime_version = request.args.get("regime_version", type=int)  # 空=当前默认版本
     data = None
+    rv = {"current": None, "versions": []}
     if sid:
         try:
+            rv = api.get("/regime/versions")   # 版本下拉(v0.2): 同一批trades换版本看归因
             # 九品种各自"自愈建时间线+逐笔贴格", 首次载入(时间线现算20年D1)远超默认15s
             data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120,
-                           **({"show_years": show_years} if show_years else {}))
+                           **({"show_years": show_years} if show_years else {}),
+                           **({"regime_version": regime_version} if regime_version else {}))
         except api.ApiError as e:
             flash(f"载入失败: {e}", "error")
     fills = _cells_fills((data or {}).get("total_cells"))
@@ -232,6 +236,8 @@ def regime_matrix():
         show_opts = [y for y in (1, 2, 3, 5, 10, 20) if y * 365 <= days - 30]
     return render_template("regime_matrix.html", data=data, sid=sid, win_label=win_label,
                            show_years=show_years, show_opts=show_opts,
+                           regime_version=regime_version,
+                           rv_current=rv["current"], rv_versions=rv["versions"],
                            total_lines=_matrix_total_lines(data), matrix_fills=fills)
 
 
@@ -300,9 +306,11 @@ def regime_matrix_prompt_txt():
     sid = request.args.get("strategy_id", type=int)
     if not sid:
         return "error: 缺 strategy_id", 400, {"Content-Type": "text/plain; charset=utf-8"}
+    regime_version = request.args.get("regime_version", type=int)  # 与页面版本下拉同口径
     try:
         # sweep=全维度(全窗口×全品种切片): AI 做时间稳健+跨品种双判据, 与页面当前展示窗口无关
-        data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120, sweep=1)
+        data = api.get("/backtest/regime_matrix", strategy_id=sid, timeout=120, sweep=1,
+                       **({"regime_version": regime_version} if regime_version else {}))
     except api.ApiError as e:
         return f"error: {e}", 502, {"Content-Type": "text/plain; charset=utf-8"}
     import json as _json

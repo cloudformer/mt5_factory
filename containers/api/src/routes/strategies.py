@@ -399,8 +399,7 @@ async def trail_compare(strategy_id: int, request: Request, variant: Optional[st
             await regime.ensure_timeline(pool, s["symbol"])
         except Exception as e:
             logger.warning("regime ensure %s failed: %s", s["symbol"], e)
-        tl = {r["date"]: r["regime"] for r in await pool.fetch(
-            "SELECT date, regime FROM regime_timeline WHERE symbol=$1", s["symbol"])}
+        tl = await regime.tl_map(pool, s["symbol"])   # 当前默认版本(v0.2 版本化)
     rows = []
     for t in types:
         p = dict(s["params"] or {})

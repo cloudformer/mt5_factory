@@ -83,6 +83,7 @@
   <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:15px">
     <span style="display:inline-block;width:16px;height:16px;border-radius:3px;background:{{ m.regime_color(data.current.regime) }}"></span>
     <b class="mono" style="font-size:19px">{{ symbol }} · {{ data.current.regime }}</b>
+    <span class="muted mono" title="当前默认口径版本(配置页可切换/新建); 时间线按版本并存">口径 v{{ data.version }}</span>
     {% if data.last_close is not none %}<span title="库内最后一根 M1 的收盘价(券商时间口径)">今日 <b class="mono">{{ '%g' % data.last_close }}</b></span>{% endif %}
     <span title="长趋势: D1 收盘 vs {{ data.params.long_ma | upper }}">长 <b class="{{ 'pos' if data.current.regime[0] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[0] == 'A' else '↓' }}</b></span>
     <span title="短趋势: D1 收盘 vs {{ data.params.short_ma | upper }}">短 <b class="{{ 'pos' if data.current.regime[1] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[1] == 'A' else '↓' }}</b></span>

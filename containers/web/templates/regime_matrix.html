@@ -6,6 +6,17 @@
 <form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
   <input type="number" name="strategy_id" value="{{ sid or '' }}" placeholder="策略 ID" required style="width:110px">
   <button type="submit">载入</button>
+  {% if data and rv_versions %}
+  <label class="muted">Regime版本
+    <select name="regime_version" onchange="this.form.submit()"
+            title="同一批回测逐笔换个版本的天气看归因(读时现拼零重跑); 空=当前默认版本">
+      <option value="">默认(v{{ rv_current }})</option>
+      {% for v in rv_versions %}
+      <option value="{{ v.id }}" {% if regime_version == v.id %}selected{% endif %}>
+        v{{ v.id }} · {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}</option>
+      {% endfor %}
+    </select></label>
+  {% endif %}
   {% if data and show_opts %}
   <label class="muted">展示
     <select name="show_years" onchange="this.form.submit()" title="只筛显示不重跑: 近N年 / N年以前(排除近N年, OOS式对照), 同一切点两边互补">
@@ -122,7 +133,7 @@
   if (cp) cp.addEventListener("click", async () => {
     cp.disabled = true; cp.textContent = "取词中…";
     try {
-      const r = await fetch("{{ url_for('strategies.regime_matrix_prompt_txt', strategy_id=sid) }}");
+      const r = await fetch("{{ url_for('strategies.regime_matrix_prompt_txt', strategy_id=sid, regime_version=regime_version or None) }}");
       const t = await r.text();
       if (!r.ok) throw new Error(t);
       await navigator.clipboard.writeText(t);

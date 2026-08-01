@@ -87,9 +87,20 @@
 </section>
 
 <section>
-  <h2>Regime 口径(v2.5 评定期 — 只存不重建; 重建去 Regime 页显式点)</h2>
+  <h2>Regime 口径(版本化 v0.2 — 一套参数一个版本; 只存不重建, 重建去 Regime 页显式点)</h2>
+  <form method="post" action="{{ url_for('symbols.select_regime_version') }}" class="inline">
+    <label>当前版本
+      <select name="version_id" onchange="this.form.submit()"
+              title="全站读时贴格/矩阵/排名按此版本时间线; 切换即生效">
+        {% for v in regime_versions %}
+        <option value="{{ v.id }}" {% if v.id == regime_current %}selected{% endif %}>
+          v{{ v.id }} · {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}/{{ v.params.vol_win }}日/{{ '%g' % v.params.vol_q }}</option>
+        {% endfor %}
+      </select></label>
+    <span class="muted">一套参数=一个版本(重复参数自动匹配回原版本); 页面无删除口 — 删错的版本由 owner 直接库操作(级联清时间线)</span>
+  </form>
   <form method="post" action="{{ url_for('symbols.save_regime_params') }}" class="inline"
-        onsubmit="return confirm('保存 Regime 口径?(只保存 — 生效需去「数据→市场状态Regime」页点重建)\n\n纪律: 禁止用策略盈利调口径(循环论证); 评定完成后选定值冻结。')">
+        onsubmit="return confirm('保存 Regime 口径?\n\n新参数=生成新版本并设为当前; 重复参数=匹配回现有版本。\n只保存 — 时间线生成需去「数据→市场状态Regime」页点重建。\n纪律: 禁止用策略盈利调口径(循环论证)。')">
     {# 边界显式化(2026-07-27 Frank 定): 类型=下拉只有两个选项, 数值=number框 min/max 写在脸上 — 不给幻想 #}
     {% set lm = regime_params.get('long_ma', 'sma200') %}{% set sm = regime_params.get('short_ma', 'sma20') %}
     <label>长趋势均线
@@ -112,8 +123,8 @@
         title="ATR 与过去 N 个交易日的分位阈值比较, 20~1000(小值仅短历史调试用); 252≈一年"></label>
     <label>高波分位 <input name="vol_q" type="number" min="0.1" max="0.9" step="0.01" value="{{ '%g' % regime_params.get('vol_q', 0.5) }}" style="width:4em"
         title="0.1~0.9; 0.5=中位(高低各半), 0.67=前1/3算高波"></label>
-    <button class="small">保存口径</button>
-    <span class="muted">评定期专用; 保存后去「数据 → 市场状态 Regime」点重建、看记分卡。禁止用策略盈利调口径</span>
+    <button class="small">保存为版本</button>
+    <span class="muted">新参数=新版本; 保存后去「数据 → 市场状态 Regime」点重建、看记分卡。禁止用策略盈利调口径</span>
   </form>
   <form method="post" action="{{ url_for('symbols.reset_regime_params') }}" class="inline"
         onsubmit="return confirm('恢复默认口径 SMA200 / SMA20 / ATR14 / 252日 / 0.5分位?(只改配置, 生效需去 Regime 页点重建)')">

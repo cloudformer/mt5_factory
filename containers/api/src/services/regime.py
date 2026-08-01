@@ -1,10 +1,10 @@
 """市场状态 Regime v1(v2.5, 2026-07-27 与 Frank 定) — 三维八格时间线。
 
 三维: 长趋势(D1收盘 vs 长均线) / 短趋势(vs 短均线) / 波动(ATR_n vs 过去 win 日 q 分位)。
-口径在 config 表 `regime_params`(schema/048, 配置页可改 — **评定期专用**):
-    {"long_ma": "sma200", "short_ma": "sma20", "atr_n": 14, "vol_win": 252, "vol_q": 0.5}
-改口径 → POST /regime/rebuild 全量重算**覆盖更新**(同主键 UPSERT + 修剪新暖机起点前的
-头部残留行) — 不删数据表, 永远只有当前口径的一份干净数据。
+口径唯一源 = regime_versions 表(schema/053 版本化, v0.2 设计): 一套参数 = 一个 version
+(params UNIQUE 判重), 当前默认版本指针在 config `regime_version`(active_version 自愈)。
+每版本一套独立时间线(主键 version_id+symbol+date, 并存互不覆盖);
+POST /regime/rebuild 对当前默认版本全量重算(同主键 UPSERT + 修剪头部残留)。
 铁纪律: 第 t 日的格子只用**截至 t-1 收盘**的数据(右移一位, 无未来函数);
        D1 从 M1 按券商服务器时间日界聚合; 禁止用策略盈利调口径(循环论证)。
 存储: regime_timeline 三维各一列 + regime 生成列(库执法拼接, 见 schema/047);
@@ -24,10 +24,39 @@ CELLS = ("AAA", "AAB", "ABA", "ABB", "BAA", "BAB", "BBA", "BBB")
 _MA_RE = re.compile(r"^(sma|ema)(\d{1,3})$")
 
 
-async def load_params(pool: asyncpg.Pool) -> dict:
-    """口径唯一源 = config 表(schema/048 种子); 缺项用默认补齐(容错, 不静默换口径)"""
-    v = await pool.fetchval("SELECT value FROM config WHERE key='regime_params'")
-    return {**DEFAULT_PARAMS, **(v or {})}
+async def active_version(pool: asyncpg.Pool) -> tuple[int, dict]:
+    """当前默认版本 (config regime_version → regime_versions.params), 口径唯一源(v0.2)。
+    自愈: 配置指的版本被手工删库(页面无删除口, 删除=Frank 直接 DELETE) → 回落最小 id
+    并写回 config; 表被清空则种回默认参数 — 任何状态下都能给出可用版本, 不脆弱。"""
+    vid = await pool.fetchval(
+        "SELECT (value #>> '{}')::int FROM config WHERE key='regime_version'")
+    p = None
+    if vid:
+        p = await pool.fetchval("SELECT params FROM regime_versions WHERE id=$1", vid)
+    if p is None:
+        row = await pool.fetchrow(
+            "SELECT id, params FROM regime_versions ORDER BY id LIMIT 1")
+        if row is None:
+            row = await pool.fetchrow(
+                "INSERT INTO regime_versions (params) VALUES ($1) RETURNING id, params",
+                DEFAULT_PARAMS)
+        vid, p = row["id"], row["params"]
+        await pool.execute(
+            "INSERT INTO config (key, value) VALUES ('regime_version', $1)"
+            " ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()", vid)
+        logger.warning("regime_version 自愈回落 → v%d", vid)
+    return vid, {**DEFAULT_PARAMS, **p}
+
+
+async def tl_map(pool: asyncpg.Pool, symbol: str, version_id: int | None = None) -> dict:
+    """{入场日: 格子} 映射 — 读时贴格唯一入口(分析/对账/矩阵/tsl 共用)。
+    version_id 不传=当前默认版本; 指定=看该版本的天气(矩阵页版本下拉);
+    指定版本无时间线 → 空映射(全部无标签, 如实报, 不脆弱)"""
+    if version_id is None:
+        version_id, _ = await active_version(pool)
+    return {r["date"]: r["regime"] for r in await pool.fetch(
+        "SELECT date, regime FROM regime_timeline WHERE version_id=$1 AND symbol=$2",
+        version_id, symbol)}
 
 
 def parse_ma(spec: str):
@@ -129,10 +158,11 @@ async def _d1(pool: asyncpg.Pool, symbol: str, min_days: int):
             np.array([float(r["c"]) for r in rows]))
 
 
-async def rebuild_symbol(pool: asyncpg.Pool, symbol: str, params: dict) -> str | None:
-    """按当前口径全量重算一个品种: 覆盖更新(同主键 UPSERT) + 修剪头部残留
+async def rebuild_symbol(pool: asyncpg.Pool, symbol: str, params: dict,
+                         version_id: int) -> str | None:
+    """按指定版本口径全量重算一个品种: 覆盖更新(同主键 UPSERT) + 修剪头部残留
     (换更长暖机的口径后, 新起点之前的旧行没人覆盖会留旧口径值 → 修剪, 保持数据干净)。
-    返回 None=成功 / 原因字符串(数据不足等)。"""
+    只动本版本的行, 其他版本时间线不受影响。返回 None=成功 / 原因字符串(数据不足等)。"""
     need = warmup_days(params)
     d1 = await _d1(pool, symbol, need)
     if d1 is None:
@@ -146,18 +176,20 @@ async def rebuild_symbol(pool: asyncpg.Pool, symbol: str, params: dict) -> str |
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.executemany(
-                "INSERT INTO regime_timeline (symbol, date, long_trend, short_trend, vol)"
-                " VALUES ($1, $2, $3, $4, $5)"
-                " ON CONFLICT (symbol, date) DO UPDATE SET"
+                "INSERT INTO regime_timeline"
+                " (version_id, symbol, date, long_trend, short_trend, vol)"
+                " VALUES ($1, $2, $3, $4, $5, $6)"
+                " ON CONFLICT (version_id, symbol, date) DO UPDATE SET"
                 "   long_trend = EXCLUDED.long_trend, short_trend = EXCLUDED.short_trend,"
                 "   vol = EXCLUDED.vol",
-                [(symbol, dates[i], dims[0][i], dims[1][i], dims[2][i])
+                [(version_id, symbol, dates[i], dims[0][i], dims[1][i], dims[2][i])
                  for i in range(start, len(dates))])
-            await conn.execute(   # 头部修剪: 新暖机起点之前的行是旧口径残留
-                "DELETE FROM regime_timeline WHERE symbol=$1 AND date < $2",
-                symbol, dates[start])
-    logger.info("regime timeline rebuilt: %s %d days (%s → %s) params=%s",
-                symbol, len(dates) - start, dates[start], dates[-1], params)
+            await conn.execute(   # 头部修剪: 新暖机起点之前的行是旧口径残留(只剪本版本)
+                "DELETE FROM regime_timeline"
+                " WHERE version_id=$1 AND symbol=$2 AND date < $3",
+                version_id, symbol, dates[start])
+    logger.info("regime timeline rebuilt: v%d %s %d days (%s → %s) params=%s",
+                version_id, symbol, len(dates) - start, dates[start], dates[-1], params)
     return None
 
 
@@ -169,11 +201,13 @@ async def ensure_timeline(pool: asyncpg.Pool, symbol: str) -> str | None:
         symbol)
     if last_bar is None:
         return f"{symbol} 库内无 M1 数据 — 先去「数据」页下载"
+    vid, params = await active_version(pool)
     last_tl = await pool.fetchval(
-        "SELECT max(date) FROM regime_timeline WHERE symbol=$1", symbol)
+        "SELECT max(date) FROM regime_timeline WHERE version_id=$1 AND symbol=$2",
+        vid, symbol)
     if last_tl is not None and last_tl >= last_bar:
         return None
-    return await rebuild_symbol(pool, symbol, await load_params(pool))
+    return await rebuild_symbol(pool, symbol, params, vid)
 
 
 def _runs(seq: list) -> list:
