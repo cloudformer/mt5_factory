@@ -3,7 +3,7 @@
 品种一切信息只在 symbols 表: 登记(向券商校验)、精度、下载开关、每品种起始日期。
 下载/回测/策略生成都从这里读。本页是它唯一的管理入口。
 """
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
 import api_client as api
 
@@ -115,15 +115,40 @@ def save_worker_params():
     return redirect(url_for("symbols.backtest_params"))
 
 
+def _admin_only() -> bool:
+    """数据管线两项(下载周期层/自动同步间隔)只有 admin(owner id 1)可改, 其他人只读
+    (2026-08-01 Frank 定) — 与 /admin/* 门禁同一判据, 上真登录后一起换真凭据"""
+    if session.get("dev_user_id") == 1:
+        return True
+    flash("此项仅管理员(admin)可改 — 其他用户只读", "error")
+    return False
+
+
 @bp.post("/config/download-timeframes")
 def save_download_timeframes():
-    """保存下载周期层(config: download_timeframes) — M1 固定必含(唯一原始数据),
+    """保存下载周期层(config: download_timeframes, 仅 admin) — M1 固定必含(唯一原始数据),
     高周期按需勾选(D1 默认勾, regime 长视野用); 下次点同步按新层派任务"""
+    if not _admin_only():
+        return redirect(url_for("symbols.backtest_params"))
     try:
         api.put("/config/download_timeframes",
                 {"value": ["M1"] + request.form.getlist("tf")})
         flash("下载周期已保存 — 下次触发同步按新周期层派任务", "ok")
     except api.ApiError as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
+
+
+@bp.post("/config/auto-sync-hours")
+def save_auto_sync_hours():
+    """保存自动同步间隔(config: auto_sync_hours, 仅 admin) — 心跳主节点下一拍(30秒内)生效"""
+    if not _admin_only():
+        return redirect(url_for("symbols.backtest_params"))
+    try:
+        v = int(request.form.get("auto_sync_hours", 6))
+        api.put("/config/auto_sync_hours", {"value": v})
+        flash(f"自动同步间隔已保存: {'关闭' if v == 0 else f'每 {v} 小时'} — 30 秒内生效, 不用重启", "ok")
+    except (api.ApiError, ValueError) as e:
         flash(f"保存失败: {e}", "error")
     return redirect(url_for("symbols.backtest_params"))
 
