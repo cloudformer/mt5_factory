@@ -32,7 +32,7 @@
   </div>
   {% if band_months %}
   <div class="mono muted" style="display:flex;justify-content:space-between;max-width:1020px;margin:2px 0 4px">
-    <span id="band-from">{{ band_months[0][1][0].date }} 起</span>
+    <span id="band-from">{{ (band_months[-6:] | first)[1][0].date }} 起</span>
     <span>{{ symbol }} · 库内共 {{ data.rows | length }} 交易日</span>
     <span>至 {{ band_months[-1][1][-1].date }}</span>
   </div>
@@ -40,7 +40,9 @@
   <table style="width:100%;max-width:1020px;border-collapse:collapse">
     {% for mon, mdays in band_months %}
     {# data-bh = 距最后一行的序号(0=最新半年), JS 按跨度显隐 #}
-    <tr data-bh="{{ band_months | length - loop.index }}" data-from="{{ mdays[0].date }}">
+    {# 初始显隐在服务端渲染定(默认3年=6行), JS 只管之后的切换 — 否则全量先画一遍再藏, 页面闪 #}
+    <tr data-bh="{{ band_months | length - loop.index }}" data-from="{{ mdays[0].date }}"
+        {% if band_months | length - loop.index >= 6 %}style="display:none"{% endif %}>
       <td class="mono muted" style="width:60px;padding:1px 8px 1px 0;border:0">{{ mon }}</td>
       <td style="padding:1px 0;border:0">
         {# 格子固定宽(2026-07-29 Frank 定): 满半年自然占满, 没满的半年自然短一截 — 不满即短, 不拉伸不骗人 #}
