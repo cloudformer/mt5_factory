@@ -21,7 +21,7 @@ def index():
     broker = a.get("broker") or None
     status = a.get("status") or None
     visibility = a.get("visibility") or None
-    q_field = a.get("q_field") or "name"
+    q_field = a.get("q_field") or "id"   # 默认搜索字段=策略ID(2026-08-02 Frank 定)
     q_text = a.get("q_text") or None
     min_trades = a.get("min_trades", 0, type=int)
     min_actual_trades = a.get("min_actual_trades", 0, type=int)  # 实盘笔数≥(demo+live合计)
@@ -735,25 +735,9 @@ def run_backtest(strategy_id: int):
     return redirect(request.referrer or url_for("strategies.index"))
 
 
-@bp.post("/archive")
-def archive_batch():
-    """按【填入的ID】批量淘汰归档 — 标 ARCHIVED, 可逆, 不删除。只处理明确列出的ID,
-    与排名页的查看筛选无关(防误伤); 真金(LIVE)/已淘汰归档由 api 侧自动跳过。"""
-    ids = [s.strip() for s in request.form.get("strategy_ids", "").split(",") if s.strip()]
-    if not ids:
-        flash("请填入要淘汰归档的策略ID(逗号分隔)", "error")
-        return redirect(request.referrer or url_for("strategies.index"))
-    try:
-        r = api.post("/strategies/archive", {"strategy_ids": [int(s) for s in ids],
-                                             "reason": request.form.get("reason", "manual")})
-        msg = f"已淘汰归档 {r['archived']} 条(可逆, 随时可改回)"
-        skipped = r["requested"] - r["archived"]
-        if skipped:
-            msg += f"；跳过 {skipped} 条(真金不动 / 已淘汰归档)"
-        flash(msg, "ok" if r["archived"] else "error")
-    except (api.ApiError, ValueError) as e:
-        flash(f"批量淘汰归档失败: {e}", "error")
-    return redirect(request.referrer or url_for("strategies.index"))
+# 批量删除归档的 web 表单路由已退役(2026-08-02 Frank 定"先不用了"):
+# 单个删除走操作列调度下拉(死因记 manual); api /strategies/archive 端点保留(死因码在那边),
+# 将来要批量按需恢复 UI。
 
 
 @bp.post("/mq5")

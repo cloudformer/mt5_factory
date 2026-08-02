@@ -36,6 +36,17 @@
           <option value="">全部</option>
           {% for b in brokers %}<option value="{{ b }}" {% if b == broker %}selected{% endif %}>{{ b }}</option>{% endfor %}
         </select></label>
+      {# 净点/OOS 是过滤条件, 归第一行(2026-08-02 Frank 定) — 和身份过滤站一排 #}
+      <label title="净点数: 全部=不限; 仅盈利=只看净点数>0">净点
+        <select name="positive">
+          <option value="">全部</option>
+          <option value="1" {% if positive %}selected{% endif %}>仅盈利</option>
+        </select></label>
+      <label title="样本外一票否决: 留出段(策略没见过的最近30%数据)也盈利才通过 — 过滤靠运气拟合历史的策略。老回测结果没有OOS字段, 需重跑后才能通过">OOS
+        <select name="oos">
+          <option value="">不限</option>
+          <option value="1" {% if oos %}selected{% endif %}>留出段盈利</option>
+        </select></label>
     </div>
     <div class="filter-row">
       <label title="排名参数模板(配置页可增删改权重): 四维百分位加权综合分; 默认=按净点数">排序
@@ -49,16 +60,6 @@
         <input name="min_trades" id="min-trades" value="{{ min_trades }}" size="4"></label>
       <label title="实盘成交笔数 ≥ 此值(demo+live 合计, 心跳快照); >0 时没实盘成交的策略不显示">实盘笔数≥
         <input name="min_actual_trades" value="{{ min_actual_trades or '' }}" size="4"></label>
-      <label title="净点数: 全部=不限; 仅盈利=只看净点数>0">净点
-        <select name="positive">
-          <option value="">全部</option>
-          <option value="1" {% if positive %}selected{% endif %}>仅盈利</option>
-        </select></label>
-      <label title="样本外一票否决: 留出段(策略没见过的最近30%数据)也盈利才通过 — 过滤靠运气拟合历史的策略。老回测结果没有OOS字段, 需重跑后才能通过">OOS
-        <select name="oos">
-          <option value="">不限</option>
-          <option value="1" {% if oos %}selected{% endif %}>留出段盈利</option>
-        </select></label>
     </div>
     {# 成绩门槛: 空=不限, 全部查库; 有成绩门槛的过滤未回测策略一律不通过 #}
     <div class="filter-row">
@@ -74,7 +75,7 @@
     <div class="filter-row">
       <label>搜索
         <select name="q_field" title="策略名/标签=模糊; ID/周期/状态=精准">
-          {% for v, t in [('name','策略名(模糊)'), ('basis','标签/生因(模糊)'), ('id','ID'), ('timeframe','周期'), ('status','状态')] %}
+          {% for v, t in [('id','ID'), ('name','策略名(模糊)'), ('basis','标签/生因(模糊)'), ('timeframe','周期'), ('status','状态')] %}
           <option value="{{ v }}" {% if v == q_field %}selected{% endif %}>{{ t }}</option>{% endfor %}
         </select></label>
       <input name="q_text" value="{{ q_text or '' }}" size="14" placeholder="关键词(空=不搜)">
@@ -90,20 +91,8 @@
     {% if page < total_pages %}<a class="small" href="{{ url_for('strategies.index', page=page+1, **base_args) }}">下一页 ›</a>
     {% else %}<span class="small" style="opacity:.4">下一页 ›</span>{% endif %}
   </p>
-  {# 删除归档: 独立ID框, 只处理填入的ID, 与上方查看筛选完全解耦(防误伤全库) #}
-  <form method="post" action="{{ url_for('strategies.archive_batch') }}" class="inline" style="margin:6px 0"
-        onsubmit="return confirm('把填入的这些策略ID删除归档(标 ARCHIVED)?\n\n可逆 — 之后不再参与回测/排名, 随时可改回。\nlive和已删除归档的会自动跳过。')">
-    <span class="tag">删除归档</span>
-    <input name="strategy_ids" size="32" placeholder="策略ID, 逗号分隔(从表格 ID 列填入)" required
-           pattern="[0-9,\s]*" title="只填数字ID, 逗号分隔">
-    <select name="reason" title="死因码: 记录为什么杀 — AI 调参的负样本, 避免再生成同类">
-      {% for v, t in [('manual','手动'), ('holdout_loss','留出段亏'), ('min_trades','笔数不足'),
-                      ('low_pf','盈亏比差'), ('recon_fail','对账不达标'), ('other','其它')] %}
-      <option value="{{ v }}">{{ t }}</option>{% endfor %}
-    </select>
-    <button class="small danger">删除归档这些ID</button>
-    <span class="muted">只处理填入的ID, 与上方查看筛选无关 · 可逆 · 真金/已归档自动跳过</span>
-  </form>
+  {# 批量删除归档区已退役(2026-08-02 Frank 定"先不用了"): 单个删除走操作列调度下拉;
+     将来要批量再按需恢复(api /strategies/archive 端点保留) #}
   <p class="muted" style="margin:4px 0">样本外切分　<b>训练段 {{ (oos_split * 10) | round | int }}</b> ： <b>留出段 {{ ((1 - oos_split) * 10) | round | int }}</b>
     　训练段(前 {{ (oos_split * 100) | round | int }}% 时间)用来选，留出段(后 {{ ((1 - oos_split) * 100) | round | int }}%，策略没见过)只用来一票否决；比例在配置页可改。</p>
   {{ m.table_toolbar('strat-table', hint='本页即时过滤已加载行(整行模糊)') }}
