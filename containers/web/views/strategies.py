@@ -330,6 +330,7 @@ def strategy_tree():
         elif template and symbol:
             data = api.get("/strategies/tree", template=template, symbol=symbol,
                            **({"timeframe": timeframe} if timeframe else {}))
+        if data:   # 后处理对两种入口一视同仁(曾因缩进只跑浏览分支 → 直查什么都看不见)
             import json as _json
 
             def _win(n):   # 回测窗标签: 近X年(悬停看起止) — 窗口不同的成绩不可互比

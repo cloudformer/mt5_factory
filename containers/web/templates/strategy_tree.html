@@ -29,7 +29,8 @@
 
 {% if data.instances %}
 {{ m.table_toolbar('tree-table', hint='本页即时过滤(整行模糊)') }}
-<table id="tree-table" class="dense" data-colpick>
+{# data-detail-sort: 排序时详情行按 toggle id 粘回主行之后(全站标准机制) #}
+<table id="tree-table" class="dense" data-colpick data-detail-sort>
   {# 成绩四列 = 主品种最新回测(读时现拼, 免费); 跨品种数据只在矩阵页看 — 全站默认主货币对 #}
   <tr><th>实例</th><th>参数 / 门</th><th>周期</th><th>状态</th>
     <th title="该实例最新回测的数据窗口(悬停看起止日期)。各实例窗口可能不同(20年/5年/批量半年) — 窗口不同的成绩不可互比(对比三铁律), 要比先同窗重跑">回测窗</th>
@@ -61,8 +62,26 @@
     {% else %}
     <td colspan="5" class="muted">未回测</td>
     {% endif %}
-    <td><a href="{{ url_for('strategies.regime_matrix', strategy_id=row.id) }}">矩阵</a>
+    <td><button class="small" data-json-toggle="tree-d-{{ row.id }}"
+          title="{% if row.gate %}展开完整 metadata(门的详细参数){% else %}展开完整参数{% endif %}">▾</button>
+      <a href="{{ url_for('strategies.regime_matrix', strategy_id=row.id) }}">矩阵</a>
       · <a href="{{ url_for('strategies.analysis', strategy_id=row.id) }}">分析</a></td>
+  </tr>
+  {# 详情行(点▾展开): 门行=完整 metadata JSON; 实例行=完整 params JSON — 什么都看得见 #}
+  <tr id="tree-d-{{ row.id }}" class="detail-row" hidden>
+    <td colspan="10">
+      {% if row.gate %}
+      <b class="mono">#{{ row.id }} metadata</b>
+      <pre class="mono" style="margin:4px 0">{{ row.hover }}</pre>
+      <span class="muted">父实例 #{{ n.id }} 参数(与本实例完全相同):</span>
+      <pre class="mono" style="margin:4px 0">{{ n.params | tojson(indent=1) }}</pre>
+      {% else %}
+      <b class="mono">#{{ row.id }} params</b>
+      <pre class="mono" style="margin:4px 0">{{ row.params | tojson(indent=1) }}</pre>
+      <span class="muted">metadata: {} (无门, 全量交易)</span>
+      {% endif %}
+      {% if row.basis %}<div class="muted">出身: {{ row.basis }}</div>{% endif %}
+    </td>
   </tr>
   {% endfor %}
   {% endfor %}
