@@ -248,6 +248,9 @@ async def strategy_tree(request: Request, template: Optional[str] = None,
         return {"id": r["id"], "name": r["name"], "params": r["params"],
                 "status": r["status"], "basis": r["basis"], "timeframe": r["timeframe"],
                 "parent_id": r["parent_id"],
+                # metadata 原文透传(展开详情用): regime 只是里面一个键, 将来加 trail 等
+                # 新键这里自动跟着显示 — 不从 gate 反拼, 防漏显
+                "metadata": r["metadata"] or {},
                 "gate": g if (isinstance(g, dict) and g.get("cells")) else None,
                 "trades": mt.get("trades"), "win_rate": mt.get("win_rate"),
                 "net_points": mt.get("net_points"),

@@ -346,13 +346,13 @@ def strategy_tree():
                 n["summary"] = _gate_summary(n["gate"]) if n.get("gate") \
                     else _param_summary(n["params"])
                 gate_count += 1 if n.get("gate") else 0
-                # 悬停=完整 metadata JSON(门的详细参数, Frank 要求可见)
+                # 悬停/展开 = metadata 原文(regime 只是其中一键, 将来 trail 等自动跟显)
                 if n.get("gate"):
-                    n["hover"] = _json.dumps({"regime": n["gate"]}, ensure_ascii=False)
+                    n["hover"] = _json.dumps(n.get("metadata") or {}, ensure_ascii=False)
                 for g in n["gates"]:
                     _win(g)
                     g["summary"] = _gate_summary(g["gate"])
-                    g["hover"] = _json.dumps({"regime": g["gate"]}, ensure_ascii=False)
+                    g["hover"] = _json.dumps(g.get("metadata") or {}, ensure_ascii=False)
                     gate_count += 1
             data["gate_count"] = gate_count
     except api.ApiError as e:
