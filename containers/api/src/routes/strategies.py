@@ -696,25 +696,37 @@ async def set_mount(strategy_id: int, req: MountRequest, request: Request):
         "SELECT id, status, owner_id FROM strategies WHERE id=$1", strategy_id)
     if s is None:
         raise HTTPException(status_code=404, detail="strategy not found")
-    if s["status"] not in ("DEMO", "LIVE"):
-        raise HTTPException(status_code=400,
-                            detail=f"策略状态 {s['status']} 不可挂载 — 先转 DEMO/LIVE")
+    if s["status"] == "ARCHIVED":
+        raise HTTPException(status_code=400, detail="已归档不可挂载 — 先切回空闲(候选)复活")
     h = await pool.fetchrow(
         "SELECT id, name, runner, enabled, owner_id FROM mt5_hosts WHERE id=$1", req.host_id)
     if h is None or not h["enabled"]:
         raise HTTPException(status_code=404, detail="host 不存在或未启用")
-    if (h["runner"] or "") != s["status"].lower():
+    if not h["runner"]:
         raise HTTPException(status_code=400,
-                            detail=f"角色不匹配: 策略是 {s['status']}, 主机 {h['name']} 职能是 {h['runner'] or '无'}")
+                            detail=f"主机 {h['name']} 未指派运行角色(demo/live) — 先去 Workers 页指派")
     if h["owner_id"] != s["owner_id"]:
         raise HTTPException(status_code=400, detail="不能挂到别人的 worker")
+    # 挂载=唯一意图(2026-08-02 Frank 定, 简单止血): 状态自动跟所挂机器的角色走 —
+    # 不再要求先切状态再挂载(旧双钥匙摩擦)。挂 demo 机→模拟, 挂 live 机→真金;
+    # magic 首次进入执行态时分配(与 set_status 同规则)。跨池改挂时旧池挂载行留库
+    # (记忆落位, 状态钥匙让它失效, v7.4 统一归置)。
+    new_status = h["runner"].upper()
+    if s["status"] != new_status:
+        await pool.execute(
+            "UPDATE strategies SET status=$2,"
+            " magic_number = COALESCE(magic_number, 100000 + id) WHERE id=$1",
+            strategy_id, new_status)
+        logger.info("mount auto-status #%d: %s -> %s (host %s)",
+                    strategy_id, s["status"], new_status, h["name"])
     await pool.execute(
         "INSERT INTO strategy_mounts (strategy_id, host_id, volume) VALUES ($1, $2, $3)"
         " ON CONFLICT (strategy_id, host_id) DO UPDATE SET"
         "   volume = EXCLUDED.volume, enabled = true",
         strategy_id, req.host_id, req.volume)
     logger.info("mount #%d -> %s volume=%s", strategy_id, h["name"], req.volume)
-    return {"strategy_id": strategy_id, "host": h["name"], "volume": req.volume}
+    return {"strategy_id": strategy_id, "host": h["name"], "volume": req.volume,
+            "status": new_status}
 
 
 @router.delete("/strategies/{strategy_id}/mounts/{host_id}")

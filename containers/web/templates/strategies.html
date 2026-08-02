@@ -140,7 +140,10 @@
       <td>{{ r.symbol }}</td>
       <td class="muted">{{ r.broker or '—' }}</td>
       <td>{{ r.timeframe }}</td>
-      <td class="cell-status">{{ m.strategy_status(r.status) }}</td>
+      {# 角色显示(2026-08-02 Frank 定): 没挂载=空闲(不管漏斗字段是什么), 挂着=所在池(模拟/真金) #}
+      <td class="cell-status">{% if r.status == 'ARCHIVED' %}{{ m.strategy_status(r.status) }}
+        {%- elif mounts_view.get(r.strategy_id|string, {}).get('rows') %}{{ m.strategy_status(r.status) }}
+        {%- else %}<span class="badge" title="没挂在任何机器上=没在跑; 从挂载列下拉挂机即入池开跑">空闲</span>{% endif %}</td>
       <td><form method="post" action="{{ url_for('strategies.set_visibility', strategy_id=r.strategy_id) }}" class="inline"
             onsubmit="return this.visibility.value != 'private' ? confirm('#{{ r.strategy_id }} 可见性改为 ' + this.visibility.options[this.visibility.selectedIndex].text + ' — 公开=市场可见参数全露, 共享=市场只给汇总战绩。确认?') : true">
         <select name="visibility" class="small" data-autosubmit

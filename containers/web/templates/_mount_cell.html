@@ -25,13 +25,16 @@
 </span>
 {% endfor %}
 {% if mc_mv.addable %}
+{# 挂载=唯一意图(2026-08-02): 全部角色机器可选, 挂哪台策略状态自动跟那台的池走;
+   选中 live 机时确认一次(进真金账本), demo 机直接挂 #}
 <form method="post" action="{{ url_for('strategies.set_mount', strategy_id=mc_sid) }}" class="inline"
-      {% if mc_status == 'LIVE' %}onsubmit="return confirm('把 #{{ mc_sid }} 加挂到另一台 LIVE 真金机器 — 两个账户同时下单, 确认?')"{% endif %}>
+      onsubmit="var o=this.host_id.options[this.host_id.selectedIndex];
+                return o.text.indexOf('live') < 0 || confirm('挂到 live 池机器 — #{{ mc_sid }} 将切入真金账本并在该账户下单, 确认?')">
   <select name="host_id" class="small" data-autosubmit
-          title="加挂到该角色另一台 worker(一策略多机=多账户同时跑, 成交按账户分开)">
+          title="挂到任意角色 worker: 挂 demo 机=入模拟池, 挂 live 机=入真金池(状态自动跟机器走); 一策略多机=多账户同时跑">
     <option value="">+挂</option>
-    {% for h in mc_mv.addable %}<option value="{{ h.id }}">{{ h.name }}</option>{% endfor %}
+    {% for h in mc_mv.addable %}<option value="{{ h.id }}">{{ h.name }}({{ h.runner }})</option>{% endfor %}
   </select>
 </form>
 {% endif %}
-{% else %}<span class="muted" title="CANDIDATE/ARCHIVED 不挂载; 转 DEMO/LIVE 自动挂">—</span>{% endif %}
+{% else %}<span class="muted" title="已归档不可挂载(切回空闲复活后可挂); 空闲策略直接从下拉挂机即开跑">—</span>{% endif %}

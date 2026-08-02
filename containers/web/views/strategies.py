@@ -76,13 +76,13 @@ def index():
                      if h.get("enabled") and h.get("runner")]
             for r in results:
                 rows_m = [x for x in mnt.get(str(r["strategy_id"]), []) if x["enabled"]]
-                role = (r.get("status") or "").lower()
                 used = {x["host_id"] for x in rows_m}
+                # 挂载=唯一意图(2026-08-02 Frank 定): 下拉放开到全部角色机器,
+                # 挂哪台状态自动跟那台的池走(api 侧对齐); 只有归档不可挂
                 mounts_view[str(r["strategy_id"])] = {
                     "rows": rows_m,
-                    "addable": ([h for h in hosts if h["runner"] == role
-                                 and h["id"] not in used]
-                                if role in ("demo", "live") else []),
+                    "addable": ([h for h in hosts if h["id"] not in used]
+                                if r.get("status") != "ARCHIVED" else []),
                 }
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
@@ -557,12 +557,12 @@ def mount_cell(strategy_id: int):
         volume_presets = api.get("/config")["config"].get("volume_presets") or []
         rows_m = [x for x in api.get("/strategies/mounts", ids=str(strategy_id))["mounts"]
                   .get(str(strategy_id), []) if x["enabled"]]
-        role = status.lower()
         hosts = [h for h in api.get("/hosts")["hosts"] if h.get("enabled") and h.get("runner")]
         used = {x["host_id"] for x in rows_m}
+        # 挂载=唯一意图: 全部角色机器可选(挂哪台状态跟哪台的池), 只有归档不可挂
         mv = {"rows": rows_m,
-              "addable": ([h for h in hosts if h["runner"] == role and h["id"] not in used]
-                          if role in ("demo", "live") else [])}
+              "addable": ([h for h in hosts if h["id"] not in used]
+                          if status != "ARCHIVED" else [])}
     except api.ApiError:
         pass
     return render_template("_mount_cell.html", mc_sid=strategy_id, mc_status=status,
