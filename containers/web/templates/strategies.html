@@ -10,7 +10,8 @@
       <label>状态
         <select name="status">
           <option value="">全部</option>
-          {% for s in ['CANDIDATE','DEMO','LIVE','ARCHIVED'] %}
+          {# 归档不在这里(有专门的「归档」三态过滤器, 不重复) #}
+          {% for s in ['CANDIDATE','DEMO','LIVE'] %}
           <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ m.status_label(s) }}</option>
           {% endfor %}
         </select></label>
@@ -46,6 +47,12 @@
         <select name="oos">
           <option value="">不限</option>
           <option value="1" {% if oos %}selected{% endif %}>留出段盈利</option>
+        </select></label>
+      <label title="删除归档的显示: 默认不显示(归档=删除); 显示=连归档一起; 只显示=只看归档(复活/查死因用)">归档
+        <select name="archived">
+          <option value="">不显示</option>
+          <option value="with" {% if archived == 'with' %}selected{% endif %}>显示</option>
+          <option value="only" {% if archived == 'only' %}selected{% endif %}>只显示归档</option>
         </select></label>
     </div>
     <div class="filter-row">

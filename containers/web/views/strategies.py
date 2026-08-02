@@ -20,6 +20,7 @@ def index():
     symbol = a.get("symbol") or None
     broker = a.get("broker") or None
     status = a.get("status") or None
+    archived = a.get("archived") or ""   # 归档三态: ""=不显示(默认)/with=一起显示/only=只看归档
     visibility = a.get("visibility") or None
     q_field = a.get("q_field") or "id"   # 默认搜索字段=策略ID(2026-08-02 Frank 定)
     q_text = a.get("q_text") or None
@@ -50,7 +51,8 @@ def index():
         if min_actual_trades:
             params["min_actual_trades"] = min_actual_trades
         for k, v in (("template", template), ("symbol", symbol),
-                     ("broker", broker), ("status", status), ("visibility", visibility)):
+                     ("broker", broker), ("status", status), ("visibility", visibility),
+                     ("archived", archived)):
             if v:
                 params[k] = v
         params.update({k: v for k, v in filters.items() if v is not None})
@@ -92,7 +94,7 @@ def index():
                            volume_default=volume_default, mounts_view=mounts_view,
                            hosts_runner=hosts_runner,
                            symbol=symbol, broker=broker, min_actual_trades=min_actual_trades,
-                           status=status, visibility=visibility,
+                           status=status, archived=archived, visibility=visibility,
                            min_trades=min_trades, q_field=q_field, q_text=q_text,
                            filters=filters, positive=positive, oos=oos, rank=rank,
                            rank_templates=rank_templates, brokers=brokers, symbols=symbols,

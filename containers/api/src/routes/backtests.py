@@ -265,6 +265,7 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
 async def top(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
               min_trades: int = 0, min_actual_trades: int = 0,
               limit: int = 20, status: Optional[str] = None,
+              archived: str = "",   # 归档三态: ""=不显示(默认) / with=一起显示 / only=只看归档
               q_field: Optional[str] = None, q_text: Optional[str] = None,
               min_win_rate: float = 0, min_pf: float = 0,
               max_dd: Optional[float] = None, min_robust: Optional[float] = None,
@@ -295,12 +296,14 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         _and("s.template = ${n}", template)
     if broker:
         _and("COALESCE(b.broker, sy.broker) = ${n}", broker)
-    if status:
-        _and("s.status = ${n}", status.upper())
+    # 归档三态(2026-08-02 Frank 定): 默认不显示 / with=连归档一起显示 / only=只看归档
+    if archived == "only":
+        conds.append("s.status = 'ARCHIVED'")
     else:
-        # 删除归档默认不进排行(2026-08-02 Frank 定: 归档视为删除) —
-        # 要看尸体去筛选里明确选"删除归档"(复活/查死因用)
-        conds.append("s.status <> 'ARCHIVED'")
+        if status:
+            _and("s.status = ${n}", status.upper())
+        if archived != "with":
+            conds.append("s.status <> 'ARCHIVED'")   # 默认: 归档视为删除, 不进排行
     if visibility:  # 可见性(逗号多值): 列表筛选 / 市场页(public,shared)共用
         _and("s.visibility = ANY(${n})",
              [v.strip() for v in visibility.split(",") if v.strip()])
