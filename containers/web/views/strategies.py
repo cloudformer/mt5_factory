@@ -333,8 +333,8 @@ def strategy_tree():
             import json as _json
 
             def _win(n):   # 回测窗标签: 近X年(悬停看起止) — 窗口不同的成绩不可互比
-                if not n.get("bt_from"):
-                    return
+                if not n.get("bt_from") or not n.get("bt_to"):
+                    return   # api 未带窗口字段(旧版/未回测) → 显示 —, 不炸
                 days = (datetime.fromisoformat(n["bt_to"])
                         - datetime.fromisoformat(n["bt_from"])).days
                 n["win"] = f"近{round(days / 365, 1):g}年" if days >= 350 else f"{days}天"
