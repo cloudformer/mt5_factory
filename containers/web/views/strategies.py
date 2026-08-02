@@ -73,10 +73,14 @@ def index():
         if results:
             mnt = api.get("/strategies/mounts",
                           ids=",".join(str(r["strategy_id"]) for r in results))["mounts"]
-            # 挂载列=纯显示(2026-08-02 Frank 定): 只给已启用挂载行; 切换走调度下拉
+            # 挂载列=纯显示且只显示【生效中】的挂载(2026-08-02 Frank 修bug):
+            # 生效 = enabled 且 机器角色==当前状态(两把钥匙同判) — 跨池残留记忆行
+            # 不显示(留库等 v7.4 归置), 否则看着像双跑
             for r in results:
+                role = (r.get("status") or "").lower()
                 mounts_view[str(r["strategy_id"])] = {
-                    "rows": [x for x in mnt.get(str(r["strategy_id"]), []) if x["enabled"]]}
+                    "rows": [x for x in mnt.get(str(r["strategy_id"]), [])
+                             if x["enabled"] and x["runner"] == role]}
         # 调度下拉的机器清单(有运行角色的启用主机)
         hosts_runner = [h for h in api.get("/hosts")["hosts"]
                         if h.get("enabled") and h.get("runner")]
@@ -505,8 +509,10 @@ def mount_cell(strategy_id: int):
     status = (request.args.get("status") or "").upper()
     mv = {"rows": []}
     try:
+        # 只显示生效中的挂载(enabled 且 角色==状态), 与列表页同判 — 残留记忆行不显示
         mv = {"rows": [x for x in api.get("/strategies/mounts", ids=str(strategy_id))
-                       ["mounts"].get(str(strategy_id), []) if x["enabled"]]}
+                       ["mounts"].get(str(strategy_id), [])
+                       if x["enabled"] and x["runner"] == status.lower()]}
     except api.ApiError:
         pass
     return render_template("_mount_cell.html", mc_sid=strategy_id, mc_status=status, mc_mv=mv)
