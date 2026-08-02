@@ -72,8 +72,10 @@ document.addEventListener("change", async (e) => {
       // 调度会联动挂载(挂机/清挂载) → 本行挂载格跟着原地重取
       const mc = row.querySelector("td.mount-cell");
       if (mc) refreshMountCell(mc, data.status);
-      // 选项清单不重建(机器清单来自服务端渲染), 只把占位改成新现状
-      if (sel.options[0]) sel.options[0].textContent = (ZH[data.status] || data.status) + " →";
+      // 选项清单不重建(机器清单来自服务端渲染), 只把占位改成新现状【…】
+      // (挂到机器时优先显示机器名; 否则显示状态词)
+      if (sel.options[0]) sel.options[0].textContent =
+        "【" + (data.host || ZH[data.status] || data.status) + "】";
       sel.value = "";
       row.style.transition = "background .8s";
       row.style.background = "#ecfdf3";           // 成功闪一下绿色

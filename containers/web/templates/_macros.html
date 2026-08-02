@@ -48,12 +48,18 @@
   <a class="btn" href="{{ url_for('strategies.analysis', strategy_id=s.id) }}"
      title="进单策略分析: 对账(回测vs实盘) + 胜负归因 + 逐笔明细">分析</a>
   <form method="post" action="{{ url_for('strategies.dispatch', strategy_id=s.id) }}" class="inline">
+    {# 格式(2026-08-02 Frank 定): 合着=当前【…】(挂着显示机器, 否则显示状态);
+       展开=「切换成」分组下的固定目标清单(空闲/每台机器/删除归档), 永不隐藏 #}
+    {% set mounted = s.mounted or [] %}
+    {% set cur_hosts = hosts | selectattr('id', 'in', mounted) | list %}
     <select name="target" class="small" data-status-select
             title="调度: 选机器=挂到该机开跑(标签自动跟机器角色, 选 live 机会确认一次); 空闲=停跑清挂载; 删除归档=下架">
-      <option value="">{{ status_label(s.status) }} →</option>
-      {% if s.status != 'CANDIDATE' %}<option value="CANDIDATE">空闲(停跑)</option>{% endif %}
-      {% for h in hosts %}<option value="host:{{ h.id }}">{{ h.name }}({{ h.runner }})</option>{% endfor %}
-      {% if s.status != 'ARCHIVED' %}<option value="ARCHIVED">删除归档</option>{% endif %}
+      <option value="">【{% if cur_hosts %}{% for h in cur_hosts %}{{ h.name }}({{ h.runner }}){% if not loop.last %}·{% endif %}{% endfor %}{% else %}{{ status_label(s.status) }}{% endif %}】</option>
+      <optgroup label="切换成">
+        <option value="CANDIDATE">空闲(停跑)</option>
+        {% for h in hosts %}<option value="host:{{ h.id }}">{{ h.name }}({{ h.runner }})</option>{% endfor %}
+        <option value="ARCHIVED">删除归档</option>
+      </optgroup>
     </select>
   </form>
 {%- endmacro %}
