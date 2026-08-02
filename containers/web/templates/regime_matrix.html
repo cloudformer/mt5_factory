@@ -83,13 +83,16 @@
   {# 格子标签故意无色(2026-08-01 Frank 定): 本页色彩语义=绿赚红亏, regime 本色放这会被误读 #}
   <form method="post" action="{{ url_for('strategies.clone_gate', strategy_id=sid) }}" class="inline"
         onsubmit="return confirm('克隆 #{{ sid }} 为带门新实例?\n\n勾选格按倍率交易, 未勾格不开新仓; 版本钉死不随全局默认漂移; 父实例不受任何影响。')">
-    {% for cell in ['AAA', 'AAB', 'ABA', 'ABB', 'BAA', 'BAB', 'BBA', 'BBB'] %}
-    <label title="{{ m.regime_cn(cell) }}" style="display:inline-flex;align-items:center;gap:2px">
-      <input type="checkbox" name="g_{{ cell }}" value="1"> <span class="mono">{{ cell }}</span>
-      ×<select name="m_{{ cell }}" title="手数倍率(×挂载点手数); 门只减仓不加仓">
-        {% for v in ['1', '0.9', '0.8', '0.7', '0.6', '0.5'] %}<option value="{{ v }}">{{ v }}</option>{% endfor %}
-      </select></label>
-    {% endfor %}
+    {# 2×4 小格与象限图同构: 上排 A(长↑)族, 下排 B(长↓)族 — 位置即含义, 不靠颜色 #}
+    <div style="display:inline-grid;grid-template-columns:repeat(4, auto);gap:3px 12px;vertical-align:middle">
+      {% for cell in ['AAA', 'AAB', 'ABA', 'ABB', 'BAA', 'BAB', 'BBA', 'BBB'] %}
+      <label title="{{ m.regime_cn(cell) }}" style="display:flex;align-items:center;gap:2px;font-size:12.5px;margin:0">
+        <input type="checkbox" name="g_{{ cell }}" value="1"> <span class="mono">{{ cell }}</span>
+        ×<select name="m_{{ cell }}" style="font-size:12px" title="手数倍率(×挂载点手数); 门只减仓不加仓">
+          {% for v in ['1', '0.9', '0.8', '0.7', '0.6', '0.5'] %}<option value="{{ v }}">{{ v }}</option>{% endfor %}
+        </select></label>
+      {% endfor %}
+    </div>
     <label>版本 <select name="version" title="门钉死的时间线版本(不随全局默认漂移)">
       {% for v in rv_versions %}<option value="{{ v.id }}" {% if (regime_version or rv_current) == v.id %}selected{% endif %}>v{{ v.id }}</option>{% endfor %}
     </select></label>
