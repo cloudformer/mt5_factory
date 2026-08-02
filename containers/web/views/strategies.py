@@ -326,11 +326,15 @@ def strategy_tree():
         if template and symbol:
             data = api.get("/strategies/tree", template=template, symbol=symbol,
                            **({"timeframe": timeframe} if timeframe else {}))
+            gate_count = 0
             for n in data["instances"]:   # 摘要在视图层拼好, 模板只管摆
                 n["summary"] = _gate_summary(n["gate"]) if n.get("gate") \
                     else _param_summary(n["params"])
+                gate_count += 1 if n.get("gate") else 0
                 for g in n["gates"]:
                     g["summary"] = _gate_summary(g["gate"])
+                    gate_count += 1
+            data["gate_count"] = gate_count
     except api.ApiError as e:
         flash(f"载入失败: {e}", "error")
     return render_template("strategy_tree.html", templates=templates, symbols=symbols,

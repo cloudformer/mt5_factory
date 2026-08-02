@@ -22,10 +22,11 @@
 
 {% if data %}
 <p class="muted" style="margin-top:10px">{{ data.template }} × {{ data.symbol }}{% if data.timeframe %} × {{ data.timeframe }}{% endif %}
-  — 实例 {{ data.instances | length }} 个{% if data.archived %} · 已排除归档 {{ data.archived }} 个{% endif %}</p>
+  — 实例 {{ data.instances | length }} 个{% if data.gate_count %} · 含门变体 {{ data.gate_count }} 个{% endif %}{% if data.archived %} · 已排除归档 {{ data.archived }} 个{% endif %}</p>
 
 {% if data.instances %}
-<table class="dense">
+{{ m.table_toolbar('tree-table', hint='本页即时过滤(整行模糊)') }}
+<table id="tree-table" class="dense" data-colpick>
   {# 成绩四列 = 主品种最新回测(读时现拼, 免费); 跨品种数据只在矩阵页看 — 全站默认主货币对 #}
   <tr><th>实例</th><th>参数 / 门</th><th>周期</th><th>状态</th>
     <th title="主品种最新回测的成交笔数(样本量: <20 未证实)">笔数</th>
@@ -36,8 +37,11 @@
   {% for n in data.instances %}
   {% for row in [n] + n.gates %}
   <tr>
+    {# 门行自带父引用(排序/过滤/翻页后树关系不丢 — 标准表格三件套随便用) #}
     <td class="mono">
-      {%- if row.id != n.id %}<span class="muted">└─ 门</span> {% elif row.gate %}<span class="muted">门</span> {% endif %}#{{ row.id }}
+      {%- if row.id != n.id %}<span class="muted">└─ 门</span> #{{ row.id }} <span class="muted">(父#{{ n.id }})</span>
+      {%- elif row.gate %}<span class="muted">门</span> #{{ row.id }}
+      {%- else %}#{{ row.id }}{% endif %}
       {%- if row.orphan %} <span class="muted" title="父实例已归档或不在当前筛选内, 平铺展示">父不可见</span>{% endif %}</td>
     <td class="clip" title="{{ row.name }}">
       {% if row.gate %}<span class="mono">{{ row.summary }}</span>{% else %}{{ row.summary }}{% endif %}
