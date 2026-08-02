@@ -120,7 +120,7 @@
       {% else %}
       <td colspan="3" class="muted">等待 worker 回传…</td>
       {% endif %}
-      <td>{{ m.strategy_actions(s) }}</td>
+      <td>{{ m.strategy_actions(s, hosts_runner) }}</td>
     </tr>
     {% else %}
     {% call m.empty(13) %}

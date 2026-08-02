@@ -27,8 +27,10 @@
 </span>
 {%- endmacro %}
 
+{# 状态叫法唯一定义处(2026-08-02 Frank 定版): 空闲(=没在跑)/demo/live/删除归档 —
+   与机器角色(demo/live)同词, 挂哪个池显示哪个池; 空闲同时也是"未挂载"的展示词, 一物一名 #}
 {% macro status_label(s) -%}
-{{ {'CANDIDATE': '候选', 'DEMO': '模拟', 'LIVE': '真金', 'ARCHIVED': '淘汰归档'}.get(s, s) }}
+{{ {'CANDIDATE': '空闲', 'DEMO': 'demo', 'LIVE': 'live', 'ARCHIVED': '删除归档'}.get(s, s) }}
 {%- endmacro %}
 
 {# 策略状态徽章 #}
@@ -36,22 +38,22 @@
   <span class="badge {{ {'LIVE': 'ok', 'DEMO': 'warn', 'CANDIDATE': ''}.get(s, '') }}">{{ status_label(s) }}</span>
 {%- endmacro %}
 
-{# 策略操作列 (全站统一): 回测 + 状态下拉(可转任意状态, LIVE 也能撤回) #}
-{% macro strategy_actions(s) -%}
+{# 策略操作列 (全站统一): 回测 + 调度下拉(2026-08-02 Frank 定"切换是需要到 worker 的"):
+   合着=现状标签; 展开=空闲(停跑) / 每台 worker(挂到该机开跑, 标签自动跟机器角色) / 删除归档。
+   hosts = 有运行角色的启用主机清单(调用方现查传入) #}
+{% macro strategy_actions(s, hosts=[]) -%}
   <form method="post" action="{{ url_for('strategies.run_backtest', strategy_id=s.id) }}" class="inline">
     <button class="small">回测</button>
   </form>
   <a class="btn" href="{{ url_for('strategies.analysis', strategy_id=s.id) }}"
      title="进单策略分析: 对账(回测vs实盘) + 胜负归因 + 逐笔明细">分析</a>
-  <form method="post" action="{{ url_for('strategies.set_status', strategy_id=s.id) }}" class="inline">
-    {# 占位显示当前状态(2026-08-02 Frank 定): 下拉合着=现状"真金 →", 展开=可切去的目标 —
-       不用回头看状态列, 挂载中的策略切候选即停跑清挂载(set_status 既有语义) #}
-    <select name="status" class="small" data-status-select
-            title="当前 {{ status_label(s.status) }}; 选目标状态即切换(切候选/淘汰会清挂载停跑)">
+  <form method="post" action="{{ url_for('strategies.dispatch', strategy_id=s.id) }}" class="inline">
+    <select name="target" class="small" data-status-select
+            title="调度: 选机器=挂到该机开跑(标签自动跟机器角色, 选 live 机会确认一次); 空闲=停跑清挂载; 删除归档=下架">
       <option value="">{{ status_label(s.status) }} →</option>
-      {% for target in ['CANDIDATE', 'DEMO', 'LIVE', 'ARCHIVED'] if target != s.status %}
-      <option value="{{ target }}">{{ status_label(target) }}</option>
-      {% endfor %}
+      {% if s.status != 'CANDIDATE' %}<option value="CANDIDATE">空闲(停跑)</option>{% endif %}
+      {% for h in hosts %}<option value="host:{{ h.id }}">{{ h.name }}({{ h.runner }})</option>{% endfor %}
+      {% if s.status != 'ARCHIVED' %}<option value="ARCHIVED">删除归档</option>{% endif %}
     </select>
   </form>
 {%- endmacro %}

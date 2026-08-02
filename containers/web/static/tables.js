@@ -30,6 +30,13 @@ document.addEventListener("click", (e) => {
 document.addEventListener("change", async (e) => {
   const sel = e.target.closest("select[data-status-select]");
   if (!sel || !sel.value) return;
+  // 调度到 live 机 = 进真金账本, 确认一次(demo 机/空闲/归档直接执行)
+  const opt = sel.options[sel.selectedIndex];
+  if (sel.value.startsWith("host:") && opt.text.includes("(live)")
+      && !confirm("挂到 live 池机器 — 该策略将切入真金账本并在该账户下单, 确认?")) {
+    sel.value = "";
+    return;
+  }
   const form = sel.form;
   // 必须先取表单数据再禁用: disabled 的控件不会进 FormData, 否则服务端收不到 status
   const body = new FormData(form);
@@ -56,20 +63,18 @@ document.addEventListener("change", async (e) => {
     const badge = row.querySelector(".cell-status .badge");
     if (badge) {
       // 行内有状态列(策略页/回测页): 原地更新
-      // 状态中文名 (显示用; 提交值仍英文, 与 _macros.status_label 一致)
-      // 与 status_label 同名(铁律2: LIVE=真金; "实盘"专指 demo+live 汇总概念, 不单指 LIVE)
-      const ZH = { CANDIDATE: "候选", DEMO: "模拟", LIVE: "真金", ARCHIVED: "淘汰归档" };
+      // 状态叫法与 _macros.status_label 唯一定义一致(2026-08-02 Frank 定版)
+      const ZH = { CANDIDATE: "空闲", DEMO: "demo", LIVE: "live", ARCHIVED: "删除归档" };
       badge.textContent = ZH[data.status] || data.status;
       badge.className = "badge " + ({ LIVE: "ok", DEMO: "warn" }[data.status] || "");
       const magic = row.querySelector(".cell-magic");
       if (magic && data.magic_number) magic.textContent = data.magic_number;
-      // 状态切换会联动挂载(转DEMO/LIVE自动挂/归档清挂) → 本行挂载格跟着原地重取
+      // 调度会联动挂载(挂机/清挂载) → 本行挂载格跟着原地重取
       const mc = row.querySelector("td.mount-cell");
       if (mc) refreshMountCell(mc, data.status);
-      sel.innerHTML = '<option value="">状态 →</option>' +
-        ["CANDIDATE", "DEMO", "LIVE", "ARCHIVED"]
-          .filter((s) => s !== data.status)
-          .map((s) => `<option value="${s}">${ZH[s] || s}</option>`).join("");
+      // 选项清单不重建(机器清单来自服务端渲染), 只把占位改成新现状
+      if (sel.options[0]) sel.options[0].textContent = (ZH[data.status] || data.status) + " →";
+      sel.value = "";
       row.style.transition = "background .8s";
       row.style.background = "#ecfdf3";           // 成功闪一下绿色
       setTimeout(() => (row.style.background = ""), 800);

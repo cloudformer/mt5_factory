@@ -32,7 +32,8 @@ def index():
     rank = a.get("rank") or ""  # 排名参数模板名, 空=默认(净点数)
     page = max(a.get("page", 1, type=int), 1)  # 服务端分页页码(1起)
     results, rank_templates, brokers, symbols, templates = [], [], [], [], []
-    mounts_view = {}     # 挂载列: {sid: {rows: [启用挂载], addable: [可加挂的同角色主机]}}
+    mounts_view = {}     # 挂载列(纯显示): {sid: {rows: [启用挂载]}}
+    hosts_runner = []    # 调度下拉的机器清单(有运行角色的启用主机)
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空, 不用写死值顶(铁律欠账4)
     volume_default = None
     oos_split = 0.7  # 样本外训练段占比(配置页可改), 供页面显示"训练:留出"比例
@@ -72,24 +73,20 @@ def index():
         if results:
             mnt = api.get("/strategies/mounts",
                           ids=",".join(str(r["strategy_id"]) for r in results))["mounts"]
-            hosts = [h for h in api.get("/hosts")["hosts"]
-                     if h.get("enabled") and h.get("runner")]
+            # 挂载列=纯显示(2026-08-02 Frank 定): 只给已启用挂载行; 切换走调度下拉
             for r in results:
-                rows_m = [x for x in mnt.get(str(r["strategy_id"]), []) if x["enabled"]]
-                used = {x["host_id"] for x in rows_m}
-                # 挂载=唯一意图(2026-08-02 Frank 定): 下拉放开到全部角色机器,
-                # 挂哪台状态自动跟那台的池走(api 侧对齐); 只有归档不可挂
                 mounts_view[str(r["strategy_id"])] = {
-                    "rows": rows_m,
-                    "addable": ([h for h in hosts if h["id"] not in used]
-                                if r.get("status") != "ARCHIVED" else []),
-                }
+                    "rows": [x for x in mnt.get(str(r["strategy_id"]), []) if x["enabled"]]}
+        # 调度下拉的机器清单(有运行角色的启用主机)
+        hosts_runner = [h for h in api.get("/hosts")["hosts"]
+                        if h.get("enabled") and h.get("runner")]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     total_pages = max((total + page_size - 1) // page_size, 1)  # 向上取整
     base_args = {k: v for k, v in a.items() if k != "page"}     # 翻页链接保留其它筛选
     return render_template("strategies.html", results=results, volume_presets=volume_presets,
                            volume_default=volume_default, mounts_view=mounts_view,
+                           hosts_runner=hosts_runner,
                            symbol=symbol, broker=broker, min_actual_trades=min_actual_trades,
                            status=status, visibility=visibility,
                            min_trades=min_trades, q_field=q_field, q_text=q_text,
@@ -497,76 +494,22 @@ def market():
     return render_template("market.html", rows=rows)
 
 
-@bp.post("/<int:strategy_id>/mount")
-def set_mount(strategy_id: int):
-    """挂载到某台 worker / 改某挂载点手数(host_id + 可选 volume; 选完即提交)。
-    AJAX(X-Requested-With: fetch)= 回 JSON 由前端原地重取挂载格; 普通提交 = flash+跳回"""
-    is_fetch = request.headers.get("X-Requested-With") == "fetch"
-    raw = request.form.get("volume", "").strip()
-    try:
-        payload = {"host_id": int(request.form["host_id"])}
-        if raw:
-            payload["volume"] = float(raw)
-        r = api.post(f"/strategies/{strategy_id}/mounts", payload)
-        if is_fetch:
-            return {"ok": True}
-        flash(f"#{strategy_id} 挂载 @ {r['host']} · 手数 "
-              f"{('%g' % r['volume']) if r.get('volume') is not None else '默认'}"
-              " — runner 下一轮生效", "ok")
-    except (ValueError, KeyError):
-        if is_fetch:
-            return {"error": "host_id/手数格式错误"}, 400
-        flash("host_id/手数格式错误", "error")
-    except api.ApiError as e:
-        if is_fetch:
-            return {"error": str(e)}, 502
-        flash(f"挂载失败: {e}", "error")
-    return redirect(request.referrer or url_for("strategies.index"))
-
-
-@bp.post("/<int:strategy_id>/unmount")
-def unmount(strategy_id: int):
-    """卸载某挂载点(软停用, 保留手数记忆; 全卸=该策略停跑但状态不变)"""
-    is_fetch = request.headers.get("X-Requested-With") == "fetch"
-    try:
-        r = api.delete(f"/strategies/{strategy_id}/mounts/{int(request.form['host_id'])}")
-        if is_fetch:
-            return {"ok": True, "remaining": r["remaining"]}
-        if r["remaining"]:
-            flash(f"#{strategy_id} 已卸载该机, 其余 {r['remaining']} 个挂载点继续跑", "ok")
-        else:
-            flash(f"#{strategy_id} 已无任何挂载 — 停跑(状态不变); 重新挂载或状态切走再切回可恢复",
-                  "error")
-    except (ValueError, KeyError):
-        if is_fetch:
-            return {"error": "host_id 格式错误"}, 400
-        flash("host_id 格式错误", "error")
-    except api.ApiError as e:
-        if is_fetch:
-            return {"error": str(e)}, 502
-        flash(f"卸载失败: {e}", "error")
-    return redirect(request.referrer or url_for("strategies.index"))
+# 挂载/卸载的 web 表单路由已退役(2026-08-02 Frank 定"前面只显示, 后面切换"):
+# 挂载列=纯显示, 切换唯一入口=操作列状态下拉(set_status 自动挂池/清挂载);
+# api 端点(/strategies/{id}/mounts)保留给程序化/未来 pool UI。
 
 
 @bp.get("/<int:strategy_id>/mount_cell")
 def mount_cell(strategy_id: int):
-    """AJAX 片段: 只渲染一个策略的挂载格(挂载操作/状态切换后原地刷新, 不整页重载)"""
+    """AJAX 片段: 只渲染一个策略的挂载格(状态切换后原地刷新, 不整页重载; 纯显示)"""
     status = (request.args.get("status") or "").upper()
-    mv, volume_presets = {"rows": [], "addable": []}, []
+    mv = {"rows": []}
     try:
-        volume_presets = api.get("/config")["config"].get("volume_presets") or []
-        rows_m = [x for x in api.get("/strategies/mounts", ids=str(strategy_id))["mounts"]
-                  .get(str(strategy_id), []) if x["enabled"]]
-        hosts = [h for h in api.get("/hosts")["hosts"] if h.get("enabled") and h.get("runner")]
-        used = {x["host_id"] for x in rows_m}
-        # 挂载=唯一意图: 全部角色机器可选(挂哪台状态跟哪台的池), 只有归档不可挂
-        mv = {"rows": rows_m,
-              "addable": ([h for h in hosts if h["id"] not in used]
-                          if status != "ARCHIVED" else [])}
+        mv = {"rows": [x for x in api.get("/strategies/mounts", ids=str(strategy_id))
+                       ["mounts"].get(str(strategy_id), []) if x["enabled"]]}
     except api.ApiError:
         pass
-    return render_template("_mount_cell.html", mc_sid=strategy_id, mc_status=status,
-                           mc_mv=mv, volume_presets=volume_presets)
+    return render_template("_mount_cell.html", mc_sid=strategy_id, mc_status=status, mc_mv=mv)
 
 
 @bp.post("/heal_points")
@@ -834,4 +777,30 @@ def set_status(strategy_id: int):
         if is_fetch:
             return {"error": str(e)}, 400
         flash(f"状态修改失败: {e}", "error")
+    return redirect(request.referrer or url_for("strategies.index"))
+
+
+@bp.post("/<int:strategy_id>/dispatch")
+def dispatch(strategy_id: int):
+    """调度下拉(2026-08-02 Frank 定): target = host:<id>(挂到该机, 状态自动跟机器角色)
+    或 CANDIDATE/ARCHIVED(状态切换)。响应带 status, JS 原地更新徽章+挂载格。"""
+    is_fetch = request.headers.get("X-Requested-With") == "fetch"
+    t = request.form.get("target", "")
+    try:
+        if t.startswith("host:"):
+            r = api.post(f"/strategies/{strategy_id}/mounts", {"host_id": int(t[5:])})
+            result = {"status": r.get("status"), "host": r.get("host")}
+            msg = f"#{strategy_id} 已挂到 {r.get('host')}({(r.get('status') or '').lower()}) — runner 下一轮生效"
+        elif t in ("CANDIDATE", "ARCHIVED"):
+            result = api.post(f"/strategies/{strategy_id}/status", {"status": t})
+            msg = f"#{strategy_id} → {'空闲(停跑, 已清挂载)' if t == 'CANDIDATE' else '删除归档'}"
+        else:
+            raise ValueError(f"未知调度目标 {t!r}")
+        if is_fetch:
+            return result
+        flash(msg, "ok")
+    except (api.ApiError, KeyError, ValueError) as e:
+        if is_fetch:
+            return {"error": str(e)}, 400
+        flash(f"调度失败: {e}", "error")
     return redirect(request.referrer or url_for("strategies.index"))

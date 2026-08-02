@@ -63,6 +63,8 @@ def _render(mode: str):
     accounts, stats_by_magic, skipped_by_id, stale = _runner_report(assigned)
     return render_template("execution.html", mode=mode, cfg=cfg, assigned=assigned,
                            assignable=assignable, strategies=strategies,
+                           hosts_runner=[h for h in hosts
+                                         if h.get("enabled") and h.get("runner")],
                            accounts=accounts, stats=stats_by_magic, skipped=skipped_by_id,
                            stale=stale, volume_presets=volume_presets,
                            volume_default=volume_default)

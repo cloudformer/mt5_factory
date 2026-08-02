@@ -90,10 +90,10 @@
     {% if page < total_pages %}<a class="small" href="{{ url_for('strategies.index', page=page+1, **base_args) }}">下一页 ›</a>
     {% else %}<span class="small" style="opacity:.4">下一页 ›</span>{% endif %}
   </p>
-  {# 淘汰归档: 独立ID框, 只处理填入的ID, 与上方查看筛选完全解耦(防误伤全库) #}
+  {# 删除归档: 独立ID框, 只处理填入的ID, 与上方查看筛选完全解耦(防误伤全库) #}
   <form method="post" action="{{ url_for('strategies.archive_batch') }}" class="inline" style="margin:6px 0"
-        onsubmit="return confirm('把填入的这些策略ID淘汰归档(标 ARCHIVED)?\n\n可逆 — 之后不再参与回测/排名, 随时可改回。\n真金(LIVE)和已淘汰归档的会自动跳过。')">
-    <span class="tag">淘汰归档</span>
+        onsubmit="return confirm('把填入的这些策略ID删除归档(标 ARCHIVED)?\n\n可逆 — 之后不再参与回测/排名, 随时可改回。\nlive和已删除归档的会自动跳过。')">
+    <span class="tag">删除归档</span>
     <input name="strategy_ids" size="32" placeholder="策略ID, 逗号分隔(从表格 ID 列填入)" required
            pattern="[0-9,\s]*" title="只填数字ID, 逗号分隔">
     <select name="reason" title="死因码: 记录为什么杀 — AI 调参的负样本, 避免再生成同类">
@@ -101,7 +101,7 @@
                       ('low_pf','盈亏比差'), ('recon_fail','对账不达标'), ('other','其它')] %}
       <option value="{{ v }}">{{ t }}</option>{% endfor %}
     </select>
-    <button class="small danger">淘汰归档这些ID</button>
+    <button class="small danger">删除归档这些ID</button>
     <span class="muted">只处理填入的ID, 与上方查看筛选无关 · 可逆 · 真金/已归档自动跳过</span>
   </form>
   <p class="muted" style="margin:4px 0">样本外切分　<b>训练段 {{ (oos_split * 10) | round | int }}</b> ： <b>留出段 {{ ((1 - oos_split) * 10) | round | int }}</b>
@@ -124,7 +124,7 @@
         {% endfor %}
         <th title="该策略实盘(demo+live合并)胜率与笔数 — 其余成绩列都是回测数据, 这列才是真金/模拟">实盘胜率</th>
         <th title="点开: 实盘(demo/live) → 主品种回测 → 跨品种回测, 三源并列; 及参数/magic">健壮性</th>
-        <th data-nosort title="策略挂在哪台 worker(一策略可挂多台=多账户同时跑); 每挂载点独立手数; ×=卸载该机">挂载</th>
+        <th data-nosort title="纯显示: 策略挂在哪台 worker / 空闲(没在跑)。切换用操作列状态下拉(切 demo/live 自动挂该池最闲机器, 切空闲停跑)">挂载</th>
         <th data-nosort>操作</th></tr>
     {% for r in results %}
     {# 收起行的笔数/胜率 = 跨所有测过品种合计(纯前端累加 breakdown); 净点/PF/回撤仍主品种 #}
@@ -197,7 +197,7 @@
         {%- set mc_mv = mounts_view.get(r.strategy_id|string) -%}
         {%- include "_mount_cell.html" -%}
       </td>
-      <td>{{ m.strategy_actions({'id': r.strategy_id, 'status': r.status}) }}
+      <td>{{ m.strategy_actions({'id': r.strategy_id, 'status': r.status}, hosts_runner) }}
         <form method="post" action="{{ url_for('strategies.set_volume', strategy_id=r.strategy_id) }}" class="inline"
               {% if r.status == 'LIVE' %}onsubmit="return confirm('#{{ r.strategy_id }} 是 LIVE 真金策略, 改手数下一单即生效 — 确认?')"{% endif %}>
           <select name="volume" class="small" data-volume-select
