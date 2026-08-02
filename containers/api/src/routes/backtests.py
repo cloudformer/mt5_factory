@@ -297,6 +297,10 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         _and("COALESCE(b.broker, sy.broker) = ${n}", broker)
     if status:
         _and("s.status = ${n}", status.upper())
+    else:
+        # 删除归档默认不进排行(2026-08-02 Frank 定: 归档视为删除) —
+        # 要看尸体去筛选里明确选"删除归档"(复活/查死因用)
+        conds.append("s.status <> 'ARCHIVED'")
     if visibility:  # 可见性(逗号多值): 列表筛选 / 市场页(public,shared)共用
         _and("s.visibility = ANY(${n})",
              [v.strip() for v in visibility.split(",") if v.strip()])
