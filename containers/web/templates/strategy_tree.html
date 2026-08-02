@@ -17,7 +17,10 @@
     {% for tf in tfs %}<option {% if tf == timeframe %}selected{% endif %}>{{ tf }}</option>{% endfor %}
   </select></label>
   <button>载入</button>
-  <span class="muted">模板 + 品种必选(防几千实例一次铺开)</span>
+  <span class="muted" style="margin:0 6px">或</span>
+  <label>策略ID <input type="number" name="strategy_id" value="{{ sid or '' }}" style="width:6.5em"
+      title="直查该策略的家族(父实例+全部门变体); 输门实例id自动定位到父; 填了ID优先于模板/品种"></label>
+  <span class="muted">模板+品种浏览全组, 或 策略ID 直查家族与 metadata</span>
 </form>
 
 {% if data %}

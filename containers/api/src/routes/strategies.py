@@ -189,17 +189,39 @@ async def list_strategies(request: Request, status: Optional[str] = None,
 
 
 @router.get("/strategies/tree")
-async def strategy_tree(request: Request, template: str, symbol: str,
-                        timeframe: Optional[str] = None):
+async def strategy_tree(request: Request, template: Optional[str] = None,
+                        symbol: Optional[str] = None,
+                        timeframe: Optional[str] = None,
+                        strategy_id: Optional[int] = None):
     """策略谱系(2026-08-02 与 Frank 定样版): 两级树 —
     参数实例平铺(AI 出身是 basis 描述, 不画层级), 门变体(同参数+metadata)挂父实例下
     (门离开父没有意义, 这才是真从属)。归档一律排除只回计数。
-    成绩 = 主品种最新回测三值, 读时现拼零落库; 实例按净点降序未回测沉底。"""
+    成绩 = 主品种最新回测三值, 读时现拼零落库; 实例按净点降序未回测沉底。
+    两个入口: 模板+品种(浏览) / strategy_id(直查该策略的家族 — 输门id自动定位到父)。"""
     pool = request.app.state.pool
-    cond, args = ["s.template = $1", "s.symbol = $2"], [template, symbol]
-    if timeframe:
-        args.append(timeframe)
-        cond.append(f"s.timeframe = ${len(args)}")
+    cond, args = [], []
+    if strategy_id:
+        await identity.assert_strategy_visible(pool, request, strategy_id)
+        s = await pool.fetchrow(
+            "SELECT id, template, symbol, status, parent_id, metadata"
+            " FROM strategies WHERE id=$1", strategy_id)
+        if s is None:
+            raise HTTPException(status_code=404, detail=f"策略 #{strategy_id} 不存在")
+        if s["status"] == "ARCHIVED":
+            raise HTTPException(status_code=400, detail=f"#{strategy_id} 已归档 — 谱系不显示归档")
+        g = (s["metadata"] or {}).get("regime") if isinstance(s["metadata"], dict) else None
+        root_id = (s["parent_id"] if (isinstance(g, dict) and g.get("cells")
+                                      and s["parent_id"]) else s["id"])
+        template, symbol = s["template"], s["symbol"]
+        args.extend([template, symbol, root_id])
+        cond = ["s.template = $1", "s.symbol = $2", "(s.id = $3 OR s.parent_id = $3)"]
+    elif template and symbol:
+        cond, args = ["s.template = $1", "s.symbol = $2"], [template, symbol]
+        if timeframe:
+            args.append(timeframe)
+            cond.append(f"s.timeframe = ${len(args)}")
+    else:
+        raise HTTPException(status_code=400, detail="需要 模板+品种, 或 策略ID")
     uid = identity.scope_uid(request)
     if uid:
         args.append(uid)

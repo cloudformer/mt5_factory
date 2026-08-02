@@ -319,11 +319,15 @@ def strategy_tree():
     template = request.args.get("template") or None
     symbol = (request.args.get("symbol") or "").strip().upper() or None
     timeframe = request.args.get("timeframe") or None
+    sid = request.args.get("strategy_id", type=int)   # 直查: 输id显示该策略家族(门id自动定位到父)
     templates, symbols, data = [], [], None
     try:
         templates = sorted(api.get("/strategies/templates")["templates"])
         symbols = [s["symbol"] for s in api.get("/symbols")["symbols"]]
-        if template and symbol:
+        if sid:
+            data = api.get("/strategies/tree", strategy_id=sid)
+            template, symbol = data["template"], data["symbol"]
+        elif template and symbol:
             data = api.get("/strategies/tree", template=template, symbol=symbol,
                            **({"timeframe": timeframe} if timeframe else {}))
             gate_count = 0
@@ -339,7 +343,7 @@ def strategy_tree():
         flash(f"载入失败: {e}", "error")
     return render_template("strategy_tree.html", templates=templates, symbols=symbols,
                            template=template, symbol=symbol, timeframe=timeframe,
-                           tfs=TIMEFRAMES, data=data)
+                           sid=sid, tfs=TIMEFRAMES, data=data)
 
 
 def _param_summary(params) -> str:
