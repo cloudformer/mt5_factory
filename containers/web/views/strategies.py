@@ -312,6 +312,43 @@ _REGIME_MATRIX_PROMPT = """\
 _CELLS8 = ("AAA", "AAB", "ABA", "ABB", "BAA", "BAB", "BBA", "BBB")
 
 
+@bp.get("/tree")
+def strategy_tree():
+    """策略谱系(只读): 模板 → 参数实例(平铺, AI 出身=basis 灰字) → 门变体挂父下。
+    归档不显示(标题计数); 操作(状态/挂载/克隆)回各自页面 — 一页一职"""
+    template = request.args.get("template") or None
+    symbol = (request.args.get("symbol") or "").strip().upper() or None
+    timeframe = request.args.get("timeframe") or None
+    templates, symbols, data = [], [], None
+    try:
+        templates = sorted(api.get("/strategies/templates")["templates"])
+        symbols = [s["symbol"] for s in api.get("/symbols")["symbols"]]
+        if template and symbol:
+            data = api.get("/strategies/tree", template=template, symbol=symbol,
+                           **({"timeframe": timeframe} if timeframe else {}))
+            for n in data["instances"]:   # 摘要在视图层拼好, 模板只管摆
+                n["summary"] = _gate_summary(n["gate"]) if n.get("gate") \
+                    else _param_summary(n["params"])
+                for g in n["gates"]:
+                    g["summary"] = _gate_summary(g["gate"])
+    except api.ApiError as e:
+        flash(f"载入失败: {e}", "error")
+    return render_template("strategy_tree.html", templates=templates, symbols=symbols,
+                           template=template, symbol=symbol, timeframe=timeframe,
+                           tfs=TIMEFRAMES, data=data)
+
+
+def _param_summary(params) -> str:
+    """实例行参数摘要: k+v 紧凑串(悬停看完整名字)"""
+    return " · ".join(f"{k}{v}" for k, v in sorted((params or {}).items()))
+
+
+def _gate_summary(gate) -> str:
+    """门变体摘要: v1: ABA×1 · BBA×0.5"""
+    return f"v{gate['version']}: " + " · ".join(
+        f"{c}×{float(mv):g}" for c, mv in sorted(gate["cells"].items()))
+
+
 @bp.post("/<int:strategy_id>/clone_gate")
 def clone_gate(strategy_id: int):
     """克隆带门(v0.3): 矩阵页勾格+倍率+版本 → api 收货管道(校验/判重/谱系) → 新实例 id"""

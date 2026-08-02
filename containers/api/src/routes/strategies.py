@@ -188,6 +188,68 @@ async def list_strategies(request: Request, status: Optional[str] = None,
             "volume_default": vol_default}
 
 
+@router.get("/strategies/tree")
+async def strategy_tree(request: Request, template: str, symbol: str,
+                        timeframe: Optional[str] = None):
+    """策略谱系(2026-08-02 与 Frank 定样版): 两级树 —
+    参数实例平铺(AI 出身是 basis 描述, 不画层级), 门变体(同参数+metadata)挂父实例下
+    (门离开父没有意义, 这才是真从属)。归档一律排除只回计数。
+    成绩 = 主品种最新回测三值, 读时现拼零落库; 实例按净点降序未回测沉底。"""
+    pool = request.app.state.pool
+    cond, args = ["s.template = $1", "s.symbol = $2"], [template, symbol]
+    if timeframe:
+        args.append(timeframe)
+        cond.append(f"s.timeframe = ${len(args)}")
+    uid = identity.scope_uid(request)
+    if uid:
+        args.append(uid)
+        cond.append(f"s.owner_id = ${len(args)}")
+    where = " AND ".join(cond)
+    rows = await pool.fetch(
+        f"SELECT s.id, s.name, s.params, s.metadata, s.status, s.parent_id, s.basis,"
+        f"       s.timeframe, b.metrics"
+        f"  FROM strategies s"
+        f"  LEFT JOIN LATERAL (SELECT metrics FROM backtests"
+        f"        WHERE strategy_id = s.id AND symbol = s.symbol"
+        f"        ORDER BY id DESC LIMIT 1) b ON true"
+        f" WHERE {where} AND s.status <> 'ARCHIVED'"
+        f" ORDER BY s.id", *args)
+    archived = await pool.fetchval(
+        f"SELECT count(*) FROM strategies s WHERE {where} AND s.status = 'ARCHIVED'", *args)
+
+    def _node(r):
+        mt = r["metrics"] or {}
+        g = (r["metadata"] or {}).get("regime") if isinstance(r["metadata"], dict) else None
+        return {"id": r["id"], "name": r["name"], "params": r["params"],
+                "status": r["status"], "basis": r["basis"], "timeframe": r["timeframe"],
+                "parent_id": r["parent_id"],
+                "gate": g if (isinstance(g, dict) and g.get("cells")) else None,
+                "trades": mt.get("trades"), "win_rate": mt.get("win_rate"),
+                "net_points": mt.get("net_points"),
+                "pf": mt.get("profit_factor"), "gates": []}
+
+    by_id, instances, gate_nodes = {}, [], []
+    for r in rows:
+        n = _node(r)
+        (gate_nodes if n["gate"] else instances).append(n)
+        by_id[n["id"]] = n
+    for g in gate_nodes:
+        p = by_id.get(g["parent_id"])
+        if p is not None and p["gate"] is None:
+            p["gates"].append(g)
+        else:
+            g["orphan"] = True   # 父不可见(归档/越筛选) → 顶层平铺如实标注, 不隐藏
+            instances.append(g)
+
+    def _key(n):
+        return (n["net_points"] is None, -(n["net_points"] or 0))
+    instances.sort(key=_key)
+    for p in instances:
+        p["gates"].sort(key=_key)
+    return {"template": template, "symbol": symbol, "timeframe": timeframe,
+            "instances": instances, "archived": archived, "count": len(rows)}
+
+
 class CloneGateRequest(BaseModel):
     version: int   # regime 版本 id, 必须钉死(null/default 拒收 — 校验在 gate_error)
     cells: dict    # {格: 倍率 0.5~1}, 未列格=不开新仓

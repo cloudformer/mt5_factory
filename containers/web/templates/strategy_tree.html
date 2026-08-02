@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('策略谱系', '模板 → 参数实例(平铺, AI 出身是描述不画层级) → 门变体(同参数+metadata, 挂父实例下) · 归档不显示 · 只读视图, 操作回列表/矩阵页') }}
+
+<form method="get" class="inline">
+  <label>模板 <select name="template">
+    <option value="">— 选模板 —</option>
+    {% for t in templates %}<option {% if t == template %}selected{% endif %}>{{ t }}</option>{% endfor %}
+  </select></label>
+  <label>品种 <select name="symbol">
+    <option value="">— 选品种 —</option>
+    {% for s in symbols %}<option {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select></label>
+  <label>周期 <select name="timeframe">
+    <option value="">全部</option>
+    {% for tf in tfs %}<option {% if tf == timeframe %}selected{% endif %}>{{ tf }}</option>{% endfor %}
+  </select></label>
+  <button>载入</button>
+  <span class="muted">模板 + 品种必选(防几千实例一次铺开)</span>
+</form>
+
+{% if data %}
+<p class="muted" style="margin-top:10px">{{ data.template }} × {{ data.symbol }}{% if data.timeframe %} × {{ data.timeframe }}{% endif %}
+  — 实例 {{ data.instances | length }} 个{% if data.archived %} · 已排除归档 {{ data.archived }} 个{% endif %}</p>
+
+{% if data.instances %}
+<table class="dense">
+  {# 成绩四列 = 主品种最新回测(读时现拼, 免费); 跨品种数据只在矩阵页看 — 全站默认主货币对 #}
+  <tr><th>实例</th><th>参数 / 门</th><th>周期</th><th>状态</th>
+    <th title="主品种最新回测的成交笔数(样本量: <20 未证实)">笔数</th>
+    <th title="主品种回测胜率(与 rr 绑定看, 单独不排名)">胜率</th>
+    <th title="主品种回测净点(同品种同单位, 真实)">净点</th>
+    <th title="主品种回测盈亏比 Profit Factor(总盈点÷总亏点, ∞=无亏损)">PF</th>
+    <th>查看</th></tr>
+  {% for n in data.instances %}
+  {% for row in [n] + n.gates %}
+  <tr>
+    <td class="mono">
+      {%- if row.id != n.id %}<span class="muted">└─ 门</span> {% elif row.gate %}<span class="muted">门</span> {% endif %}#{{ row.id }}
+      {%- if row.orphan %} <span class="muted" title="父实例已归档或不在当前筛选内, 平铺展示">父不可见</span>{% endif %}</td>
+    <td class="clip" title="{{ row.name }}">
+      {% if row.gate %}<span class="mono">{{ row.summary }}</span>{% else %}{{ row.summary }}{% endif %}
+      {% if row.basis %}<br><span class="muted">↳ {{ row.basis }}</span>{% endif %}</td>
+    <td class="muted">{{ row.timeframe }}</td>
+    <td>{{ m.strategy_status(row.status) }}</td>
+    {% if row.trades is not none %}
+    <td>{{ row.trades }}</td>
+    <td>{{ '%.1f' | format(row.win_rate * 100) if row.win_rate is not none else '—' }}%</td>
+    <td class="{{ 'pos' if (row.net_points or 0) >= 0 else 'neg' }}">{{ '%+g' | format(row.net_points or 0) }}</td>
+    <td>{{ row.pf if row.pf is not none else '∞' }}</td>
+    {% else %}
+    <td colspan="4" class="muted">未回测</td>
+    {% endif %}
+    <td><a href="{{ url_for('strategies.regime_matrix', strategy_id=row.id) }}">矩阵</a>
+      · <a href="{{ url_for('strategies.analysis', strategy_id=row.id) }}">分析</a></td>
+  </tr>
+  {% endfor %}
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">该组合下没有未归档的实例。</p>
+{% endif %}
+{% elif template or symbol %}
+<p class="muted" style="margin-top:10px">模板和品种都选好后点「载入」。</p>
+{% endif %}
+{% endblock %}
