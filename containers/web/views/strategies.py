@@ -330,13 +330,28 @@ def strategy_tree():
         elif template and symbol:
             data = api.get("/strategies/tree", template=template, symbol=symbol,
                            **({"timeframe": timeframe} if timeframe else {}))
+            import json as _json
+
+            def _win(n):   # 回测窗标签: 近X年(悬停看起止) — 窗口不同的成绩不可互比
+                if not n.get("bt_from"):
+                    return
+                days = (datetime.fromisoformat(n["bt_to"])
+                        - datetime.fromisoformat(n["bt_from"])).days
+                n["win"] = f"近{round(days / 365, 1):g}年" if days >= 350 else f"{days}天"
+                n["win_title"] = f"{n['bt_from'][:10]} ~ {n['bt_to'][:10]}"
             gate_count = 0
             for n in data["instances"]:   # 摘要在视图层拼好, 模板只管摆
+                _win(n)
                 n["summary"] = _gate_summary(n["gate"]) if n.get("gate") \
                     else _param_summary(n["params"])
                 gate_count += 1 if n.get("gate") else 0
+                # 悬停=完整 metadata JSON(门的详细参数, Frank 要求可见)
+                if n.get("gate"):
+                    n["hover"] = _json.dumps({"regime": n["gate"]}, ensure_ascii=False)
                 for g in n["gates"]:
+                    _win(g)
                     g["summary"] = _gate_summary(g["gate"])
+                    g["hover"] = _json.dumps({"regime": g["gate"]}, ensure_ascii=False)
                     gate_count += 1
             data["gate_count"] = gate_count
     except api.ApiError as e:

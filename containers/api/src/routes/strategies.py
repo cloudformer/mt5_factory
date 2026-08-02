@@ -214,7 +214,10 @@ async def strategy_tree(request: Request, template: Optional[str] = None,
                                       and s["parent_id"]) else s["id"])
         template, symbol = s["template"], s["symbol"]
         args.extend([template, symbol, root_id])
-        cond = ["s.template = $1", "s.symbol = $2", "(s.id = $3 OR s.parent_id = $3)"]
+        # 直查=只看上下级: 父实例本身 + 它的门变体(metadata 带 regime 的子代)。
+        # AI 调参子代 parent_id 也指向父, 但那不是层级(Frank 定) — 直查不捞它们
+        cond = ["s.template = $1", "s.symbol = $2",
+                "(s.id = $3 OR (s.parent_id = $3 AND s.metadata ? 'regime'))"]
     elif template and symbol:
         cond, args = ["s.template = $1", "s.symbol = $2"], [template, symbol]
         if timeframe:
@@ -229,9 +232,9 @@ async def strategy_tree(request: Request, template: Optional[str] = None,
     where = " AND ".join(cond)
     rows = await pool.fetch(
         f"SELECT s.id, s.name, s.params, s.metadata, s.status, s.parent_id, s.basis,"
-        f"       s.timeframe, b.metrics"
+        f"       s.timeframe, b.metrics, b.from_time, b.to_time"
         f"  FROM strategies s"
-        f"  LEFT JOIN LATERAL (SELECT metrics FROM backtests"
+        f"  LEFT JOIN LATERAL (SELECT metrics, from_time, to_time FROM backtests"
         f"        WHERE strategy_id = s.id AND symbol = s.symbol"
         f"        ORDER BY id DESC LIMIT 1) b ON true"
         f" WHERE {where} AND s.status <> 'ARCHIVED'"
@@ -248,7 +251,12 @@ async def strategy_tree(request: Request, template: Optional[str] = None,
                 "gate": g if (isinstance(g, dict) and g.get("cells")) else None,
                 "trades": mt.get("trades"), "win_rate": mt.get("win_rate"),
                 "net_points": mt.get("net_points"),
-                "pf": mt.get("profit_factor"), "gates": []}
+                "pf": mt.get("profit_factor"),
+                # 回测窗口(2026-08-02 Frank 定): 各实例窗口不一(20年/5年/批量半年),
+                # 不标出来数字会被误互比(对比三铁律)
+                "bt_from": r["from_time"].isoformat() if r["from_time"] else None,
+                "bt_to": r["to_time"].isoformat() if r["to_time"] else None,
+                "gates": []}
 
     by_id, instances, gate_nodes = {}, [], []
     for r in rows:

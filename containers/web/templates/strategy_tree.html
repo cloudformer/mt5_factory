@@ -32,6 +32,7 @@
 <table id="tree-table" class="dense" data-colpick>
   {# 成绩四列 = 主品种最新回测(读时现拼, 免费); 跨品种数据只在矩阵页看 — 全站默认主货币对 #}
   <tr><th>实例</th><th>参数 / 门</th><th>周期</th><th>状态</th>
+    <th title="该实例最新回测的数据窗口(悬停看起止日期)。各实例窗口可能不同(20年/5年/批量半年) — 窗口不同的成绩不可互比(对比三铁律), 要比先同窗重跑">回测窗</th>
     <th title="主品种最新回测的成交笔数(样本量: <20 未证实)">笔数</th>
     <th title="主品种回测胜率(与 rr 绑定看, 单独不排名)">胜率</th>
     <th title="主品种回测净点(同品种同单位, 真实)">净点</th>
@@ -46,18 +47,19 @@
       {%- elif row.gate %}<span class="muted">门</span> #{{ row.id }}
       {%- else %}#{{ row.id }}{% endif %}
       {%- if row.orphan %} <span class="muted" title="父实例已归档或不在当前筛选内, 平铺展示">父不可见</span>{% endif %}</td>
-    <td class="clip" title="{{ row.name }}">
+    <td class="clip" title="{{ row.hover or row.name }}">
       {% if row.gate %}<span class="mono">{{ row.summary }}</span>{% else %}{{ row.summary }}{% endif %}
       {% if row.basis %}<br><span class="muted">↳ {{ row.basis }}</span>{% endif %}</td>
     <td class="muted">{{ row.timeframe }}</td>
     <td>{{ m.strategy_status(row.status) }}</td>
     {% if row.trades is not none %}
+    <td class="muted" title="{{ row.win_title or '' }}">{{ row.win or '—' }}</td>
     <td>{{ row.trades }}</td>
     <td>{{ '%.1f' | format(row.win_rate * 100) if row.win_rate is not none else '—' }}%</td>
     <td class="{{ 'pos' if (row.net_points or 0) >= 0 else 'neg' }}">{{ '%+g' | format(row.net_points or 0) }}</td>
     <td>{{ row.pf if row.pf is not none else '∞' }}</td>
     {% else %}
-    <td colspan="4" class="muted">未回测</td>
+    <td colspan="5" class="muted">未回测</td>
     {% endif %}
     <td><a href="{{ url_for('strategies.regime_matrix', strategy_id=row.id) }}">矩阵</a>
       · <a href="{{ url_for('strategies.analysis', strategy_id=row.id) }}">分析</a></td>
