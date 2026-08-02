@@ -78,6 +78,7 @@ _eid_last = 0
 _quote_bad: set = set()   # 处于"拿不到K线"状态的策略id(进入/恢复各记一次, 不逐拍刷屏)
 _fail_last: dict = {}     # sid -> 上次下单失败act(同错误只报首个, 成功即清)
 _skip_seen: set = set()   # 已报过的加载失败 (id, reason)
+_gate_stale: set = set()  # 处于"当日regime未生成"状态的策略id(GATE_STALE/GATE_OK 成对, 不刷屏)
 _dec_day = ""             # 当前决策日志文件日期(翻天=换文件+清理过期)
 
 
@@ -362,14 +363,26 @@ def process(inst: dict, last_bar: dict) -> None:
     elif pos != "flat":
         act = "skip_pos"    # 占位: 有信号但被持仓占着 — 对账"占位级联"的最里层证据
     else:
-        # regime 门(v0.3, 与回测引擎共用 gate_mult): 当日格裁决 — 门外/格子日期≠今天(时间线
-        # 未跟上, 保守不开)→ 跳过; 在门内 → 手数×倍率。无门 mult 恒 1, 路径与历史一致
-        cell = (inst.get("gate_cell")
-                if inst.get("gate_cell_date") == time.strftime("%Y-%m-%d", time.gmtime(bar_time))
-                else None)
+        # regime 门(v0.3, 与回测引擎共用 gate_mult): 当日格裁决。无门 mult 恒 1, 路径与历史一致。
+        # 两种跳码分开(2026-08-01 Frank 定, 运维一眼分诊; 裁决本身不变, 只是标签+事件):
+        #   skip_gate       = 当日格不在该策略 metadata.cells 里 — 门在正常裁剪, 无需处理
+        #   skip_gate_stale = 当日 regime 未生成(时间线落后) — 数据管道警报, 查自动同步/下载
+        stale = bool(inst.get("gate")) and inst.get("gate_cell_date") != \
+            time.strftime("%Y-%m-%d", time.gmtime(bar_time))
+        cell = None if stale else inst.get("gate_cell")
         mult = gate_mult(inst.get("gate"), cell)
+        if inst.get("gate") and not stale and inst["id"] in _gate_stale:   # 时间线恢复
+            _gate_stale.discard(inst["id"])
+            push_event("GATE_OK", inst["id"], inst["symbol"])
         if mult is None:
-            act = "skip_gate"   # 门外不开新仓(对账侧据 metadata 同门重放, 两边同判)
+            if stale:
+                act = "skip_gate_stale"
+                if inst["id"] not in _gate_stale:   # 状态变化才报, 不逐拍刷屏
+                    _gate_stale.add(inst["id"])
+                    push_event("GATE_STALE", inst["id"],
+                               f"{inst['symbol']} 当日regime未生成(时间线至 {inst.get('gate_cell_date') or '无'})")
+            else:
+                act = "skip_gate"   # 门外不开新仓(对账侧据 metadata 同门重放, 两边同判)
         else:
             act = send_order(inst, sig, mult)
         if act != "open_ok":               # 拒单/失败: 同一错误只报首个, 成功即清
@@ -381,7 +394,10 @@ def process(inst: dict, last_bar: dict) -> None:
     # 每策略每收盘bar一行决策记录(bar=券商服务器时间, 永不转换)
     decision_log({"bar": time.strftime("%Y-%m-%d %H:%M", time.gmtime(bar_time)),
                   "sid": inst["id"], "sym": inst["symbol"], "tf": inst["timeframe"],
-                  "pos": pos, "sig": sig.direction.lower() if sig else "none", "act": act})
+                  "pos": pos, "sig": sig.direction.lower() if sig else "none", "act": act,
+                  # 带门策略附当日格(诊断: skip_gate 时一眼看到"今天是什么格、门要什么格")
+                  **({"cell": inst.get("gate_cell"),
+                      "want": sorted(inst["gate"]["cells"])} if inst.get("gate") else {})})
 
 
 def main():
