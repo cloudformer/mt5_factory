@@ -107,6 +107,23 @@
     </tr>
     {% endfor %}
   </table>
+
+  <h2 style="margin-top:18px">克隆带门 <span class="muted" style="font-weight:normal">v0.3: 父参数原样 + regime 门 = 新实例(parent 谱系, 独立成绩); 勾选格按倍率交易, 未勾格不开新仓</span></h2>
+  <form method="post" action="{{ url_for('strategies.clone_gate', strategy_id=sid) }}" class="inline"
+        onsubmit="return confirm('克隆 #{{ sid }} 为带门新实例?\n\n勾选格按倍率交易, 未勾格不开新仓; 版本钉死不随全局默认漂移; 父实例不受任何影响。')">
+    {% for cell in CELLS %}
+    <label title="{{ m.regime_cn(cell) }}" style="display:inline-flex;align-items:center;gap:2px">
+      <input type="checkbox" name="g_{{ cell }}" value="1"> {{ m.regime_chip(cell) }}
+      ×<select name="m_{{ cell }}" title="手数倍率(×挂载点手数); 门只减仓不加仓">
+        {% for v in ['1', '0.9', '0.8', '0.7', '0.6', '0.5'] %}<option value="{{ v }}">{{ v }}</option>{% endfor %}
+      </select></label>
+    {% endfor %}
+    <label>版本 <select name="version" title="门钉死的时间线版本(不随全局默认漂移)">
+      {% for v in rv_versions %}<option value="{{ v.id }}" {% if (regime_version or rv_current) == v.id %}selected{% endif %}>v{{ v.id }}</option>{% endfor %}
+    </select></label>
+    <button>克隆带门</button>
+    <span class="muted">倍率 0.5~1; 同门重复克隆返回现有 id; 最低挂载手数 = 0.01 ÷ 最小倍率</span>
+  </form>
   {% endif %}
 
 <script>

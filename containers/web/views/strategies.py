@@ -309,6 +309,29 @@ _REGIME_MATRIX_PROMPT = """\
 """
 
 
+_CELLS8 = ("AAA", "AAB", "ABA", "ABB", "BAA", "BAB", "BBA", "BBB")
+
+
+@bp.post("/<int:strategy_id>/clone_gate")
+def clone_gate(strategy_id: int):
+    """克隆带门(v0.3): 矩阵页勾格+倍率+版本 → api 收货管道(校验/判重/谱系) → 新实例 id"""
+    cells = {c: float(request.form.get(f"m_{c}") or 1)
+             for c in _CELLS8 if request.form.get(f"g_{c}")}
+    try:
+        r = api.post(f"/strategies/{strategy_id}/clone_gate",
+                     {"version": int(request.form.get("version") or 0), "cells": cells})
+        if r.get("created"):
+            flash(f"克隆成功: #{r['id']}(parent=#{strategy_id}, 带门) — "
+                  f"上方输入 {r['id']} 载入并跑回测, 引擎将带门真跑", "ok")
+        elif r.get("existing_id"):
+            flash(f"同门实例已存在: #{r['existing_id']}({r.get('existing_status')}) — 直接用它", "ok")
+        else:
+            flash(f"未创建: {r.get('error') or r}", "error")
+    except (api.ApiError, ValueError) as e:
+        flash(f"克隆失败: {e}", "error")
+    return redirect(url_for("strategies.regime_matrix", strategy_id=strategy_id))
+
+
 @bp.get("/regime_matrix/prompt.txt")
 def regime_matrix_prompt_txt():
     """九币矩阵 AI 提示词(纯文本): 实验说明+regime原理+JSON格式+要回答的问题+结果JSON。

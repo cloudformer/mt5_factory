@@ -10,6 +10,7 @@
 basis(生因)随实例入库, 与死因 archive_reason 对偶 — 家族溯源/成绩单负样本用。
 """
 import logging
+import re
 from typing import Optional
 
 from strategy_core import TEMPLATES
@@ -17,6 +18,36 @@ from strategy_core import TEMPLATES
 from src.services import usage
 
 logger = logging.getLogger("instances")
+
+_CELL_RE = re.compile(r"^[AB]{3}$")   # regime 门格键: 三字母八格
+
+
+async def gate_error(pool, gate) -> Optional[str]:
+    """metadata.regime 门校验(v0.3 六b, 克隆带门唯一写入口执法)。None=合格。
+    规则: version 必须钉死真实版本id(null/default 拒收); cells 非空、键∈八格、
+    倍率 0.5~1 且最多一位小数(与下拉档位一致); 未知键拒收。"""
+    if not isinstance(gate, dict):
+        return "regime 门必须是对象"
+    extra = set(gate) - {"version", "cells"}
+    if extra:
+        return f"未知键 {sorted(extra)} — 只允许 version/cells"
+    v = gate.get("version")
+    if isinstance(v, bool) or not isinstance(v, int):
+        return "version 必须是整数版本id — null/default 不收, 门必须钉死版本(v0.3)"
+    if not await pool.fetchval("SELECT 1 FROM regime_versions WHERE id=$1", v):
+        return f"版本 v{v} 不存在 — 去配置页看现有版本"
+    cells = gate.get("cells")
+    if not isinstance(cells, dict) or not cells:
+        return "cells 不能为空 — 空门与父实例无差别, 拒绝创建"
+    for k, mlt in cells.items():
+        if not _CELL_RE.match(str(k)):
+            return f"格键 {k!r} 非法 — 须为三字母八格(A/B ×3, 如 ABA)"
+        if isinstance(mlt, bool) or not isinstance(mlt, (int, float)) \
+                or not 0.5 <= float(mlt) <= 1:
+            return f"格 {k} 倍率 {mlt!r} 出界 — 须 0.5~1(门只减仓不加仓)"
+        if round(float(mlt), 1) != float(mlt):
+            return f"格 {k} 倍率 {mlt!r} 精度过细 — 最多一位小数(下拉档位)"
+    return None
 
 DEFAULT_BATCH_LIMIT = 500  # 单批收货上限兜底; 实际值读 config 表 generate_batch_limit(生成页可改)
 
@@ -61,7 +92,9 @@ def combo_error(cls, space: dict, params) -> Optional[str]:
 
 async def create_instances(pool, template: str, symbol: str, timeframe: str,
                            combos: list, parent_id: Optional[int] = None,
-                           max_created: Optional[int] = None) -> dict:
+                           max_created: Optional[int] = None,
+                           metadata: Optional[dict] = None, name_suffix: str = "",
+                           trust_params: bool = False) -> dict:
     """逐组校验 → 入库(唯一约束去重, 可带 parent_id 谱系) → 逐组反馈 + 回读核验。
 
     每组结果 out:
@@ -69,7 +102,10 @@ async def create_instances(pool, template: str, symbol: str, timeframe: str,
       已存在:     {"i", "params", "basis", "existing_id", "existing_status"}
       不合格:     {"i", "params", "basis", "error"}
     max_created: 新建满 N 个即停(随机模式"凑够 count 个新实例"用)。
-    超上限不报错: 照收前 limit 组, 返回 truncated=被截断组数(调用方提示用户去配置页调大)。"""
+    超上限不报错: 照收前 limit 组, 返回 truncated=被截断组数(调用方提示用户去配置页调大)。
+    metadata/name_suffix/trust_params(v0.3 克隆带门): metadata=执行裁剪(空={}=全量),
+    进唯一约束参与判重; name_suffix 附在名字后(如 -gate-v1-ABA1); trust_params=True
+    跳过参数空间校验(克隆场景: 父参数来自库内现有行, 空间演化不应挡克隆)。"""
     cls = TEMPLATES[template]
     space = cls.RANDOM_SPACE or cls.PARAM_GRID
     # 单批收货上限(防失控倾倒; 随机模式按 count*5 采样也在此之下): config 可改, 兜底 500
@@ -82,24 +118,26 @@ async def create_instances(pool, template: str, symbol: str, timeframe: str,
         params = item.get("params", item) if isinstance(item, dict) else None
         basis = item.get("basis") if isinstance(item, dict) else None
         out = {"i": i + 1, "params": params, "basis": basis}
-        err = combo_error(cls, space, params)
+        err = None if trust_params else combo_error(cls, space, params)
         if err:
             out["error"] = err
             results.append(out)
             continue
+        md = metadata or {}
         name = f"{template}-{symbol}-{timeframe}-" + \
-               "-".join(f"{k}{params[k]}" for k in sorted(params))
+               "-".join(f"{k}{params[k]}" for k in sorted(params)) + name_suffix
         row = await pool.fetchrow(
-            "INSERT INTO strategies (name, template, symbol, timeframe, params, parent_id, basis)"
-            " VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING RETURNING id",
-            name, template, symbol, timeframe, params, parent_id, basis)
+            "INSERT INTO strategies"
+            " (name, template, symbol, timeframe, params, parent_id, basis, metadata)"
+            " VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING RETURNING id",
+            name, template, symbol, timeframe, params, parent_id, basis, md)
         if row is None:  # 撞唯一约束 = 组合已存在(可能是死过的邻居) → 查现有ID给调用方
-            # metadata='{}' 钉住空门行(v0.3 唯一约束含 metadata 后, 同参数可有带门兄弟)
+            # 判重按 (参数, metadata) 整体 — 同参数不同门是合法兄弟, 不能互相认领
             existing = await pool.fetchrow(
                 "SELECT id, status FROM strategies"
                 " WHERE template=$1 AND symbol=$2 AND timeframe=$3 AND params=$4"
-                "   AND metadata = '{}'::jsonb",
-                template, symbol, timeframe, params)
+                "   AND metadata = $5",
+                template, symbol, timeframe, params, md)
             out["existing_id"] = existing["id"] if existing else None
             out["existing_status"] = existing["status"] if existing else None
             results.append(out)

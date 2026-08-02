@@ -188,6 +188,39 @@ async def list_strategies(request: Request, status: Optional[str] = None,
             "volume_default": vol_default}
 
 
+class CloneGateRequest(BaseModel):
+    version: int   # regime 版本 id, 必须钉死(null/default 拒收 — 校验在 gate_error)
+    cells: dict    # {格: 倍率 0.5~1}, 未列格=不开新仓
+
+
+@router.post("/strategies/{strategy_id}/clone_gate")
+async def clone_gate(strategy_id: int, req: CloneGateRequest, request: Request):
+    """克隆带门(v0.3 开工清单#3): 父参数原样 + metadata.regime 门 = 新实例
+    (parent_id 谱系, 独立成绩独立魔数, 走统一收货管道)。
+    父永远是干净的全量基准; 同门重复克隆撞唯一约束 → 返回现有 id(管道语义, 不重不漏)。"""
+    pool = request.app.state.pool
+    await identity.assert_strategy_visible(pool, request, strategy_id)
+    parent = await pool.fetchrow(
+        "SELECT template, symbol, timeframe, params FROM strategies WHERE id=$1",
+        strategy_id)
+    if parent is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    gate = {"version": req.version, "cells": req.cells}
+    err = await instances.gate_error(pool, gate)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    suffix = f"-gate-v{req.version}-" + "-".join(
+        f"{k}{float(req.cells[k]):g}" for k in sorted(req.cells))
+    r = await instances.create_instances(
+        pool, parent["template"], parent["symbol"], parent["timeframe"],
+        [{"params": parent["params"], "basis": f"克隆带门 parent=#{strategy_id}{suffix}"}],
+        parent_id=strategy_id, metadata={"regime": gate}, name_suffix=suffix,
+        trust_params=True)   # 父参数来自库内现有行, 参数空间演化不应挡克隆
+    out = r["results"][0]
+    out["created"] = "id" in out
+    return out
+
+
 # ---------- MQ5 转化流水线 ----------
 class Mq5Submit(BaseModel):
     name: str
