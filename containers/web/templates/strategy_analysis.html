@@ -384,10 +384,11 @@
     }
     btn.disabled = false;
   });
-  // Regime 格子小徽章(JS 版): 颜色/中文名由 _macros 唯一定义处渲染进来, 不在 JS 里二抄
-  const RG = { {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}"{{ c }}": ["{{ m.regime_color(c) }}", "{{ m.regime_cn(c) }}"]{{ "," if not loop.last }}{% endfor %} };
+  // Regime 格子小徽章(JS 版, 与 m.regime_chip 同规: 无色纯文字, 中文名进 title —
+  // 本色只许出现在 Regime 页的图上, 战绩语境不带色)
+  const RG = { {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}"{{ c }}": "{{ m.regime_cn(c) }}"{{ "," if not loop.last }}{% endfor %} };
   const rchip = (c) => (c && RG[c])
-    ? `<span class="mono" title="${RG[c][1]}"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${RG[c][0]};vertical-align:-1px"></span>${c}</span>`
+    ? `<span class="mono" title="${RG[c]}">${c}</span>`
     : '<span class="muted">—</span>';
   // 某档逐笔明细: 单独现算那一档(内存不落库), 展开在对比表下方
   document.addEventListener("click", async (e) => {

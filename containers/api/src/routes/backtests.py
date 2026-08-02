@@ -470,7 +470,8 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         # 不在热路径做时间线自愈(ensure_timeline 归 Regime/分析页); 时间线没建 = 该行显 —。
         rg_rows = await pool.fetch(
             "SELECT b.strategy_id, rt.regime, count(*) AS n,"
-            "       count(*) FILTER (WHERE (t->>'points')::float > 0) AS w"
+            "       count(*) FILTER (WHERE (t->>'points')::float > 0) AS w,"
+            "       sum((t->>'points')::float) AS net"
             "  FROM backtests b"
             "  JOIN strategies s2 ON s2.id = b.strategy_id AND b.symbol = s2.symbol"
             " CROSS JOIN LATERAL jsonb_array_elements(b.trades) t"
@@ -485,7 +486,8 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         for r in rg_rows:
             rg_by_sid.setdefault(r["strategy_id"], []).append(
                 {"cell": r["regime"], "trades": r["n"],
-                 "win_rate": round(r["w"] / r["n"] * 100, 1)})
+                 "win_rate": round(r["w"] / r["n"] * 100, 1),
+                 "net": round(float(r["net"] or 0), 1)})   # 定色用: 正绿负红(全站统一色语义)
         for d in page_cands:
             cells = rg_by_sid.get(d["strategy_id"], [])
             tops = sorted((c for c in cells if c["trades"] >= 20),

@@ -259,8 +259,11 @@ worker 90 秒无心跳 — Windows 侧看 bridge/runner 进程与网络; 恢复�
 {%- endif -%}
 {%- endmacro %}
 
+{# 格子小徽章 = 无色纯文字(2026-08-02 Frank 定): regime 本色只许出现在 Regime 页的图上
+   (色带/象限图/演变表); 策略战绩语境(明细/对账/列头/排名)的格子代码一律不带色,
+   数值另按全站规则绿赚红亏 — 防止本色被误读成盈亏 #}
 {% macro regime_chip(cell) -%}
-<span class="mono" title="{{ regime_cn(cell) }}"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:{{ regime_color(cell) }};vertical-align:-1px"></span>{{ cell or '—' }}</span>
+<span class="mono" title="{{ regime_cn(cell) }}">{{ cell or '—' }}</span>
 {%- endmacro %}
 
 {# 八格象限图(标准组件, 2026-07-28 Frank 定版式): 单张 2×4, 权重即布局 —
