@@ -30,10 +30,10 @@ def market_overview():
     data = None
     try:
         data = api.get("/overview/market")
-        if data and data.get("date"):
-            for lst in data["cells"].values():   # 落后标记: 该品种最新日 ≠ 全局数据日
+        for v in (data or {}).get("versions", []):   # 每版本各自标记落后品种
+            for lst in v["cells"].values():
                 for e in lst:
-                    e["stale"] = e["date"] != data["date"]
+                    e["stale"] = e["date"] != v["date"]
                     e["date_short"] = e["date"][5:10]   # MM-DD(截至标注用)
         for w in (data or {}).get("workers", []):
             if w.get("heartbeat"):

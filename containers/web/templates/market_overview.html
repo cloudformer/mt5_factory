@@ -3,13 +3,17 @@
 {% block content %}
 {{ m.page_header('行情概览', '全部下载品种的【当日格】落位(regime 图, 本色标格) + worker 余额 · 读时现拼') }}
 
-{% if data and data.date %}
-{# 八格落位表(2026-08-03 Frank 定样版 A): 左上废角 = 绝对数据日(券商服务器时间) #}
+{% if data and data.versions %}
+{# 全版本对比(2026-08-03 Frank 定): 每个版本一张八格落位图, 上下排开 —
+   左上废角 = v号+口径+绝对数据日(券商服务器时间); 保鲜由心跳班车负责 #}
+{% for ver in data.versions %}
+<h2 {% if not loop.first %}style="margin-top:18px"{% endif %}>v{{ ver.id }} <span class="muted" style="font-weight:normal">{{ ver.label }}</span></h2>
+{% if ver.date %}
 <table class="dense" style="max-width:1020px">
   <tr>
     <th rowspan="2" style="vertical-align:middle">
-      <b class="mono">{{ data.date }}</b><br>
-      <span class="muted" style="font-weight:normal">券商时间 · 口径 v{{ data.version }}</span></th>
+      <b class="mono">{{ ver.date }}</b><br>
+      <span class="muted" style="font-weight:normal">券商时间 · v{{ ver.id }}</span></th>
     <th colspan="2">短 <span class="pos">↑</span></th>
     <th colspan="2">短 <span class="neg">↓</span></th>
   </tr>
@@ -23,7 +27,7 @@
     {% for cell in row %}
     <td style="border-left:5px solid {{ m.regime_color(cell) }};vertical-align:top;min-width:150px">
       <b class="mono">{{ cell }}</b> <span class="muted">{{ m.regime_cn(cell) }}</span>
-      {% set members = data.cells.get(cell) or [] %}
+      {% set members = ver.cells.get(cell) or [] %}
       {% if members %}
       {% for e in members %}
       <div><a class="mono {{ 'muted' if e.stale }}" href="{{ url_for('datasync.regime', symbol=e.symbol) }}"
@@ -36,9 +40,13 @@
   </tr>
   {% endfor %}
 </table>
-{% if data.no_timeline %}
-<p class="muted">无时间线(未建/数据不足): {{ data.no_timeline | join(', ') }} — 去 Regime 页重建</p>
+{% if ver.no_timeline %}
+<p class="muted">v{{ ver.id }} 无时间线: {{ ver.no_timeline | join(', ') }} — 心跳保鲜几分钟内自动补齐</p>
 {% endif %}
+{% else %}
+<p class="muted">v{{ ver.id }} 还没有任何时间线 — 心跳保鲜几分钟内自动建齐。</p>
+{% endif %}
+{% endfor %}
 
 <h2 style="margin-top:18px">worker 余额</h2>
 <div style="display:flex;gap:14px;flex-wrap:wrap">

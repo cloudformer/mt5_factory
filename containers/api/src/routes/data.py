@@ -107,35 +107,40 @@ async def market_overview(request: Request):
     读时现拼零落库。日期口径 = 各品种时间线最新日(券商服务器时间), 页面左上角标绝对日期;
     落后品种由 web 按 date 差异灰显并带截至日期 — 不知道今天天气的不假装知道。"""
     pool = request.app.state.pool
-    vid, _ = await regime.active_version(pool)
     syms = [r["symbol"] for r in await pool.fetch(
         "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
-    cells: dict = {}
-    no_timeline: list = []
-    max_date = None
-    for s in syms:
-        try:
-            # 读时自愈(2026-08-03 修): 概览也是"看", 落后品种就地补算 —
-            # 否则没人单独看过的品种永远"截至旧日期"; 新鲜时零开销
-            await regime.ensure_timeline(pool, s)
-        except Exception as e:
-            logger.warning("overview regime ensure %s failed: %s", s, e)
-        rows = await pool.fetch(
-            "SELECT date, regime FROM regime_timeline"
-            " WHERE version_id=$1 AND symbol=$2 ORDER BY date DESC LIMIT 90", vid, s)
-        if not rows:
-            no_timeline.append(s)
-            continue
-        run = 1   # 已在该格连续天数(悬停用): 从最新日往回数同格行
-        for r in rows[1:]:
-            if r["regime"] == rows[0]["regime"]:
-                run += 1
-            else:
-                break
-        if max_date is None or rows[0]["date"] > max_date:
-            max_date = rows[0]["date"]
-        cells.setdefault(rows[0]["regime"], []).append(
-            {"symbol": s, "date": rows[0]["date"].isoformat(), "run_days": run})
+    # 全版本对比(2026-08-03 Frank 定): 每个版本一张八格落位图, 动态取表 —
+    # 新建版本自动多一张, 删除自动少一张。时间线保鲜由心跳班车负责(_regime_refresh_tick),
+    # 这里纯读; 极端落后由页面"截至日期"如实暴露
+    versions = []
+    for v in await pool.fetch("SELECT id, params FROM regime_versions ORDER BY id"):
+        cells: dict = {}
+        no_timeline: list = []
+        max_date = None
+        for s in syms:
+            rows = await pool.fetch(
+                "SELECT date, regime FROM regime_timeline"
+                " WHERE version_id=$1 AND symbol=$2 ORDER BY date DESC LIMIT 90",
+                v["id"], s)
+            if not rows:
+                no_timeline.append(s)
+                continue
+            run = 1   # 已在该格连续天数(悬停用): 从最新日往回数同格行
+            for r in rows[1:]:
+                if r["regime"] == rows[0]["regime"]:
+                    run += 1
+                else:
+                    break
+            if max_date is None or rows[0]["date"] > max_date:
+                max_date = rows[0]["date"]
+            cells.setdefault(rows[0]["regime"], []).append(
+                {"symbol": s, "date": rows[0]["date"].isoformat(), "run_days": run})
+        p = v["params"] or {}
+        versions.append({
+            "id": v["id"],
+            "label": f"{p.get('long_ma', '?')}/{p.get('short_ma', '?')}/ATR{p.get('atr_n', '?')}",
+            "date": max_date.isoformat() if max_date else None,
+            "cells": cells, "no_timeline": no_timeline})
     # worker 余额卡: 启用且有运行角色的主机; 初始资金 ≈ 余额 − 库内已实现合计(无出入金推算)
     realized = {r["account"]: float(r["s"] or 0) for r in await pool.fetch(
         "SELECT account, sum(profit + commission + swap) AS s FROM trades GROUP BY account")}
@@ -155,8 +160,7 @@ async def market_overview(request: Request):
             "initial": init,
             "pnl_pct": round(rz / init * 100, 2) if (init and rz is not None) else None,
             "heartbeat": h["last_heartbeat"].isoformat() if h["last_heartbeat"] else None})
-    return {"version": vid, "date": max_date.isoformat() if max_date else None,
-            "cells": cells, "no_timeline": no_timeline, "workers": workers}
+    return {"versions": versions, "workers": workers}
 
 
 def _validate_regime_params(value) -> dict:
