@@ -7,13 +7,14 @@
 {# 全版本对比(2026-08-03 Frank 定): 每个版本一张八格落位图, 上下排开 —
    左上废角 = v号+口径+绝对数据日(券商服务器时间); 保鲜由心跳班车负责 #}
 {% for ver in data.versions %}
-<h2 {% if not loop.first %}style="margin-top:18px"{% endif %}>v{{ ver.id }} <span class="muted" style="font-weight:normal">{{ ver.label }}</span></h2>
 {% if ver.date %}
-<table class="dense" style="max-width:1020px">
+{# 版本号/口径/数据日 合并进左上废角(2026-08-03 Frank 定), 不另起标题行 #}
+<table class="dense" data-nosort style="max-width:1020px{% if not loop.first %};margin-top:16px{% endif %}">
   <tr>
     <th rowspan="2" style="vertical-align:middle">
-      <b class="mono">{{ ver.date }}</b><br>
-      <span class="muted" style="font-weight:normal">券商时间 · v{{ ver.id }}</span></th>
+      <b class="mono">v{{ ver.id }}</b> <span class="muted" style="font-weight:normal">{{ ver.label }}</span><br>
+      <b class="mono">{{ ver.date }}</b>
+      <span class="muted" style="font-weight:normal">券商时间</span></th>
     <th colspan="2">短 <span class="pos">↑</span></th>
     <th colspan="2">短 <span class="neg">↓</span></th>
   </tr>
@@ -44,7 +45,8 @@
 <p class="muted">v{{ ver.id }} 无时间线: {{ ver.no_timeline | join(', ') }} — 心跳保鲜几分钟内自动补齐</p>
 {% endif %}
 {% else %}
-<p class="muted">v{{ ver.id }} 还没有任何时间线 — 心跳保鲜几分钟内自动建齐。</p>
+<p class="muted" {% if not loop.first %}style="margin-top:16px"{% endif %}>
+  <b class="mono">v{{ ver.id }}</b> {{ ver.label }} — 还没有任何时间线, 心跳保鲜几分钟内自动建齐。</p>
 {% endif %}
 {% endfor %}
 

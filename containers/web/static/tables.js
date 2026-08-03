@@ -95,9 +95,11 @@ document.addEventListener("change", async (e) => {
 });
 
 /* 表格排序 (全站自动, 无需标记): 所有 table 点表头即可排序(再点反向); 个别列不想排标 data-nosort。
+   整表不想排(布局型表格, 如行情概览八格落位)在 <table> 上标 data-nosort — 统一参数, 不写特例。
    数字列(含 %, +, — 空值)按数值排, 其余按文本; 空值(—)固定沉底;
    参照行(如插件批跑的基准行)标 data-pin = 不参与排序, 固定在表头下 */
 function initTableSort(table) {
+  if (table.hasAttribute("data-nosort")) return;  // 布局型表格整表禁排(位置即含义, 排了就乱)
   if (table.dataset.sortInit) return;  // 防重复绑定(支持 AJAX 换表后重入)
   // 有配对详情行的表(如 Workers 主行+隐藏详情)排序会把两者拆散, 默认跳过;
   // 标了 data-detail-sort 的表(回测结果排名)要排序: 排序只动主行, 结束后按 toggle id 把详情行粘回其后
