@@ -10,7 +10,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import regime, sync
+from src.services import identity, regime, sync
 
 logger = logging.getLogger("data")
 
@@ -141,13 +141,18 @@ async def market_overview(request: Request):
             "label": f"{p.get('long_ma', '?')}/{p.get('short_ma', '?')}/ATR{p.get('atr_n', '?')}",
             "date": max_date.isoformat() if max_date else None,
             "cells": cells, "no_timeline": no_timeline})
-    # worker 余额卡: 启用且有运行角色的主机; 初始资金 ≈ 余额 − 库内已实现合计(无出入金推算)
+    # worker 余额卡(2026-08-03 Frank 定归属口径): 行情格 = 公共资产全员可见;
+    # 余额 = admin 看全部, 其他用户只看自己的 worker(scope_uid 全站同判据 —
+    # 未来 1000 台时 admin 总览, 各用户各看各的钱包)
+    uid = identity.scope_uid(request)
     realized = {r["account"]: float(r["s"] or 0) for r in await pool.fetch(
         "SELECT account, sum(profit + commission + swap) AS s FROM trades GROUP BY account")}
     workers = []
     for h in await pool.fetch(
             "SELECT name, runner, mt5_login, last_heartbeat, last_health FROM mt5_hosts"
-            " WHERE enabled AND runner IS NOT NULL ORDER BY name"):
+            " WHERE enabled AND runner IS NOT NULL"
+            + (" AND owner_id = $1" if uid else "") + " ORDER BY name",
+            *([uid] if uid else [])):
         hb = h["last_health"] if isinstance(h["last_health"], dict) else {}
         acct = ((hb.get("runner") or {}).get("account")) or {}
         bal = acct.get("balance")
