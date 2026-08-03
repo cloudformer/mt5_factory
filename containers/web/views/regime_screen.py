@@ -1,0 +1,78 @@
+"""v0.5 Regime 筛选页(可插拔测试功能): 判据参数 + 运行(预览/执行) + 历史报告回看。
+只调 api(regime_screen.py), 移除 = 删本文件 + app.py 注册两行 + base.html 导航一行。"""
+from datetime import datetime
+
+from flask import Blueprint, flash, redirect, render_template, request, url_for
+
+import api_client as api
+
+bp = Blueprint("regime_screen", __name__)
+
+
+def _fmt(iso: str) -> str:
+    """报告时间 = 运维类时间 → 本地时间显示(CLAUDE.md 三层口径)"""
+    return datetime.fromisoformat(iso).astimezone().strftime("%m-%d %H:%M")
+
+
+@bp.get("/regime-screen")
+def index():
+    data = {"params": None, "versions": None, "reports": [], "report": None}
+    try:
+        cfg = api.get("/config")["config"]
+        data["params"] = cfg.get("regime_screen") or {}
+        data["versions"] = api.get("/regime/versions")
+        data["reports"] = api.get("/regime_screen/reports")["reports"]
+        for r in data["reports"]:
+            r["at"] = _fmt(r["created_at"])
+        rid = request.args.get("report", type=int)
+        if rid:
+            data["report"] = api.get(f"/regime_screen/reports/{rid}")
+            data["report"]["at"] = _fmt(data["report"]["created_at"])
+    except api.ApiError as e:
+        flash(f"api 不可用: {e}", "error")
+    return render_template("regime_screen.html", **data)
+
+
+@bp.post("/regime-screen/params")
+def save_params():
+    try:
+        bs = [int(x) for x in
+              request.form.get("boundaries", "").replace("，", ",").split(",") if x.strip()]
+        r = api.post("/regime_screen/params", {
+            "boundaries_years": bs,
+            "min_cell_trades": int(request.form.get("min_cell_trades", 5))})
+        flash(f"判据已保存: 切分 {r['boundaries_years']} · 地板 {r['min_cell_trades']} 笔", "success")
+    except ValueError:
+        flash("切分边界需为逗号分隔的整数(年)", "error")
+    except api.ApiError as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("regime_screen.index"))
+
+
+@bp.post("/regime-screen/run")
+def run():
+    payload = {"mode": request.form.get("mode", "preview"),
+               "symbols": request.form.get("symbols", "main")}
+    try:
+        ids_raw = (request.form.get("ids") or "").strip()
+        if ids_raw:   # ID 列表填了优先(与批次标签二选一)
+            payload["ids"] = [int(x) for x in ids_raw.replace("，", ",").split(",") if x.strip()]
+        elif (request.form.get("label") or "").strip():
+            payload["label"] = request.form["label"].strip()
+        if request.form.get("version"):
+            payload["version"] = int(request.form["version"])
+    except ValueError:
+        flash("ID 列表需为逗号分隔的整数", "error")
+        return redirect(url_for("regime_screen.index"))
+    try:
+        r = api.post("/regime_screen/run", payload, timeout=120)
+        s = r["summary"]
+        flash(("预览" if r["mode"] == "preview" else "已执行")
+              + f" · 报告#{r['report_id']} (regime v{r['version']}):"
+              + f" 共{s['total']} 通过{s['passed']} 未过{s['failed']}"
+              + (f"(归档{s['archived']})" if r["mode"] == "execute" else "")
+              + f" 跳过{s['skipped']}", "success")
+        return redirect(url_for("regime_screen.index", report=r["report_id"]))
+    except api.ApiError as e:
+        flash(f"筛选失败: {e}", "error")
+        return redirect(url_for("regime_screen.index"))

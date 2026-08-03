@@ -1111,7 +1111,7 @@ async def trail_batch(strategy_id: int, req: TrailBatchRequest, request: Request
 
 # 淘汰死因码(schema/022): AI 负样本("这类参数死于什么"), 页面按码翻中文, 不收自由文本
 ARCHIVE_REASONS = {"manual", "holdout_loss", "min_trades", "low_pf", "recon_fail",
-                   "orphan_symbol", "other"}
+                   "orphan_symbol", "regime_unstable", "other"}
 
 
 class ArchiveRequest(BaseModel):

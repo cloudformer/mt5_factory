@@ -48,6 +48,7 @@
       <a href="{{ url_for('backtests.index') }}" {% if ep.startswith('backtests.') %}class="active"{% endif %}>策略回测</a>
       <a href="{{ url_for('strategies.index') }}" {% if ep == 'strategies.index' %}class="active"{% endif %}>策略列表排名</a>
       <a href="{{ url_for('strategies.strategy_tree') }}" {% if ep == 'strategies.strategy_tree' %}class="active"{% endif %}>策略谱系</a>
+      <a href="{{ url_for('regime_screen.index') }}" {% if ep == 'regime_screen.index' %}class="active"{% endif %}>Regime 筛选</a>
     </div>
   </div>
   {# 分析组: 看深度(单策略归因 / 回测体系质量) #}

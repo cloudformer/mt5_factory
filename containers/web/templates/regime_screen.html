@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('Regime 筛选', '漏斗关1.5 批量粗筛: regime 格子的时间稳健性 — 通过打标签进人工深看, 未过删除归档(可逆) · 一跑一报告落库') }}
+
+<h2>判据参数</h2>
+<form method="post" action="{{ url_for('regime_screen.save_params') }}" class="inline">
+  <label>切分边界(年, 逗号分隔)
+    <input name="boundaries" size="10"
+           value="{{ params.boundaries_years | join(',') if params and params.boundaries_years else '1,2,3,4' }}"
+           title="从回测窗口末尾往回切几刀: 1,2,3,4 = 前4/后1 · 前3/后2 · 前2/后3 · 前1/后4"></label>
+  <label>格内最少笔数
+    <input name="min_cell_trades" type="number" min="1" max="100" style="width:64px"
+           value="{{ params.min_cell_trades if params and params.min_cell_trades else 5 }}"
+           title="粗筛地板防掷硬币(≠20笔结论纪律); 改 1 ≈ 关闭"></label>
+  <button type="submit">保存</button>
+</form>
+<p class="muted">合格格 = 某格在【每种切分的前后两段】都满足 净点&gt;0(≡PF&gt;1, 手续费已扣在逐笔里) 且 笔数≥地板;
+  通过 = 存在至少一个合格格。窗口不足(需容下最深一刀+前段≥1年)或无回测 = 跳过不判。</p>
+
+<h2 style="margin-top:18px">运行</h2>
+<form method="post" action="{{ url_for('regime_screen.run') }}" class="inline">
+  <label>批次标签 <input name="label" size="14" placeholder="basis 模糊匹配"
+         title="按生因标签圈范围, 如 验尺A / random"></label>
+  <label>或 ID 列表 <input name="ids" size="16" placeholder="8801,8802(填了优先)"></label>
+  <label>regime <select name="version" title="判定用哪套 regime 时间线">
+    {% if versions %}
+    <option value="">v{{ versions.current }}(当前默认)</option>
+    {% for v in versions.versions %}
+    <option value="{{ v.id }}">v{{ v.id }} {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}</option>
+    {% endfor %}
+    {% endif %}
+  </select></label>
+  <label>货币 <select name="symbols" title="main=只筛主货币(交易品种)策略; all=全部品种的策略">
+    <option value="main">主货币策略</option>
+    <option value="all">全部品种策略</option>
+  </select></label>
+  <label>模式 <select name="mode">
+    <option value="preview">预览(纯报告零动作)</option>
+    <option value="execute">执行(通过打标签 · 未过归档)</option>
+  </select></label>
+  <button type="submit">开始筛选</button>
+</form>
+<p class="muted">范围 = 只有空闲(CANDIDATE)策略 — 在跑(demo/live)/已归档不进筛选(要处理它们只能手动);
+  basis 已含「regime筛过」的记跳过(幂等不重复处理)。
+  通过 → basis 追加 <span class="mono">｜regime筛过#报告号</span>(列表页搜"标签/生因"可捞全部幸存者);
+  未过 → 归档, 死因 <span class="mono">regime_unstable</span>(可逆)。</p>
+
+{% if report %}
+<h2 style="margin-top:18px">报告 #{{ report.id }}</h2>
+<p class="muted">{{ report.at }} · {{ '预览' if report.mode == 'preview' else '执行' }} · regime v{{ report.version_id }}
+  · 范围 {{ '标签「' ~ report.scope.label ~ '」' if report.scope.label else 'ID ' ~ report.scope.ids | join(',') }}
+  · {{ '主货币' if report.scope.symbols == 'main' else '全部品种' }}
+  · 判据 切分 {{ report.params.boundaries_years | join('/') }} 年 · 地板 {{ report.params.min_cell_trades }} 笔
+  · 共 {{ report.summary.total }} / 通过 <span class="pos">{{ report.summary.passed }}</span>
+  / 未过 <span class="neg">{{ report.summary.failed }}</span>{% if report.mode == 'execute' %}(归档 {{ report.summary.archived }}){% endif %}
+  / 跳过 {{ report.summary.skipped }}</p>
+<table class="dense">
+  <thead><tr><th>ID</th><th>名称</th><th>品种</th><th>回测窗</th><th>笔数</th>
+    <th>各切分合格格(后N年为界)</th><th>通过格</th><th>结论</th></tr></thead>
+  <tbody>
+  {% for d in report.details %}
+  <tr>
+    <td class="mono">{{ d.id }}</td>
+    <td>{{ d.name }}</td>
+    <td class="mono">{{ d.symbol }}</td>
+    <td class="mono">{{ d.window or '—' }}</td>
+    <td class="mono">{{ d.trades if d.trades is defined else '—' }}{% if d.unlabeled %} <span class="muted" title="入场日无 regime 标签, 不计入任何格">(无标签{{ d.unlabeled }})</span>{% endif %}</td>
+    <td class="mono">{% if d.splits %}{% for y, cs in d.splits.items() %}后{{ y }}年:{{ cs | join('·') if cs else '—' }}{{ '　' if not loop.last }}{% endfor %}{% else %}—{% endif %}</td>
+    <td class="mono">{{ d.pass_cells | join('·') if d.pass_cells else '—' }}</td>
+    <td>{% if d.verdict == 'pass' %}<span class="pos">通过</span>
+        {% elif d.verdict == 'fail' %}<span class="neg">未过</span>
+        {% else %}<span class="muted">跳过</span>{% endif %}
+        <span class="muted">{{ d.reason }}</span></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2 style="margin-top:18px">历史报告</h2>
+{% if reports %}
+<table class="dense">
+  <thead><tr><th>#</th><th>时间</th><th>模式</th><th>regime</th><th>范围</th><th>判据</th><th>结果</th><th></th></tr></thead>
+  <tbody>
+  {% for r in reports %}
+  <tr>
+    <td class="mono">{{ r.id }}</td>
+    <td class="mono">{{ r.at }}</td>
+    <td>{{ '预览' if r.mode == 'preview' else '执行' }}</td>
+    <td class="mono">v{{ r.version_id }}</td>
+    <td>{{ '标签「' ~ r.scope.label ~ '」' if r.scope.label else 'ID×' ~ (r.scope.ids | length) }} · {{ '主货币' if r.scope.symbols == 'main' else '全品种' }}</td>
+    <td class="mono">切{{ r.params.boundaries_years | join('/') }} · 地板{{ r.params.min_cell_trades }}</td>
+    <td>共{{ r.summary.total }} <span class="pos">过{{ r.summary.passed }}</span>
+        <span class="neg">未过{{ r.summary.failed }}</span>{% if r.mode == 'execute' %}(归档{{ r.summary.archived }}){% endif %}
+        跳过{{ r.summary.skipped }}</td>
+    <td><a href="{{ url_for('regime_screen.index', report=r.id) }}">明细</a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">还没有筛选报告 — 上方圈定范围后「开始筛选」(默认预览, 零动作)。</p>
+{% endif %}
+{% endblock %}
