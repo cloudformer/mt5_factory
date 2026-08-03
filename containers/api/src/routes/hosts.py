@@ -44,7 +44,11 @@ async def list_hosts(request: Request):
     rows = await request.app.state.pool.fetch(
         "SELECT id, name, host, port, download, runner, account_type, enabled, status,"
         "       owner_id, mt5_login, mt5_server,"   # 归属与账户: 管理页划拨下拉/账户列要显示
-        "       created_at, online_at, offline_at, last_heartbeat, last_health"
+        "       created_at, online_at, offline_at, last_heartbeat, last_health,"
+        # 认证状态(2026-08-02 Frank 定): 有有效 worker 钥匙绑定=已认证;
+        # 克隆机复用旧钥不会绑上(一机一钥) → false → 页面红字提示 + 禁指派角色
+        "       EXISTS(SELECT 1 FROM worker_keys wk"
+        "               WHERE wk.host_id = mt5_hosts.id AND wk.enabled) AS key_bound"
         "  FROM mt5_hosts" + (" WHERE owner_id = $1" if uid else "") + " ORDER BY id",
         *([uid] if uid else []))
     return {"hosts": [dict(r) for r in rows]}
@@ -253,6 +257,16 @@ async def update_host(host_id: int, req: HostUpdate, request: Request):
         raise HTTPException(
             status_code=400,
             detail=f"该主机已指派为 {old['runner']}, 必须先取消指派才能改为 {fields['runner']}")
+    # 认证执法(2026-08-02 Frank 定): 没有有效 worker 钥匙绑定的机器不许进任何池 —
+    # 克隆机复用旧钥永远绑不上(一机一钥), 必须签发新钥才能指派角色
+    if "runner" in fields and fields["runner"]:
+        bound = await pool.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM worker_keys WHERE host_id=$1 AND enabled)", host_id)
+        if not bound:
+            raise HTTPException(
+                status_code=400,
+                detail="该 worker 未认证(无有效钥匙绑定) — 去「用户管理」页签发新 worker 钥匙,"
+                       " 填入该机 env/.dev.env 的 WORKER_KEY 并重启 bridge, 绑定后再指派角色")
     # 铁律: 指派交易职能前, 把本机实际登录的账户(心跳回传)写进列 —
     # 数据库唯一索引撞号即 409 (克隆机自带旧账户的场景在这里被拦下)
     if "runner" in fields and fields["runner"]:

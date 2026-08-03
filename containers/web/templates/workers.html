@@ -11,7 +11,9 @@
     {# data-host/data-status: 心跳轮询锚点 — 时间戳就地更新, 状态变了整页刷新(徽章服务端渲染) #}
     <tr data-host="{{ h.id }}" data-status="{{ h.status }}{{ '' if h.enabled else ':off' }}">
       <td>{{ h.id }}</td>
-      <td>{{ h.name }}</td>
+      <td>{{ h.name }}
+        {%- if not h.key_bound %} <span class="neg" style="font-size:12px"
+          title="无有效 worker 钥匙绑定(克隆机复用旧钥绑不上, 一机一钥)。修复: 「用户管理」页签发新 worker 钥匙 → 填入该机 env/.dev.env 的 WORKER_KEY → 重启 bridge → 自动首绑。未认证不能指派角色">未认证</span>{% endif %}</td>
       <td>{{ h.host }}:{{ h.port }}</td>
       <td>{{ '是' if h.download else '否' }}</td>
       <td>{% if h.runner %}<b class="pos">{{ h.runner }}</b>{% else %}空闲{% endif %}</td>
@@ -31,6 +33,12 @@
           <input type="hidden" name="runner" value="">
           <button class="small" title="停止跑策略, 回到空闲(仍在线、仍下载)">切空闲</button>
         </form>
+        {% elif not h.key_bound %}
+        {# 未认证禁指派(2026-08-02 Frank 定): api 侧同判, 这里禁用按钮给原因 #}
+        <button class="small" disabled
+          title="未认证不能指派角色 — 先签发 worker 钥匙(用户管理页)→ 填 WORKER_KEY → 重启 bridge">跑demo</button>
+        <button class="small" disabled
+          title="未认证不能指派角色 — 先签发 worker 钥匙(用户管理页)→ 填 WORKER_KEY → 重启 bridge">跑live</button>
         {% else %}
         <form method="post" action="{{ url_for('workers.assign') }}" class="inline"
               onsubmit="return confirm('指派 {{ h.name }} 为 demo, 开始跑 DEMO 策略?')">
