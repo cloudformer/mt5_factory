@@ -13,7 +13,7 @@
       <td>{{ h.id }}</td>
       <td>{{ h.name }}
         {%- if not h.key_bound %} <span class="neg" style="font-size:12px"
-          title="无有效 worker 钥匙绑定(克隆机复用旧钥绑不上, 一机一钥)。修复: 「用户管理」页签发新 worker 钥匙 → 填入该机 env/.dev.env 的 WORKER_KEY → 重启 bridge → 自动首绑。未认证不能指派角色">未认证</span>{% endif %}</td>
+          title="无有效 worker 钥匙绑定(克隆机复用旧钥绑不上, 一机一钥)。修复: 「用户管理」页签发新 worker 钥匙 → 填入该机 env/.dev.env 的 WORKER_KEY → 重启 bridge → 自动首绑。未认证不能指派角色">worker license(api-key): 未认证</span>{% endif %}</td>
       <td>{{ h.host }}:{{ h.port }}</td>
       <td>{{ '是' if h.download else '否' }}</td>
       <td>{% if h.runner %}<b class="pos">{{ h.runner }}</b>{% else %}空闲{% endif %}</td>

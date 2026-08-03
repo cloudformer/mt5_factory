@@ -73,7 +73,7 @@ VALUES ('win-worker-1', '192.168.x.x', 8020, TRUE, 'demo', 'DEMO');
 
 - **这是 runner 能否下单的总开关**。关着时策略照常盯盘算信号，但每笔 `order_send` 都被拒（retcode 10027 "AutoTrading disabled by client"），表现为策略永远"等待信号"却从不成交——最坑的沉默故障
 - **已固化进配置**：bridge 拉起终端时带 `/config:bridge\terminal_start.ini`（`[Experts] AllowLiveTrading=1`）自动开启，克隆/重装的新机不用手工点。⚠️ 手动双击打开的终端不读这个文件，得自己点工具栏 **Algo Trading** 按钮（变绿）
-- 确认方法（任一）：web Workers 页状态详情"交易许可: 是"；本机 `http://localhost:8020/` 状态页；跑 `diag\ordertest.bat` 冒烟测试（在 demo 账户开一笔最小单立即平掉，验证整条下单链路，只花一个点差；拒绝在真实账户运行）
+- 确认方法（任一）：web Workers 页状态详情"交易配置-AutoTrading: 是"；本机 `http://localhost:8020/` 状态页；跑 `diag\ordertest.bat` 冒烟测试（在 demo 账户开一笔最小单立即平掉，验证整条下单链路，只花一个点差；拒绝在真实账户运行）
 
 ### 市场报价（Market Watch）
 
