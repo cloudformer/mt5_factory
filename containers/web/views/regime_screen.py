@@ -2,7 +2,7 @@
 只调 api(regime_screen.py), 移除 = 删本文件 + app.py 注册两行 + base.html 导航一行。"""
 from datetime import datetime
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
 import api_client as api
 
@@ -33,6 +33,16 @@ def index():
     return render_template("regime_screen.html", **data)
 
 
+@bp.get("/regime-screen/plan")
+def plan():
+    """运行预估(页面预览行 AJAX): 透传 api, 匹配多少/可判多少/各类跳过多少"""
+    try:
+        params = {k: v for k, v in request.args.items() if v}
+        return jsonify(api.get("/regime_screen/plan", **params))
+    except api.ApiError as e:
+        return jsonify({"error": str(e)}), 502
+
+
 @bp.post("/regime-screen/params")
 def save_params():
     try:
@@ -61,8 +71,10 @@ def run():
             payload["label"] = request.form["label"].strip()
         if request.form.get("version"):
             payload["version"] = int(request.form["version"])
+        if (request.form.get("limit") or "").strip():
+            payload["limit"] = int(request.form["limit"])
     except ValueError:
-        flash("ID 列表需为逗号分隔的整数", "error")
+        flash("ID 列表/单次上限需为整数", "error")
         return redirect(url_for("regime_screen.index"))
     try:
         r = api.post("/regime_screen/run", payload, timeout=120)
@@ -71,7 +83,9 @@ def run():
               + f" · 报告#{r['report_id']} (regime v{r['version']}):"
               + f" 共{s['total']} 通过{s['passed']} 未过{s['failed']}"
               + (f"(归档{s['archived']})" if r["mode"] == "execute" else "")
-              + f" 跳过{s['skipped']}", "success")
+              + f" 跳过{s['skipped']}"
+              + (f" 未跑{s['not_run']}(超单次上限, 下次再跑)" if s.get("not_run") else ""),
+              "success")
         return redirect(url_for("regime_screen.index", report=r["report_id"]))
     except api.ApiError as e:
         flash(f"筛选失败: {e}", "error")
