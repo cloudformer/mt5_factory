@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 
 import asyncpg
 
+from src.services import regime
+
 logger = logging.getLogger("sync")
 
 
@@ -248,6 +250,36 @@ async def _auto_sync_tick(pool: asyncpg.Pool) -> None:
     logger.info("auto sync submitted: %s jobs (every %sh)", r.get("jobs"), hours)
 
 
+async def _regime_refresh_tick(pool: asyncpg.Pool) -> None:
+    """regime 时间线保鲜(2026-08-03 与 Frank 定, 搭心跳班车):
+    治理集合 = 【全部已存在版本 × 全部下载品种】(动态取表 — 新建版本自动纳入,
+    删除版本自动退出); 每拍最多重算 1 个落后组合(一次几秒, 不长占心跳循环),
+    下载落地后几分钟内全部跟到最新日。附带红利: 新建版本不用手动点重建,
+    自动逐品种建齐。有下载批次在跑则跳过(数据齐了才算); 幂等(UPSERT 覆盖)。
+    读时自愈(各页面)保留作兜底, 两道保险不冲突。"""
+    active = await pool.fetchval(
+        "SELECT count(*) FROM jobs WHERE kind=$1 AND status IN ('PENDING','RUNNING')",
+        DOWNLOAD_KIND)
+    if active:
+        return
+    # 一条聚合查询找出"第一个落后的 版本×品种"(时间线最新日 < 库内 M1 最新日, 或还没建)
+    stale = await pool.fetchrow(
+        "WITH m1 AS (SELECT symbol, max(time)::date AS d FROM historical_bars"
+        "             WHERE timeframe='M1' GROUP BY symbol)"
+        " SELECT v.id AS vid, s.symbol"
+        "   FROM regime_versions v"
+        "  CROSS JOIN symbols s"
+        "   JOIN m1 ON m1.symbol = s.symbol"
+        "   LEFT JOIN LATERAL (SELECT max(date) AS d FROM regime_timeline rt"
+        "         WHERE rt.version_id = v.id AND rt.symbol = s.symbol) tl ON true"
+        "  WHERE s.download AND (tl.d IS NULL OR tl.d < m1.d)"
+        "  ORDER BY v.id, s.symbol LIMIT 1")
+    if stale is None:
+        return   # 全新鲜: 本拍只花了一条轻查询
+    err = await regime.ensure_timeline(pool, stale["symbol"], stale["vid"])
+    logger.info("regime refresh v%d %s: %s", stale["vid"], stale["symbol"], err or "ok")
+
+
 async def heartbeat_loop(pool: asyncpg.Pool):
     """worker 在线看门狗(v7.2 收口后: api 零出站, 不再探测任何 worker)。
     worker 每 30s 主动推心跳(hosts.push_heartbeat 收货并置 ONLINE/DEGRADED);
@@ -283,6 +315,10 @@ async def heartbeat_loop(pool: asyncpg.Pool):
                         await _auto_sync_tick(pool)
                     except Exception as e:
                         logger.warning("auto sync tick error: %s", e)
+                    try:   # regime 时间线保鲜(全部版本×全部品种, 每拍最多治一个)
+                        await _regime_refresh_tick(pool)
+                    except Exception as e:
+                        logger.warning("regime refresh tick error: %s", e)
                     if lock_conn.is_closed():   # 锁连接断 = 主身份已失效, 停止双写
                         raise asyncpg.PostgresConnectionError("leader lock conn lost")
                     await asyncio.sleep(30)

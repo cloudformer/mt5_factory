@@ -114,6 +114,12 @@ async def market_overview(request: Request):
     no_timeline: list = []
     max_date = None
     for s in syms:
+        try:
+            # 读时自愈(2026-08-03 修): 概览也是"看", 落后品种就地补算 —
+            # 否则没人单独看过的品种永远"截至旧日期"; 新鲜时零开销
+            await regime.ensure_timeline(pool, s)
+        except Exception as e:
+            logger.warning("overview regime ensure %s failed: %s", s, e)
         rows = await pool.fetch(
             "SELECT date, regime FROM regime_timeline"
             " WHERE version_id=$1 AND symbol=$2 ORDER BY date DESC LIMIT 90", vid, s)
