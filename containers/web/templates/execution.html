@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header(cfg.title, ('Demo：模拟账户实时验证，与回测结果对账' if mode == 'demo' else 'Live：真实资金，全网只允许一台 live 主机')) }}
+{{ m.page_header(cfg.title, ('Demo：模拟账户实时验证，与回测结果对账' if mode == 'demo' else 'Live：真实资金；可多台 live 主机(各自独立账户, 不同 worker 不共用同一账户由唯一索引执法)')) }}
 
 {% for s in stale %}
 <div class="flash error">⚠ {{ s.name }} 的回传数据已 <b>{{ s.minutes }} 分钟</b>没有更新 —
