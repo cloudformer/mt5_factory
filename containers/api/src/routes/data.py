@@ -101,6 +101,58 @@ async def regime_evaluate(request: Request):
 
 
 
+@router.get("/overview/market")
+async def market_overview(request: Request):
+    """行情概览(2026-08-03 与 Frank 定样版): 全部下载品种的【当日格】落位 + worker 余额卡。
+    读时现拼零落库。日期口径 = 各品种时间线最新日(券商服务器时间), 页面左上角标绝对日期;
+    落后品种由 web 按 date 差异灰显并带截至日期 — 不知道今天天气的不假装知道。"""
+    pool = request.app.state.pool
+    vid, _ = await regime.active_version(pool)
+    syms = [r["symbol"] for r in await pool.fetch(
+        "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
+    cells: dict = {}
+    no_timeline: list = []
+    max_date = None
+    for s in syms:
+        rows = await pool.fetch(
+            "SELECT date, regime FROM regime_timeline"
+            " WHERE version_id=$1 AND symbol=$2 ORDER BY date DESC LIMIT 90", vid, s)
+        if not rows:
+            no_timeline.append(s)
+            continue
+        run = 1   # 已在该格连续天数(悬停用): 从最新日往回数同格行
+        for r in rows[1:]:
+            if r["regime"] == rows[0]["regime"]:
+                run += 1
+            else:
+                break
+        if max_date is None or rows[0]["date"] > max_date:
+            max_date = rows[0]["date"]
+        cells.setdefault(rows[0]["regime"], []).append(
+            {"symbol": s, "date": rows[0]["date"].isoformat(), "run_days": run})
+    # worker 余额卡: 启用且有运行角色的主机; 初始资金 ≈ 余额 − 库内已实现合计(无出入金推算)
+    realized = {r["account"]: float(r["s"] or 0) for r in await pool.fetch(
+        "SELECT account, sum(profit + commission + swap) AS s FROM trades GROUP BY account")}
+    workers = []
+    for h in await pool.fetch(
+            "SELECT name, runner, mt5_login, last_heartbeat, last_health FROM mt5_hosts"
+            " WHERE enabled AND runner IS NOT NULL ORDER BY name"):
+        hb = h["last_health"] if isinstance(h["last_health"], dict) else {}
+        acct = ((hb.get("runner") or {}).get("account")) or {}
+        bal = acct.get("balance")
+        rz = realized.get(h["mt5_login"])
+        init = round(bal - rz, 2) if (bal is not None and rz is not None) else None
+        workers.append({
+            "name": h["name"], "runner": h["runner"],
+            "balance": bal, "currency": acct.get("currency"),
+            "realized": round(rz, 2) if rz is not None else None,
+            "initial": init,
+            "pnl_pct": round(rz / init * 100, 2) if (init and rz is not None) else None,
+            "heartbeat": h["last_heartbeat"].isoformat() if h["last_heartbeat"] else None})
+    return {"version": vid, "date": max_date.isoformat() if max_date else None,
+            "cells": cells, "no_timeline": no_timeline, "workers": workers}
+
+
 def _validate_regime_params(value) -> dict:
     """Regime 口径参数校验(键完整 + 均线格式 + 数值区间) — 版本创建唯一入口用"""
     want = {"long_ma", "short_ma", "atr_n", "vol_win", "vol_q"}
