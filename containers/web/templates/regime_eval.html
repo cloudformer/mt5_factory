@@ -72,7 +72,8 @@
       <th title="最差品种的总分 — 短板检查(评定看整体但短板要心里有数)">最差</th></tr>
     {% for r in rows %}
     <tr>
-      <td class="mono" title="长趋势均线/短趋势均线·高波分位(ATR14/252日窗固定)">{{ r.label }}</td>
+      <td class="mono" title="长趋势均线/短趋势均线·高波分位(ATR14/252日窗固定)">{{ r.label }}
+        {%- for vid in r.versions %} <span class="badge ok" title="该口径已是正式版本 v{{ vid }}(时间线在用)">v{{ vid }}</span>{% endfor %}</td>
       <td>{% if r.computed_at %}<span class="badge ok" title="缓存于该时刻(现算后存的)">已缓存</span> <span class="muted">{{ m.rel(r.computed_at) }}</span>
         {% else %}<span class="badge warn" title="这个口径还没算过 — 点上方重算生成">未算</span>{% endif %}</td>
       {% for sym in symbols %}
@@ -100,7 +101,7 @@
       <th title="≥5%">最稀格%</th><th title="≤35%, 最差取最大">最密格%</th>
       <th title="≥1.5">波幅比</th><th title="牛/熊态同期日收益均值差的t值(描述当天性格, 非预测未来), |t|≥2">|t|</th><th title="≤75%, 最差取最大">一致率%</th></tr>
     {% for r in rows %}
-    <tr><td class="mono">{{ r.label }}</td>
+    <tr><td class="mono">{{ r.label }}{% for vid in r.versions %} <span class="badge ok">v{{ vid }}</span>{% endfor %}</td>
       {% for k in ['dl', 'ds', 'dv', 'cm', 'fy', 'cmin', 'cmax', 'vr', 'tt', 'ag'] %}
       {% set v = r.crit.get(k) %}
       <td class="mono">{% if v and v[0] is not none %}{{ v[0] }} <span class="muted">({{ v[1] }})</span>{% else %}—{% endif %}</td>

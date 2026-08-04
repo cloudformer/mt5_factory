@@ -56,18 +56,33 @@ async def regime_evaluate(request: Request):
         "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
     cached = {r["params_key"]: r for r in await pool.fetch(
         "SELECT params_key, params, symbols, per_symbol, computed_at FROM regime_eval_cache")}
+    # 真实版本并进记分卡(2026-08-04 Frank 定): 与候选同参数 = 该行挂 v 徽标;
+    # 库里有而八候选没有的参数 = 追加成行(缓存机制照用)。按 regime_versions 现查 —
+    # 新建版本自动出现, 删除自动消失, 候选族本身(文档定死 8 组)不动
+    cand_all = list(EVAL_CANDIDATES)
+    seen = {_eval_key(c) for c in cand_all}
+    ver_by_key: dict = {}
+    for v in await pool.fetch("SELECT id, params FROM regime_versions ORDER BY id"):
+        try:
+            k = _eval_key(v["params"])
+        except (KeyError, TypeError):   # 口径形状不合(版本入口有校验, 双保险)
+            continue
+        ver_by_key.setdefault(k, []).append(v["id"])
+        if k not in seen:
+            seen.add(k)
+            cand_all.append(dict(v["params"]))
     refresh = str(request.query_params.get("refresh", "")).lower()
     # 只有显式 refresh 才现算(否则纯读缓存, 空缓存=空结果, 页面提示去重算):
     #   all/force=全部重算; missing=只补缺失候选
     if refresh in ("all", "force"):
-        to_compute = list(EVAL_CANDIDATES)
+        to_compute = list(cand_all)
     elif refresh == "missing":
-        to_compute = [c for c in EVAL_CANDIDATES if _eval_key(c) not in cached]
+        to_compute = [c for c in cand_all if _eval_key(c) not in cached]
     else:
         to_compute = []
     d1s, skipped = {}, []
     if to_compute:
-        need = max(regime.warmup_days(c) for c in EVAL_CANDIDATES) + 260
+        need = max(regime.warmup_days(c) for c in cand_all) + 260
         for sym in symbols:
             d1 = await regime._d1(pool, sym, need)
             if d1 is None:
@@ -84,15 +99,16 @@ async def regime_evaluate(request: Request):
                 _eval_key(cand), cand, sorted(d1s), per)
             cached[_eval_key(cand)] = {"params": cand, "symbols": sorted(d1s),
                                        "per_symbol": per, "computed_at": None}
-    # 组装(全部从 cached 出, 保持 EVAL_CANDIDATES 顺序)
+    # 组装(全部从 cached 出, 保持 候选族+追加版本 顺序)
     out, all_syms = [], set()
-    for cand in EVAL_CANDIDATES:
+    for cand in cand_all:
         row = cached.get(_eval_key(cand))
         per = (row["per_symbol"] if row else {}) or {}
         all_syms |= set(per)
         out.append({
             "label": f"{cand['long_ma'].upper()}/{cand['short_ma'].upper()}·q{cand['vol_q']:g}",
             "params": cand, "per_symbol": per,
+            "versions": ver_by_key.get(_eval_key(cand), []),   # 该口径已是正式版本 v{id}
             "cached_symbols": (row["symbols"] if row else []) or [],
             "computed_at": (row["computed_at"].isoformat()
                             if row and row.get("computed_at") else None)})

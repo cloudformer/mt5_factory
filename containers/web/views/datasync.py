@@ -216,6 +216,7 @@ def regime_eval():
         totals = [c["total"] for c in cells.values() if c and c["total"] is not None]
         med = lambda xs: round(statistics.median(xs), 1) if xs else None  # noqa: E731
         rows.append({"label": cand["label"], "cells": cells,
+                     "versions": cand.get("versions") or [],   # 该口径已是正式版本 → 行挂 v 徽标
                      "median": med(totals), "worst": min(totals) if totals else None,
                      # 校准用: 每指标 中位(最差) — 门槛定歪一眼可见
                      "crit": {k: (med(v), (min(v) if k not in ("fy", "cmax", "ag") else max(v)) if v else None)
