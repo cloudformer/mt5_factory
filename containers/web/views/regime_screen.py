@@ -65,10 +65,10 @@ def run():
                "symbols": request.form.get("symbols", "main")}
     try:
         ids_raw = (request.form.get("ids") or "").strip()
-        if ids_raw:   # ID 列表填了优先(与批次标签二选一)
+        if ids_raw:   # 点名小范围; 不填 = 全部未筛过的空闲策略(轮番清理)
             payload["ids"] = [int(x) for x in ids_raw.replace("，", ",").split(",") if x.strip()]
-        elif (request.form.get("label") or "").strip():
-            payload["label"] = request.form["label"].strip()
+        if (request.form.get("task") or "").strip():
+            payload["task"] = request.form["task"].strip()
         if request.form.get("version"):
             payload["version"] = int(request.form["version"])
         if (request.form.get("limit") or "").strip():

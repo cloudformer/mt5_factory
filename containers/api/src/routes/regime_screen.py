@@ -44,19 +44,19 @@ async def screen_params_save(req: ScreenParams, request: Request):
     return {"boundaries_years": bs, "min_cell_trades": req.min_cell_trades}
 
 
-def _scope_conds(req_label, req_ids, req_symbols, uid):
-    """范围 → SQL 条件(plan 与 run 共用同一判据, 预估数 = 实跑数)"""
+def _scope_conds(req_ids, req_symbols, uid):
+    """范围 → SQL 条件(plan 与 run 共用同一判据, 预估数 = 实跑数)。
+    2026-08-04 Frank 定: 默认 = 全部未筛过的空闲策略(轮番清理, SQL 直接排掉已筛过 —
+    否则全池报告会被历史 skip 行灌满); 按 ID 点名 = 显式小范围(已筛过的保留进报告记 skip)。
+    symbols(main/all)不是范围过滤是判定数据源, 只记进 scope 供报告展示。"""
     conds, args = ["s.status = 'CANDIDATE'"], []
     if req_ids:
         args.append(req_ids)
         conds.append(f"s.id = ANY(${len(args)})")
         scope = {"ids": req_ids, "symbols": req_symbols}
     else:
-        args.append(f"%{req_label.strip()}%")
-        conds.append(f"s.basis ILIKE ${len(args)}")
-        scope = {"label": req_label.strip(), "symbols": req_symbols}
-    # 注意: symbols(main/all)不是范围过滤是判定数据源(品种主档无角色, schema/010 已简化掉),
-    # 只记进 scope 供报告展示, 判定见 run
+        conds.append(f"COALESCE(s.basis, '') NOT LIKE '%{TAG}%'")
+        scope = {"pool": "unscreened", "symbols": req_symbols}
     if uid:
         args.append(uid)
         conds.append(f"s.owner_id = ${len(args)}")
@@ -64,9 +64,9 @@ def _scope_conds(req_label, req_ids, req_symbols, uid):
 
 
 @router.get("/regime_screen/plan")
-async def screen_plan(request: Request, label: Optional[str] = None,
-                      ids: Optional[str] = None, symbols: str = "main"):
-    """运行预估(页面预览行实时刷): 匹配多少 / 可判多少 / 各类跳过多少 — 纯读零动作"""
+async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str = "main"):
+    """运行预估(页面预览行实时刷): 匹配多少 / 可判多少 / 各类跳过多少 — 纯读零动作。
+    不传 ids = 默认范围(全部未筛过的空闲策略)"""
     pool = request.app.state.pool
     id_list = None
     if ids:
@@ -74,12 +74,16 @@ async def screen_plan(request: Request, label: Optional[str] = None,
             id_list = [int(x) for x in ids.replace("，", ",").split(",") if x.strip()]
         except ValueError:
             raise HTTPException(status_code=400, detail="ID 列表需为逗号分隔的整数")
-    if not id_list and not (label or "").strip():
-        raise HTTPException(status_code=400, detail="需要范围: 批次标签 或 ID 列表")
     cfg = await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {}
     boundaries = sorted(cfg.get("boundaries_years") or [1, 2, 3, 4])
     need_days = int((max(boundaries) + 1) * 365.25) - 45
-    conds, args, _ = _scope_conds(label, id_list, symbols, identity.scope_uid(request))
+    conds, args, _ = _scope_conds(id_list, symbols, identity.scope_uid(request))
+    coverage = None
+    if symbols == "all":   # 全货币 = 判定用全部已回测品种 → 预览要看得见覆盖了哪些品种
+        coverage = [{"symbol": r["symbol"], "n": r["n"]} for r in await pool.fetch(
+            "SELECT b.symbol, count(DISTINCT b.strategy_id)::int AS n"
+            "  FROM strategies s JOIN backtests b ON b.strategy_id = s.id"
+            f" WHERE {' AND '.join(conds)} GROUP BY b.symbol ORDER BY b.symbol", *args)]
     args.append(need_days)
     nd = f"${len(args)}"
     row = await pool.fetchrow(
@@ -95,14 +99,17 @@ async def screen_plan(request: Request, label: Optional[str] = None,
         "               WHERE strategy_id = s.id AND symbol = s.symbol"
         "               ORDER BY created_at DESC LIMIT 1) b ON true"
         f"       WHERE {' AND '.join(conds)}) t", *args)
-    return {**dict(row), "need_days": need_days}
+    out = {**dict(row), "need_days": need_days}
+    if coverage is not None:
+        out["coverage"] = coverage
+    return out
 
 
 # ---------- 运行(api 请求内直接算: 读 trades + 贴格, 轻活不派 worker) ----------
 class ScreenRun(BaseModel):
     mode: str = "preview"              # preview=纯报告零动作 / execute=打标签+归档
-    label: Optional[str] = None        # 范围: 批次标签(basis 模糊匹配)
-    ids: Optional[list[int]] = None    # 范围: 明确 ID 列表(填了优先)
+    ids: Optional[list[int]] = None    # 按 ID 点名; 不传 = 全部未筛过的空闲策略(轮番清理)
+    task: Optional[str] = None         # 任务标签(可选): 给这次清理起个名, 记进报告好认
     version: Optional[int] = None      # regime 版本, 不传 = 当前默认
     symbols: str = "main"              # 判定数据源: main=只用主品种回测行 / all=全部已回测品种都得过
     limit: Optional[int] = None        # 单次最多判多少个(超出的下次再跑), 不传 = 不限
@@ -155,8 +162,6 @@ async def screen_run(req: ScreenRun, request: Request):
         raise HTTPException(status_code=400, detail="mode 需为 preview / execute")
     if req.symbols not in ("main", "all"):
         raise HTTPException(status_code=400, detail="symbols 需为 main / all")
-    if not req.ids and not (req.label or "").strip():
-        raise HTTPException(status_code=400, detail="需要范围: 批次标签 或 ID 列表")
 
     cfg = await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {}
     boundaries = sorted(cfg.get("boundaries_years") or [1, 2, 3, 4])
@@ -173,15 +178,17 @@ async def screen_run(req: ScreenRun, request: Request):
 
     # 范围: 只筛空闲(CANDIDATE)策略 — 在跑(demo/live)/已归档不进范围(2026-08-03 Frank 定,
     # 不做特殊分支); 已筛过的拉回来记 skip(汇总要看得见幂等跳过了多少)
-    conds, args, scope = _scope_conds(req.label, req.ids, req.symbols,
-                                      identity.scope_uid(request))
+    conds, args, scope = _scope_conds(req.ids, req.symbols, identity.scope_uid(request))
     if req.limit:
         scope["limit"] = req.limit
+    if (req.task or "").strip():
+        scope["task"] = req.task.strip()
     rows = await pool.fetch(
         f"SELECT s.id, s.name, s.symbol, s.basis, s.status FROM strategies s"
         f" WHERE {' AND '.join(conds)} ORDER BY s.id", *args)
     if not rows:
-        raise HTTPException(status_code=404, detail="范围内没有策略(或都已归档)")
+        raise HTTPException(status_code=404, detail=(
+            "点名的 ID 里没有空闲策略" if req.ids else "没有未筛过的空闲策略 — 池子已清完"))
 
     tls: dict = {}                      # 品种时间线缓存(同一 vid, 按品种存)
     details, tag_ids, archive_ids, not_run = [], [], [], 0

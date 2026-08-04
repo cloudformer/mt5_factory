@@ -8,12 +8,12 @@
   <form method="post" action="{{ url_for('regime_screen.run') }}" class="runbar">
     <div class="row">
       <span class="tag">选策略</span>
-      <label title="按生因标签圈范围(basis 模糊匹配), 如 验尺A / random">批次标签
-        <input name="label" size="14" placeholder="basis 含此文字"></label>
+      <span class="muted">默认 = 全部未筛过的空闲策略(按单次上限轮番清理, 判过的自动出池)</span>
       <span class="op-sep">│</span>
-      <label title="直接点名策略(ID 在「策略列表排名」的 ID 列); 填了 ID 时标签失效">或按 ID
+      <label title="点名小范围试跑(ID 在「策略列表排名」的 ID 列); 不填 = 默认全池">或按 ID
         <input name="ids" size="14" placeholder="逗号分隔"></label>
-      <span class="muted">范围只含空闲策略; 已归档/在跑(demo/live)/已带「regime筛过」标签的不处理</span>
+      <label title="可选: 给这次清理任务起个名, 记进报告好认(不参与筛选逻辑)">任务标签
+        <input name="task" size="12" placeholder="可选"></label>
     </div>
     <div class="row">
       <span class="tag">选项</span>
@@ -61,29 +61,33 @@
     const go = form.querySelector("button.go");
     let timer;
     async function refreshPlan() {
-      const label = form.querySelector("input[name=label]").value.trim();
       const ids = form.querySelector("input[name=ids]").value.trim();
-      if (!label && !ids) { planEl.textContent = "请填批次标签或 ID 列表"; go.disabled = true; return; }
       const p = new URLSearchParams();
-      if (ids) p.set("ids", ids); else p.set("label", label);
+      if (ids) p.set("ids", ids);   // 不传 = 默认范围(全部未筛过的空闲策略)
       p.set("symbols", form.querySelector("select[name=symbols]").value);
       try {
         const d = await fetch("{{ url_for('regime_screen.plan') }}?" + p).then((r) => r.json());
         if (d.error) { planEl.textContent = "预估不可用: " + d.error; go.disabled = false; return; }
         const lim = parseInt(form.querySelector("input[name=limit]").value) || 0;
-        let txt = `匹配 ${d.total} 个空闲策略 · 可判 ${d.runnable}`;
+        let txt = `${ids ? "点名" : "未筛过池"} ${d.total} 个空闲策略 · 可判 ${d.runnable}`;
         if (lim && d.runnable > lim) txt += `(上限 ${lim}, 本次判前 ${lim} 个, 剩余下次再跑)`;
         const skips = [];
         if (d.tagged) skips.push(`已筛过 ${d.tagged}`);
         if (d.no_backtest) skips.push(`无回测 ${d.no_backtest}`);
         if (d.short_window) skips.push(`窗口不足 ${d.short_window}`);
         if (skips.length) txt += ` · 跳过: ${skips.join(" / ")}`;
-        planEl.textContent = d.total === 0 ? "没有匹配的空闲策略 — 调整标签/ID" : txt;
+        if (d.coverage) {   // 全货币模式: 判定会用到哪些品种(回测覆盖), 只有主品种=效果同主货币
+          txt += d.coverage.length > 1
+            ? ` · 判定品种: ${d.coverage.map((c) => c.symbol + "×" + c.n).join(" ")}`
+            : " · 无跨品种回测行(效果=主货币, 先去回测页勾「跨品种验证」)";
+        }
+        planEl.textContent = d.total === 0
+          ? (ids ? "点名的 ID 里没有空闲策略" : "没有未筛过的空闲策略 — 池子已清完") : txt;
         go.disabled = (d.total === 0);
       } catch { planEl.textContent = "预估不可用"; go.disabled = false; }
     }
     form.addEventListener("change", refreshPlan);
-    form.querySelectorAll("input[name=label], input[name=ids], input[name=limit]").forEach((el) =>
+    form.querySelectorAll("input[name=ids], input[name=limit]").forEach((el) =>
       el.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(refreshPlan, 400); }));
     refreshPlan();
   })();
@@ -106,8 +110,9 @@
 <section>
   <h2>报告 #{{ report.id }}</h2>
   <p class="muted">{{ report.at }} · {{ '预览' if report.mode == 'preview' else '执行' }} · regime v{{ report.version_id }}
-    · 范围 {{ '标签「' ~ report.scope.label ~ '」' if report.scope.label else 'ID ' ~ report.scope.ids | join(',') }}
-    · {{ '主货币' if report.scope.symbols == 'main' else '全部品种' }}
+    {% if report.scope.task %}· 任务「{{ report.scope.task }}」{% endif %}
+    · 范围 {% if report.scope.ids %}ID {{ report.scope.ids | join(',') }}{% elif report.scope.label %}标签「{{ report.scope.label }}」{% else %}全部未筛过{% endif %}
+    · {{ '主货币' if report.scope.symbols == 'main' else '全货币' }}
     · 判据 切分 {{ report.params.boundaries_years | join('/') }} 年 · 地板 {{ report.params.min_cell_trades }} 笔
     ｜ 共 {{ report.summary.total }} / 通过 <span class="pos">{{ report.summary.passed }}</span>
     / 未过 <span class="neg">{{ report.summary.failed }}</span>{% if report.mode == 'execute' %}(归档 {{ report.summary.archived }}){% endif %}
@@ -150,7 +155,7 @@
       <td class="mono">{{ r.at }}</td>
       <td>{{ '预览' if r.mode == 'preview' else '执行' }}</td>
       <td class="mono">v{{ r.version_id }}</td>
-      <td>{{ '标签「' ~ r.scope.label ~ '」' if r.scope.label else 'ID×' ~ (r.scope.ids | length) }} · {{ '主货币' if r.scope.symbols == 'main' else '全品种' }}</td>
+      <td>{% if r.scope.task %}「{{ r.scope.task }}」· {% endif %}{% if r.scope.ids %}ID×{{ r.scope.ids | length }}{% elif r.scope.label %}标签「{{ r.scope.label }}」{% else %}全部未筛过{% endif %} · {{ '主货币' if r.scope.symbols == 'main' else '全货币' }}</td>
       <td class="mono">切{{ r.params.boundaries_years | join('/') }} · 地板{{ r.params.min_cell_trades }}</td>
       <td>共{{ r.summary.total }} <span class="pos">过{{ r.summary.passed }}</span>
           <span class="neg">未过{{ r.summary.failed }}</span>{% if r.mode == 'execute' %}(归档{{ r.summary.archived }}){% endif %}
