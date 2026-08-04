@@ -91,13 +91,16 @@
 <section>
   <h2>Regime 口径(版本化 v0.2 — 一套参数一个版本; 只存不重建, 重建去 Regime 页显式点)
     <span class="muted" style="font-weight:normal">全局公共尺: 管理员可建/切, 其他用户只读</span></h2>
-  {# 版本操作收 admin(2026-08-04 Frank 定); 版本表带 owner(schema/059), 将来放开用户自建时直接成立 #}
+  {# 版本操作收 admin(2026-08-04 Frank 定); 版本表带 owner(schema/059), 将来放开用户自建时直接成立。
+     高亮框套在"当前版本"上(本区块的核心信息), 别的配置不进这个区块 #}
   {% if not is_admin %}
-  <p class="muted">当前版本: <b class="mono">v{{ regime_current }}</b>
+  <div style="margin-top:6px;padding:8px 12px;background:rgba(49,147,214,.07);border:1px solid rgba(49,147,214,.35);border-left:4px solid var(--accent);border-radius:8px">
+    当前版本: <b class="mono">v{{ regime_current }}</b>
     {% for v in regime_versions %}{% if v.id == regime_current %}· {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}/{{ v.params.vol_win }}日/{{ '%g' % v.params.vol_q }}{% endif %}{% endfor %}
-    (只读, 管理员决定) · 已有版本: {% for v in regime_versions %}v{{ v.id }}{{ ' · ' if not loop.last }}{% endfor %}</p>
+    <span class="muted">(只读, 管理员决定) · 已有版本: {% for v in regime_versions %}v{{ v.id }}{{ ' · ' if not loop.last }}{% endfor %}</span></div>
   {% else %}
-  <form method="post" action="{{ url_for('symbols.select_regime_version') }}" class="inline">
+  <form method="post" action="{{ url_for('symbols.select_regime_version') }}" class="inline"
+        style="margin-top:6px;padding:8px 12px;background:rgba(49,147,214,.07);border:1px solid rgba(49,147,214,.35);border-left:4px solid var(--accent);border-radius:8px">
     <label>当前版本
       <select name="version_id" onchange="this.form.submit()"
               title="全站读时贴格/矩阵/排名按此版本时间线; 切换即生效">
@@ -140,15 +143,24 @@
     <button class="small">恢复默认(SMA200/SMA20/ATR14/252/0.5)</button>
   </form>
   {% endif %}
-  {# Regime 页默认视图(schema/058, 2026-08-04): 全局共享展示默认 — 照"下载周期层"样式:
-     管理员可改, 其他用户同样的控件只读(disabled), 防手滑; 修改入口全系统唯一在这。
-     高亮框(2026-08-04 Frank 定): 一眼看出这是一块配置 #}
-  {% if is_admin %}<form method="post" action="{{ url_for('symbols.save_regime_view') }}" class="inline"
-        style="margin-top:8px;padding:8px 12px;background:rgba(49,147,214,.07);border:1px solid rgba(49,147,214,.35);border-left:4px solid var(--accent);border-radius:8px">
-  {% else %}<div class="inline"
-        style="margin-top:8px;padding:8px 12px;background:rgba(49,147,214,.07);border:1px solid rgba(49,147,214,.35);border-left:4px solid var(--accent);border-radius:8px">{% endif %}
-    <b style="color:var(--accent)">⚙ 配置</b>
-    <label>Regime 页默认视图 — 色带图示跨度
+  {# 档位速查提示(2026-07-28, 默认折叠): 暖机 = max(长均线, 短均线, ATR+波动窗)+10 — 历史短于暖机出不了格子 #}
+  <details style="margin-top:6px">
+    <summary class="muted" style="cursor:pointer">档位速查: 正式评定 SMA200/SMA20/ATR14/252/0.5(暖机~276日) · 调试档 SMA30/SMA10/ATR14/20/0.5(~44日) · 极短史 SMA20/SMA5/ATR5/20/0.5(~35日) — 点开看说明</summary>
+    <p class="muted" style="margin:4px 0 0">
+      暖机 = max(长均线, 短均线, ATR+波动窗) + 10 个交易日, 历史短于它出不了格子;
+      调试档的"长趋势"只是月级中趋势, 语义已变味, 数字属玩具级(小样本=未证实) —
+      正式口径评定必须在长历史上用默认档位族。
+    </p>
+  </details>
+</section>
+
+{# Regime 页默认视图独立成节(2026-08-04 Frank 定: 不属于口径, 不寄人篱下 — 一个配置一个家);
+   schema/058, 全局共享展示默认: 管理员可改, 其他用户同控件只读(照下载周期层样式) #}
+<section>
+  <h2>Regime 页默认视图 <span class="muted" style="font-weight:normal">管理员可改, 其他用户只读 — 全局共享的展示默认</span></h2>
+  {% if is_admin %}<form method="post" action="{{ url_for('symbols.save_regime_view') }}" class="inline">
+  {% else %}<div class="inline">{% endif %}
+    <label>色带图示跨度
       <select name="band_years" {% if not is_admin %}disabled{% endif %}>
         {% for y, zh in [(1, '1 年'), (3, '3 年'), (5, '5 年'), (10, '10 年'), (0, '全部')] %}
         <option value="{{ y }}" {% if regime_view.get('band_years', 3) == y %}selected{% endif %}>{{ zh }}</option>{% endfor %}
@@ -160,17 +172,8 @@
         {% for y in [-1, -2, -3, -5] %}<option value="{{ y }}" {% if regime_view.get('quad_years') == y %}selected{% endif %}>{{ -y }}年以前</option>{% endfor %}
       </select></label>
     {% if is_admin %}<button>保存</button>{% endif %}
-    <span class="muted">管理员可改, 其他用户只读 · 全局共享的展示默认; Regime 页下拉仍可临时切换, 刷新回默认</span>
+    <span class="muted">「数据 → 市场状态 Regime」页两个下拉的默认值; 页面上仍可临时切换, 刷新回默认</span>
   {% if is_admin %}</form>{% else %}</div>{% endif %}
-  {# 档位速查提示(2026-07-28, 默认折叠): 暖机 = max(长均线, 短均线, ATR+波动窗)+10 — 历史短于暖机出不了格子 #}
-  <details style="margin-top:6px">
-    <summary class="muted" style="cursor:pointer">档位速查: 正式评定 SMA200/SMA20/ATR14/252/0.5(暖机~276日) · 调试档 SMA30/SMA10/ATR14/20/0.5(~44日) · 极短史 SMA20/SMA5/ATR5/20/0.5(~35日) — 点开看说明</summary>
-    <p class="muted" style="margin:4px 0 0">
-      暖机 = max(长均线, 短均线, ATR+波动窗) + 10 个交易日, 历史短于它出不了格子;
-      调试档的"长趋势"只是月级中趋势, 语义已变味, 数字属玩具级(小样本=未证实) —
-      正式口径评定必须在长历史上用默认档位族。
-    </p>
-  </details>
 </section>
 
 <section>
