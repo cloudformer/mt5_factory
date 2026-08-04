@@ -10,8 +10,8 @@
       <span class="tag">选策略</span>
       <span class="muted">默认 = 全部未筛过的空闲策略(按单次上限轮番清理, 判过的自动出池)</span>
       <span class="op-sep">│</span>
-      <label title="点名小范围试跑(ID 在「策略列表排名」的 ID 列); 不填 = 默认全池">或按 ID
-        <input name="ids" size="14" placeholder="逗号分隔"></label>
+      <label title="点名 = 只读诊断: 任意状态都可点名(在跑/已归档照样出报告), 强制预览零动作 — 执行(打标签/归档)只属于全池清理; 不填 = 默认全池">或按 ID
+        <input name="ids" size="14" placeholder="逗号分隔(只读诊断)"></label>
       <label title="可选: 给这次清理任务起个名, 记进报告好认(不参与筛选逻辑)">任务标签
         <input name="task" size="12" placeholder="可选"></label>
     </div>
@@ -64,6 +64,10 @@
     let timer;
     async function refreshPlan() {
       const ids = form.querySelector("input[name=ids]").value.trim();
+      // 点名 = 只读诊断: 强制预览(执行只属于全池清理)
+      const modeSel = form.querySelector("select[name=mode]");
+      if (ids) modeSel.value = "preview";
+      modeSel.disabled = !!ids;
       const p = new URLSearchParams();
       if (ids) p.set("ids", ids);   // 不传 = 默认范围(全部未筛过的空闲策略)
       p.set("symbols", form.querySelector("select[name=symbols]").value);
@@ -119,7 +123,7 @@
 
 {% if report %}
 <section>
-  <h2>报告 #{{ report.id }}</h2>
+  <h2>{% if report.id %}报告 #{{ report.id }}{% else %}点名诊断(只读 · 未入库, 刷新即消失){% endif %}</h2>
   <p class="muted">{{ report.at }} · {{ '预览' if report.mode == 'preview' else '执行' }} · regime v{{ report.version_id }}
     {% if report.scope.task %}· 任务「{{ report.scope.task }}」{% endif %}
     · 范围 {% if report.scope.ids %}ID {{ report.scope.ids | join(',') }}{% elif report.scope.label %}标签「{{ report.scope.label }}」{% else %}全部未筛过{% endif %}

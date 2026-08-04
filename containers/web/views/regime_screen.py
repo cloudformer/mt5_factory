@@ -14,22 +14,29 @@ def _fmt(iso: str) -> str:
     return datetime.fromisoformat(iso).astimezone().strftime("%m-%d %H:%M")
 
 
+def _page_data():
+    """页面基础数据(判据/版本/历史报告) — index 与点名诊断直渲共用"""
+    data = {"params": None, "versions": None, "reports": [], "report": None}
+    cfg = api.get("/config")["config"]
+    data["params"] = cfg.get("regime_screen") or {}
+    data["versions"] = api.get("/regime/versions")
+    data["reports"] = api.get("/regime_screen/reports")["reports"]
+    for r in data["reports"]:
+        r["at"] = _fmt(r["created_at"])
+    return data
+
+
 @bp.get("/regime-screen")
 def index():
-    data = {"params": None, "versions": None, "reports": [], "report": None}
     try:
-        cfg = api.get("/config")["config"]
-        data["params"] = cfg.get("regime_screen") or {}
-        data["versions"] = api.get("/regime/versions")
-        data["reports"] = api.get("/regime_screen/reports")["reports"]
-        for r in data["reports"]:
-            r["at"] = _fmt(r["created_at"])
+        data = _page_data()
         rid = request.args.get("report", type=int)
         if rid:
             data["report"] = api.get(f"/regime_screen/reports/{rid}")
             data["report"]["at"] = _fmt(data["report"]["created_at"])
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
+        data = {"params": None, "versions": None, "reports": [], "report": None}
     return render_template("regime_screen.html", **data)
 
 
@@ -85,14 +92,22 @@ def run():
     try:
         r = api.post("/regime_screen/run", payload, timeout=120)
         s = r["summary"]
-        flash(("预览" if r["mode"] == "preview" else "已执行")
-              + f" · 报告#{r['report_id']} (regime v{r['version']}):"
-              + f" 共{s['total']} 通过{s['passed']} 未过{s['failed']}"
-              + (f"(归档{s['archived']})" if r["mode"] == "execute" else "")
-              + f" 跳过{s['skipped']}"
-              + (f" 未跑{s['not_run']}(超单次上限, 下次再跑)" if s.get("not_run") else ""),
-              "success")
-        return redirect(url_for("regime_screen.index", report=r["report_id"]))
+        msg = (("预览" if r["mode"] == "preview" else "已执行")
+               + (f" · 报告#{r['report_id']}" if r.get("report_id") else " · 点名诊断(未入库)")
+               + f" (regime v{r['version']}):"
+               + f" 共{s['total']} 通过{s['passed']} 未过{s['failed']}"
+               + (f"(归档{s['archived']})" if r["mode"] == "execute" else "")
+               + f" 跳过{s['skipped']}"
+               + (f" 未跑{s['not_run']}(超单次上限, 下次再跑)" if s.get("not_run") else ""))
+        flash(msg, "success")
+        if r.get("report_id"):
+            return redirect(url_for("regime_screen.index", report=r["report_id"]))
+        # 点名 = 只读诊断不入库: 结果只活在本次响应里, 直接渲染(刷新即消失, 库里零痕迹)
+        data = _page_data()
+        data["report"] = {"id": None, "at": datetime.now().strftime("%m-%d %H:%M"),
+                          "mode": r["mode"], "version_id": r["version"], "scope": r["scope"],
+                          "params": r["params"], "summary": s, "details": r["details"]}
+        return render_template("regime_screen.html", **data)
     except api.ApiError as e:
         flash(f"筛选失败: {e}", "error")
         return redirect(url_for("regime_screen.index"))

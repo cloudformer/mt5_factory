@@ -70,15 +70,16 @@ async def screen_params_save(req: ScreenParams, request: Request):
 def _scope_conds(req_ids, req_symbols, uid):
     """范围 → SQL 条件(plan 与 run 共用同一判据, 预估数 = 实跑数)。
     2026-08-04 Frank 定: 默认 = 全部未筛过的空闲策略(轮番清理, SQL 直接排掉已筛过 —
-    否则全池报告会被历史 skip 行灌满); 按 ID 点名 = 显式小范围(已筛过的保留进报告记 skip)。
+    否则全池报告会被历史 skip 行灌满); 按 ID 点名 = 任意状态都可判(只读诊断,
+    在跑/已归档照样出报告, 执行动作仍只落在空闲的身上, 见 run)。
     symbols(main/all)不是范围过滤是判定数据源, 只记进 scope 供报告展示。"""
-    conds, args = ["s.status = 'CANDIDATE'"], []
     if req_ids:
-        args.append(req_ids)
+        conds, args = [], [req_ids]
         conds.append(f"s.id = ANY(${len(args)})")
         scope = {"ids": req_ids, "symbols": req_symbols}
     else:
-        conds.append(f"COALESCE(s.basis, '') NOT LIKE '%{TAG}%'")
+        conds, args = ["s.status = 'CANDIDATE'",
+                       f"COALESCE(s.basis, '') NOT LIKE '%{TAG}%'"], []
         scope = {"pool": "unscreened", "symbols": req_symbols}
     if uid:
         args.append(uid)
@@ -196,6 +197,9 @@ async def screen_run(req: ScreenRun, request: Request):
         raise HTTPException(status_code=400, detail="mode 需为 preview / execute")
     if req.symbols not in ("main", "all"):
         raise HTTPException(status_code=400, detail="symbols 需为 main / all")
+    # 点名 = 只读诊断(2026-08-04 Frank 定): 强制预览零动作; 执行只属于全池清理
+    if req.ids and req.mode == "execute":
+        raise HTTPException(status_code=400, detail="按 ID 点名 = 只读诊断, 只支持预览模式")
 
     p = _cfg_params(
         await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {})
@@ -224,13 +228,13 @@ async def screen_run(req: ScreenRun, request: Request):
         f" WHERE {' AND '.join(conds)} ORDER BY s.id", *args)
     if not rows:
         raise HTTPException(status_code=404, detail=(
-            "点名的 ID 里没有空闲策略" if req.ids else "没有未筛过的空闲策略 — 池子已清完"))
+            "点名的 ID 不存在" if req.ids else "没有未筛过的空闲策略 — 池子已清完"))
 
     tls: dict = {}                      # 品种时间线缓存(同一 vid, 按品种存)
-    details, tag_ids, archive_ids, not_run = [], [], [], 0
+    details, tag_ids, archive_ids, judged, not_run = [], [], [], 0, 0
     for idx, r in enumerate(rows):
         # 单次上限按"实际判定数"计(跳过不占额度); 剩下的不进本报告, 下次再跑
-        if req.limit and len(tag_ids) + len(archive_ids) >= req.limit:
+        if req.limit and judged >= req.limit:
             not_run = len(rows) - idx
             break
         d = {"id": r["id"], "name": r["name"], "symbol": r["symbol"], "status": r["status"]}
@@ -277,25 +281,37 @@ async def screen_run(req: ScreenRun, request: Request):
                           if x["symbol"] != r["symbol"]]
         fail_syms = [x["symbol"] for x in results
                      if len(x["cells"]) < p["min_pass_cells"]]
+        judged += 1
+        # 点名可带任意状态(2026-08-04 Frank 定): 非空闲 = 只读诊断, 出报告零动作
+        readonly = r["status"] != "CANDIDATE"
         if not fail_syms:
             d.update(verdict="pass", reason="合格格 " + "·".join(main_res["cells"])
-                     + (f" · 跨品种 {len(results) - 1} 个全过" if len(results) > 1 else ""))
-            tag_ids.append(r["id"])
+                     + (f" · 跨品种 {len(results) - 1} 个全过" if len(results) > 1 else "")
+                     + ("(非空闲, 只记录不打标签)" if readonly else ""))
+            if not readonly:
+                tag_ids.append(r["id"])
         else:
             d.update(verdict="fail", reason="未过品种: " + "·".join(fail_syms)
-                     + f"(全切分达标格 < {p['min_pass_cells']} 个)")
-            archive_ids.append(r["id"])
+                     + f"(全切分达标格 < {p['min_pass_cells']} 个)"
+                     + ("(非空闲, 只记录不归档)" if readonly else ""))
+            if not readonly:
+                archive_ids.append(r["id"])
         details.append(d)
 
-    summary = {"total": len(details), "passed": len(tag_ids),
+    summary = {"total": len(details),
+               "passed": sum(1 for d in details if d["verdict"] == "pass"),
                "failed": sum(1 for d in details if d["verdict"] == "fail"),
                "archived": len(archive_ids) if req.mode == "execute" else 0,
                "skipped": sum(1 for d in details if d["verdict"] == "skip"),
                "not_run": not_run}
-    rid = await pool.fetchval(
-        "INSERT INTO regime_screens (mode, version_id, scope, params, summary, details)"
-        " VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-        req.mode, vid, scope, p, summary, details)
+    # 点名 = 只读诊断连报告都不入库(2026-08-04 Frank 定): 结果直接返回页面看,
+    # regime_screens 只留全池清理的履历
+    rid = None
+    if not req.ids:
+        rid = await pool.fetchval(
+            "INSERT INTO regime_screens (mode, version_id, scope, params, summary, details)"
+            " VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+            req.mode, vid, scope, p, summary, details)
     if req.mode == "execute":
         if tag_ids:   # 通过 → basis 追加标签(报告号可溯源到本次参数与全量明细)
             await pool.execute(
@@ -307,7 +323,7 @@ async def screen_run(req: ScreenRun, request: Request):
                 "UPDATE strategies SET status='ARCHIVED', archive_reason='regime_unstable',"
                 " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'", archive_ids)
     return {"report_id": rid, "mode": req.mode, "version": vid,
-            "summary": summary, "details": details}
+            "scope": scope, "params": p, "summary": summary, "details": details}
 
 
 # ---------- 报告回看 ----------
