@@ -90,7 +90,8 @@ def run():
         flash("ID 列表/单次上限需为整数", "error")
         return redirect(url_for("regime_screen.index"))
     try:
-        r = api.post("/regime_screen/run", payload, timeout=120)
+        # 现跑真回测(~1-3s/个×上限), 超时给足 — 别用默认 30s
+        r = api.post("/regime_screen/run", payload, timeout=570)
         s = r["summary"]
         msg = (("预览" if r["mode"] == "preview" else "已执行")
                + (f" · 报告#{r['report_id']}" if r.get("report_id") else " · 点名诊断(未入库)")

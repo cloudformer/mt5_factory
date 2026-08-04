@@ -1,14 +1,16 @@
-"""v0.5 Regime 筛选(批量粗筛 + 落库报告, 2026-08-03 与 Frank 定稿) — 测试性质可插拔功能。
+"""v0.5 Regime 筛选(现跑回测 + 切片判定 + 落库报告) — 测试性质可插拔功能。
 
-漏斗关 1.5: 批量生成的策略 5 年回测后, 自动检验"regime 格子的时间稳健性" —
-按年切 N 刀, 存在一个格子在【每种切分的前后两段】都(净点>0 ≡ PF>1, 且笔数≥地板)才通过。
-执行动作只有两个系统本来就支持的写入(= 自动化的人在点按钮):
-  通过 → basis 追加 ｜regime筛过#<报告id>    未过 → 归档(死因 regime_unstable, 可逆)
-运行选项(2026-08-03 Frank 补): regime 版本(v1/v2..., 判定用哪套时间线) +
-货币范围(main=只筛主货币 role=trade 的策略 / all=全部品种的策略)。
-自包含: 判据参数读写(config regime_screen)也在本文件, 不占通用 /config PUT;
-移除手册见 docs/2.regime_dirction/v0.5_regime筛选设计.md。
+漏斗关 1.5(2026-08-04 与 Frank 定"不用现成的"): 每个策略【现跑】总计年窗口的回测
+(与批量回测同一配方: load_m1 + 悲观撮合 + 成本/oos/trail 同一 config 来源, 结果 UPSERT
+回流 backtests — 顺手治愈历史上"请求 20 年实际只有几个月数据"的假窗口行), 然后逐笔
+贴 regime 时间线切片判稳健: 每刀 = 近 b 年 vs 剩余, 存在 ≥N 个格子全切分前后段都
+(笔数≥地板 且 净点>阈值 且 PF>阈值)才通过。
+执行动作只有两个系统本来就支持的写入: 通过 → basis 追加 ｜regime筛过#报告id;
+未过 → 归档(死因 regime_unstable, 可逆)。范围默认 = 全部未筛过的空闲策略(轮番清理);
+按 ID 点名 = 只读诊断(任意状态, 强制预览, 报告不入库)。
+自包含: 判据参数读写(config regime_screen)也在本文件; 移除手册见 docs/2.regime_dirction/v0.5。
 """
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -16,7 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import identity, regime
+from src.services import backtest, identity, regime
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -26,7 +28,7 @@ TAG = "regime筛过"   # basis 标签词根: 已含即幂等跳过; 列表页搜
 
 # ---------- 判据参数(config regime_screen 唯一源; 切分 = 近 b 年 vs 剩余, b 可小数) ----------
 class ScreenParams(BaseModel):
-    window_years: float = 5            # 总计回测窗口(年): 窗口不足此数 = 跳过不判
+    window_years: float = 5            # 总计回测窗口(年): M1 覆盖不足此数 = 跳过不判
     boundaries_years: list[float]      # 切分点(年, 可小数): 每刀 = 近 b 年(后段) vs 剩余(前段)
     min_cell_trades: int = 5           # 格内地板笔数(前后两段各自)
     min_pass_cells: int = 1            # 至少几个格子全切分达标才算通过
@@ -67,11 +69,9 @@ async def screen_params_save(req: ScreenParams, request: Request):
     return val
 
 
+# ---------- 范围(plan 与 run 共用同一判据, 预估数 = 实跑数) ----------
 def _scope_conds(req_ids, req_symbols, uid):
-    """范围 → SQL 条件(plan 与 run 共用同一判据, 预估数 = 实跑数)。
-    2026-08-04 Frank 定: 默认 = 全部未筛过的空闲策略(轮番清理, SQL 直接排掉已筛过 —
-    否则全池报告会被历史 skip 行灌满); 按 ID 点名 = 任意状态都可判(只读诊断,
-    在跑/已归档照样出报告, 执行动作仍只落在空闲的身上, 见 run)。
+    """默认 = 全部未筛过的空闲策略(轮番清理, SQL 直接排掉已筛过); ID 点名 = 任意状态只读诊断。
     symbols(main/all)不是范围过滤是判定数据源, 只记进 scope 供报告展示。"""
     if req_ids:
         conds, args = [], [req_ids]
@@ -87,10 +87,20 @@ def _scope_conds(req_ids, req_symbols, uid):
     return conds, args, scope
 
 
+async def _m1_span(pool, sym: str):
+    """品种 M1 实际覆盖(首根/末根), 无数据 = None — plan 预估与 run 同一口径"""
+    lo = await pool.fetchval(
+        "SELECT time FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
+        " ORDER BY time LIMIT 1", sym)
+    hi = await pool.fetchval(
+        "SELECT time FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
+        " ORDER BY time DESC LIMIT 1", sym)
+    return (lo, hi) if lo and hi else None
+
+
 @router.get("/regime_screen/plan")
 async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str = "main"):
-    """运行预估(页面预览行实时刷): 匹配多少 / 可判多少 / 各类跳过多少 — 纯读零动作。
-    不传 ids = 默认范围(全部未筛过的空闲策略)"""
+    """运行预估(页面预览行实时刷): 匹配多少 / 可现跑多少 / 哪些品种 M1 不足 — 纯读零动作"""
     pool = request.app.state.pool
     id_list = None
     if ids:
@@ -102,43 +112,30 @@ async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str 
         await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {})
     need_days = int(p["window_years"] * 365.25) - 45
     conds, args, _ = _scope_conds(id_list, symbols, identity.scope_uid(request))
-    coverage = None
-    if symbols == "all":   # 全货币 = 判定用全部已回测品种 → 预览要看得见覆盖了哪些品种
-        coverage = [{"symbol": r["symbol"], "n": r["n"]} for r in await pool.fetch(
-            "SELECT b.symbol, count(DISTINCT b.strategy_id)::int AS n"
-            "  FROM strategies s JOIN backtests b ON b.strategy_id = s.id"
-            f" WHERE {' AND '.join(conds)} GROUP BY b.symbol ORDER BY b.symbol", *args)]
-    args.append(need_days)
-    nd = f"${len(args)}"
     row = await pool.fetchrow(
         "SELECT count(*)::int AS total,"
-        "       count(*) FILTER (WHERE tagged)::int AS tagged,"
-        "       count(*) FILTER (WHERE NOT tagged AND days IS NULL)::int AS no_backtest,"
-        f"      count(*) FILTER (WHERE NOT tagged AND days < {nd})::int AS short_window,"
-        f"      count(*) FILTER (WHERE NOT tagged AND days >= {nd})::int AS runnable"
-        f" FROM (SELECT (COALESCE(s.basis, '') LIKE '%{TAG}%') AS tagged,"
-        "              EXTRACT(epoch FROM (b.to_time - b.from_time)) / 86400 AS days"
-        "         FROM strategies s"
-        "         LEFT JOIN LATERAL (SELECT from_time, to_time FROM backtests"
-        "               WHERE strategy_id = s.id AND symbol = s.symbol"
-        "               ORDER BY created_at DESC LIMIT 1) b ON true"
-        f"       WHERE {' AND '.join(conds)}) t", *args)
-    out = {**dict(row), "need_days": need_days}
-    if coverage is not None:
-        out["coverage"] = coverage
-    return out
+        f"      count(*) FILTER (WHERE COALESCE(s.basis, '') LIKE '%{TAG}%')::int AS tagged"
+        f" FROM strategies s WHERE {' AND '.join(conds)}", *args)
+    # 品种 M1 覆盖检查(现跑口径): 主货币=范围内策略的品种; 全货币=另加全部下载品种
+    per_sym = {r["symbol"]: r["n"] for r in await pool.fetch(
+        f"SELECT s.symbol, count(*) FILTER (WHERE COALESCE(s.basis, '') NOT LIKE '%{TAG}%')"
+        f"::int AS n FROM strategies s WHERE {' AND '.join(conds)} GROUP BY s.symbol", *args)}
+    check_syms = set(per_sym)
+    if symbols == "all":
+        check_syms |= {r["symbol"] for r in await pool.fetch(
+            "SELECT symbol FROM symbols WHERE download")}
+    ok_syms, insufficient = [], []
+    for sym in sorted(check_syms):
+        span = await _m1_span(pool, sym)
+        (ok_syms if span and (span[1] - span[0]).days >= need_days
+         else insufficient).append(sym)
+    runnable = sum(n for sym, n in per_sym.items() if sym in ok_syms)
+    return {"total": row["total"], "tagged": row["tagged"], "runnable": runnable,
+            "need_days": need_days, "ok_symbols": ok_syms, "insufficient": insufficient,
+            "runs_per_strategy": len(ok_syms) if symbols == "all" else 1}
 
 
-# ---------- 运行(api 请求内直接算: 读 trades + 贴格, 轻活不派 worker) ----------
-class ScreenRun(BaseModel):
-    mode: str = "preview"              # preview=纯报告零动作 / execute=打标签+归档
-    ids: Optional[list[int]] = None    # 按 ID 点名; 不传 = 全部未筛过的空闲策略(轮番清理)
-    task: Optional[str] = None         # 任务标签(可选): 给这次清理起个名, 记进报告好认
-    version: Optional[int] = None      # regime 版本, 不传 = 当前默认
-    symbols: str = "main"              # 判定数据源: main=只用主品种回测行 / all=全部已回测品种都得过
-    limit: Optional[int] = None        # 单次最多判多少个(超出的下次再跑), 不传 = 不限
-
-
+# ---------- 切片判定 ----------
 def _pf(gp: float, gl: float):
     """毛利/毛损 → PF; None=∞(无亏损有盈利), 0=没有盈利"""
     return round(gp / gl, 2) if gl > 0 else (None if gp > 0 else 0)
@@ -149,9 +146,8 @@ def _stat(n: int, gp: float, gl: float) -> dict:
 
 
 async def _judge_symbol(pool, tls, bt, vid, p):
-    """单品种判定: 判定窗口统一裁到【近 window_years 年】(回测行更长时更早的逐笔不参与 —
-    判据口径一致, 2026-08-04 Frank 定); 逐笔按入场日贴指定版本时间线(与九币矩阵同一口径,
-    points×mult 加权)。每刀 = 近 b 年(后段) vs 剩余(前段)。
+    """单品种切片判定: 逐笔按入场日贴指定版本时间线(与九币矩阵同一口径, points×mult 加权),
+    判定窗 = 近 window_years 年。每刀 = 近 b 年(后段) vs 剩余(前段)。
     段内合格 = 笔数≥地板 且 净点>阈值 且 PF>阈值(无亏损段 PF=∞ 恒过)。
     返回三层读数: 整窗 total / 每格 cells_stat / 每切分前后段 splits_stat + 合格格。"""
     sym = bt["symbol"]
@@ -216,23 +212,30 @@ async def _judge_symbol(pool, tls, bt, vid, p):
             "window": f"{max(bt['from_time'], win_start):%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"}
 
 
+# ---------- 运行(现跑回测 + 切片判定; 品种外层循环 = M1 单槽缓存零抖动) ----------
+class ScreenRun(BaseModel):
+    mode: str = "preview"              # preview=纯报告零动作 / execute=打标签+归档
+    ids: Optional[list[int]] = None    # 按 ID 点名 = 只读诊断(强制预览, 报告不入库)
+    task: Optional[str] = None         # 任务标签(可选): 给这次清理起个名, 记进报告好认
+    version: Optional[int] = None      # regime 版本, 不传 = 当前默认
+    symbols: str = "main"              # 判定数据源: main=只跑主品种 / all=全部下载品种都得过
+    limit: Optional[int] = None        # 单次最多判多少个策略(超出的下次再跑), 不传 = 不限
+
+
 @router.post("/regime_screen/run")
 async def screen_run(req: ScreenRun, request: Request):
-    """一跑一报告(预览也落库, mode 区分)。只筛空闲(CANDIDATE)策略, 在跑的不进范围。
-    货币选项 = 判定数据源: main=只用主品种回测行; all=该策略所有已回测品种每个独立判
-    (各贴各的时间线), 全过才过(跨品种稳健; 窗口不足的跨品种行不纳入要求)。"""
+    """现跑现判(2026-08-04 Frank 定"不用现成的"): 每策略现跑总计年回测(结果 UPSERT 回流
+    backtests, 假窗口旧行被真数据覆盖), 逐笔切片判稳健, 一跑一报告(点名诊断不入库)。"""
     pool = request.app.state.pool
     if req.mode not in ("preview", "execute"):
         raise HTTPException(status_code=400, detail="mode 需为 preview / execute")
     if req.symbols not in ("main", "all"):
         raise HTTPException(status_code=400, detail="symbols 需为 main / all")
-    # 点名 = 只读诊断(2026-08-04 Frank 定): 强制预览零动作; 执行只属于全池清理
     if req.ids and req.mode == "execute":
         raise HTTPException(status_code=400, detail="按 ID 点名 = 只读诊断, 只支持预览模式")
 
     p = _cfg_params(
         await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {})
-    # 窗口须达总计年(差 45 天容差); 切分点超窗的丢弃(参数校验兜底)
     need_days = int(p["window_years"] * 365.25) - 45
     p["boundaries_years"] = [b for b in p["boundaries_years"] if b < p["window_years"]]
     if not p["boundaries_years"]:
@@ -245,65 +248,124 @@ async def screen_run(req: ScreenRun, request: Request):
     else:
         vid, _ = await regime.active_version(pool)
 
-    # 范围: 只筛空闲(CANDIDATE)策略 — 在跑(demo/live)/已归档不进范围(2026-08-03 Frank 定,
-    # 不做特殊分支); 已筛过的拉回来记 skip(汇总要看得见幂等跳过了多少)
     conds, args, scope = _scope_conds(req.ids, req.symbols, identity.scope_uid(request))
     if req.limit:
         scope["limit"] = req.limit
     if (req.task or "").strip():
         scope["task"] = req.task.strip()
     rows = await pool.fetch(
-        f"SELECT s.id, s.name, s.symbol, s.basis, s.status FROM strategies s"
-        f" WHERE {' AND '.join(conds)} ORDER BY s.id", *args)
+        "SELECT s.id, s.name, s.symbol, s.basis, s.status, s.template, s.params,"
+        "       s.timeframe, s.metadata"
+        f" FROM strategies s WHERE {' AND '.join(conds)} ORDER BY s.symbol, s.id", *args)
     if not rows:
         raise HTTPException(status_code=404, detail=(
             "点名的 ID 不存在" if req.ids else "没有未筛过的空闲策略 — 池子已清完"))
 
-    tls: dict = {}                      # 品种时间线缓存(同一 vid, 按品种存)
-    details, tag_ids, archive_ids, judged, not_run = [], [], [], 0, 0
-    for idx, r in enumerate(rows):
-        # 单次上限按"实际判定数"计(跳过不占额度); 剩下的不进本报告, 下次再跑
-        if req.limit and judged >= req.limit:
-            not_run = len(rows) - idx
-            break
-        d = {"id": r["id"], "name": r["name"], "symbol": r["symbol"], "status": r["status"]}
+    # 先分拣: 已筛过 = skip 不占额度; 其余按单次上限截取(按品种排序 = 现跑缓存友好)
+    details, targets, not_run = [], [], 0
+    for r in rows:
         if r["basis"] and TAG in r["basis"]:
-            d.update(verdict="skip", reason="已筛过(幂等不重复)")
-            details.append(d)
-            continue
-        # 判定数据源: main=主品种最新一行; all=每品种最新一行(跨品种回测由回测页产出)
-        if req.symbols == "main":
-            bt = await pool.fetchrow(
-                "SELECT symbol, from_time, to_time, trades FROM backtests"
-                " WHERE strategy_id = $1 AND symbol = $2"
-                " ORDER BY created_at DESC LIMIT 1", r["id"], r["symbol"])
-            bts = [bt] if bt else []
+            details.append({"id": r["id"], "name": r["name"], "symbol": r["symbol"],
+                            "status": r["status"], "verdict": "skip",
+                            "reason": "已筛过(幂等不重复)"})
+        elif req.limit and len(targets) >= req.limit:
+            not_run += 1
         else:
-            bts = await pool.fetch(
-                "SELECT DISTINCT ON (symbol) symbol, from_time, to_time, trades"
-                " FROM backtests WHERE strategy_id = $1 ORDER BY symbol, created_at DESC",
-                r["id"])
-        main_bt = next((b for b in bts if b["symbol"] == r["symbol"]), None)
-        if main_bt is None:
-            d.update(verdict="skip", reason="无主品种回测")
-            details.append(d)
+            targets.append(r)
+
+    # 引擎配置与批量回测同一来源(对比三铁律: 成本/oos/trail 回落一致)
+    costs = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
+    costs = {k: costs.get(k)
+             for k in ("slippage_points", "commission_points", "spread_points")}
+    oos_split = await pool.fetchval(
+        "SELECT value FROM config WHERE key='backtest_oos_split'") or 0.7
+    trail_default = await pool.fetchval("SELECT value FROM config WHERE key='trail_default'")
+    syms_meta = {r["symbol"]: dict(r) for r in await pool.fetch(
+        "SELECT symbol, point, broker FROM symbols")}
+    t_to = datetime.now(timezone.utc)
+    t_from = t_to - timedelta(days=p["window_years"] * 365.25)
+
+    m1_cache: dict = {"sym": None, "m1": None}
+
+    async def _fresh_bt(strat, sym):
+        """现跑一发总计年回测(与 jobs._run_one 同一配方) → bt 行 dict;
+        None = 该品种 M1 覆盖不足总计年。结果 UPSERT 回流(from/to = 实际首末根, 标签不撒谎)"""
+        if m1_cache["sym"] != sym:
+            m1_cache["m1"] = await backtest.load_m1(pool, sym, t_from, t_to)
+            m1_cache["sym"] = sym
+        m1 = m1_cache["m1"]
+        if m1 is None:
+            return None
+        cov_from = datetime.fromtimestamp(int(m1["time"][0]), tz=timezone.utc)
+        cov_to = datetime.fromtimestamp(int(m1["time"][-1]), tz=timezone.utc)
+        if (cov_to - cov_from).days < need_days:
+            return None
+        params = strat["params"]
+        if isinstance(params, dict) and not params.get("trail") \
+                and isinstance(trail_default, dict) and trail_default.get("active"):
+            params = {**params, "trail": trail_default}
+        gate = await regime.gate_for(pool, strat["metadata"], sym)
+        result = await asyncio.to_thread(
+            backtest.run_backtest, m1, strat["template"], params,
+            syms_meta[sym]["point"], strat["timeframe"], oos_split=oos_split,
+            gate=gate, **costs)
+        await pool.execute(
+            "INSERT INTO backtests"
+            " (strategy_id, from_time, to_time, symbol, broker, metrics, trades)"
+            " VALUES ($1, $2, $3, $4, $5, $6, $7)"
+            " ON CONFLICT (strategy_id, symbol) DO UPDATE SET"
+            "   from_time=EXCLUDED.from_time, to_time=EXCLUDED.to_time,"
+            "   broker=EXCLUDED.broker, metrics=EXCLUDED.metrics,"
+            "   trades=EXCLUDED.trades, created_at=now()",
+            strat["id"], cov_from, cov_to, sym, syms_meta[sym]["broker"],
+            result["metrics"], result["trades"])
+        return {"symbol": sym, "from_time": cov_from, "to_time": cov_to,
+                "trades": result["trades"]}
+
+    if req.symbols == "all":
+        run_syms = [r["symbol"] for r in await pool.fetch(
+            "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
+    tls: dict = {}                      # 品种时间线缓存(同一 vid)
+    judged: dict = {}                   # 策略 id → {品种: 判定结果}
+    # 品种外层循环: 同品种的现跑连续命中 M1 单槽缓存(与 jobs 抢单按品种排序同思路)
+    plan_syms = sorted({t["symbol"] for t in targets}) if req.symbols == "main" \
+        else sorted(set(run_syms) | {t["symbol"] for t in targets})
+    for sym in plan_syms:
+        if sym not in syms_meta:
             continue
-        main_days = (main_bt["to_time"] - main_bt["from_time"]).days
-        d["window"] = f"{main_bt['from_time']:%Y-%m-%d} ~ {main_bt['to_time']:%Y-%m-%d}"
-        d["trades"] = len(main_bt["trades"] or [])
-        if main_days < need_days:
-            d.update(verdict="skip", reason=f"窗口不足(需≥{need_days}天, 实{main_days}天)")
-            details.append(d)
-            continue
-        # 逐品种判定: 主品种必判; 跨品种(all)窗口不足的不纳入要求(宁缺毋滥单向: 只加码不放水)
-        results = []
-        for b in bts:
-            if b["symbol"] != r["symbol"] and (b["to_time"] - b["from_time"]).days < need_days:
+        for strat in targets:
+            if req.symbols == "main" and strat["symbol"] != sym:
                 continue
-            results.append(await _judge_symbol(pool, tls, b, vid, p))
-        main_res = next(x for x in results if x["symbol"] == r["symbol"])
-        # 明细三层读数(2026-08-04 Frank 定): 窗口/笔数按判定窗(近 window_years 年)口径,
-        # 整窗 total → 每格 cells_stat → 每切分前后段 splits_stat → 结论
+            try:
+                bt = await _fresh_bt(strat, sym)
+            except Exception as e:
+                logger.warning("screen fresh backtest #%s %s failed: %s",
+                               strat["id"], sym, e)
+                judged.setdefault(strat["id"], {})[sym] = {"error": str(e)}
+                continue
+            if bt is None:      # M1 不足: 主品种=整策略跳过; 跨品种=不纳入要求
+                judged.setdefault(strat["id"], {})[sym] = None
+                continue
+            judged.setdefault(strat["id"], {})[sym] = \
+                await _judge_symbol(pool, tls, bt, vid, p)
+
+    tag_ids, archive_ids = [], []
+    for r in targets:
+        d = {"id": r["id"], "name": r["name"], "symbol": r["symbol"], "status": r["status"]}
+        res_map = judged.get(r["id"], {})
+        main_res = res_map.get(r["symbol"])
+        if isinstance(main_res, dict) and "error" in main_res:
+            d.update(verdict="skip", reason=f"回测失败: {main_res['error']}")
+            details.append(d)
+            continue
+        if main_res is None:
+            d.update(verdict="skip",
+                     reason=f"主品种 M1 覆盖不足总计 {p['window_years']:g} 年")
+            details.append(d)
+            continue
+        results = [x for x in res_map.values()
+                   if isinstance(x, dict) and "error" not in x and x is not None]
+        # 明细三层读数: 窗口/笔数按判定窗口径; 整窗 total → 每格 → 每切分前后段 → 结论
         d.update(window=main_res["window"], trades=main_res["trades"],
                  splits=main_res["splits"], unlabeled=main_res["unlabeled"],
                  pass_cells=main_res["cells"], total=main_res["total"],
@@ -314,9 +376,7 @@ async def screen_run(req: ScreenRun, request: Request):
                           if x["symbol"] != r["symbol"]]
         fail_syms = [x["symbol"] for x in results
                      if len(x["cells"]) < p["min_pass_cells"]]
-        judged += 1
-        # 点名可带任意状态(2026-08-04 Frank 定): 非空闲 = 只读诊断, 出报告零动作
-        readonly = r["status"] != "CANDIDATE"
+        readonly = r["status"] != "CANDIDATE"   # 点名可带任意状态: 非空闲只读判定
         if not fail_syms:
             d.update(verdict="pass", reason="合格格 " + "·".join(main_res["cells"])
                      + (f" · 跨品种 {len(results) - 1} 个全过" if len(results) > 1 else "")
@@ -337,8 +397,7 @@ async def screen_run(req: ScreenRun, request: Request):
                "archived": len(archive_ids) if req.mode == "execute" else 0,
                "skipped": sum(1 for d in details if d["verdict"] == "skip"),
                "not_run": not_run}
-    # 点名 = 只读诊断连报告都不入库(2026-08-04 Frank 定): 结果直接返回页面看,
-    # regime_screens 只留全池清理的履历
+    # 点名 = 只读诊断连报告都不入库(结果直接返回页面看); regime_screens 只留全池清理履历
     rid = None
     if not req.ids:
         rid = await pool.fetchval(
@@ -354,7 +413,8 @@ async def screen_run(req: ScreenRun, request: Request):
         if archive_ids:   # 未过 → 归档(可逆; 条件重申 CANDIDATE 防运行间隙被切状态)
             await pool.execute(
                 "UPDATE strategies SET status='ARCHIVED', archive_reason='regime_unstable',"
-                " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'", archive_ids)
+                " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'",
+                archive_ids)
     return {"report_id": rid, "mode": req.mode, "version": vid,
             "scope": scope, "params": p, "summary": summary, "details": details}
 

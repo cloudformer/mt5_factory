@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('Regime 筛选', '批量粗筛的地方：按批次标签圈一批或按 ID 点名（只筛空闲策略）。按年切片验 regime 格子的时间稳健性；通过打标签，未过删除归档（可逆）；一跑一报告落库') }}
+{{ m.page_header('Regime 筛选', '漏斗关1.5 批量粗筛：每策略现跑总计年回测（悲观撮合，结果回流库，涉及淘汰必须用刚出炉的真数据）→ 按切片验 regime 稳健性。通过打标签，未过删除归档（可逆）') }}
 
 <section>
   <h2>批量筛选</h2>
@@ -36,8 +36,8 @@
           <option value="preview">预览(零动作)</option>
           <option value="execute">执行(打标签/归档)</option>
         </select></label>
-      <label title="本次最多判多少个(跳过的不占额度, 超出的下次再跑); 清空 = 不限">单次上限
-        <input name="limit" type="number" min="1" style="width:70px" value="100"></label>
+      <label title="本次最多现跑判定多少个策略(跳过的不占额度, 超出的下次再跑); 每个 ≈ 1~3 秒真回测, 别贪多">单次上限
+        <input name="limit" type="number" min="1" style="width:70px" value="50"></label>
     </div>
     <div class="row">
       <span class="tag">判据</span>
@@ -45,7 +45,7 @@
         · 切分 = 近 {{ params.boundaries_years | join('/') if params and params.boundaries_years else '1/2/3/4' }} 年 vs 剩余
         · 格内地板 {{ params.get('min_cell_trades', 5) }} 笔
         · 通过 = ≥{{ params.get('min_pass_cells', 1) }} 个格子在每种切分前后两段都(净点&gt;{{ params.get('min_net_points', 0) }} 且 PF&gt;{{ params.get('min_pf', 1) }})
-        · 窗口不足总计年/无回测 = 跳过不判</span>
+        · 现跑回测判定(结果回流库) · M1 覆盖不足总计年 = 跳过不判</span>
     </div>
     <div class="row">
       <span class="tag">预览</span>
@@ -75,18 +75,13 @@
         const d = await fetch("{{ url_for('regime_screen.plan') }}?" + p).then((r) => r.json());
         if (d.error) { planEl.textContent = "预估不可用: " + d.error; go.disabled = false; return; }
         const lim = parseInt(form.querySelector("input[name=limit]").value) || 0;
-        let txt = `${ids ? "点名" : "未筛过池"} ${d.total} 个空闲策略 · 可判 ${d.runnable}`;
-        if (lim && d.runnable > lim) txt += `(上限 ${lim}, 本次判前 ${lim} 个, 剩余下次再跑)`;
-        const skips = [];
-        if (d.tagged) skips.push(`已筛过 ${d.tagged}`);
-        if (d.no_backtest) skips.push(`无回测 ${d.no_backtest}`);
-        if (d.short_window) skips.push(`窗口不足 ${d.short_window}`);
-        if (skips.length) txt += ` · 跳过: ${skips.join(" / ")}`;
-        if (d.coverage) {   // 全货币模式: 判定会用到哪些品种(回测覆盖), 只有主品种=效果同主货币
-          txt += d.coverage.length > 1
-            ? ` · 判定品种: ${d.coverage.map((c) => c.symbol + "×" + c.n).join(" ")}`
-            : " · 无跨品种回测行(效果=主货币, 先去回测页勾「跨品种验证」)";
-        }
+        let txt = `${ids ? "点名" : "未筛过池"} ${d.total} 个${ids ? "" : "空闲"}策略 · 可现跑 ${d.runnable}`;
+        const run = lim ? Math.min(lim, d.runnable) : d.runnable;
+        txt += ` → 本次真跑 ${run} 个 × ${d.runs_per_strategy} 品种 ≈ ${run * d.runs_per_strategy} 次回测(约1~3s/次)`;
+        if (lim && d.runnable > lim) txt += ` · 剩余 ${d.runnable - lim} 个下次再跑`;
+        if (d.tagged) txt += ` · 已筛过跳过 ${d.tagged}`;
+        if (d.insufficient && d.insufficient.length)
+          txt += ` · M1不足总计年: ${d.insufficient.join("/")}(涉及策略跳过不判)`;
         planEl.textContent = d.total === 0
           ? (ids ? "点名的 ID 里没有空闲策略" : "没有未筛过的空闲策略 — 池子已清完") : txt;
         go.disabled = (d.total === 0);
