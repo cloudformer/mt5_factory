@@ -27,6 +27,10 @@ def index():
         st = (h.get("last_health") or {}).get("selftest")
         if st and st.get("updated"):
             st["updated_fmt"] = datetime.fromtimestamp(st["updated"]).strftime("%m-%d %H:%M")
+        # 主循环最近一拍年龄(体检"节奏读数", 观察期陈列): runner 每圈(≈10s)落盘 updated
+        rn = (h.get("last_health") or {}).get("runner") or {}
+        if rn.get("updated"):
+            h["loop_age"] = max(0, int(time.time() - rn["updated"]))
         # 最近事件进详情行: 异常类(下单失败/断报价/加载失败/漏存)直接显示,
         # 生命周期类(上下线/DEGRADED, 高频噪音)默认收起(2026-07-26 与 Frank 定)
         try:

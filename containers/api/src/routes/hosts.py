@@ -8,6 +8,7 @@ runner = demo|live|NULL 跑什么策略 — 单字段天然保证 demo/live 互�
 """
 import hashlib
 import logging
+import time
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Request
@@ -38,6 +39,12 @@ async def _claim_account(pool, host_id: int, login: int, server: str):
                    "铁律: 不同 worker 不得共用账户(同账户双跑会重复下单), 请换账户")
 
 
+# 心跳到达间隔滑动窗(2026-08-04 Frank 定, worker 体检"节奏读数"): api 内存记最近 11 次
+# 到达时刻 → 10 个间隔的 avg/max。期望≈30s, 漂移=网络堵或 worker 卡(圈拖长挤占心跳线程)。
+# 内存即可(观察用, api 重启从头累计) — 与下载进度同一裁定, 不 jobs 化不落库
+_hb_arrivals: dict = {}
+
+
 @router.get("/hosts")
 async def list_hosts(request: Request):
     uid = identity.scope_uid(request)   # v5.6 通电: 非 owner 只见自己的 worker
@@ -48,10 +55,25 @@ async def list_hosts(request: Request):
         # 认证状态(2026-08-02 Frank 定): 有有效 worker 钥匙绑定=已认证;
         # 克隆机复用旧钥不会绑上(一机一钥) → false → 页面红字提示 + 禁指派角色
         "       EXISTS(SELECT 1 FROM worker_keys wk"
-        "               WHERE wk.host_id = mt5_hosts.id AND wk.enabled) AS key_bound"
+        "               WHERE wk.host_id = mt5_hosts.id AND wk.enabled) AS key_bound,"
+        # 库侧生效挂载数(两把钥匙口径: 挂载启用 + 策略状态==本机角色) — 与 runner 实际
+        # 认领数对照, 不一致=认领异常(体检"天然异常"项, 不用学习基线)
+        "       (SELECT count(*) FROM strategy_mounts sm JOIN strategies s"
+        "           ON s.id = sm.strategy_id"
+        "         WHERE sm.host_id = mt5_hosts.id AND sm.enabled"
+        "           AND s.status = upper(coalesce(mt5_hosts.runner, ''))) AS mounts_active"
         "  FROM mt5_hosts" + (" WHERE owner_id = $1" if uid else "") + " ORDER BY id",
         *([uid] if uid else []))
-    return {"hosts": [dict(r) for r in rows]}
+    hosts = []
+    for r in rows:
+        d = dict(r)
+        arr = _hb_arrivals.get(d["name"]) or []
+        gaps = [b - a for a, b in zip(arr, arr[1:])]
+        if gaps:
+            d["hb_gaps"] = {"n": len(gaps), "avg": round(sum(gaps) / len(gaps), 1),
+                            "max": round(max(gaps), 1)}
+        hosts.append(d)
+    return {"hosts": hosts}
 
 
 @router.get("/hosts/{host_id}/events")
@@ -205,6 +227,10 @@ async def push_heartbeat(request: Request):
         "SELECT id, name, status, runner FROM mt5_hosts WHERE name=$1 AND enabled", name)
     if h is None:  # 未注册: 等 announce(每分钟)先建档, 下一拍推送即被接受
         raise HTTPException(status_code=404, detail="host 未注册或已停用 — announce 会自动建档")
+    # 到达间隔滑动窗(体检"节奏读数"): 只记时刻, 统计在 /hosts 现算
+    arr = _hb_arrivals.setdefault(name, [])
+    arr.append(time.time())
+    del arr[:-11]
     health["push_v"] = 1   # 服务端强制打标(轮询跳过的依据), 不信任 payload 自带
     health.pop("trades_v", None)
     resp = {"accepted": True}
