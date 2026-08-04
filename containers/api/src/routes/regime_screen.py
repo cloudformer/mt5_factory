@@ -422,9 +422,11 @@ async def screen_run(req: ScreenRun, request: Request):
     rid = None
     if not req.ids:
         rid = await pool.fetchval(
-            "INSERT INTO regime_screens (mode, version_id, scope, params, summary, details)"
-            " VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-            req.mode, vid, scope, p, summary, details)
+            "INSERT INTO regime_screens"
+            " (mode, version_id, scope, params, summary, details, owner_id)"
+            " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+            req.mode, vid, scope, p, summary, details,
+            getattr(request.state, "user_id", None) or 1)   # 报告记发起人(schema/059)
         _progress["report_id"] = rid
     if req.mode == "execute":
         if tag_ids:   # 通过 → basis 追加标签(报告号可溯源到本次参数与全量明细)
@@ -441,20 +443,25 @@ async def screen_run(req: ScreenRun, request: Request):
             "scope": scope, "params": p, "summary": summary, "details": details}
 
 
-# ---------- 报告回看 ----------
+# ---------- 报告回看(归属过滤, 2026-08-04 Frank 定: owner 只见自己的, admin 全见) ----------
 @router.get("/regime_screen/reports")
 async def screen_reports(request: Request, limit: int = 30):
+    uid = identity.scope_uid(request)
     rows = await request.app.state.pool.fetch(
         "SELECT id, created_at, mode, version_id, scope, params, summary"
-        " FROM regime_screens ORDER BY id DESC LIMIT $1", min(max(limit, 1), 200))
+        " FROM regime_screens" + (" WHERE owner_id = $2" if uid else "")
+        + " ORDER BY id DESC LIMIT $1",
+        min(max(limit, 1), 200), *([uid] if uid else []))
     return {"reports": [{**dict(r), "created_at": r["created_at"].isoformat()} for r in rows]}
 
 
 @router.get("/regime_screen/reports/{report_id}")
 async def screen_report(report_id: int, request: Request):
     row = await request.app.state.pool.fetchrow(
-        "SELECT id, created_at, mode, version_id, scope, params, summary, details"
+        "SELECT id, created_at, mode, version_id, scope, params, summary, details, owner_id"
         " FROM regime_screens WHERE id = $1", report_id)
-    if row is None:
+    uid = identity.scope_uid(request)
+    if row is None or (uid and row["owner_id"] != uid):   # 别人的报告 = 404 不暴露存在性
         raise HTTPException(status_code=404, detail="report not found")
-    return {**dict(row), "created_at": row["created_at"].isoformat()}
+    return {**{k: row[k] for k in row.keys() if k != "owner_id"},
+            "created_at": row["created_at"].isoformat()}

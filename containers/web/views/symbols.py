@@ -175,7 +175,10 @@ def save_regime_view():
 @bp.post("/config/regime-params")
 def save_regime_params():
     """保存 Regime 口径 → 版本化(v0.2): 新参数生成 v{新id}并设为当前;
-    重复参数自动匹配回现有版本(提示"这是vN")。只存不重建 — 重建去 Regime 页显式点。"""
+    重复参数自动匹配回现有版本(提示"这是vN")。只存不重建 — 重建去 Regime 页显式点。
+    仅 admin(2026-08-04 Frank 定: 版本是全局公共尺, 目前只有 admin 可建/切)"""
+    if not _admin_only():
+        return redirect(url_for("symbols.backtest_params"))
     try:
         # 表单是 下拉(类型)+数字(周期) — 边界显式化; 存储格式仍是 'sma200' 字符串
         r = api.post("/regime/versions", {"params": {
@@ -197,7 +200,10 @@ def save_regime_params():
 
 @bp.post("/config/regime-version-select")
 def select_regime_version():
-    """切换当前默认 Regime 版本(下拉即提交) — 全站读时贴格随之走该版本时间线"""
+    """切换当前默认 Regime 版本(下拉即提交) — 全站读时贴格随之走该版本时间线。
+    仅 admin(全局默认指针, 2026-08-04 Frank 定)"""
+    if not _admin_only():
+        return redirect(request.referrer or url_for("symbols.backtest_params"))
     try:
         vid = int(request.form.get("version_id", 0))
         r = api.post("/regime/versions/select", {"id": vid})
@@ -211,7 +217,10 @@ def select_regime_version():
 
 @bp.post("/config/regime-params-reset")
 def reset_regime_params():
-    """Regime 口径一键恢复默认 — 默认值唯一权威在 api(regime.DEFAULT_PARAMS), web 不复制"""
+    """Regime 口径一键恢复默认 — 默认值唯一权威在 api(regime.DEFAULT_PARAMS), web 不复制。
+    仅 admin(同版本保存/切换)"""
+    if not _admin_only():
+        return redirect(url_for("symbols.backtest_params"))
     try:
         r = api.post("/regime/params/reset")
         p = r["params"]

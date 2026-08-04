@@ -24,6 +24,8 @@
         </optgroup>
       </select></label>
     </form>
+    {# 版本切换=改全局默认(与配置页同一开关) → 仅 admin(2026-08-04 Frank 定); 其他用户只读 #}
+    {% if dev_user_id == 1 %}
     <form method="post" action="{{ url_for('datasync.regime_version_select') }}" class="inline">
       <input type="hidden" name="symbol" value="{{ symbol }}">
       <label>口径版本
@@ -34,6 +36,11 @@
           {% endfor %}
         </select></label>
     </form>
+    {% else %}
+    <span class="muted" title="全局默认版本, 管理员在配置页/本页切换">口径版本
+      {% for v in rv_versions %}{% if v.id == rv_current %}<b class="mono">v{{ v.id }}</b> · {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}/{{ v.params.vol_win }}日/{{ '%g' % v.params.vol_q }}{% endif %}{% endfor %}
+      (只读)</span>
+    {% endif %}
     {% if data and data.rows %}
     <label>色带图示跨度 <select id="band-span" title="色带显示最近几年, 即时切换不刷新页面; 默认值在「配置·策略参数」页(仅admin可改)">
       {% for y, zh in [(1, '1 年'), (3, '3 年'), (5, '5 年'), (10, '10 年'), (0, '全部')] %}

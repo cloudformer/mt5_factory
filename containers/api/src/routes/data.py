@@ -208,17 +208,18 @@ def _validate_regime_params(value) -> dict:
     return value
 
 
-async def _version_save(pool, params: dict) -> dict:
+async def _version_save(pool, params: dict, owner: int = 1) -> dict:
     """一套参数=一个版本(params UNIQUE 判重执法): 新参数→新版本; 撞上→匹配现有版本。
-    保存即设为当前默认(config regime_version, 一处)。"""
+    保存即设为当前默认(config regime_version, 一处)。新版本记归属(schema/059,
+    现在只记不筛 — 操作收 admin 由页面门禁执法)。"""
     # 先查后插: ON CONFLICT 会"先取号再撞墙"(序列非事务), 重复保存白烧版本号导致跳号 —
     # 先 SELECT 命中就直接返回, 序列一号不动; 真新参数才 INSERT(并发撞车兜底再查一次)
     vid = await pool.fetchval("SELECT id FROM regime_versions WHERE params=$1", params)
     created = False
     if vid is None:
         row = await pool.fetchrow(
-            "INSERT INTO regime_versions (params) VALUES ($1)"
-            " ON CONFLICT (params) DO NOTHING RETURNING id", params)
+            "INSERT INTO regime_versions (params, owner_id) VALUES ($1, $2)"
+            " ON CONFLICT (params) DO NOTHING RETURNING id", params, owner)
         if row is not None:
             vid, created = row["id"], True
         else:   # 极小概率并发撞车: 另一个请求刚插完 → 拿它的
@@ -252,7 +253,8 @@ async def regime_version_save(req: RegimeVersionSave, request: Request):
     """保存口径 → 版本化(v0.2): 新参数生成 v{新id}; 重复参数匹配回现有版本(提示"这是vN")。
     只存不重建 — 重建仍是 Regime 页显式动作(对当前默认版本)。"""
     return await _version_save(request.app.state.pool,
-                               _validate_regime_params(req.params))
+                               _validate_regime_params(req.params),
+                               owner=getattr(request.state, "user_id", None) or 1)
 
 
 class RegimeVersionSelect(BaseModel):
@@ -315,7 +317,8 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
 async def regime_params_reset(request: Request):
     """口径恢复默认(SMA200/SMA20/ATR14/252/0.5) — 唯一权威 = services/regime.DEFAULT_PARAMS。
     版本化后语义 = 匹配/创建默认参数的版本并设为当前(通常就是 v1)。"""
-    r = await _version_save(request.app.state.pool, dict(regime.DEFAULT_PARAMS))
+    r = await _version_save(request.app.state.pool, dict(regime.DEFAULT_PARAMS),
+                            owner=getattr(request.state, "user_id", None) or 1)
     return {"params": regime.DEFAULT_PARAMS, "id": r["id"], "created": r["created"]}
 
 

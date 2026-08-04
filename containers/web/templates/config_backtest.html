@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
+{# admin 判据全模板一处(dev 身份过渡, 上真登录换真凭据): Regime口径/下载周期/自动同步/默认视图共用 #}
+{% set is_admin = dev_user_id == 1 %}
 {{ m.page_header('配置 · 策略参数', '生成收货上限 + 悲观撮合成本 + 回测单批上限 + 样本外(OOS)切分。改OOS比例后需「范围=全部」重跑一次全量收敛') }}
 
 <section>
@@ -87,7 +89,14 @@
 </section>
 
 <section>
-  <h2>Regime 口径(版本化 v0.2 — 一套参数一个版本; 只存不重建, 重建去 Regime 页显式点)</h2>
+  <h2>Regime 口径(版本化 v0.2 — 一套参数一个版本; 只存不重建, 重建去 Regime 页显式点)
+    <span class="muted" style="font-weight:normal">全局公共尺: 管理员可建/切, 其他用户只读</span></h2>
+  {# 版本操作收 admin(2026-08-04 Frank 定); 版本表带 owner(schema/059), 将来放开用户自建时直接成立 #}
+  {% if not is_admin %}
+  <p class="muted">当前版本: <b class="mono">v{{ regime_current }}</b>
+    {% for v in regime_versions %}{% if v.id == regime_current %}· {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}/{{ v.params.vol_win }}日/{{ '%g' % v.params.vol_q }}{% endif %}{% endfor %}
+    (只读, 管理员决定) · 已有版本: {% for v in regime_versions %}v{{ v.id }}{{ ' · ' if not loop.last }}{% endfor %}</p>
+  {% else %}
   <form method="post" action="{{ url_for('symbols.select_regime_version') }}" class="inline">
     <label>当前版本
       <select name="version_id" onchange="this.form.submit()"
@@ -130,6 +139,7 @@
         onsubmit="return confirm('恢复默认口径 SMA200 / SMA20 / ATR14 / 252日 / 0.5分位?(只改配置, 生效需去 Regime 页点重建)')">
     <button class="small">恢复默认(SMA200/SMA20/ATR14/252/0.5)</button>
   </form>
+  {% endif %}
   {# Regime 页默认视图(schema/058, 2026-08-04): 全局共享展示默认, 仅 admin 可改;
      页面上的下拉仍可临时切换(不落库) #}
   {% if is_admin %}
@@ -169,7 +179,6 @@
   <h2>下载周期层 <span class="muted" style="font-weight:normal">管理员可改, 其他用户只读 — 防手滑改坏污染数据</span></h2>
   {# admin(owner id 1)=可编辑表单; 其他人=只读展示(2026-08-01 Frank 定)。
      勾选态按 config 真实值渲染; M1 恒必含(disabled 不随表单提交, 保存路由固定并上) #}
-  {% set is_admin = dev_user_id == 1 %}
   {% if is_admin %}
   <form method="post" action="{{ url_for('symbols.save_download_timeframes') }}" class="inline"
         onsubmit="return confirm('修改下载周期层?\n\nM1 恒必含; 增删层只影响之后的同步派任务, 已入库数据不动。')">
