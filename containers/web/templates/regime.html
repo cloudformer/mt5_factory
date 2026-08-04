@@ -13,7 +13,7 @@
       <label>货币对 <select name="symbol" data-autosubmit title="切换货币对 — 整页数据都随之切换">
         {% for s in symbols %}<option {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
       </select></label>
-      <label>象限窗 <select name="show_years" id="quad-span"
+      <label>八格象限时间窗口 <select name="show_years" id="quad-span"
           title="八格象限的统计窗口(与九币矩阵同款): 近N年 / N年以前(排除近N年, 对照用); 只影响象限占比, 即时切换不刷新页面">
         <option value="">全历史</option>
         <optgroup label="近 N 年">
@@ -34,6 +34,12 @@
           {% endfor %}
         </select></label>
     </form>
+    {% if data and data.rows %}
+    <label>色带图示跨度 <select id="band-span" title="色带显示最近几年, 即时切换不刷新页面; 默认值在「配置·策略参数」页(仅admin可改)">
+      {% for y, zh in [(1, '1 年'), (3, '3 年'), (5, '5 年'), (10, '10 年'), (0, '全部')] %}
+      <option value="{{ y }}" {% if y == band_default %}selected{% endif %}>{{ zh }}</option>{% endfor %}
+    </select></label>
+    {% endif %}
   </div>
 </section>
 
@@ -45,13 +51,7 @@
 
 {# ===== 1. 演变色带(2026-07-29 Frank 定: 半年一行, 跨度可选默认3年, 前端切片零请求) ===== #}
 <section>
-  <div class="flex-between" style="max-width:1020px">
-    <h2 style="margin:0">演变色带 <span class="muted" style="font-weight:normal">半年一行 · 一格一天(周末休市空缺) · 悬停看具体日</span></h2>
-    <label class="muted">跨度 <select id="band-span" title="显示最近几年, 即时切换不刷新页面">
-      {% for y, zh in [(1, '1 年'), (3, '3 年'), (5, '5 年'), (10, '10 年'), (0, '全部')] %}
-      <option value="{{ y }}" {% if y == 3 %}selected{% endif %}>{{ zh }}</option>{% endfor %}
-    </select></label>
-  </div>
+  <h2>演变色带 <span class="muted" style="font-weight:normal">半年一行 · 一格一天(周末休市空缺) · 悬停看具体日 · 跨度在顶部切</span></h2>
   {% if band_months %}
   <div class="mono muted" style="display:flex;justify-content:space-between;max-width:1020px;margin:2px 0 4px">
     <span id="band-from">{{ (band_months[-6:] | first)[1][0].date }} 起</span>

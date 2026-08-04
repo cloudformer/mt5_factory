@@ -351,6 +351,7 @@ CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
                # config 只留 regime_version 指针(由版本端点维护, 不走通用 PUT)
                "download_timeframes",  # 下载周期层(2026-07-29, schema/049): M1 必含 + 可选高周期
                "auto_sync_hours",  # 自动增量同步间隔(2026-08-01, schema/055): admin 页面可改, 0=关
+               "regime_view",      # Regime页默认视图(2026-08-04, schema/058): 全局共享, admin 可改
                "backtest_window_days"}  # 批量回测默认窗口天数(2026-07-29, schema/051)
 
 # worker_params 各项允许区间(用户按网络自调, 区间防脚枪):
@@ -564,6 +565,13 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
     if key == "auto_sync_hours":  # 自动同步间隔(小时): 0=关闭, 上限一周
         if not isinstance(req.value, int) or not 0 <= req.value <= 168:
             raise HTTPException(status_code=400, detail="auto_sync_hours 须为 0~168 的整数(小时, 0=关闭)")
+    if key == "regime_view":  # Regime页默认视图: 色带跨度(0=全部) + 象限窗(0=全历史, 负=N年以前)
+        if (not isinstance(req.value, dict)
+                or req.value.get("band_years") not in (0, 1, 3, 5, 10)
+                or req.value.get("quad_years") not in (0, 1, 2, 3, 5, 10, -1, -2, -3, -5)):
+            raise HTTPException(status_code=400,
+                                detail="regime_view 须为 {band_years: 0/1/3/5/10,"
+                                       " quad_years: 0/±1/2/3/5/10(负=N年以前, 仅负1/2/3/5)}")
     if key == "recon_pair_tol_minutes":  # 对账配对容差: 回测与实盘时间窗口差距(分钟)
         if not isinstance(req.value, int) or not 1 <= req.value <= 120:
             raise HTTPException(status_code=400,

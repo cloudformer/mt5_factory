@@ -130,6 +130,30 @@
         onsubmit="return confirm('恢复默认口径 SMA200 / SMA20 / ATR14 / 252日 / 0.5分位?(只改配置, 生效需去 Regime 页点重建)')">
     <button class="small">恢复默认(SMA200/SMA20/ATR14/252/0.5)</button>
   </form>
+  {# Regime 页默认视图(schema/058, 2026-08-04): 全局共享展示默认, 仅 admin 可改;
+     页面上的下拉仍可临时切换(不落库) #}
+  {% if is_admin %}
+  <form method="post" action="{{ url_for('symbols.save_regime_view') }}" class="inline" style="margin-top:6px">
+    <label>Regime 页默认视图 — 色带图示跨度
+      <select name="band_years">
+        {% for y, zh in [(1, '1 年'), (3, '3 年'), (5, '5 年'), (10, '10 年'), (0, '全部')] %}
+        <option value="{{ y }}" {% if regime_view.get('band_years', 3) == y %}selected{% endif %}>{{ zh }}</option>{% endfor %}
+      </select></label>
+    <label>八格象限时间窗口
+      <select name="quad_years">
+        <option value="0" {% if regime_view.get('quad_years', 0) == 0 %}selected{% endif %}>全历史</option>
+        {% for y in [1, 2, 3, 5, 10] %}<option value="{{ y }}" {% if regime_view.get('quad_years') == y %}selected{% endif %}>近{{ y }}年</option>{% endfor %}
+        {% for y in [-1, -2, -3, -5] %}<option value="{{ y }}" {% if regime_view.get('quad_years') == y %}selected{% endif %}>{{ -y }}年以前</option>{% endfor %}
+      </select></label>
+    <button>保存</button>
+    <span class="muted">全局共享的展示默认; Regime 页下拉仍可临时切换, 刷新回默认</span>
+  </form>
+  {% else %}
+  <p class="muted" style="margin-top:6px">Regime 页默认视图: 色带图示跨度
+    <b>{{ '全部' if regime_view.get('band_years', 3) == 0 else (regime_view.get('band_years', 3) ~ ' 年') }}</b> ·
+    八格象限时间窗口 <b>{% set q = regime_view.get('quad_years', 0) %}{{ '全历史' if q == 0 else ('近' ~ q ~ '年' if q > 0 else (-q) ~ '年以前') }}</b>
+    (只读, 管理员决定)</p>
+  {% endif %}
   {# 档位速查提示(2026-07-28, 默认折叠): 暖机 = max(长均线, 短均线, ATR+波动窗)+10 — 历史短于暖机出不了格子 #}
   <details style="margin-top:6px">
     <summary class="muted" style="cursor:pointer">档位速查: 正式评定 SMA200/SMA20/ATR14/252/0.5(暖机~276日) · 调试档 SMA30/SMA10/ATR14/20/0.5(~44日) · 极短史 SMA20/SMA5/ATR5/20/0.5(~35日) — 点开看说明</summary>

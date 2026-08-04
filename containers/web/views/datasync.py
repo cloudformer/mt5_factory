@@ -133,12 +133,14 @@ def regime():
     symbol = (request.args.get("symbol") or "").strip().upper() or None
     days = request.args.get("days", 90, type=int)
     full = request.args.get("full", 0, type=int)
-    symbols, data = [], None
+    symbols, data, view_cfg = [], None, {}
     rv = {"current": None, "versions": []}
     try:
         symbols = [s["symbol"] for s in api.get("/symbols")["symbols"] if s.get("download")]
         symbol = symbol or (symbols[0] if symbols else None)
         rv = api.get("/regime/versions")   # 版本下拉(v0.2): 本页切换=改全局默认(与配置页同一开关)
+        # 默认视图(config regime_view, schema/058): 全局共享, 仅 admin 在配置页改
+        view_cfg = api.get("/config")["config"].get("regime_view") or {}
         if symbol:
             data = api.get(f"/regime/{symbol}", days=days, **({"full": 1} if full else {}))
     except api.ApiError as e:
@@ -153,8 +155,12 @@ def regime():
             band_months.append((h, []))
         band_months[-1][1].append(r)
     # 象限窗(2026-08-04 Frank 定, 与九币矩阵同款筛选): 近N年/N年以前 过滤逐日 rows
-    # 重算八格天数份额 — 纯展示层, 色带/记分卡/今日格不受影响; 0=全历史(stats 原值)
-    show_years = request.args.get("show_years", 0, type=int)
+    # 重算八格天数份额 — 纯展示层, 色带/记分卡/今日格不受影响; 0=全历史(stats 原值)。
+    # 默认 = config regime_view.quad_years(URL 显式传参优先, 含显式""=全历史)
+    if request.args.get("show_years") is None:
+        show_years = int(view_cfg.get("quad_years") or 0)
+    else:
+        show_years = request.args.get("show_years", 0, type=int)
     quad_label = "全历史覆盖"
     win_counts = None
     if show_years and data and data.get("rows"):
@@ -186,6 +192,7 @@ def regime():
                            full=full, data=data, cell_lines=cell_lines, neighbors=neighbors,
                            score=score, band_months=band_months, show_years=show_years,
                            quad_label=quad_label,
+                           band_default=int(view_cfg.get("band_years") or 3),
                            rv_current=rv["current"], rv_versions=rv["versions"])
 
 

@@ -25,7 +25,7 @@ def index():
 def backtest_params():
     """配置·策略参数: 生成收货上限 + 成本模型 + 回测单批上限 + OOS 切分"""
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
-    window_days = None
+    window_days, regime_view = None, {}
     runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
     generate_limit, worker_params, regime_params = 500, {}, {}
     regime_versions, regime_current = [], None
@@ -50,6 +50,7 @@ def backtest_params():
         worker_params = cfg.get("worker_params") or {}
         download_timeframes = cfg.get("download_timeframes") or []
         auto_sync_hours = cfg.get("auto_sync_hours")   # 只读展示(schema/055, 管理员库改)
+        regime_view = cfg.get("regime_view") or {}     # Regime页默认视图(schema/058, 仅admin改)
         # Regime 口径版本化(v0.2): 唯一源 = regime_versions 表, 下拉选当前默认
         rv = api.get("/regime/versions")
         regime_versions = rv["versions"]
@@ -67,7 +68,7 @@ def backtest_params():
                            recon_tol=recon_tol, worker_params=worker_params,
                            regime_params=regime_params,
                            regime_versions=regime_versions, regime_current=regime_current,
-                           auto_sync_hours=auto_sync_hours,
+                           auto_sync_hours=auto_sync_hours, regime_view=regime_view,
                            download_timeframes=download_timeframes)
 
 
@@ -150,6 +151,22 @@ def save_auto_sync_hours():
         v = int(request.form.get("auto_sync_hours", 6))
         api.put("/config/auto_sync_hours", {"value": v})
         flash(f"自动同步间隔已保存: {'关闭' if v == 0 else f'每 {v} 小时'} — 30 秒内生效, 不用重启", "ok")
+    except (api.ApiError, ValueError) as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("symbols.backtest_params"))
+
+
+@bp.post("/config/regime-view")
+def save_regime_view():
+    """保存 Regime 页默认视图(config: regime_view, 仅 admin) — 全局共享的展示默认:
+    色带图示跨度 + 八格象限时间窗口; 页面上的下拉仍可临时切换(不落库)"""
+    if not _admin_only():
+        return redirect(url_for("symbols.backtest_params"))
+    try:
+        api.put("/config/regime_view", {"value": {
+            "band_years": int(request.form.get("band_years", 3)),
+            "quad_years": int(request.form.get("quad_years", 0))}})
+        flash("Regime 页默认视图已保存 — 刷新 Regime 页即生效", "ok")
     except (api.ApiError, ValueError) as e:
         flash(f"保存失败: {e}", "error")
     return redirect(url_for("symbols.backtest_params"))
