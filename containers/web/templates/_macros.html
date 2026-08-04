@@ -108,7 +108,7 @@
   <tr title="worker license(api-key)绑定状态: 一机一钥, 克隆机复用旧钥绑不上。&#10;未认证不能指派角色(跑demo/跑live按钮禁用)">
       <td>license</td>
       <td><span class="badge {{ 'ok' if h.key_bound else 'error' }}">{{ '已认证' if h.key_bound else '未认证' }}</span></td>
-      <td class="muted">{% if h.key_bound %}api-key 绑定有效 · 一机一钥{% else %}<span class="neg">签发新钥匙(用户管理页) → 填 WORKER_KEY → 重启 bridge → 自动首绑</span>{% endif %}</td></tr>
+      <td class="muted">{% if h.key_bound %}钥匙 <b class="mono">{{ h.key_label or '—' }}</b> · 一机一钥{% else %}<span class="neg">签发新钥匙(用户管理页) → 填 WORKER_KEY → 重启 bridge → 自动首绑</span>{% endif %}</td></tr>
   <tr><td>开机自检</td>
       <td>{% if st %}
         <span class="badge {{ 'ok' if st.ok else 'error' }}">{{ 'OK' if st.ok else 'FAIL' }}

@@ -56,6 +56,11 @@ async def list_hosts(request: Request):
         # 克隆机复用旧钥不会绑上(一机一钥) → false → 页面红字提示 + 禁指派角色
         "       EXISTS(SELECT 1 FROM worker_keys wk"
         "               WHERE wk.host_id = mt5_hosts.id AND wk.enabled) AS key_bound,"
+        # 钥匙名片(2026-08-04 Frank 定): 绑定钥匙的备注+编号, license 行显示"哪把钥匙"
+        # (明文只存 sha256 不可逆, 后4位显示不了 — 备注名就是钥匙的人话身份)
+        "       (SELECT concat('#', wk.id, coalesce(' ' || wk.name, ''))"
+        "          FROM worker_keys wk WHERE wk.host_id = mt5_hosts.id AND wk.enabled"
+        "         LIMIT 1) AS key_label,"
         # 库侧生效挂载数(两把钥匙口径: 挂载启用 + 策略状态==本机角色) — 与 runner 实际
         # 认领数对照, 不一致=认领异常(体检"天然异常"项, 不用学习基线)
         "       (SELECT count(*) FROM strategy_mounts sm JOIN strategies s"
