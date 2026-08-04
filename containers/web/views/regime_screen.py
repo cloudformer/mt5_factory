@@ -1,17 +1,13 @@
 """v0.5 Regime 筛选页(可插拔测试功能): 判据参数 + 运行(预览/执行) + 历史报告回看。
-只调 api(regime_screen.py), 移除 = 删本文件 + app.py 注册两行 + base.html 导航一行。"""
-from datetime import datetime
+只调 api(regime_screen.py), 移除 = 删本文件 + app.py 注册两行 + base.html 导航一行。
+时间显示: created_at 原样透传, 模板 m.lts() 交给浏览器转本地时区(全站统一机制)。"""
+from datetime import datetime, timezone
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
 import api_client as api
 
 bp = Blueprint("regime_screen", __name__)
-
-
-def _fmt(iso: str) -> str:
-    """报告时间 = 运维类时间 → 本地时间显示(CLAUDE.md 三层口径)"""
-    return datetime.fromisoformat(iso).astimezone().strftime("%m-%d %H:%M")
 
 
 def _page_data():
@@ -21,8 +17,6 @@ def _page_data():
     data["params"] = cfg.get("regime_screen") or {}
     data["versions"] = api.get("/regime/versions")
     data["reports"] = api.get("/regime_screen/reports")["reports"]
-    for r in data["reports"]:
-        r["at"] = _fmt(r["created_at"])
     return data
 
 
@@ -33,7 +27,6 @@ def index():
         rid = request.args.get("report", type=int)
         if rid:
             data["report"] = api.get(f"/regime_screen/reports/{rid}")
-            data["report"]["at"] = _fmt(data["report"]["created_at"])
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
         data = {"params": None, "versions": None, "reports": [], "report": None}
@@ -114,7 +107,7 @@ def run():
             return redirect(url_for("regime_screen.index", report=r["report_id"]))
         # 点名 = 只读诊断不入库: 结果只活在本次响应里, 直接渲染(刷新即消失, 库里零痕迹)
         data = _page_data()
-        data["report"] = {"id": None, "at": datetime.now().strftime("%m-%d %H:%M"),
+        data["report"] = {"id": None, "created_at": datetime.now(timezone.utc).isoformat(),
                           "mode": r["mode"], "version_id": r["version"], "scope": r["scope"],
                           "params": r["params"], "summary": s, "details": r["details"]}
         return render_template("regime_screen.html", **data)

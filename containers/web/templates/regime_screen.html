@@ -91,18 +91,36 @@
     form.querySelectorAll("input[name=ids], input[name=limit]").forEach((el) =>
       el.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(refreshPlan, 400); }));
     refreshPlan();
-    // 现跑进度(照回测页): 提交后旧页面还在 → 轮询进度实时刷预览行, 响应回来自动进报告
+    // 现跑进度(照回测页): 提交后/发现后台批次 → 轮询实时刷预览行, 跑完自动进报告
+    let pollTimer = null, watching = false;
+    async function pollProgress() {
+      try {
+        const s = await fetch("{{ url_for('regime_screen.progress') }}").then((r) => r.json());
+        if (s.running) {
+          watching = true;
+          go.disabled = true;
+          planEl.textContent = `现跑回测中 ${s.done}/${s.total} · ${s.current || ""}`;
+        } else if (watching) {   // 刚看着它跑完: 有报告号就跳报告, 否则恢复表单
+          clearInterval(pollTimer); pollTimer = null; watching = false;
+          if (s.report_id) { location = "?report=" + s.report_id; return; }
+          go.disabled = false;
+          refreshPlan();
+        } else { clearInterval(pollTimer); pollTimer = null; }
+      } catch (e) { /* 网络抖动忽略, 下一拍再试 */ }
+    }
+    function watchProgress() {
+      if (!pollTimer) pollTimer = setInterval(pollProgress, 1500);
+      pollProgress();
+    }
     form.addEventListener("submit", () => {
       go.disabled = true;
       planEl.textContent = "现跑回测中…";
-      setInterval(async () => {
-        try {
-          const s = await fetch("{{ url_for('regime_screen.progress') }}").then((r) => r.json());
-          if (s.running) planEl.textContent = `现跑回测中 ${s.done}/${s.total} · ${s.current}`;
-          else if (s.total) planEl.textContent = `现跑完成 ${s.done}/${s.total}, 整理报告中…`;
-        } catch (e) { /* 网络抖动忽略, 下一拍再试 */ }
-      }, 1500);
+      watching = true;
+      watchProgress();
     });
+    // 打开页面就查一次: 有后台在跑的批次(上次提交超时/换页了)直接接管显示
+    fetch("{{ url_for('regime_screen.progress') }}").then((r) => r.json())
+      .then((s) => { if (s.running) watchProgress(); }).catch(() => {});
   })();
   </script>
   {# 判据配置暂放本页(2026-08-03 Frank 定), 稳定后挪配置页 #}
@@ -131,7 +149,7 @@
 {% if report %}
 <section>
   <h2>{% if report.id %}报告 #{{ report.id }}{% else %}点名诊断(只读 · 未入库, 刷新即消失){% endif %}</h2>
-  <p class="muted">{{ report.at }} · {{ '预览' if report.mode == 'preview' else '执行' }} · regime v{{ report.version_id }}
+  <p class="muted">{{ m.lts(report.created_at) }} · {{ '预览' if report.mode == 'preview' else '执行' }} · regime v{{ report.version_id }}
     {% if report.scope.task %}· 任务「{{ report.scope.task }}」{% endif %}
     · 范围 {% if report.scope.ids %}ID {{ report.scope.ids | join(',') }}{% elif report.scope.label %}标签「{{ report.scope.label }}」{% else %}全部未筛过{% endif %}
     · {{ '主货币' if report.scope.symbols == 'main' else '全货币' }}
@@ -201,7 +219,7 @@
     {% for r in reports %}
     <tr>
       <td class="mono">{{ r.id }}</td>
-      <td class="mono">{{ r.at }}</td>
+      <td class="mono">{{ m.lts(r.created_at) }}</td>
       <td>{{ '预览' if r.mode == 'preview' else '执行' }}</td>
       <td class="mono">v{{ r.version_id }}</td>
       <td>{% if r.scope.task %}「{{ r.scope.task }}」· {% endif %}{% if r.scope.ids %}ID×{{ r.scope.ids | length }}{% elif r.scope.label %}标签「{{ r.scope.label }}」{% else %}全部未筛过{% endif %} · {{ '主货币' if r.scope.symbols == 'main' else '全货币' }}</td>

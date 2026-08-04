@@ -285,10 +285,6 @@ async def screen_run(req: ScreenRun, request: Request):
     if req.symbols == "all":
         run_syms = [r["symbol"] for r in await pool.fetch(
             "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
-    if _progress["running"]:
-        raise HTTPException(status_code=409, detail="已有一批筛选在跑, 等它完成再点")
-    _progress.update(running=True, done=0, current="", report_id=None,
-                     total=len(targets) * (len(run_syms) if req.symbols == "all" else 1))
 
     # 引擎配置与批量回测同一来源(对比三铁律: 成本/oos/trail 回落一致)
     costs = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
@@ -344,6 +340,11 @@ async def screen_run(req: ScreenRun, request: Request):
     # 品种外层循环: 同品种的现跑连续命中 M1 单槽缓存(与 jobs 抢单按品种排序同思路)
     plan_syms = sorted({t["symbol"] for t in targets}) if req.symbols == "main" \
         else sorted(set(run_syms) | {t["symbol"] for t in targets})
+    # running 标志紧贴 try 设置(中间零 await): 任何异常路径都必经 finally 复位, 不会卡死 409
+    if _progress["running"]:
+        raise HTTPException(status_code=409, detail="已有一批筛选在跑, 等它完成再点")
+    _progress.update(running=True, done=0, current="", report_id=None,
+                     total=len(targets) * (len(run_syms) if req.symbols == "all" else 1))
     try:
         for sym in plan_syms:
             if sym not in syms_meta:
