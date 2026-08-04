@@ -139,10 +139,21 @@ class ScreenRun(BaseModel):
     limit: Optional[int] = None        # 单次最多判多少个(超出的下次再跑), 不传 = 不限
 
 
+def _pf(gp: float, gl: float):
+    """毛利/毛损 → PF; None=∞(无亏损有盈利), 0=没有盈利"""
+    return round(gp / gl, 2) if gl > 0 else (None if gp > 0 else 0)
+
+
+def _stat(n: int, gp: float, gl: float) -> dict:
+    return {"n": n, "net": round(gp - gl, 1), "pf": _pf(gp, gl)}
+
+
 async def _judge_symbol(pool, tls, bt, vid, p):
-    """单品种判定: 逐笔按入场日贴指定版本时间线(与九币矩阵同一口径, points×mult 加权),
-    每刀 = 近 b 年(后段) vs 剩余(前段), 返回各切分合格格与最终合格格(= 各切分交集)。
-    段内合格 = 笔数≥地板 且 净点>阈值 且 PF>阈值(无亏损段 PF=∞ 恒过)"""
+    """单品种判定: 判定窗口统一裁到【近 window_years 年】(回测行更长时更早的逐笔不参与 —
+    判据口径一致, 2026-08-04 Frank 定); 逐笔按入场日贴指定版本时间线(与九币矩阵同一口径,
+    points×mult 加权)。每刀 = 近 b 年(后段) vs 剩余(前段)。
+    段内合格 = 笔数≥地板 且 净点>阈值 且 PF>阈值(无亏损段 PF=∞ 恒过)。
+    返回三层读数: 整窗 total / 每格 cells_stat / 每切分前后段 splits_stat + 合格格。"""
     sym = bt["symbol"]
     tl = tls.get(sym)
     if tl is None:      # 切谁治谁: 先自愈指定版本的时间线
@@ -151,8 +162,12 @@ async def _judge_symbol(pool, tls, bt, vid, p):
         except Exception as e:
             logger.warning("regime ensure %s v%s failed: %s", sym, vid, e)
         tl = tls[sym] = await regime.tl_map(pool, sym, vid)
-    tagged, unlabeled = [], 0
+    win_start = bt["to_time"] - timedelta(days=p["window_years"] * 365.25)
+    tagged, unlabeled, cnt = [], 0, 0
     for t in (bt["trades"] or []):
+        if t["entry_time"] < win_start.timestamp():
+            continue
+        cnt += 1
         cell = tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
         if cell is None:
             unlabeled += 1
@@ -166,10 +181,19 @@ async def _judge_symbol(pool, tls, bt, vid, p):
             return False
         return (gp / gl > min_pf) if gl > 0 else gp > 0   # 无亏损段 PF=∞
 
-    qual, splits = None, {}
+    # 整窗 + 每格: [n, 毛利, 毛损]
+    tot, per_cell = [0, 0.0, 0.0], {}
+    for ts, cell, net in tagged:
+        for acc in (tot, per_cell.setdefault(cell, [0, 0.0, 0.0])):
+            acc[0] += 1
+            if net >= 0:
+                acc[1] += net
+            else:
+                acc[2] -= net
+    qual, splits, splits_stat = None, {}, {}
     for y in p["boundaries_years"]:
         cut_ts = (bt["to_time"] - timedelta(days=y * 365.25)).timestamp()
-        seg: dict = {}      # 格 → [前段 n/毛利/毛损, 后段 n/毛利/毛损]
+        seg: dict = {}      # 格 → [剩余段 n/毛利/毛损, 近段 n/毛利/毛损]
         for ts, cell, net in tagged:
             s = seg.setdefault(cell, [0, 0.0, 0.0, 0, 0.0, 0.0])
             o = 0 if ts < cut_ts else 3
@@ -181,10 +205,15 @@ async def _judge_symbol(pool, tls, bt, vid, p):
         ok = {c for c, v in seg.items()
               if _seg_ok(v[0], v[1], v[2]) and _seg_ok(v[3], v[4], v[5])}
         splits[f"{y:g}"] = sorted(ok)
+        splits_stat[f"{y:g}"] = {c: {"f": _stat(v[0], v[1], v[2]),
+                                     "b": _stat(v[3], v[4], v[5])} for c, v in seg.items()}
         qual = ok if qual is None else (qual & ok)
-    return {"symbol": sym, "trades": len(bt["trades"] or []), "unlabeled": unlabeled,
+    return {"symbol": sym, "trades": cnt, "unlabeled": unlabeled,
             "splits": splits, "cells": sorted(qual or ()),
-            "window": f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"}
+            "total": _stat(*tot),
+            "cells_stat": {c: _stat(*v) for c, v in sorted(per_cell.items())},
+            "splits_stat": splits_stat,
+            "window": f"{max(bt['from_time'], win_start):%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"}
 
 
 @router.post("/regime_screen/run")
@@ -273,8 +302,12 @@ async def screen_run(req: ScreenRun, request: Request):
                 continue
             results.append(await _judge_symbol(pool, tls, b, vid, p))
         main_res = next(x for x in results if x["symbol"] == r["symbol"])
-        d.update(splits=main_res["splits"], unlabeled=main_res["unlabeled"],
-                 pass_cells=main_res["cells"])
+        # 明细三层读数(2026-08-04 Frank 定): 窗口/笔数按判定窗(近 window_years 年)口径,
+        # 整窗 total → 每格 cells_stat → 每切分前后段 splits_stat → 结论
+        d.update(window=main_res["window"], trades=main_res["trades"],
+                 splits=main_res["splits"], unlabeled=main_res["unlabeled"],
+                 pass_cells=main_res["cells"], total=main_res["total"],
+                 cells_stat=main_res["cells_stat"], splits_stat=main_res["splits_stat"])
         if req.symbols == "all":
             d["cross"] = [{"symbol": x["symbol"], "pass_cells": x["cells"],
                            "trades": x["trades"]} for x in results
