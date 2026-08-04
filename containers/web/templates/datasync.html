@@ -20,21 +20,7 @@
     {% if not hosts %}
       <span class="badge warn">没有可用的下载 worker</span>
       <a href="{{ url_for('workers.index') }}">去注册</a>
-    {% else %}
-      <span class="muted">下载 worker: {% for h in hosts %}{{ h.name }}{% if not loop.last %}、{% endif %}{% endfor %} ({{ hosts | length }} 台并行)</span>
     {% endif %}
-    {% if not sync.running and sync.last_sync %}
-      {# 上次同步完成(Last Sync, 任务级): 最近一批下载任务全部结束的时刻;
-         数据级的新鲜度看下方覆盖表每品种"数据水位"(库内 M1 最新时间) #}
-      <span class="muted" title="最近一批下载任务全部结束的时刻(任务级); 每品种数据新到哪看下方覆盖表">上次同步完成: {{ m.lts(sync.last_sync) }}</span>
-    {% endif %}
-    {% if auto_sync.trigger %}
-      {% set trg = auto_sync.trigger %}
-      <span class="muted" title="投递=谁在几点把任务丢进队列(上面的'上次同步完成'=最后一个任务跑完的时刻, 两者对照可见这批跑了多久)。手动投递也重置自动计时(数据已新鲜, 自动班从投递时刻重新起算)">
-        · 上次投递: {% if trg.source == 'manual' %}手动({{ trg.user or '未知' }}){% else %}自动{% endif %} {{ m.lts(trg.at) }}</span>
-    {% endif %}
-      <span class="muted" title="api 心跳主节点每隔此时长自动投一批增量下载(断点续传幂等, 有批次在跑自动避让), 任务由下载 worker 执行。间隔在配置页(仅 admin 可改, 0=关闭)">
-        · 自动同步: {% if auto_sync.hours %}每 {{ auto_sync.hours }} 小时{% else %}已关闭{% endif %}</span>
     {% if sync.running %}
       <span id="ds-progress" data-running="1">
         <span class="badge ok"><span class="ds-done">{{ sync.done | length }}</span>/<span class="ds-total">{{ sync.symbols | length }}</span> 品种</span>
@@ -44,6 +30,19 @@
       </span>
     {% endif %}
   </form>
+  {# 同步状态三行小表(2026-08-04 Frank 定: 一行太乱, 拆行显示; 不加库表, 全部现有数据) #}
+  <table class="subtable" style="margin-top:8px">
+    <tr><th style="white-space:nowrap">下载 worker</th>
+      <td>{% if hosts %}{% for h in hosts %}{{ h.name }}{{ '、' if not loop.last }}{% endfor %} ({{ hosts | length }} 台并行){% else %}—{% endif %}</td></tr>
+    <tr><th title="最近一批下载任务全部结束的时刻(任务级); 每品种数据新到哪看下方覆盖表">上次下载完成</th>
+      <td>{% if sync.running %}<span class="muted">本批进行中…(见下方进度)</span>
+          {% elif sync.last_sync %}{{ m.lts(sync.last_sync) }}
+            {%- if sync.bars_by_tf %} · {% for tf in ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN1'] if tf in sync.bars_by_tf %}{{ tf }} {{ '{:,}'.format(sync.bars_by_tf[tf]) }} 条{{ ' · ' if not loop.last }}{% endfor %} <span class="muted">(新增, 幂等去重后)</span>{% endif %}
+          {% else %}—{% endif %}</td></tr>
+    <tr><th title="投递=谁在几点把任务丢进队列; 手动投递也重置自动计时(数据已新鲜, 自动班从投递时刻重新起算)。自动间隔在配置页(仅 admin 可改, 0=关闭)">上次同步时间</th>
+      <td>{% if auto_sync.trigger %}{% set trg = auto_sync.trigger %}{{ '手动(' ~ (trg.user or '未知') ~ ')' if trg.source == 'manual' else '自动' }} {{ m.lts(trg.at) }}{% else %}—{% endif %}
+        ·(自动同步: {% if auto_sync.hours %}每 {{ auto_sync.hours }} 小时{% else %}已关闭{% endif %})</td></tr>
+  </table>
   {# 下载节流(2026-07-29 Frank 定): 满速首灌把 Windows CPU/库打满 → 拉一阵歇一阵 #}
   <form method="post" action="{{ url_for('datasync.throttle') }}" class="inline" style="margin-top:6px">
     <label>单次拉取 <input name="dl_rest_bars" value="{{ wp.get('dl_rest_bars', 1000000) }}" size="8"

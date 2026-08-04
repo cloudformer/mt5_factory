@@ -149,14 +149,19 @@ async def download_progress(pool: asyncpg.Pool):
     fins = [r["finished_at"] for r in rows]
     last_sync = max(fins).isoformat() if all(fins) else None
     out = {"running": False, "current": {}, "symbols": [], "bars_written": 0,
-           "done": [], "errors": [], "mode": "jobs", "last_sync": last_sync}
+           "bars_by_tf": {}, "done": [], "errors": [], "mode": "jobs",
+           "last_sync": last_sync}
     for r in rows:
         p = r["payload"]
         sym = p.get("symbol", "?")
-        if p.get("timeframe", "M1") != "M1":   # D1 补头任务在进度里带周期后缀, 与 M1 区分
-            sym = f"{sym}·{p['timeframe']}"
+        tf = p.get("timeframe", "M1")
+        if tf != "M1":   # D1 补头任务在进度里带周期后缀, 与 M1 区分
+            sym = f"{sym}·{tf}"
         out["symbols"].append(sym)
         out["bars_written"] += int(p.get("written") or 0)
+        # 按周期分桶(2026-08-04 Frank 定, 下载页"上次下载完成 M1 xxx 条·D1 xxx 条"):
+        # written = 实际新插入条数(幂等去重后), 增量没新数据就是 0 — 如实
+        out["bars_by_tf"][tf] = out["bars_by_tf"].get(tf, 0) + int(p.get("written") or 0)
         if r["status"] == "DONE":
             out["done"].append(sym)
         elif r["status"] == "FAILED":
