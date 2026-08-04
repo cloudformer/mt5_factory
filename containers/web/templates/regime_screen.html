@@ -164,7 +164,7 @@
   <table class="dense">
     <thead><tr><th>ID</th><th>名称</th><th>品种</th><th>判定窗</th><th>笔数</th>
       <th title="判定窗整体的净点/PF·笔数">整窗净点/PF</th>
-      <th>各切分合格格(近N年 vs 剩余)</th><th>通过格</th><th>结论</th></tr></thead>
+      <th>各切分合格格(前M年/近N年)</th><th>通过格</th><th>结论</th></tr></thead>
     <tbody>
     {% for d in report.details %}
     <tr>
@@ -174,7 +174,7 @@
       <td class="mono">{{ d.window or '—' }}</td>
       <td class="mono">{{ d.trades if d.trades is defined else '—' }}{% if d.unlabeled %} <span class="muted" title="入场日无 regime 标签, 不计入任何格">(无标签{{ d.unlabeled }})</span>{% endif %}</td>
       <td class="mono">{{ seg(d.total) }}</td>
-      <td class="mono">{% if d.splits %}{% for y, cs in d.splits.items() %}近{{ y }}年:{{ cs | join('·') if cs else '—' }}{{ '　' if not loop.last }}{% endfor %}{% else %}—{% endif %}</td>
+      <td class="mono">{% if d.splits %}{% for y, cs in d.splits.items() %}前{{ '%g' % (report.params.get('window_years', 5) - (y | float)) }}/近{{ y }}:{{ cs | join('·') if cs else '—' }}{{ '　' if not loop.last }}{% endfor %}{% else %}—{% endif %}</td>
       <td class="mono">{{ d.pass_cells | join('·') if d.pass_cells else '—' }}
         {%- if d.cross %}<div class="muted" title="全货币模式: 跨品种各自的合格格(每品种贴自己的时间线)">
           {% for c in d.cross %}{{ c.symbol }}:{{ c.pass_cells | join('·') if c.pass_cells else '—' }} {% endfor %}</div>{% endif %}</td>
@@ -189,7 +189,7 @@
         <summary class="muted" style="cursor:pointer">格×切片 净点/PF 明细(▾ 展开)</summary>
         <table class="subtable" style="margin-top:6px">
           <tr><th>格</th><th>近{{ report.params.get('window_years', 5) }}年整体</th>
-            {% for y in d.splits_stat.keys() %}<th title="该切分: 剩余段(早) ‖ 近{{ y }}年段(晚)">切近{{ y }}年: 剩余 ‖ 近段</th>{% endfor %}</tr>
+            {% for y in d.splits_stat.keys() %}<th title="这一刀切在 {{ y }} 年前: 左=前{{ '%g' % (report.params.get('window_years', 5) - (y | float)) }}年(早段) ‖ 右=近{{ y }}年(晚段)">前{{ '%g' % (report.params.get('window_years', 5) - (y | float)) }}年 ‖ 近{{ y }}年</th>{% endfor %}</tr>
           {% for cell, cs in d.cells_stat.items() %}
           <tr>
             <td class="mono">{{ cell }} <span class="muted">{{ m.regime_cn(cell) }}</span></td>
