@@ -2,6 +2,9 @@
 
 品种在『品种』页维护(唯一数据源 symbols 表); 本页只负责把数据拉下来。
 """
+from collections import Counter
+from datetime import date, timedelta
+
 from flask import (Blueprint, flash, make_response, redirect, render_template,
                    request, url_for)
 
@@ -149,19 +152,40 @@ def regime():
         if not band_months or band_months[-1][0] != h:
             band_months.append((h, []))
         band_months[-1][1].append(r)
+    # 象限窗(2026-08-04 Frank 定, 与九币矩阵同款筛选): 近N年/N年以前 过滤逐日 rows
+    # 重算八格天数份额 — 纯展示层, 色带/记分卡/今日格不受影响; 0=全历史(stats 原值)
+    show_years = request.args.get("show_years", 0, type=int)
+    quad_label = "全历史覆盖"
+    win_counts = None
+    if show_years and data and data.get("rows"):
+        last = date.fromisoformat(data["rows"][-1]["date"])
+        cut = (last - timedelta(days=int(abs(show_years) * 365.25))).isoformat()[:10]
+        sel = [r for r in data["rows"] if (r["date"] >= cut) == (show_years > 0)]
+        win_counts = Counter(r["regime"] for r in sel)
+        win_days = len(sel)
+        quad_label = f"近{show_years}年" if show_years > 0 else f"{-show_years}年以前"
     # 象限图显示准备: 每格一行"N天 · P%"(稀格标红), 今天所在格 + 海明距离1的三个邻格
     cell_lines, neighbors = {}, []
     if data and data.get("stats", {}).get("cells"):
-        st = data["stats"]
-        for cell, pct in st["cells"].items():
-            d = round(pct * st["days"] / 100)
-            cls = ' class="neg"' if pct < 5 else ""
-            cell_lines[cell] = [f'<span{cls}>{d} 天 · {pct}%</span>']
+        if win_counts is not None:
+            for cell in ("AAA", "AAB", "ABA", "ABB", "BAA", "BAB", "BBA", "BBB"):
+                d, pct = win_counts.get(cell, 0), 0.0
+                if win_days:
+                    pct = round(d / win_days * 100, 1)
+                cls = ' class="neg"' if pct < 5 else ""
+                cell_lines[cell] = [f'<span{cls}>{d} 天 · {pct}%</span>']
+        else:
+            st = data["stats"]
+            for cell, pct in st["cells"].items():
+                d = round(pct * st["days"] / 100)
+                cls = ' class="neg"' if pct < 5 else ""
+                cell_lines[cell] = [f'<span{cls}>{d} 天 · {pct}%</span>']
         cur = data["current"]["regime"]
         neighbors = [cur[:i] + ("B" if cur[i] == "A" else "A") + cur[i + 1:] for i in range(3)]
     return render_template("regime.html", symbols=symbols, symbol=symbol, days=days,
                            full=full, data=data, cell_lines=cell_lines, neighbors=neighbors,
-                           score=score, band_months=band_months,
+                           score=score, band_months=band_months, show_years=show_years,
+                           quad_label=quad_label,
                            rv_current=rv["current"], rv_versions=rv["versions"])
 
 

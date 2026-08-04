@@ -13,6 +13,16 @@
       <label>货币对 <select name="symbol" data-autosubmit title="切换货币对 — 整页数据都随之切换">
         {% for s in symbols %}<option {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
       </select></label>
+      <label>象限窗 <select name="show_years" id="quad-span"
+          title="八格象限的统计窗口(与九币矩阵同款): 近N年 / N年以前(排除近N年, 对照用); 只影响象限占比, 即时切换不刷新页面">
+        <option value="">全历史</option>
+        <optgroup label="近 N 年">
+        {% for y in [1, 2, 3, 5, 10] %}<option value="{{ y }}" {% if show_years == y %}selected{% endif %}>近{{ y }}年</option>{% endfor %}
+        </optgroup>
+        <optgroup label="N 年以前">
+        {% for y in [-1, -2, -3, -5] %}<option value="{{ y }}" {% if show_years == y %}selected{% endif %}>{{ -y }}年以前</option>{% endfor %}
+        </optgroup>
+      </select></label>
     </form>
     <form method="post" action="{{ url_for('datasync.regime_version_select') }}" class="inline">
       <input type="hidden" name="symbol" value="{{ symbol }}">
@@ -104,10 +114,42 @@
   </div>
 </section>
 
-{# ===== 3. 八格象限 ===== #}
-<section>
-  <h2>八格象限(全历史覆盖) <span class="muted" style="font-weight:normal">占比=历史上各格出现的天数份额, 与今天在哪格无关 · 蓝实线圈=今天 · 蓝虚线圈=一位之差的邻格 · 红字=稀格(&lt;5%)</span></h2>
+{# ===== 3. 八格象限(象限窗前端即时切换, 2026-08-04 Frank 定: 零请求, 与色带跨度同款) ===== #}
+<section id="quad-sec">
+  <h2>八格象限(<span id="quad-label">{{ quad_label }}</span>) <span class="muted" style="font-weight:normal">占比=窗口内各格出现的天数份额, 与今天在哪格无关 · 蓝实线圈=今天 · 蓝虚线圈=一位之差的邻格 · 红字=稀格(&lt;5%)</span></h2>
   {{ m.regime_grid(cell_lines, current=data.current.regime, neighbors=neighbors) }}
+  <script id="quad-data" type="application/json">[{% for r in data.rows %}["{{ r.date }}","{{ r.regime }}"]{{ "," if not loop.last }}{% endfor %}]</script>
+  <script>
+  (function () {   // 象限窗切换: 逐日时间线已在页面里, 前端过滤重算八格份额, 零请求
+    const sel = document.getElementById("quad-span");
+    const dataEl = document.getElementById("quad-data");
+    if (!sel || !dataEl) return;
+    const rows = JSON.parse(dataEl.textContent);
+    if (!rows.length) return;
+    sel.addEventListener("change", () => {
+      const y = parseInt(sel.value) || 0;
+      let selRows = rows, label = "全历史覆盖";
+      if (y) {
+        const cut = new Date(rows[rows.length - 1][0]);
+        cut.setDate(cut.getDate() - Math.round(Math.abs(y) * 365.25));
+        const cutS = cut.toISOString().slice(0, 10);
+        selRows = rows.filter((r) => (r[0] >= cutS) === (y > 0));
+        label = y > 0 ? `近${y}年` : `${-y}年以前`;
+      }
+      const cnt = {};
+      selRows.forEach((r) => { cnt[r[1]] = (cnt[r[1]] || 0) + 1; });
+      document.getElementById("quad-label").textContent = label;
+      document.querySelectorAll("#quad-sec .regime-cell").forEach((el) => {
+        const cell = el.querySelector("b.mono").textContent.trim();
+        const n = cnt[cell] || 0;
+        const pct = selRows.length ? Math.round(n / selRows.length * 1000) / 10 : 0;
+        const line = el.querySelector(".regime-cell-line");
+        if (line) line.innerHTML = (pct < 5 ? `<span class="neg">${n} 天 · ${pct}%</span>`
+                                            : `${n} 天 · ${pct}%`);
+      });
+    });
+  })();
+  </script>
   <p class="muted" style="margin-top:8px">读法(权重即布局): 上行=牛市家族 下行=熊市家族(长趋势);
     左右两半=短趋势(中缝隔开); 半内相邻=波动。颜色按市场语义: 绿=牛红=熊(深浅=方向可信度), 高波偏黄橙。
     邻格方位固定: 波邻格=紧挨着的 · 短邻格=跳过中缝同位格 · 长邻格=正上/正下;
