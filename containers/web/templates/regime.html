@@ -42,10 +42,24 @@
       (只读)</span>
     {% endif %}
     {% if data and data.rows %}
-    <label>色带图示跨度 <select id="band-span" title="色带显示最近几年, 即时切换不刷新页面; 默认值在「配置·策略参数」页(仅admin可改)">
+    <label>色带图示跨度 <select id="band-span" title="色带显示最近几年, 即时切换不刷新页面">
       {% for y, zh in [(1, '1 年'), (3, '3 年'), (5, '5 年'), (10, '10 年'), (0, '全部')] %}
       <option value="{{ y }}" {% if y == band_default %}selected{% endif %}>{{ zh }}</option>{% endfor %}
     </select></label>
+    {% if dev_user_id == 1 %}
+    {# 默认视图唯一配置入口(2026-08-04 Frank 定, config regime_view/schema 058):
+       admin 把象限窗+色带跨度调到想要的值 → 存为默认 = 所有人打开本页的初始值 #}
+    <form method="post" action="{{ url_for('symbols.save_regime_view') }}" class="inline" id="rv-save">
+      <input type="hidden" name="band_years"><input type="hidden" name="quad_years">
+      <button class="small" title="把当前「八格象限时间窗口 + 色带图示跨度」存为全局默认(库 config, 所有人打开本页的初始值)">存为默认</button>
+    </form>
+    <script>
+    document.getElementById("rv-save").addEventListener("submit", function () {
+      this.querySelector("[name=band_years]").value = document.getElementById("band-span").value;
+      this.querySelector("[name=quad_years]").value = document.getElementById("quad-span").value || 0;
+    });
+    </script>
+    {% endif %}
     {% endif %}
   </div>
 </section>

@@ -154,28 +154,8 @@
   </details>
 </section>
 
-{# Regime 页默认视图独立成节(2026-08-04 Frank 定: 不属于口径, 不寄人篱下 — 一个配置一个家);
-   schema/058, 全局共享展示默认: 管理员可改, 其他用户同控件只读(照下载周期层样式) #}
-<section>
-  <h2>Regime 页默认视图 <span class="muted" style="font-weight:normal">管理员可改, 其他用户只读 — 全局共享的展示默认</span></h2>
-  {% if is_admin %}<form method="post" action="{{ url_for('symbols.save_regime_view') }}" class="inline">
-  {% else %}<div class="inline">{% endif %}
-    <label>色带图示跨度
-      <select name="band_years" {% if not is_admin %}disabled{% endif %}>
-        {% for y, zh in [(1, '1 年'), (3, '3 年'), (5, '5 年'), (10, '10 年'), (0, '全部')] %}
-        <option value="{{ y }}" {% if regime_view.get('band_years', 3) == y %}selected{% endif %}>{{ zh }}</option>{% endfor %}
-      </select></label>
-    <label>八格象限时间窗口
-      <select name="quad_years" {% if not is_admin %}disabled{% endif %}>
-        <option value="0" {% if regime_view.get('quad_years', 0) == 0 %}selected{% endif %}>全历史</option>
-        {% for y in [1, 2, 3, 5, 10] %}<option value="{{ y }}" {% if regime_view.get('quad_years') == y %}selected{% endif %}>近{{ y }}年</option>{% endfor %}
-        {% for y in [-1, -2, -3, -5] %}<option value="{{ y }}" {% if regime_view.get('quad_years') == y %}selected{% endif %}>{{ -y }}年以前</option>{% endfor %}
-      </select></label>
-    {% if is_admin %}<button>保存</button>{% endif %}
-    <span class="muted">「数据 → 市场状态 Regime」页两个下拉的默认值; 页面上仍可临时切换, 刷新回默认</span>
-  {% if is_admin %}</form>{% else %}</div>{% endif %}
-</section>
-
+{# Regime 页默认视图配置不在本页(2026-08-04 Frank 定: 唯一配置入口 = 市场状态 Regime 页,
+   admin 在那里调好下拉点「存为默认」; 本页不再显示只读副本) #}
 <section>
   <h2>下载周期层 <span class="muted" style="font-weight:normal">管理员可改, 其他用户只读 — 防手滑改坏污染数据</span></h2>
   {# admin(owner id 1)=可编辑表单; 其他人=只读展示(2026-08-01 Frank 定)。

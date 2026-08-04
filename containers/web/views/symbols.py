@@ -158,18 +158,18 @@ def save_auto_sync_hours():
 
 @bp.post("/config/regime-view")
 def save_regime_view():
-    """保存 Regime 页默认视图(config: regime_view, 仅 admin) — 全局共享的展示默认:
-    色带图示跨度 + 八格象限时间窗口; 页面上的下拉仍可临时切换(不落库)"""
+    """存 Regime 页默认视图(config: regime_view, 仅 admin) — 唯一入口在 Regime 页:
+    admin 把色带跨度/象限窗调到想要的值后点「存为默认」, 全局所有人打开页面的初始值"""
     if not _admin_only():
-        return redirect(url_for("symbols.backtest_params"))
+        return redirect(request.referrer or url_for("datasync.regime"))
     try:
         api.put("/config/regime_view", {"value": {
             "band_years": int(request.form.get("band_years", 3)),
             "quad_years": int(request.form.get("quad_years", 0))}})
-        flash("Regime 页默认视图已保存 — 刷新 Regime 页即生效", "ok")
+        flash("已存为全局默认视图(色带跨度 + 象限窗) — 所有人打开本页的初始值", "ok")
     except (api.ApiError, ValueError) as e:
         flash(f"保存失败: {e}", "error")
-    return redirect(url_for("symbols.backtest_params"))
+    return redirect(request.referrer or url_for("datasync.regime"))
 
 
 @bp.post("/config/regime-params")
