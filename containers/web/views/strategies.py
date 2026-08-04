@@ -711,8 +711,11 @@ def generate():
             "timeframe": request.form["timeframe"],
             "mode": request.form.get("mode", "random"),
             "count": request.form.get("count", 50, type=int),
-            # 批次标签 → basis(生因): 事后排名页搜"标签"按批查找/分组统计(验尺实验用)
-            "label": request.form.get("label", "").strip() or None,
+            # 批次标签 → basis(生因): 事后排名页/Regime筛选页按标签整批圈。
+            # 时间戳无论如何都追加(2026-08-03 Frank 定): 有文本用文本没有用"优化策略",
+            # 每批唯一 → 筛选圈批不串批
+            "label": (request.form.get("label", "").strip() or "优化策略")
+                     + datetime.now().strftime("%y%m%d-%H%M%S"),
         })
         msg = f"已生成 {result['created']} 个策略实例"
         if result.get("skipped"):

@@ -42,8 +42,8 @@
         <option value="grid">网格 (固定组合)</option>
       </select>
       <label>数量 <input name="count" value="50" size="4" title="随机模式下每个品种生成的数量"></label>
-      <label>批次标签 <input name="label" size="18"
-          title="写进每个实例的生因(basis), 事后排名页/Regime筛选页按标签圈整批; 默认=优化策略+时间戳(每批唯一), 可改可清空(空=random/grid)"></label>
+      <label>批次标签 <input name="label" size="18" placeholder="优化策略(默认)"
+          title="写进每个实例的生因(basis), 事后排名页/Regime筛选页按标签圈整批; 提交时自动追加时间戳(如 260803-173312)保证每批唯一 — 有文本用文本, 空=默认「优化策略」"></label>
       <button>生成</button>
       <span class="muted">单批收货上限在「配置·策略参数」页(生成/AI调参共用)</span>
     </div>
@@ -55,13 +55,6 @@
     const show = () => document.querySelectorAll(".tpl-info").forEach(
       (d) => (d.hidden = d.id !== "tpl-info-" + sel.value));
     sel.addEventListener("change", show); show();
-  })();
-  (function () {  // 批次标签默认 = 优化策略+时间戳(260803-173312, 本地时间): 每批唯一, 筛选页按标签整批圈
-    const i = document.querySelector("input[name=label]");
-    if (!i || i.value) return;
-    const d = new Date(), p = (n) => String(n).padStart(2, "0");
-    i.value = "优化策略" + String(d.getFullYear()).slice(2) + p(d.getMonth() + 1) + p(d.getDate())
-            + "-" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
   })();
   </script>
 </section>

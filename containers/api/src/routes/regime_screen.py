@@ -55,8 +55,8 @@ def _scope_conds(req_label, req_ids, req_symbols, uid):
         args.append(f"%{req_label.strip()}%")
         conds.append(f"s.basis ILIKE ${len(args)}")
         scope = {"label": req_label.strip(), "symbols": req_symbols}
-    if req_symbols == "main":
-        conds.append("s.symbol IN (SELECT symbol FROM symbols WHERE role = 'trade')")
+    # 注意: symbols(main/all)不是范围过滤是判定数据源(品种主档无角色, schema/010 已简化掉),
+    # 只记进 scope 供报告展示, 判定见 run
     if uid:
         args.append(uid)
         conds.append(f"s.owner_id = ${len(args)}")
@@ -104,14 +104,52 @@ class ScreenRun(BaseModel):
     label: Optional[str] = None        # 范围: 批次标签(basis 模糊匹配)
     ids: Optional[list[int]] = None    # 范围: 明确 ID 列表(填了优先)
     version: Optional[int] = None      # regime 版本, 不传 = 当前默认
-    symbols: str = "main"              # main=只筛主货币(role=trade)策略 / all=全部品种
+    symbols: str = "main"              # 判定数据源: main=只用主品种回测行 / all=全部已回测品种都得过
     limit: Optional[int] = None        # 单次最多判多少个(超出的下次再跑), 不传 = 不限
+
+
+async def _judge_symbol(pool, tls, bt, vid, boundaries, floor):
+    """单品种判定: 逐笔按入场日贴指定版本时间线(与九币矩阵同一口径, points×mult 加权),
+    返回各切分合格格与最终合格格(= 各切分交集)"""
+    sym = bt["symbol"]
+    tl = tls.get(sym)
+    if tl is None:      # 切谁治谁: 先自愈指定版本的时间线
+        try:
+            await regime.ensure_timeline(pool, sym, vid)
+        except Exception as e:
+            logger.warning("regime ensure %s v%s failed: %s", sym, vid, e)
+        tl = tls[sym] = await regime.tl_map(pool, sym, vid)
+    tagged, unlabeled = [], 0
+    for t in (bt["trades"] or []):
+        cell = tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
+        if cell is None:
+            unlabeled += 1
+            continue
+        tagged.append((t["entry_time"], cell,
+                       float(t.get("points") or 0) * float(t.get("mult") or 1)))
+    qual, splits = None, {}
+    for y in boundaries:
+        cut_ts = (bt["to_time"] - timedelta(days=y * 365.25)).timestamp()
+        seg: dict = {}      # 格 → [前段笔数, 前段净点, 后段笔数, 后段净点]
+        for ts, cell, net in tagged:
+            s = seg.setdefault(cell, [0, 0.0, 0, 0.0])
+            i = 0 if ts < cut_ts else 2
+            s[i] += 1
+            s[i + 1] += net
+        ok = {c for c, v in seg.items()
+              if v[0] >= floor and v[1] > 0 and v[2] >= floor and v[3] > 0}
+        splits[str(y)] = sorted(ok)
+        qual = ok if qual is None else (qual & ok)
+    return {"symbol": sym, "trades": len(bt["trades"] or []), "unlabeled": unlabeled,
+            "splits": splits, "cells": sorted(qual or ()),
+            "window": f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"}
 
 
 @router.post("/regime_screen/run")
 async def screen_run(req: ScreenRun, request: Request):
-    """一跑一报告(预览也落库, mode 区分)。逐笔按入场日贴指定版本时间线 —
-    与九币矩阵同一口径(points×mult 加权净点)。只筛空闲(CANDIDATE)策略, 在跑的不进范围。"""
+    """一跑一报告(预览也落库, mode 区分)。只筛空闲(CANDIDATE)策略, 在跑的不进范围。
+    货币选项 = 判定数据源: main=只用主品种回测行; all=该策略所有已回测品种每个独立判
+    (各贴各的时间线), 全过才过(跨品种稳健; 窗口不足的跨品种行不纳入要求)。"""
     pool = request.app.state.pool
     if req.mode not in ("preview", "execute"):
         raise HTTPException(status_code=400, detail="mode 需为 preview / execute")
@@ -140,17 +178,12 @@ async def screen_run(req: ScreenRun, request: Request):
     if req.limit:
         scope["limit"] = req.limit
     rows = await pool.fetch(
-        "SELECT s.id, s.name, s.symbol, s.basis, s.status,"
-        "       b.from_time, b.to_time, b.trades"
-        "  FROM strategies s"
-        "  LEFT JOIN LATERAL (SELECT from_time, to_time, trades FROM backtests"
-        "        WHERE strategy_id = s.id AND symbol = s.symbol"
-        "        ORDER BY created_at DESC LIMIT 1) b ON true"
+        f"SELECT s.id, s.name, s.symbol, s.basis, s.status FROM strategies s"
         f" WHERE {' AND '.join(conds)} ORDER BY s.id", *args)
     if not rows:
         raise HTTPException(status_code=404, detail="范围内没有策略(或都已归档)")
 
-    tls: dict = {}                      # 品种时间线缓存(切谁治谁: 先自愈指定版本)
+    tls: dict = {}                      # 品种时间线缓存(同一 vid, 按品种存)
     details, tag_ids, archive_ids, not_run = [], [], [], 0
     for idx, r in enumerate(rows):
         # 单次上限按"实际判定数"计(跳过不占额度); 剩下的不进本报告, 下次再跑
@@ -160,54 +193,54 @@ async def screen_run(req: ScreenRun, request: Request):
         d = {"id": r["id"], "name": r["name"], "symbol": r["symbol"], "status": r["status"]}
         if r["basis"] and TAG in r["basis"]:
             d.update(verdict="skip", reason="已筛过(幂等不重复)")
-        elif r["from_time"] is None:
-            d.update(verdict="skip", reason="无本品种回测")
+            details.append(d)
+            continue
+        # 判定数据源: main=主品种最新一行; all=每品种最新一行(跨品种回测由回测页产出)
+        if req.symbols == "main":
+            bt = await pool.fetchrow(
+                "SELECT symbol, from_time, to_time, trades FROM backtests"
+                " WHERE strategy_id = $1 AND symbol = $2"
+                " ORDER BY created_at DESC LIMIT 1", r["id"], r["symbol"])
+            bts = [bt] if bt else []
         else:
-            window_days = (r["to_time"] - r["from_time"]).days
-            d["window"] = f"{r['from_time']:%Y-%m-%d} ~ {r['to_time']:%Y-%m-%d}"
-            trades = r["trades"] or []
-            d["trades"] = len(trades)
-            if window_days < need_days:
-                d.update(verdict="skip", reason=f"窗口不足(需≥{need_days}天, 实{window_days}天)")
-            else:
-                tl = tls.get(r["symbol"])
-                if tl is None:
-                    try:
-                        await regime.ensure_timeline(pool, r["symbol"], vid)
-                    except Exception as e:
-                        logger.warning("regime ensure %s v%s failed: %s", r["symbol"], vid, e)
-                    tl = tls[r["symbol"]] = await regime.tl_map(pool, r["symbol"], vid)
-                # 预贴格一次: (入场时间戳, 格, points×mult 加权净点)
-                tagged, unlabeled = [], 0
-                for t in trades:
-                    cell = tl.get(datetime.fromtimestamp(
-                        t["entry_time"], tz=timezone.utc).date())
-                    if cell is None:
-                        unlabeled += 1
-                        continue
-                    tagged.append((t["entry_time"], cell,
-                                   float(t.get("points") or 0) * float(t.get("mult") or 1)))
-                qual, splits = None, {}
-                for y in boundaries:
-                    cut_ts = (r["to_time"] - timedelta(days=y * 365.25)).timestamp()
-                    seg: dict = {}      # 格 → [前段笔数, 前段净点, 后段笔数, 后段净点]
-                    for ts, cell, net in tagged:
-                        s = seg.setdefault(cell, [0, 0.0, 0, 0.0])
-                        i = 0 if ts < cut_ts else 2
-                        s[i] += 1
-                        s[i + 1] += net
-                    ok = {c for c, v in seg.items()
-                          if v[0] >= floor and v[1] > 0 and v[2] >= floor and v[3] > 0}
-                    splits[str(y)] = sorted(ok)
-                    qual = ok if qual is None else (qual & ok)
-                cells = sorted(qual or ())
-                d.update(splits=splits, unlabeled=unlabeled, pass_cells=cells)
-                if cells:
-                    d.update(verdict="pass", reason=f"合格格 {'·'.join(cells)}")
-                    tag_ids.append(r["id"])
-                else:
-                    d.update(verdict="fail", reason="无一格在全部切分前后段都达标")
-                    archive_ids.append(r["id"])
+            bts = await pool.fetch(
+                "SELECT DISTINCT ON (symbol) symbol, from_time, to_time, trades"
+                " FROM backtests WHERE strategy_id = $1 ORDER BY symbol, created_at DESC",
+                r["id"])
+        main_bt = next((b for b in bts if b["symbol"] == r["symbol"]), None)
+        if main_bt is None:
+            d.update(verdict="skip", reason="无主品种回测")
+            details.append(d)
+            continue
+        main_days = (main_bt["to_time"] - main_bt["from_time"]).days
+        d["window"] = f"{main_bt['from_time']:%Y-%m-%d} ~ {main_bt['to_time']:%Y-%m-%d}"
+        d["trades"] = len(main_bt["trades"] or [])
+        if main_days < need_days:
+            d.update(verdict="skip", reason=f"窗口不足(需≥{need_days}天, 实{main_days}天)")
+            details.append(d)
+            continue
+        # 逐品种判定: 主品种必判; 跨品种(all)窗口不足的不纳入要求(宁缺毋滥单向: 只加码不放水)
+        results = []
+        for b in bts:
+            if b["symbol"] != r["symbol"] and (b["to_time"] - b["from_time"]).days < need_days:
+                continue
+            results.append(await _judge_symbol(pool, tls, b, vid, boundaries, floor))
+        main_res = next(x for x in results if x["symbol"] == r["symbol"])
+        d.update(splits=main_res["splits"], unlabeled=main_res["unlabeled"],
+                 pass_cells=main_res["cells"])
+        if req.symbols == "all":
+            d["cross"] = [{"symbol": x["symbol"], "pass_cells": x["cells"],
+                           "trades": x["trades"]} for x in results
+                          if x["symbol"] != r["symbol"]]
+        fail_syms = [x["symbol"] for x in results if not x["cells"]]
+        if not fail_syms:
+            d.update(verdict="pass", reason="合格格 " + "·".join(main_res["cells"])
+                     + (f" · 跨品种 {len(results) - 1} 个全过" if len(results) > 1 else ""))
+            tag_ids.append(r["id"])
+        else:
+            d.update(verdict="fail", reason="未过品种: " + "·".join(fail_syms)
+                     + "(无一格在全部切分前后段都达标)")
+            archive_ids.append(r["id"])
         details.append(d)
 
     summary = {"total": len(details), "passed": len(tag_ids),

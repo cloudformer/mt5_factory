@@ -26,10 +26,10 @@
           {% endfor %}
           {% endif %}
         </select></label>
-      <label title="主货币=只筛交易品种(role=trade)的策略; 全部=不限品种">货币
+      <label title="判定数据源: 主货币=只用策略主品种的回测行判(默认); 全货币=该策略所有已回测品种每个独立判(各贴各的时间线), 全过才过 — 跨品种稳健, 需先跑过跨品种回测">货币
         <select name="symbols">
-          <option value="main">主货币策略</option>
-          <option value="all">全部品种策略</option>
+          <option value="main">主货币(只判主品种)</option>
+          <option value="all">全货币(已回测品种全过)</option>
         </select></label>
       <label title="预览=纯报告零动作(默认); 执行=通过追加 basis 标签｜regime筛过#报告号, 未过归档(死因 regime_unstable, 可逆)">模式
         <select name="mode">
@@ -124,7 +124,9 @@
       <td class="mono">{{ d.window or '—' }}</td>
       <td class="mono">{{ d.trades if d.trades is defined else '—' }}{% if d.unlabeled %} <span class="muted" title="入场日无 regime 标签, 不计入任何格">(无标签{{ d.unlabeled }})</span>{% endif %}</td>
       <td class="mono">{% if d.splits %}{% for y, cs in d.splits.items() %}后{{ y }}年:{{ cs | join('·') if cs else '—' }}{{ '　' if not loop.last }}{% endfor %}{% else %}—{% endif %}</td>
-      <td class="mono">{{ d.pass_cells | join('·') if d.pass_cells else '—' }}</td>
+      <td class="mono">{{ d.pass_cells | join('·') if d.pass_cells else '—' }}
+        {%- if d.cross %}<div class="muted" title="全货币模式: 跨品种各自的合格格(每品种贴自己的时间线)">
+          {% for c in d.cross %}{{ c.symbol }}:{{ c.pass_cells | join('·') if c.pass_cells else '—' }} {% endfor %}</div>{% endif %}</td>
       <td>{% if d.verdict == 'pass' %}<span class="pos">通过</span>
           {% elif d.verdict == 'fail' %}<span class="neg">未过</span>
           {% else %}<span class="muted">跳过</span>{% endif %}
