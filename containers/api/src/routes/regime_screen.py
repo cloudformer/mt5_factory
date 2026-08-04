@@ -25,6 +25,15 @@ router = APIRouter()
 
 TAG = "regime筛过"   # basis 标签词根: 已含即幂等跳过; 列表页搜"标签/生因"可一键捞幸存者
 
+# 运行进度(api 内存, 页面 AJAX 轮询 — 与下载编排进度同一裁定: 筛选无状态,
+# api 挂了重新触发即可, 进度 jobs 化属过度设计不做)
+_progress = {"running": False, "done": 0, "total": 0, "current": "", "report_id": None}
+
+
+@router.get("/regime_screen/progress")
+async def screen_progress():
+    return _progress
+
 
 # ---------- 判据参数(config regime_screen 唯一源; 切分 = 近 b 年 vs 剩余, b 可小数) ----------
 class ScreenParams(BaseModel):
@@ -273,6 +282,14 @@ async def screen_run(req: ScreenRun, request: Request):
         else:
             targets.append(r)
 
+    if req.symbols == "all":
+        run_syms = [r["symbol"] for r in await pool.fetch(
+            "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
+    if _progress["running"]:
+        raise HTTPException(status_code=409, detail="已有一批筛选在跑, 等它完成再点")
+    _progress.update(running=True, done=0, current="", report_id=None,
+                     total=len(targets) * (len(run_syms) if req.symbols == "all" else 1))
+
     # 引擎配置与批量回测同一来源(对比三铁律: 成本/oos/trail 回落一致)
     costs = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
     costs = {k: costs.get(k)
@@ -322,32 +339,35 @@ async def screen_run(req: ScreenRun, request: Request):
         return {"symbol": sym, "from_time": cov_from, "to_time": cov_to,
                 "trades": result["trades"]}
 
-    if req.symbols == "all":
-        run_syms = [r["symbol"] for r in await pool.fetch(
-            "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
     tls: dict = {}                      # 品种时间线缓存(同一 vid)
     judged: dict = {}                   # 策略 id → {品种: 判定结果}
     # 品种外层循环: 同品种的现跑连续命中 M1 单槽缓存(与 jobs 抢单按品种排序同思路)
     plan_syms = sorted({t["symbol"] for t in targets}) if req.symbols == "main" \
         else sorted(set(run_syms) | {t["symbol"] for t in targets})
-    for sym in plan_syms:
-        if sym not in syms_meta:
-            continue
-        for strat in targets:
-            if req.symbols == "main" and strat["symbol"] != sym:
+    try:
+        for sym in plan_syms:
+            if sym not in syms_meta:
                 continue
-            try:
-                bt = await _fresh_bt(strat, sym)
-            except Exception as e:
-                logger.warning("screen fresh backtest #%s %s failed: %s",
-                               strat["id"], sym, e)
-                judged.setdefault(strat["id"], {})[sym] = {"error": str(e)}
-                continue
-            if bt is None:      # M1 不足: 主品种=整策略跳过; 跨品种=不纳入要求
-                judged.setdefault(strat["id"], {})[sym] = None
-                continue
-            judged.setdefault(strat["id"], {})[sym] = \
-                await _judge_symbol(pool, tls, bt, vid, p)
+            for strat in targets:
+                if req.symbols == "main" and strat["symbol"] != sym:
+                    continue
+                _progress["current"] = f"#{strat['id']} {strat['name']} @ {sym}"
+                try:
+                    bt = await _fresh_bt(strat, sym)
+                except Exception as e:
+                    logger.warning("screen fresh backtest #%s %s failed: %s",
+                                   strat["id"], sym, e)
+                    judged.setdefault(strat["id"], {})[sym] = {"error": str(e)}
+                    _progress["done"] += 1
+                    continue
+                if bt is None:      # M1 不足: 主品种=整策略跳过; 跨品种=不纳入要求
+                    judged.setdefault(strat["id"], {})[sym] = None
+                else:
+                    judged.setdefault(strat["id"], {})[sym] = \
+                        await _judge_symbol(pool, tls, bt, vid, p)
+                _progress["done"] += 1
+    finally:
+        _progress.update(running=False, current="")
 
     tag_ids, archive_ids = [], []
     for r in targets:
@@ -404,6 +424,7 @@ async def screen_run(req: ScreenRun, request: Request):
             "INSERT INTO regime_screens (mode, version_id, scope, params, summary, details)"
             " VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
             req.mode, vid, scope, p, summary, details)
+        _progress["report_id"] = rid
     if req.mode == "execute":
         if tag_ids:   # 通过 → basis 追加标签(报告号可溯源到本次参数与全量明细)
             await pool.execute(

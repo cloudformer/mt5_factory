@@ -40,6 +40,15 @@ def index():
     return render_template("regime_screen.html", **data)
 
 
+@bp.get("/regime-screen/progress")
+def progress():
+    """运行进度(页面 AJAX 轮询): 透传 api 内存进度"""
+    try:
+        return jsonify(api.get("/regime_screen/progress"))
+    except api.ApiError as e:
+        return jsonify({"error": str(e)}), 502
+
+
 @bp.get("/regime-screen/plan")
 def plan():
     """运行预估(页面预览行 AJAX): 透传 api, 匹配多少/可判多少/各类跳过多少"""
