@@ -24,24 +24,47 @@ router = APIRouter()
 TAG = "regime筛过"   # basis 标签词根: 已含即幂等跳过; 列表页搜"标签/生因"可一键捞幸存者
 
 
-# ---------- 判据参数(config regime_screen 唯一源) ----------
+# ---------- 判据参数(config regime_screen 唯一源; 切分 = 近 b 年 vs 剩余, b 可小数) ----------
 class ScreenParams(BaseModel):
-    boundaries_years: list[int]
-    min_cell_trades: int
+    window_years: float = 5            # 总计回测窗口(年): 窗口不足此数 = 跳过不判
+    boundaries_years: list[float]      # 切分点(年, 可小数): 每刀 = 近 b 年(后段) vs 剩余(前段)
+    min_cell_trades: int = 5           # 格内地板笔数(前后两段各自)
+    min_pass_cells: int = 1            # 至少几个格子全切分达标才算通过
+    min_net_points: float = 0          # 净点阈值(严格大于; 默认 0 ≡ 净点为正)
+    min_pf: float = 1.0                # PF 阈值(严格大于; 默认 1 与净点>0 等价, 调高即收紧)
+
+
+def _cfg_params(cfg: dict) -> dict:
+    """config → 判据(带默认): run/plan/params 三处同一口径"""
+    return {"window_years": float(cfg.get("window_years") or 5),
+            "boundaries_years": sorted(cfg.get("boundaries_years") or [1, 2, 3, 4]),
+            "min_cell_trades": int(cfg.get("min_cell_trades") or 5),
+            "min_pass_cells": int(cfg.get("min_pass_cells") or 1),
+            "min_net_points": float(cfg.get("min_net_points") or 0),
+            "min_pf": float(cfg.get("min_pf") if cfg.get("min_pf") is not None else 1.0)}
 
 
 @router.post("/regime_screen/params")
 async def screen_params_save(req: ScreenParams, request: Request):
-    bs = sorted(set(req.boundaries_years))
-    if not bs or any(y < 1 or y > 10 for y in bs):
-        raise HTTPException(status_code=400, detail="切分边界需为 1~10 的整数(年)")
+    if not 1 <= req.window_years <= 30:
+        raise HTTPException(status_code=400, detail="总计年需在 1~30")
+    bs = sorted({round(float(b), 2) for b in req.boundaries_years})
+    if not bs or any(b <= 0 or b >= req.window_years for b in bs):
+        raise HTTPException(status_code=400,
+                            detail="切分点需在 0 与总计年之间(近 b 年 vs 剩余, 可小数)")
     if not 1 <= req.min_cell_trades <= 100:
         raise HTTPException(status_code=400, detail="格内最少笔数需在 1~100")
+    if not 1 <= req.min_pass_cells <= 8:
+        raise HTTPException(status_code=400, detail="至少合格格数需在 1~8")
+    if req.min_net_points < 0 or req.min_pf < 0:
+        raise HTTPException(status_code=400, detail="净点/PF 阈值不能为负")
+    val = {"window_years": req.window_years, "boundaries_years": bs,
+           "min_cell_trades": req.min_cell_trades, "min_pass_cells": req.min_pass_cells,
+           "min_net_points": req.min_net_points, "min_pf": req.min_pf}
     await request.app.state.pool.execute(
         "INSERT INTO config (key, value) VALUES ('regime_screen', $1)"
-        " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-        {"boundaries_years": bs, "min_cell_trades": req.min_cell_trades})
-    return {"boundaries_years": bs, "min_cell_trades": req.min_cell_trades}
+        " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", val)
+    return val
 
 
 def _scope_conds(req_ids, req_symbols, uid):
@@ -74,9 +97,9 @@ async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str 
             id_list = [int(x) for x in ids.replace("，", ",").split(",") if x.strip()]
         except ValueError:
             raise HTTPException(status_code=400, detail="ID 列表需为逗号分隔的整数")
-    cfg = await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {}
-    boundaries = sorted(cfg.get("boundaries_years") or [1, 2, 3, 4])
-    need_days = int((max(boundaries) + 1) * 365.25) - 45
+    p = _cfg_params(
+        await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {})
+    need_days = int(p["window_years"] * 365.25) - 45
     conds, args, _ = _scope_conds(id_list, symbols, identity.scope_uid(request))
     coverage = None
     if symbols == "all":   # 全货币 = 判定用全部已回测品种 → 预览要看得见覆盖了哪些品种
@@ -115,9 +138,10 @@ class ScreenRun(BaseModel):
     limit: Optional[int] = None        # 单次最多判多少个(超出的下次再跑), 不传 = 不限
 
 
-async def _judge_symbol(pool, tls, bt, vid, boundaries, floor):
+async def _judge_symbol(pool, tls, bt, vid, p):
     """单品种判定: 逐笔按入场日贴指定版本时间线(与九币矩阵同一口径, points×mult 加权),
-    返回各切分合格格与最终合格格(= 各切分交集)"""
+    每刀 = 近 b 年(后段) vs 剩余(前段), 返回各切分合格格与最终合格格(= 各切分交集)。
+    段内合格 = 笔数≥地板 且 净点>阈值 且 PF>阈值(无亏损段 PF=∞ 恒过)"""
     sym = bt["symbol"]
     tl = tls.get(sym)
     if tl is None:      # 切谁治谁: 先自愈指定版本的时间线
@@ -134,18 +158,28 @@ async def _judge_symbol(pool, tls, bt, vid, boundaries, floor):
             continue
         tagged.append((t["entry_time"], cell,
                        float(t.get("points") or 0) * float(t.get("mult") or 1)))
+    floor, min_net, min_pf = p["min_cell_trades"], p["min_net_points"], p["min_pf"]
+
+    def _seg_ok(n, gp, gl):
+        if n < floor or gp - gl <= min_net:
+            return False
+        return (gp / gl > min_pf) if gl > 0 else gp > 0   # 无亏损段 PF=∞
+
     qual, splits = None, {}
-    for y in boundaries:
+    for y in p["boundaries_years"]:
         cut_ts = (bt["to_time"] - timedelta(days=y * 365.25)).timestamp()
-        seg: dict = {}      # 格 → [前段笔数, 前段净点, 后段笔数, 后段净点]
+        seg: dict = {}      # 格 → [前段 n/毛利/毛损, 后段 n/毛利/毛损]
         for ts, cell, net in tagged:
-            s = seg.setdefault(cell, [0, 0.0, 0, 0.0])
-            i = 0 if ts < cut_ts else 2
-            s[i] += 1
-            s[i + 1] += net
+            s = seg.setdefault(cell, [0, 0.0, 0.0, 0, 0.0, 0.0])
+            o = 0 if ts < cut_ts else 3
+            s[o] += 1
+            if net >= 0:
+                s[o + 1] += net
+            else:
+                s[o + 2] -= net
         ok = {c for c, v in seg.items()
-              if v[0] >= floor and v[1] > 0 and v[2] >= floor and v[3] > 0}
-        splits[str(y)] = sorted(ok)
+              if _seg_ok(v[0], v[1], v[2]) and _seg_ok(v[3], v[4], v[5])}
+        splits[f"{y:g}"] = sorted(ok)
         qual = ok if qual is None else (qual & ok)
     return {"symbol": sym, "trades": len(bt["trades"] or []), "unlabeled": unlabeled,
             "splits": splits, "cells": sorted(qual or ()),
@@ -163,11 +197,13 @@ async def screen_run(req: ScreenRun, request: Request):
     if req.symbols not in ("main", "all"):
         raise HTTPException(status_code=400, detail="symbols 需为 main / all")
 
-    cfg = await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {}
-    boundaries = sorted(cfg.get("boundaries_years") or [1, 2, 3, 4])
-    floor = int(cfg.get("min_cell_trades") or 5)
-    # 窗口须容下最深一刀之外还有前段可判(默认四刀 = 约 5 年), 差 45 天容差
-    need_days = int((max(boundaries) + 1) * 365.25) - 45
+    p = _cfg_params(
+        await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {})
+    # 窗口须达总计年(差 45 天容差); 切分点超窗的丢弃(参数校验兜底)
+    need_days = int(p["window_years"] * 365.25) - 45
+    p["boundaries_years"] = [b for b in p["boundaries_years"] if b < p["window_years"]]
+    if not p["boundaries_years"]:
+        raise HTTPException(status_code=400, detail="判据无效: 没有小于总计年的切分点")
 
     if req.version is not None:
         if not await pool.fetchval("SELECT 1 FROM regime_versions WHERE id=$1", req.version):
@@ -231,7 +267,7 @@ async def screen_run(req: ScreenRun, request: Request):
         for b in bts:
             if b["symbol"] != r["symbol"] and (b["to_time"] - b["from_time"]).days < need_days:
                 continue
-            results.append(await _judge_symbol(pool, tls, b, vid, boundaries, floor))
+            results.append(await _judge_symbol(pool, tls, b, vid, p))
         main_res = next(x for x in results if x["symbol"] == r["symbol"])
         d.update(splits=main_res["splits"], unlabeled=main_res["unlabeled"],
                  pass_cells=main_res["cells"])
@@ -239,14 +275,15 @@ async def screen_run(req: ScreenRun, request: Request):
             d["cross"] = [{"symbol": x["symbol"], "pass_cells": x["cells"],
                            "trades": x["trades"]} for x in results
                           if x["symbol"] != r["symbol"]]
-        fail_syms = [x["symbol"] for x in results if not x["cells"]]
+        fail_syms = [x["symbol"] for x in results
+                     if len(x["cells"]) < p["min_pass_cells"]]
         if not fail_syms:
             d.update(verdict="pass", reason="合格格 " + "·".join(main_res["cells"])
                      + (f" · 跨品种 {len(results) - 1} 个全过" if len(results) > 1 else ""))
             tag_ids.append(r["id"])
         else:
             d.update(verdict="fail", reason="未过品种: " + "·".join(fail_syms)
-                     + "(无一格在全部切分前后段都达标)")
+                     + f"(全切分达标格 < {p['min_pass_cells']} 个)")
             archive_ids.append(r["id"])
         details.append(d)
 
@@ -258,8 +295,7 @@ async def screen_run(req: ScreenRun, request: Request):
     rid = await pool.fetchval(
         "INSERT INTO regime_screens (mode, version_id, scope, params, summary, details)"
         " VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-        req.mode, vid, scope,
-        {"boundaries_years": boundaries, "min_cell_trades": floor}, summary, details)
+        req.mode, vid, scope, p, summary, details)
     if req.mode == "execute":
         if tag_ids:   # 通过 → basis 追加标签(报告号可溯源到本次参数与全量明细)
             await pool.execute(
