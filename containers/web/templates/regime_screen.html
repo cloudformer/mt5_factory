@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('Regime 筛选', '漏斗关1.5 批量粗筛：每策略现跑总计年回测（悲观撮合，结果回流库，涉及淘汰必须用刚出炉的真数据）→ 按切片验 regime 稳健性。通过打标签，未过删除归档（可逆）') }}
+{{ m.page_header('自动化筛选 by Regime', '漏斗关1.5 批量粗筛：每策略现跑总计年回测（悲观撮合，结果回流库，涉及淘汰必须用刚出炉的真数据）→ 按切片验 regime 稳健性。通过打标签，未过删除归档（可逆）') }}
 
 <section>
   <h2>批量筛选</h2>
@@ -26,10 +26,10 @@
           {% endfor %}
           {% endif %}
         </select></label>
-      <label title="判定数据源: 主货币=只用策略主品种的回测行判(默认); 全货币=该策略所有已回测品种每个独立判(各贴各的时间线), 全过才过 — 跨品种稳健, 需先跑过跨品种回测">货币
+      <label title="判定数据源: 主货币=只现跑主品种判(默认); 全货币=全部下载品种每个现跑独立判(各贴各的时间线), 任一品种存在合格格即通过 — 发现型: 报告如实列出哪个货币哪些格合格">货币
         <select name="symbols">
           <option value="main">主货币(只判主品种)</option>
-          <option value="all">全货币(已回测品种全过)</option>
+          <option value="all">全货币(任一品种合格即过)</option>
         </select></label>
       <label title="预览=纯报告零动作(默认); 执行=通过追加 basis 标签｜regime筛过#报告号, 未过归档(死因 regime_unstable, 可逆)">模式
         <select name="mode">

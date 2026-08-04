@@ -395,18 +395,23 @@ async def screen_run(req: ScreenRun, request: Request):
             d["cross"] = [{"symbol": x["symbol"], "pass_cells": x["cells"],
                            "trades": x["trades"]} for x in results
                           if x["symbol"] != r["symbol"]]
-        fail_syms = [x["symbol"] for x in results
-                     if len(x["cells"]) < p["min_pass_cells"]]
+        ok_list = [(x["symbol"], x["cells"]) for x in results
+                   if len(x["cells"]) >= p["min_pass_cells"]]
         readonly = r["status"] != "CANDIDATE"   # 点名可带任意状态: 非空闲只读判定
-        if not fail_syms:
-            d.update(verdict="pass", reason="合格格 " + "·".join(main_res["cells"])
-                     + (f" · 跨品种 {len(results) - 1} 个全过" if len(results) > 1 else "")
+        # 通过判定(2026-08-04 Frank 定): 主货币=主品种达标;
+        # 全货币=任一品种存在合格格即过(发现型 — 如实列出哪个货币哪些格合格)
+        ok = bool(ok_list) if req.symbols == "all" \
+            else len(main_res["cells"]) >= p["min_pass_cells"]
+        if ok:
+            d.update(verdict="pass",
+                     reason="合格: " + " · ".join(f"{s} {'·'.join(c)}" for s, c in ok_list)
                      + ("(非空闲, 只记录不打标签)" if readonly else ""))
             if not readonly:
                 tag_ids.append(r["id"])
         else:
-            d.update(verdict="fail", reason="未过品种: " + "·".join(fail_syms)
-                     + f"(全切分达标格 < {p['min_pass_cells']} 个)"
+            d.update(verdict="fail",
+                     reason=("各品种均无" if req.symbols == "all" else "无")
+                     + f"合格格(全切分达标格 < {p['min_pass_cells']} 个)"
                      + ("(非空闲, 只记录不归档)" if readonly else ""))
             if not readonly:
                 archive_ids.append(r["id"])
