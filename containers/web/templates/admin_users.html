@@ -112,7 +112,16 @@
     <input name="name" class="small" placeholder="备注(哪台机)" style="width:120px">
     <button class="small">发 worker 钥匙</button>
   </form>
-  <table class="dense">
+  {# 状态过滤(2026-08-05 Frank 定): 默认只看启用的, 吊销的是历史履历按需查看 #}
+  <p class="inline" style="margin:0 0 6px">
+    <span class="muted">状态</span>
+    {% for v, zh in [('enabled', '启用'), ('revoked', '已吊销'), ('all', '全部')] %}
+    <a href="{{ url_for('admin.users_page', keys=v) }}"
+       class="{{ 'badge ok' if wk_state == v else 'muted' }}">{{ zh }} {{ wk_counts[v] }}</a>{{ ' · ' if not loop.last }}
+    {% endfor %}
+  </p>
+  {{ m.table_toolbar('wkeys-table', hint='用户/备注/机器…') }}
+  <table id="wkeys-table" class="dense">
     <thead><tr><th>ID</th><th>用户</th><th>备注</th><th>绑定机器</th><th>状态</th><th>最近使用</th><th data-nosort>操作</th></tr></thead>
     <tbody>
     {% for k in wkeys %}
@@ -130,7 +139,9 @@
         </form></td>
       </tr>
     {% endfor %}
-    {% if not wkeys %}<tr><td colspan="7" class="muted">还没有签发过 worker 钥匙 — 老机器(env 无 WORKER_KEY)照旧匿名注册, 归 user 1</td></tr>{% endif %}
+    {% if not wkeys %}<tr><td colspan="7" class="muted">
+      {%- if wk_counts.all %}当前筛选({{ '启用' if wk_state == 'enabled' else '已吊销' }})下没有钥匙 — 换上面的状态看
+      {%- else %}还没有签发过 worker 钥匙 — 老机器(env 无 WORKER_KEY)照旧匿名注册, 归 user 1{% endif %}</td></tr>{% endif %}
     </tbody>
   </table>
 </section>

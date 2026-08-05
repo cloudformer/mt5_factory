@@ -33,8 +33,19 @@ def users_page():
                 "today": r["today"], "total": r["used_total"]}
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
+    # worker 钥匙状态过滤(2026-08-05 Frank 定): 默认只看启用的 — 吊销的是历史履历(轮换=吊旧发新),
+    # 平时不该占视野; 计数按全量算(切过去也知道有多少)
+    wk_state = request.args.get("keys", "enabled")
+    wk_counts = {"all": len(wkeys),
+                 "enabled": sum(1 for k in wkeys if k["enabled"]),
+                 "revoked": sum(1 for k in wkeys if not k["enabled"])}
+    if wk_state == "enabled":
+        wkeys = [k for k in wkeys if k["enabled"]]
+    elif wk_state == "revoked":
+        wkeys = [k for k in wkeys if not k["enabled"]]
     return render_template("admin_users.html", users=users, keys=keys, wkeys=wkeys,
-                           hosts=hosts, usage_view=usage_view)
+                           hosts=hosts, usage_view=usage_view,
+                           wk_state=wk_state, wk_counts=wk_counts)
 
 
 @bp.post("/switch_user")
