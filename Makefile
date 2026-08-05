@@ -1,6 +1,8 @@
 ENV_FILE ?= env/.dev.env
 WORKERS ?= 9   # 回测 worker 副本数(唯一源, 进git=CI生效): 0=只有api内1路(原行为); 要并行改这里提交, 临时 make scale WORKERS=N
-               # 2026-08-05 实测定4: 瓶颈=pg喂数据(280%CPU), worker 30~70%在等喂 — 9个纯排队; 1×6 vCPU下 pg3+api1+worker2 正好
+               # 2026-08-05 实测(20年全货币交叉, 数据全在页缓存/SSD零IO): vCPU 1×8+9worker=1:32(最优)
+               # · 1×12=1:34 · 1×6=1:52(核少反而慢 — 本负载是多进程 pg+9worker, 吃逻辑线程数)
+               # 瓶颈 = pg 喂数据(~280% CPU, 同品种被多 worker 重复拉), 加 worker 只是排队
 COMPOSE = docker compose --env-file $(ENV_FILE)
 
 .PHONY: up down build logs ps psql health test clean scale
