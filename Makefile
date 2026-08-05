@@ -7,6 +7,8 @@ COMPOSE = docker compose --env-file $(ENV_FILE)
 up:  # 启动(必要时重建镜像) → 等 healthcheck → 冒烟测试; schema 由 api 启动自动对齐
 	$(COMPOSE) up -d --wait --build --scale worker=$(WORKERS)
 	@./scripts/smoke.sh
+	@echo "K线分区焐进 OS 页缓存(~2分钟, 失败不影响启动; 单独跑: make prewarm)"
+	@$(COMPOSE) run --rm prewarm || true
 
 scale:  # 只调 worker 副本数(不重建镜像不动其他服务): make scale WORKERS=2
 	$(COMPOSE) up -d --no-build --no-deps --scale worker=$(WORKERS) worker
@@ -32,6 +34,9 @@ ps:
 
 psql:
 	docker exec -it mt5_postgres psql -U mt5user -d mt5factory
+
+prewarm:  # K线分区焐进 OS 页缓存(~2分钟): VM 重启后跑一次; 幂等, 避开跑批时段
+	$(COMPOSE) run --rm prewarm
 
 health:
 	curl -s http://localhost:8010/health

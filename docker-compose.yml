@@ -54,6 +54,31 @@ services:
       retries: 5
       start_period: 10s
 
+  # ========== 预热(一次性任务, 2026-08-05 与 Frank 定): K线分区焐进 OS 页缓存 ==========
+  # 13G 全热后回测扫 M1 零磁盘 IO。profiles 隔离: 平时 up 不启动, 需要时 make prewarm
+  # (= docker compose run --rm prewarm)。VM 重启后跑一次; 幂等, 不跑只影响冷段首扫速度
+  prewarm:
+    image: postgres:16-alpine
+    profiles: ["ops"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+    entrypoint: ["psql", "-c",
+      "CREATE EXTENSION IF NOT EXISTS pg_prewarm;",
+      "-c",
+      "SELECT inhrelid::regclass AS partition,
+              pg_prewarm(inhrelid::regclass, 'read') AS heap_blocks,
+              pg_prewarm((SELECT indexrelid FROM pg_index
+                           WHERE indrelid = inhrelid LIMIT 1)::regclass, 'read') AS pk_blocks
+       FROM pg_inherits WHERE inhparent = 'historical_bars'::regclass;"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mt5_network
+
   # ========== API（业务服务，按需再拆） ==========
   api:
     build:
