@@ -19,20 +19,32 @@ services:
     volumes:
       - ./containers/postgres/data:/var/lib/postgresql/data   # 数据在 repo 内 (gitignore)
       # 不挂 initdb 脚本: schema 由 api 启动时自动执行 containers/postgres/schema/ (唯一机制)
-    # 内存调优(2026-08-04 与 Frank 定, 32G VM 提速读取/计算):
-    #   shared_buffers       热分区常驻(按需装页非预加载), worker 重复扫 M1 第二遍起全内存
-    #   effective_cache_size 零内存占用, 只向规划器报"OS 页缓存情报"防选错计划
-    #   work_mem             每查询排序/聚合节点内存(排名/汇总 SQL 受益), 峰值=并发×节点×此值
+    # 内存口径(2026-08-04 实测定版): shared_buffers 大池(10G)热对热实测反而更慢(1:57 vs 1:36)
+    # — 大顺序扫描走 ~256KB 环形缓冲根本不进大池, 大池只是挤掉 OS 页缓存(双重缓存浪费);
+    # 本负载(多 worker 扫 M1)OS 页缓存是主力, pg 池保持默认小。
+    # effective_cache_size 零内存占用(纯规划器情报); work_mem 服务排名/汇总 SQL
     command:
       - postgres
       - -c
       - max_connections=200
       - -c
-      - shared_buffers=10GB
+      - shared_buffers=256MB
       - -c
       - effective_cache_size=16GB
       - -c
       - work_mem=512MB
+      # SSD 情报修正(2026-08-05): 默认值按机械盘假设, 虚机下面是 NVMe/SSD —
+      # 预读更激进 + 随机读不再按贵算(规划器更敢走索引); 零内存零风险
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - random_page_cost=1.1
+      # 大扫描并行(2026-08-05): 单条大范围查询允许 pg 自己开并行工人分段扫,
+      # 单 worker 等一条 M1 大查询的墙钟直接除以并行度(核够就吃)
+      - -c
+      - max_parallel_workers_per_gather=4
+      - -c
+      - max_parallel_workers=6
     networks:
       - mt5_network
     healthcheck:
