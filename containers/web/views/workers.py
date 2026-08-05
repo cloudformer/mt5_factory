@@ -27,10 +27,14 @@ def index():
         st = (h.get("last_health") or {}).get("selftest")
         if st and st.get("updated"):
             st["updated_fmt"] = datetime.fromtimestamp(st["updated"]).strftime("%m-%d %H:%M")
-        # 主循环最近一拍年龄(体检"节奏读数", 观察期陈列): runner 每圈(≈10s)落盘 updated
+        # 主循环滞后(体检"节奏读数", 观察期陈列; 2026-08-04 Frank 纠偏: 要的是"一圈多久"
+        # 不是"多久没消息"): 心跳到达时刻 − runner 落盘时刻 = 上报瞬间 runner 状态的年龄。
+        # runner 每圈写一次 → 正常 0~10s; 某圈真跑了 28s 这里就顶到 28s(圈时长的下界代理,
+        # 精确 loop_ms 需 Windows 批)
         rn = (h.get("last_health") or {}).get("runner") or {}
-        if rn.get("updated"):
-            h["loop_age"] = max(0, int(time.time() - rn["updated"]))
+        if rn.get("updated") and h.get("last_heartbeat"):
+            hb_ts = datetime.fromisoformat(h["last_heartbeat"]).timestamp()
+            h["loop_lag"] = max(0, int(hb_ts - rn["updated"]))
         # 最近事件进详情行: 异常类(下单失败/断报价/加载失败/漏存)直接显示,
         # 生命周期类(上下线/DEGRADED, 高频噪音)默认收起(2026-07-26 与 Frank 定)
         try:

@@ -103,7 +103,7 @@
   <tr title="漏单前兆读数(观察期: 只陈列, 不判定)。&#10;主循环最近一拍: runner 每圈(≈10s)写一次状态, 这个年龄持续远大于10s = 圈拖长/卡住(信号迟到风险)。&#10;心跳间隔: worker 每30s推一拍, 间隔漂移 = 网络堵或 worker 卡。&#10;基线看熟后告诉我阈值, 再做越线告警+记事件">
       <td>节奏读数</td>
       <td><span class="badge">观察期</span></td>
-      <td class="muted">主循环最近一拍 {% if h.loop_age is defined %}<b>{{ h.loop_age }}</b> 秒前{% else %}—{% endif %}(圈10s+心跳传输≤30s, 正常≤40s)
+      <td class="muted">主循环滞后 {% if h.loop_lag is defined %}<b>{{ h.loop_lag }}</b> 秒{% else %}—{% endif %}(上报瞬间距上一圈落盘; 每圈10s → 正常≤10s, 持续更大=圈拖长)
         · 心跳到达间隔 {% if h.hb_gaps %}近{{ h.hb_gaps.n }}拍 avg <b>{{ h.hb_gaps.avg }}</b>s / max <b>{{ h.hb_gaps.max }}</b>s{% else %}累计中…{% endif %}(期望≈30s)</td></tr>
   <tr title="worker license(api-key)绑定状态: 一机一钥, 克隆机复用旧钥绑不上。&#10;未认证不能指派角色(跑demo/跑live按钮禁用)">
       <td>license</td>
