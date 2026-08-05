@@ -22,15 +22,21 @@ def _page_data():
 
 @bp.get("/regime-screen")
 def index():
+    # 报告明细服务端分页(2026-08-05 实测定: 500行全量进浏览器会卡死) — 纯链接翻页零JS
+    per = request.args.get("per", 50, type=int)
+    page = max(request.args.get("page", 1, type=int), 1)
+    verdict = request.args.get("verdict", "")
     try:
         data = _page_data()
         rid = request.args.get("report", type=int)
         if rid:
-            data["report"] = api.get(f"/regime_screen/reports/{rid}")
+            data["report"] = api.get(f"/regime_screen/reports/{rid}", limit=per,
+                                     offset=(page - 1) * per,
+                                     **({"verdict": verdict} if verdict else {}))
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
         data = {"params": None, "versions": None, "reports": [], "report": None}
-    return render_template("regime_screen.html", **data)
+    return render_template("regime_screen.html", page=page, per=per, verdict=verdict, **data)
 
 
 @bp.get("/regime-screen/progress")
@@ -115,11 +121,14 @@ def run():
         if r.get("report_id"):
             return redirect(url_for("regime_screen.index", report=r["report_id"]))
         # 点名 = 只读诊断不入库: 结果只活在本次响应里, 直接渲染(刷新即消失, 库里零痕迹)
+        # 点名范围小(按ID), 不分页; 深层数字随响应内嵌, 展开零请求
         data = _page_data()
         data["report"] = {"id": None, "created_at": datetime.now(timezone.utc).isoformat(),
                           "mode": r["mode"], "version_id": r["version"], "scope": r["scope"],
-                          "params": r["params"], "summary": s, "details": r["details"]}
-        return render_template("regime_screen.html", **data)
+                          "params": r["params"], "summary": s, "details": r["details"],
+                          "total": len(r["details"]), "offset": 0, "limit": len(r["details"])}
+        return render_template("regime_screen.html", page=1, per=len(r["details"]) or 1,
+                               verdict="", **data)
     except api.ApiError as e:
         flash(f"筛选失败: {e}", "error")
         return redirect(url_for("regime_screen.index"))

@@ -461,20 +461,36 @@ async def screen_reports(request: Request, limit: int = 30):
 
 
 @router.get("/regime_screen/reports/{report_id}")
-async def screen_report(report_id: int, request: Request):
-    """报告明细(结论级)。按需加载(2026-08-05 与 Frank 定): splits_stat 占 details 的 81%
-    (500策略 2.5MB), 页面用不到就不传 — 剥掉后 ~590KB; 展开某策略时走
-    /reports/{id}/strategy/{sid} 单取深层数字。库里 details 仍存全量(审计不缩水)"""
-    row = await request.app.state.pool.fetchrow(
-        "SELECT id, created_at, mode, version_id, scope, params, summary, owner_id,"
-        "       (SELECT jsonb_agg(e - 'splits_stat') FROM jsonb_array_elements(details) e)"
-        "         AS details"
-        " FROM regime_screens WHERE id = $1", report_id)
+async def screen_report(report_id: int, request: Request, offset: int = 0,
+                        limit: int = 50, verdict: Optional[str] = None):
+    """报告明细(服务端分页 + 结论级瘦身, 2026-08-05 实测定版):
+      · 500 行全量进浏览器会卡死/崩溃 → 库里切片, 一页只回 limit 行
+      · splits_stat 占 details 81% 一律剥掉, 展开时走 /reports/{id}/strategy/{sid} 单取
+      · verdict=pass/fail/skip 服务端过滤(总数按过滤后算)
+    库里 details 仍存全量(审计"为什么被归档"不缩水)"""
+    if verdict not in (None, "", "pass", "fail", "skip"):
+        raise HTTPException(status_code=400, detail="verdict 需为 pass/fail/skip")
+    limit = min(max(limit, 1), 200)
+    cond = " WHERE e->>'verdict' = $2" if verdict else ""
+    args = [report_id] + ([verdict] if verdict else []) + [max(offset, 0), limit]
+    p_off, p_lim = f"${len(args) - 1}", f"${len(args)}"
+    sql = (
+        "SELECT r.id, r.created_at, r.mode, r.version_id, r.scope, r.params, r.summary,"
+        "       r.owner_id,"
+        f"      (SELECT count(*) FROM jsonb_array_elements(r.details) e{cond}) AS total,"
+        "       (SELECT jsonb_agg(s.e - 'splits_stat' ORDER BY s.ord) FROM ("
+        "          SELECT e, ord FROM jsonb_array_elements(r.details)"
+        f"                            WITH ORDINALITY AS t(e, ord){cond}"
+        f"         ORDER BY ord OFFSET {p_off} LIMIT {p_lim}) s) AS details"
+        " FROM regime_screens r WHERE r.id = $1")
+    row = await request.app.state.pool.fetchrow(sql, *args)
     uid = identity.scope_uid(request)
     if row is None or (uid and row["owner_id"] != uid):   # 别人的报告 = 404 不暴露存在性
         raise HTTPException(status_code=404, detail="report not found")
     return {**{k: row[k] for k in row.keys() if k != "owner_id"},
-            "created_at": row["created_at"].isoformat()}
+            "details": row["details"] or [],
+            "created_at": row["created_at"].isoformat(),
+            "offset": max(offset, 0), "limit": limit, "verdict": verdict or ""}
 
 
 @router.get("/regime_screen/reports/{report_id}/strategy/{sid}")

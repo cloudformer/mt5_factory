@@ -165,9 +165,31 @@
      (前M年从左到右递增, 切点一路后移); 同一顺序同时用于主行摘要与展开子表 #}
   {% set win = report.params.get('window_years', 5) %}
   {% set cuts = report.params.boundaries_years | sort(reverse=true) %}
-  {{ m.table_toolbar('rs-details', hint='ID/名称/品种…') }}
-  {# data-detail-sort: 排序时展开明细行按 toggle id 粘回主行之后(全站标准机制, 不再拆散) #}
-  <table id="rs-details" class="dense" data-detail-sort>
+  {# 服务端分页(2026-08-05 实测定: 500行全量进浏览器会卡死/排序崩溃) — 纯链接零JS,
+     浏览器一次只拿一页; 结论过滤也在服务端(总数按过滤后算)。表级禁排: 排序对"当页"排没意义,
+     要挑最好的用结论过滤 + 每页调大 #}
+  {% if report.id %}
+  {% set total = report.total or 0 %}
+  {% set pages = ((total / per) | round(0, 'ceil') | int) if per else 1 %}
+  <p class="inline" style="margin:6px 0">
+    <span class="muted">结论</span>
+    {% for v, zh in [('', '全部'), ('pass', '通过'), ('fail', '未过'), ('skip', '跳过')] %}
+    <a href="{{ url_for('regime_screen.index', report=report.id, verdict=v, per=per) }}"
+       class="{{ 'badge ok' if verdict == v else 'muted' }}">{{ zh }}</a>{{ ' · ' if not loop.last }}
+    {% endfor %}
+    <span class="op-sep">│</span>
+    <span class="muted">每页</span>
+    {% for n in [30, 50, 100] %}
+    <a href="{{ url_for('regime_screen.index', report=report.id, verdict=verdict, per=n) }}"
+       class="{{ 'badge ok' if per == n else 'muted' }}">{{ n }}</a>{{ ' · ' if not loop.last }}
+    {% endfor %}
+    <span class="op-sep">│</span>
+    {% if page > 1 %}<a href="{{ url_for('regime_screen.index', report=report.id, verdict=verdict, per=per, page=page-1) }}">‹ 上一页</a>{% else %}<span class="muted">‹ 上一页</span>{% endif %}
+    <span class="muted">第 {{ page }} / {{ pages if pages else 1 }} 页 · 本页 {{ report.details | length }} 行 · 匹配 {{ total }}</span>
+    {% if page < pages %}<a href="{{ url_for('regime_screen.index', report=report.id, verdict=verdict, per=per, page=page+1) }}">下一页 ›</a>{% else %}<span class="muted">下一页 ›</span>{% endif %}
+  </p>
+  {% endif %}
+  <table id="rs-details" class="dense" data-nosort>
     <thead><tr><th>ID</th><th>名称</th><th>品种</th><th>判定窗</th><th>笔数</th>
       <th title="判定窗整体的净点/PF·笔数">整窗净点/PF</th>
       <th>各切分合格格(前M年/近N年)</th><th>通过格</th><th>结论</th><th>明细</th></tr></thead>
