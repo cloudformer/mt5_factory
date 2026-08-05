@@ -1,5 +1,6 @@
 ENV_FILE ?= env/.dev.env
-WORKERS ?= 9   # 回测 worker 副本数(唯一源, 进git=CI生效): 0=只有api内1路(原行为); 要并行改这里提交, 临时 make scale WORKERS=N
+WORKERS ?= 4   # 回测 worker 副本数(唯一源, 进git=CI生效): 0=只有api内1路(原行为); 要并行改这里提交, 临时 make scale WORKERS=N
+               # 2026-08-05 实测定4: 瓶颈=pg喂数据(280%CPU), worker 30~70%在等喂 — 9个纯排队; 1×6 vCPU下 pg3+api1+worker2 正好
 COMPOSE = docker compose --env-file $(ENV_FILE)
 
 .PHONY: up down build logs ps psql health test clean scale
