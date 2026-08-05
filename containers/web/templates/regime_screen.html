@@ -238,7 +238,9 @@
       const btn = e.target.closest("[data-json-toggle^='rs-d-']");
       if (!btn) return;
       const row = document.getElementById(btn.getAttribute("data-json-toggle"));
-      if (!row || row.dataset.loaded || row.hidden) return;   // 收起/已加载过: 不再请求
+      // 只认"已加载过"这一个闸: 不能看 row.hidden — tables.js 带 defer, 它的展开处理器
+      // 比本处理器后注册, 点击这一刻行还是隐藏的(2026-08-05 修: 曾因此永远停在"加载中…")
+      if (!row || row.dataset.loaded) return;
       row.dataset.loaded = "1";
       const cell = row.querySelector("td");
       try {

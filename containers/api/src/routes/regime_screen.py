@@ -478,10 +478,14 @@ async def screen_report(report_id: int, request: Request, offset: int = 0,
         "SELECT r.id, r.created_at, r.mode, r.version_id, r.scope, r.params, r.summary,"
         "       r.owner_id,"
         f"      (SELECT count(*) FROM jsonb_array_elements(r.details) e{cond}) AS total,"
-        "       (SELECT jsonb_agg(s.e - 'splits_stat' ORDER BY s.ord) FROM ("
-        "          SELECT e, ord FROM jsonb_array_elements(r.details)"
+        # 通过优先排序(2026-08-05 Frank 定): pass → fail → skip, 组内保持原序(品种,id) —
+        # 幸存者在第一页第一眼, 跨页也是这个序
+        "       (SELECT jsonb_agg(s.e - 'splits_stat' ORDER BY s.rk, s.ord) FROM ("
+        "          SELECT e, ord, CASE e->>'verdict' WHEN 'pass' THEN 0"
+        "                              WHEN 'fail' THEN 1 ELSE 2 END AS rk"
+        "            FROM jsonb_array_elements(r.details)"
         f"                            WITH ORDINALITY AS t(e, ord){cond}"
-        f"         ORDER BY ord OFFSET {p_off} LIMIT {p_lim}) s) AS details"
+        f"         ORDER BY rk, ord OFFSET {p_off} LIMIT {p_lim}) s) AS details"
         " FROM regime_screens r WHERE r.id = $1")
     row = await request.app.state.pool.fetchrow(sql, *args)
     uid = identity.scope_uid(request)
