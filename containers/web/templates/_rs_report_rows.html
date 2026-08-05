@@ -1,0 +1,74 @@
+{# 筛选报告 = 筛选条 + 当页表格(片段模板, 2026-08-05 Frank 定):
+   翻页/换筛选走 AJAX 只换这一块(不刷整页) — 主模板 include 它, 视图的
+   /regime-screen/report-fragment 单独渲染它。渲染逻辑只有这一份, 不复制到 JS。
+   服务端分页(实测: 500行全量进浏览器会卡死) + 通过优先排序 + 表级禁排。 #}
+
+{% macro seg(s) %}{% if s and s.n %}<span class="{{ 'pos' if s.net > 0 else 'neg' }}">{{ s.net }}</span>/{{ '∞' if s.pf is none else s.pf }}·{{ s.n }}笔{% else %}—{% endif %}{% endmacro %}
+{# 切分列序: 切点降序 → 左起 前1年/近4年 … 右到 前4年/近1年(前M年从左到右递增) #}
+{% set win = report.params.get('window_years', 5) %}
+{% set cuts = report.params.boundaries_years | sort(reverse=true) %}
+{% if report.id %}
+{% set total = report.total or 0 %}
+{% set pages = ((total / per) | round(0, 'ceil') | int) if per else 1 %}
+{% set sm = report.summary %}
+<p class="inline" style="margin:6px 0">
+  <span class="muted">结论</span>
+  {# 只显示有行的结论(2026-08-05 Frank 定: 没用的去掉); 跳过 = 未判定(已筛过/M1不足/回测失败) #}
+  {% set opts = [('', '全部 ' ~ sm.total)] %}
+  {% if sm.passed %}{% set opts = opts + [('pass', '通过 ' ~ sm.passed)] %}{% endif %}
+  {% if sm.failed %}{% set opts = opts + [('fail', '未过 ' ~ sm.failed)] %}{% endif %}
+  {% if sm.skipped %}{% set opts = opts + [('skip', '跳过 ' ~ sm.skipped)] %}{% endif %}
+  {% for v, zh in opts %}
+  <a href="{{ url_for('regime_screen.index', report=report.id, verdict=v, per=per) }}"
+     data-rs-nav {% if v == 'skip' %}title="未判定的: 已筛过(幂等跳过) / 主品种 M1 覆盖不足总计年 / 现跑回测失败"{% endif %}
+     class="{{ 'badge ok' if verdict == v else 'muted' }}">{{ zh }}</a>{{ ' · ' if not loop.last }}
+  {% endfor %}
+  <span class="op-sep">│</span>
+  <span class="muted">每页</span>
+  {% for n in [30, 50, 100] %}
+  <a href="{{ url_for('regime_screen.index', report=report.id, verdict=verdict, per=n) }}"
+     data-rs-nav class="{{ 'badge ok' if per == n else 'muted' }}">{{ n }}</a>{{ ' · ' if not loop.last }}
+  {% endfor %}
+  <span class="op-sep">│</span>
+  {% if page > 1 %}<a href="{{ url_for('regime_screen.index', report=report.id, verdict=verdict, per=per, page=page-1) }}" data-rs-nav>‹ 上一页</a>{% else %}<span class="muted">‹ 上一页</span>{% endif %}
+  <span class="muted">第 {{ page }} / {{ pages if pages else 1 }} 页 · 本页 {{ report.details | length }} 行 · 匹配 {{ total }}
+    <span id="rs-nav-busy" hidden>· 加载中…</span></span>
+  {% if page < pages %}<a href="{{ url_for('regime_screen.index', report=report.id, verdict=verdict, per=per, page=page+1) }}" data-rs-nav>下一页 ›</a>{% else %}<span class="muted">下一页 ›</span>{% endif %}
+</p>
+{% endif %}
+<table id="rs-details" class="dense" data-nosort>
+  <thead><tr><th>ID</th><th>名称</th><th>品种</th><th>判定窗</th><th>笔数</th>
+    <th title="判定窗整体的净点/PF·笔数">整窗净点/PF</th>
+    <th>各切分合格格(前M年/近N年)</th><th>通过格</th><th>结论</th><th>明细</th></tr></thead>
+  <tbody>
+  {% for d in report.details %}
+  <tr>
+    <td class="mono">{{ d.id }}</td>
+    <td>{{ d.name }}</td>
+    <td class="mono">{{ d.symbol }}</td>
+    <td class="mono">{{ d.window or '—' }}</td>
+    <td class="mono">{{ d.trades if d.trades is defined else '—' }}{% if d.unlabeled %} <span class="muted" title="入场日无 regime 标签, 不计入任何格">(无标签{{ d.unlabeled }})</span>{% endif %}</td>
+    <td class="mono">{{ seg(d.total) }}</td>
+    <td class="mono">{% if d.splits %}{% for y in cuts %}{% set cs = d.splits.get('%g' % y) %}前{{ '%g' % (win - (y | float)) }}/近{{ '%g' % y }}:{{ cs | join('·') if cs else '—' }}{{ '　' if not loop.last }}{% endfor %}{% else %}—{% endif %}</td>
+    <td class="mono">{{ d.pass_cells | join('·') if d.pass_cells else '—' }}
+      {%- if d.cross %}<div class="muted" title="全货币模式: 跨品种各自的合格格(每品种贴自己的时间线)">
+        {% for c in d.cross %}{{ c.symbol }}:{{ c.pass_cells | join('·') if c.pass_cells else '—' }} {% endfor %}</div>{% endif %}</td>
+    <td>{% if d.verdict == 'pass' %}<span class="pos">通过</span>
+        {% elif d.verdict == 'fail' %}<span class="neg">未过</span>
+        {% else %}<span class="muted">跳过</span>{% endif %}
+        <span class="muted">{{ d.reason }}</span></td>
+    <td>{% if d.cells_stat %}<button class="small" data-json-toggle="rs-d-{{ d.id }}"
+           title="展开: 格×切片 净点/PF·笔数 明细(点开才加载这一个策略的深层数字)">格×切片</button>{% endif %}</td>
+  </tr>
+  {% if d.cells_stat %}
+  {# 深层数字按需加载: splits_stat 占报告 81%, 首屏不传; 点开时取这一个策略的 #}
+  <tr id="rs-d-{{ d.id }}" class="detail-row" hidden data-sid="{{ d.id }}"
+      {%- if not report.id %} data-deep='{{ {"cells_stat": d.cells_stat, "splits_stat": d.splits_stat} | tojson }}'{% endif %}>
+    <td colspan="10" style="padding:0 8px 6px 28px"><span class="muted">加载中…</span></td></tr>
+  {% endif %}
+  {% endfor %}
+  {% if not report.details %}
+  <tr><td colspan="10" class="muted">本页无行 — 换个结论筛选或回第 1 页</td></tr>
+  {% endif %}
+  </tbody>
+</table>
