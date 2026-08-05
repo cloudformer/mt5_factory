@@ -462,11 +462,31 @@ async def screen_reports(request: Request, limit: int = 30):
 
 @router.get("/regime_screen/reports/{report_id}")
 async def screen_report(report_id: int, request: Request):
+    """报告明细(结论级)。按需加载(2026-08-05 与 Frank 定): splits_stat 占 details 的 81%
+    (500策略 2.5MB), 页面用不到就不传 — 剥掉后 ~590KB; 展开某策略时走
+    /reports/{id}/strategy/{sid} 单取深层数字。库里 details 仍存全量(审计不缩水)"""
     row = await request.app.state.pool.fetchrow(
-        "SELECT id, created_at, mode, version_id, scope, params, summary, details, owner_id"
+        "SELECT id, created_at, mode, version_id, scope, params, summary, owner_id,"
+        "       (SELECT jsonb_agg(e - 'splits_stat') FROM jsonb_array_elements(details) e)"
+        "         AS details"
         " FROM regime_screens WHERE id = $1", report_id)
     uid = identity.scope_uid(request)
     if row is None or (uid and row["owner_id"] != uid):   # 别人的报告 = 404 不暴露存在性
         raise HTTPException(status_code=404, detail="report not found")
     return {**{k: row[k] for k in row.keys() if k != "owner_id"},
             "created_at": row["created_at"].isoformat()}
+
+
+@router.get("/regime_screen/reports/{report_id}/strategy/{sid}")
+async def screen_report_strategy(report_id: int, sid: int, request: Request):
+    """单策略深层数字(展开明细按需取): 格×切分前后段 净点/PF/笔数"""
+    row = await request.app.state.pool.fetchrow(
+        "SELECT r.owner_id, e AS item FROM regime_screens r,"
+        "       jsonb_array_elements(r.details) e"
+        " WHERE r.id = $1 AND (e->>'id')::int = $2", report_id, sid)
+    uid = identity.scope_uid(request)
+    if row is None or (uid and row["owner_id"] != uid):
+        raise HTTPException(status_code=404, detail="not found")
+    it = row["item"]
+    return {"id": sid, "cells_stat": it.get("cells_stat") or {},
+            "splits_stat": it.get("splits_stat") or {}}

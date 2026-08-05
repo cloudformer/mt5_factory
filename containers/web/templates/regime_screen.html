@@ -189,30 +189,59 @@
           {% else %}<span class="muted">跳过</span>{% endif %}
           <span class="muted">{{ d.reason }}</span></td>
       <td>{% if d.cells_stat %}<button class="small" data-json-toggle="rs-d-{{ d.id }}"
-             title="展开: 格×切片 净点/PF·笔数 明细">格×切片</button>{% endif %}</td>
+             title="展开: 格×切片 净点/PF·笔数 明细(点开才加载这一个策略的深层数字)">格×切片</button>{% endif %}</td>
     </tr>
     {% if d.cells_stat %}
-    <tr id="rs-d-{{ d.id }}" class="detail-row" hidden>
-      <td colspan="10" style="padding:0 8px 6px 28px">
-        <table class="subtable" style="margin-top:6px">
-          <tr><th>格</th><th>近{{ '%g' % win }}年整体</th>
-            {% for y in cuts %}<th title="这一刀切在 {{ '%g' % y }} 年前: 左=前{{ '%g' % (win - (y | float)) }}年(早段) ‖ 右=近{{ '%g' % y }}年(晚段)">前{{ '%g' % (win - (y | float)) }}年 ‖ 近{{ '%g' % y }}年</th>{% endfor %}</tr>
-          {% for cell, cs in d.cells_stat.items() %}
-          <tr>
-            <td class="mono">{{ cell }} <span class="muted">{{ m.regime_cn(cell) }}</span></td>
-            <td class="mono">{{ seg(cs) }}</td>
-            {% for y in cuts %}
-            {% set e = (d.splits_stat.get('%g' % y) or {}).get(cell) %}
-            <td class="mono">{% if e %}{{ seg(e.f) }} ‖ {{ seg(e.b) }}{% else %}—{% endif %}</td>
-            {% endfor %}
-          </tr>
-          {% endfor %}
-        </table>
-      </td></tr>
+    {# 深层数字按需加载(2026-08-05 Frank 定): splits_stat 占报告 81%, 首屏不传;
+       点开时取这一个策略的, JS 现搭子表(已加载过就不再请求) #}
+    <tr id="rs-d-{{ d.id }}" class="detail-row" hidden data-sid="{{ d.id }}"
+        {%- if not report.id %} data-deep='{{ {"cells_stat": d.cells_stat, "splits_stat": d.splits_stat} | tojson }}'{% endif %}>
+      <td colspan="10" style="padding:0 8px 6px 28px"><span class="muted">加载中…</span></td></tr>
     {% endif %}
     {% endfor %}
     </tbody>
   </table>
+  <script>
+  (function () {   // 展开即加载(每次只取被点开的那一个策略)
+    const rid = {{ report.id if report.id else 'null' }};
+    const CN = {{ {'AAA': m.regime_cn('AAA'), 'AAB': m.regime_cn('AAB'), 'ABA': m.regime_cn('ABA'),
+                   'ABB': m.regime_cn('ABB'), 'BAA': m.regime_cn('BAA'), 'BAB': m.regime_cn('BAB'),
+                   'BBA': m.regime_cn('BBA'), 'BBB': m.regime_cn('BBB')} | tojson }};
+    const WIN = {{ '%g' % win }}, CUTS = {{ cuts | list | tojson }};
+    const g = (n) => (Math.round(n * 100) / 100);
+    const seg = (s) => (s && s.n
+      ? `<span class="${s.net > 0 ? 'pos' : 'neg'}">${s.net}</span>/${s.pf === null ? '∞' : s.pf}·${s.n}笔`
+      : "—");
+    document.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-json-toggle^='rs-d-']");
+      if (!btn) return;
+      const row = document.getElementById(btn.getAttribute("data-json-toggle"));
+      if (!row || row.dataset.loaded || row.hidden) return;   // 收起/已加载过: 不再请求
+      row.dataset.loaded = "1";
+      const cell = row.querySelector("td");
+      try {
+        // 点名诊断(未入库)的深层数字随响应内嵌; 入库报告按需取那一个策略
+        const d = row.dataset.deep ? JSON.parse(row.dataset.deep)
+          : await fetch(`/regime-screen/detail/${rid}/${row.dataset.sid}`).then((r) => r.json());
+        if (d.error) { cell.innerHTML = `<span class="neg">明细加载失败: ${d.error}</span>`; return; }
+        let h = '<table class="subtable" style="margin-top:6px"><tr><th>格</th>'
+              + `<th>近${WIN}年整体</th>`;
+        CUTS.forEach((y) => { h += `<th>前${g(WIN - y)}年 ‖ 近${g(y)}年</th>`; });
+        h += "</tr>";
+        Object.keys(d.cells_stat).sort().forEach((c) => {
+          h += `<tr><td class="mono">${c} <span class="muted">${CN[c] || ""}</span></td>`
+             + `<td class="mono">${seg(d.cells_stat[c])}</td>`;
+          CUTS.forEach((y) => {
+            const st = (d.splits_stat[String(g(y))] || {})[c];
+            h += `<td class="mono">${st ? seg(st.f) + " ‖ " + seg(st.b) : "—"}</td>`;
+          });
+          h += "</tr>";
+        });
+        cell.innerHTML = h + "</table>";
+      } catch { cell.innerHTML = '<span class="neg">明细加载失败(网络)</span>'; }
+    });
+  })();
+  </script>
 </section>
 {% endif %}
 

@@ -42,6 +42,15 @@ def progress():
         return jsonify({"error": str(e)}), 502
 
 
+@bp.get("/regime-screen/detail/<int:report_id>/<int:sid>")
+def detail(report_id: int, sid: int):
+    """单策略深层数字(展开时按需取, 2026-08-05 Frank 定): 每展开一个只加载那一个"""
+    try:
+        return jsonify(api.get(f"/regime_screen/reports/{report_id}/strategy/{sid}"))
+    except api.ApiError as e:
+        return jsonify({"error": str(e)}), 502
+
+
 @bp.get("/regime-screen/plan")
 def plan():
     """运行预估(页面预览行 AJAX): 透传 api, 匹配多少/可判多少/各类跳过多少"""
