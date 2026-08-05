@@ -204,25 +204,7 @@
         cell.innerHTML = h + "</table>";
       } catch { cell.innerHTML = '<span class="neg">明细加载失败(网络)</span>'; }
     });
-    // 筛选/翻页 AJAX(2026-08-05 Frank 定: 不刷整页) — 只换 #rs-report-box 的 HTML 片段,
-    // 渲染仍由服务端同一份模板出(不在 JS 里重复一套行渲染); 地址栏同步好收藏/回退
-    const box = document.getElementById("rs-report-box");
-    if (box) box.addEventListener("click", async (e) => {
-      const a = e.target.closest("a[data-rs-nav]");
-      if (!a) return;
-      e.preventDefault();
-      const busy = document.getElementById("rs-nav-busy");
-      if (busy) busy.hidden = false;
-      try {
-        const u = new URL(a.href, location.origin);
-        const html = await fetch("{{ url_for('regime_screen.report_fragment') }}" + u.search)
-          .then((r) => r.text());
-        box.innerHTML = html;
-        history.replaceState(null, "", u.pathname + u.search);
-      } catch {
-        if (busy) busy.textContent = "· 加载失败, 重试或刷新页面";
-      }
-    });
+    // 筛选/翻页局部刷新 = 全站通用机制(tables.js 的 data-ajax), 本页不再自带一套
   })();
   </script>
 </section>

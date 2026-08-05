@@ -20,20 +20,19 @@
   {% if sm.skipped %}{% set opts = opts + [('skip', '跳过 ' ~ sm.skipped)] %}{% endif %}
   {% for v, zh in opts %}
   <a href="{{ url_for('regime_screen.index', report=report.id, verdict=v, per=per) }}"
-     data-rs-nav {% if v == 'skip' %}title="未判定的: 已筛过(幂等跳过) / 主品种 M1 覆盖不足总计年 / 现跑回测失败"{% endif %}
+     data-ajax="#rs-report-box" {% if v == 'skip' %}title="未判定的: 已筛过(幂等跳过) / 主品种 M1 覆盖不足总计年 / 现跑回测失败"{% endif %}
      class="{{ 'badge ok' if verdict == v else 'muted' }}">{{ zh }}</a>{{ ' · ' if not loop.last }}
   {% endfor %}
   <span class="op-sep">│</span>
   <span class="muted">每页</span>
   {% for n in [30, 50, 100] %}
   <a href="{{ url_for('regime_screen.index', report=report.id, verdict=verdict, per=n) }}"
-     data-rs-nav class="{{ 'badge ok' if per == n else 'muted' }}">{{ n }}</a>{{ ' · ' if not loop.last }}
+     data-ajax="#rs-report-box" class="{{ 'badge ok' if per == n else 'muted' }}">{{ n }}</a>{{ ' · ' if not loop.last }}
   {% endfor %}
   <span class="op-sep">│</span>
-  {% if page > 1 %}<a href="{{ url_for('regime_screen.index', report=report.id, verdict=verdict, per=per, page=page-1) }}" data-rs-nav>‹ 上一页</a>{% else %}<span class="muted">‹ 上一页</span>{% endif %}
-  <span class="muted">第 {{ page }} / {{ pages if pages else 1 }} 页 · 本页 {{ report.details | length }} 行 · 匹配 {{ total }}
-    <span id="rs-nav-busy" hidden>· 加载中…</span></span>
-  {% if page < pages %}<a href="{{ url_for('regime_screen.index', report=report.id, verdict=verdict, per=per, page=page+1) }}" data-rs-nav>下一页 ›</a>{% else %}<span class="muted">下一页 ›</span>{% endif %}
+  {% if page > 1 %}<a href="{{ url_for('regime_screen.index', report=report.id, verdict=verdict, per=per, page=page-1) }}" data-ajax="#rs-report-box">‹ 上一页</a>{% else %}<span class="muted">‹ 上一页</span>{% endif %}
+  <span class="muted">第 {{ page }} / {{ pages if pages else 1 }} 页 · 本页 {{ report.details | length }} 行 · 匹配 {{ total }}</span>
+  {% if page < pages %}<a href="{{ url_for('regime_screen.index', report=report.id, verdict=verdict, per=per, page=page+1) }}" data-ajax="#rs-report-box">下一页 ›</a>{% else %}<span class="muted">下一页 ›</span>{% endif %}
 </p>
 {% endif %}
 <table id="rs-details" class="dense" data-nosort>

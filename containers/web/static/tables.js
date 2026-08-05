@@ -485,3 +485,45 @@ document.addEventListener("submit", async (e) => {
   }
   refreshMountCell(td);
 });
+
+/* ===== 局部刷新(全站统一, 2026-08-05 与 Frank 定: 表格上的筛选/翻页不刷整页) =====
+   用法: <a data-ajax="#容器id" href="…">  或  <form method="get" data-ajax="#容器id">
+   机制: 取同一 URL 的页面 → 从响应里抽出同 id 的容器 → 换掉本页那块 → 重装表格增强
+        (排序/分页/本地时间) + 同步地址栏(收藏与后退照常)。
+   兜底: 任何异常/找不到容器 → 退回整页跳转, 永远不把用户卡在半路。
+   服务端零改动: 复用页面自己的渲染, 不需要专门的片段端点(机制唯一) */
+async function ajaxSwap(url, sel) {
+  const box = document.querySelector(sel);
+  if (!box) { location.assign(url); return; }
+  box.style.opacity = "0.55";
+  try {
+    const html = await fetch(url, { headers: { "X-Requested-With": "fetch" } })
+      .then((r) => r.text());
+    const fresh = new DOMParser().parseFromString(html, "text/html").querySelector(sel);
+    if (!fresh) { location.assign(url); return; }
+    box.innerHTML = fresh.innerHTML;
+    history.replaceState(null, "", url);
+    // 换进来的表格重新装上排序/列宽/分页/时间本地化(新 DOM 没有事件与初始化痕迹)
+    box.querySelectorAll("table").forEach((t) => { delete t.dataset.sortInit; initTableSort(t); });
+    box.querySelectorAll("table[data-colpick]").forEach(initColPick);
+    box.querySelectorAll("table[id]").forEach((t) => {
+      if (t.querySelector("td.rownum")
+          || document.querySelector(`select[data-table-limit="${t.id}"]`)) applyTableFilters(t);
+    });
+    if (window.renderLocaltimes) window.renderLocaltimes();
+    if (window.renderReltimes) window.renderReltimes();
+  } catch (err) { location.assign(url); } finally { box.style.opacity = ""; }
+}
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a[data-ajax]");
+  if (!a || a.target === "_blank" || e.metaKey || e.ctrlKey) return;  // 新窗口打开照旧
+  e.preventDefault();
+  ajaxSwap(a.href, a.getAttribute("data-ajax"));
+});
+document.addEventListener("submit", (e) => {
+  const f = e.target.closest("form[data-ajax]");
+  if (!f || e.defaultPrevented) return;   // onsubmit 里 confirm 取消了就不处理
+  e.preventDefault();
+  const q = new URLSearchParams(new FormData(f)).toString();
+  ajaxSwap(f.action.split("?")[0] + (q ? "?" + q : ""), f.getAttribute("data-ajax"));
+});

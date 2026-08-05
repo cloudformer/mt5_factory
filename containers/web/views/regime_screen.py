@@ -22,7 +22,8 @@ def _page_data():
 
 @bp.get("/regime-screen")
 def index():
-    # 报告明细服务端分页(2026-08-05 实测定: 500行全量进浏览器会卡死) — 纯链接翻页零JS
+    # 报告明细服务端分页(2026-08-05 实测定: 500行全量进浏览器会卡死);
+    # 筛选/翻页走全站通用局部刷新(tables.js data-ajax): 重取本页 → 只换 #rs-report-box
     per = request.args.get("per", 50, type=int)
     page = max(request.args.get("page", 1, type=int), 1)
     verdict = request.args.get("verdict", "")
@@ -46,23 +47,6 @@ def progress():
         return jsonify(api.get("/regime_screen/progress"))
     except api.ApiError as e:
         return jsonify({"error": str(e)}), 502
-
-
-@bp.get("/regime-screen/report-fragment")
-def report_fragment():
-    """报告表片段(筛选/翻页 AJAX 用, 2026-08-05 Frank 定不刷整页):
-    与主页面同一份模板渲染 — 行渲染逻辑单一份, 不在 JS 里复制"""
-    rid = request.args.get("report", type=int)
-    per = request.args.get("per", 50, type=int)
-    page = max(request.args.get("page", 1, type=int), 1)
-    verdict = request.args.get("verdict", "")
-    try:
-        report = api.get(f"/regime_screen/reports/{rid}", limit=per, offset=(page - 1) * per,
-                         **({"verdict": verdict} if verdict else {}))
-    except api.ApiError as e:
-        return f'<p class="flash error">报告加载失败: {e}</p>', 502
-    return render_template("_rs_report_rows.html", report=report,
-                           page=page, per=per, verdict=verdict)
 
 
 @bp.get("/regime-screen/detail/<int:report_id>/<int:sid>")
