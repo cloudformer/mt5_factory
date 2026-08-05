@@ -19,12 +19,20 @@ services:
     volumes:
       - ./containers/postgres/data:/var/lib/postgresql/data   # 数据在 repo 内 (gitignore)
       # 不挂 initdb 脚本: schema 由 api 启动时自动执行 containers/postgres/schema/ (唯一机制)
+    # 内存调优(2026-08-04 与 Frank 定, 32G VM 提速读取/计算):
+    #   shared_buffers       热分区常驻(按需装页非预加载), worker 重复扫 M1 第二遍起全内存
+    #   effective_cache_size 零内存占用, 只向规划器报"OS 页缓存情报"防选错计划
+    #   work_mem             每查询排序/聚合节点内存(排名/汇总 SQL 受益), 峰值=并发×节点×此值
     command:
       - postgres
       - -c
       - max_connections=200
       - -c
-      - shared_buffers=256MB
+      - shared_buffers=10GB
+      - -c
+      - effective_cache_size=16GB
+      - -c
+      - work_mem=512MB
     networks:
       - mt5_network
     healthcheck:
