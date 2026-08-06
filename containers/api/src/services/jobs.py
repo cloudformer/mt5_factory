@@ -18,36 +18,43 @@ from src.services import backtest, regime
 
 logger = logging.getLogger("jobs")
 
-KIND = "backtest"            # 目前唯一任务类型
+# 工种(2026-08-05 与 Frank 定, 命名跟随各自概念既有的名字, 不新造词):
+#   backtest       批量回测(回测页)
+#   regime_screen  自动化筛选 by Regime(现跑回测 + 切片判定)
+# 各工种"一次一批"独立自清理(submit 只删同工种旧批) — 筛选不会抹掉手上的批量回测, 反之亦然;
+# 同时跑只是共享 worker 排队(总量守恒)。下载队列在 sync.py(DOWNLOAD_KIND), 消费在 worker 侧
+KIND = "backtest"            # 默认工种(不传 kind 的老调用 = 批量回测, 行为不变)
+SCREEN_KIND = "regime_screen"
+ENGINE_KINDS = (KIND, SCREEN_KIND)   # 消费者认的工种: 都是"跑一次回测"的活, 同一执行路径
 POLL_SECONDS = 3             # 队列空时的轮询间隔
 LEASE_MINUTES = 30           # RUNNING 超时视为消费者死单, 扫回重试(单个回测秒级, 30分钟很宽)
 MAX_ATTEMPTS = 2             # 含首跑; 超过则 FAILED(错误留在行里可查)
 WORKER = f"{socket.gethostname()}:{os.getpid()}"
 
 
-async def submit_batch(pool: asyncpg.Pool, items: list[dict]) -> int:
-    """新批次投递: 删光旧批次(自清理, 铁律3 — 表内只留最新一批) + 整批插入。
+async def submit_batch(pool: asyncpg.Pool, items: list[dict], kind: str = KIND) -> int:
+    """新批次投递: 删光【同工种】旧批次(自清理, 铁律3 — 每工种只留最新一批) + 整批插入。
     并行批次由调用方(routes)先查 has_active 拒绝, 这里不重复把关。"""
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.execute("DELETE FROM jobs WHERE kind = $1", KIND)
+            await conn.execute("DELETE FROM jobs WHERE kind = $1", kind)
             await conn.executemany(
                 "INSERT INTO jobs (kind, payload) VALUES ($1, $2)",
-                [(KIND, it) for it in items])
+                [(kind, it) for it in items])
     return len(items)
 
 
-async def has_active(pool: asyncpg.Pool) -> bool:
+async def has_active(pool: asyncpg.Pool, kind: str = KIND) -> bool:
     return await pool.fetchval(
         "SELECT EXISTS (SELECT 1 FROM jobs WHERE kind=$1"
-        " AND status IN ('PENDING','RUNNING'))", KIND)
+        " AND status IN ('PENDING','RUNNING'))", kind)
 
 
-async def progress(pool: asyncpg.Pool) -> dict:
+async def progress(pool: asyncpg.Pool, kind: str = KIND) -> dict:
     """进度聚合(与旧 bt_state 同结构, web 零改动):
-    {running, current, done, total, errors}"""
+    {running, current, done, total, errors, last_finished}"""
     rows = await pool.fetch(
-        "SELECT status, count(*) AS n FROM jobs WHERE kind=$1 GROUP BY status", KIND)
+        "SELECT status, count(*) AS n FROM jobs WHERE kind=$1 GROUP BY status", kind)
     n = {r["status"]: r["n"] for r in rows}
     total = sum(n.values())
     done = n.get("DONE", 0) + n.get("FAILED", 0)
@@ -55,17 +62,17 @@ async def progress(pool: asyncpg.Pool) -> dict:
     if n.get("RUNNING"):
         p = await pool.fetchval(
             "SELECT payload FROM jobs WHERE kind=$1 AND status='RUNNING'"
-            " ORDER BY started_at DESC LIMIT 1", KIND)
+            " ORDER BY started_at DESC LIMIT 1", kind)
         if p:
             current = f"{p.get('name', p.get('strategy_id'))} @ {p.get('symbol')}"
     errors = [f"{r['payload'].get('name')} @ {r['payload'].get('symbol')}: {r['error']}"
               for r in await pool.fetch(
                   "SELECT payload, error FROM jobs WHERE kind=$1 AND status='FAILED'"
-                  " ORDER BY id LIMIT 50", KIND)]
+                  " ORDER BY id LIMIT 50", kind)]
     # 本批最后一个任务结束的时刻(2026-08-05 Frank 要: 概览任务表显示时间) —
     # 跑着的批次也给已完成部分的最新时刻, 空批次 None
     last = await pool.fetchval(
-        "SELECT max(finished_at) FROM jobs WHERE kind=$1 AND finished_at IS NOT NULL", KIND)
+        "SELECT max(finished_at) FROM jobs WHERE kind=$1 AND finished_at IS NOT NULL", kind)
     return {"running": (n.get("PENDING", 0) + n.get("RUNNING", 0)) > 0,
             "current": current, "done": done, "total": total, "errors": errors,
             "last_finished": last.isoformat() if last else None}
@@ -79,9 +86,9 @@ async def _reclaim(pool: asyncpg.Pool):
         "   error  = CASE WHEN attempts >= $2"
         "            THEN coalesce(error || ' | ', '') || 'lease expired' ELSE error END,"
         "   finished_at = CASE WHEN attempts >= $2 THEN now() ELSE NULL END"
-        " WHERE kind=$3 AND status='RUNNING'"
+        " WHERE kind = ANY($3) AND status='RUNNING'"
         "   AND started_at < now() - make_interval(mins => $1)",
-        LEASE_MINUTES, MAX_ATTEMPTS, KIND)
+        LEASE_MINUTES, MAX_ATTEMPTS, list(ENGINE_KINDS))
     if n != "UPDATE 0":
         logger.warning("reclaimed stale jobs: %s", n)
 
@@ -137,20 +144,22 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
 
 
 async def consumer_loop(pool: asyncpg.Pool):
-    """常驻消费者(api 启动即跑; 将来 worker 容器复用同一函数):
-    抢单(SKIP LOCKED, 按品种排序) → 执行 → DONE/FAILED; 空队列时低频轮询 + 顺手回收租约。"""
+    """常驻消费者(api 内 1 路 + worker 容器 N 路, 同一函数):
+    抢单(SKIP LOCKED, 按品种排序) → 执行 → DONE/FAILED; 空队列时低频轮询 + 顺手回收租约。
+    认 ENGINE_KINDS 全部工种(backtest / regime_screen): 都是"跑一次回测"的活, 执行路径同一份
+    (_run_one) → 结果必然一致(尺子不变); 两队列并存时先清回测(kind 排序), 只影响先后不影响正确性。"""
     cache: dict = {}
-    logger.info("jobs consumer started (%s)", WORKER)
+    logger.info("jobs consumer started (%s), kinds=%s", WORKER, ",".join(ENGINE_KINDS))
     while True:
         try:
             await _reclaim(pool)
             job = await pool.fetchrow(
                 "UPDATE jobs SET status='RUNNING', worker=$1,"
                 "   started_at=now(), attempts=attempts+1"
-                " WHERE id = (SELECT id FROM jobs WHERE kind=$2 AND status='PENDING'"
-                "             ORDER BY payload->>'symbol', id LIMIT 1"
+                " WHERE id = (SELECT id FROM jobs WHERE kind = ANY($2) AND status='PENDING'"
+                "             ORDER BY kind, payload->>'symbol', id LIMIT 1"
                 "             FOR UPDATE SKIP LOCKED)"
-                " RETURNING id, payload, attempts", WORKER, KIND)
+                " RETURNING id, payload, attempts", WORKER, list(ENGINE_KINDS))
             if job is None:
                 cache.clear()   # 队列空: 释放缓存的 M1(可能几百MB), 再睡
                 await asyncio.sleep(POLL_SECONDS)
