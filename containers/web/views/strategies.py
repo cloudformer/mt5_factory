@@ -2,7 +2,8 @@
 UI 拆分(2026-07-13): 生成=进货(偶发), 列表=日常主战场, 各自成页; 导航挂「策略▾」下拉。"""
 from datetime import datetime
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import (Blueprint, flash, redirect, render_template, request, session,
+                   url_for)
 
 import api_client as api
 
@@ -560,12 +561,32 @@ def heal_points():
 def reconcile_stats():
     """对账统计: 全部有实盘成交的策略, 批量看 回测vs实盘 匹配率(顶部三卡 + 逐策略行)。
     行数据 = api /reconcile/summary(纯读已存结果); 重算 = 页面循环调 reconcile_one。"""
-    rows = []
+    rows, recon_hours, recon_last = [], 24, None
     try:
         rows = api.get("/reconcile/summary")["strategies"]
-    except api.ApiError as e:
+        cfg = api.get("/config")["config"]
+        recon_hours = int(cfg.get("recon_hours") or 0)   # 自动对账频率(小时, 0=关)
+        recon_last = cfg.get("recon_last_run")
+    except (api.ApiError, TypeError, ValueError) as e:
         flash(f"读取对账统计失败: {e}", "error")
-    return render_template("reconcile_stats.html", rows=rows)
+    return render_template("reconcile_stats.html", rows=rows,
+                           recon_hours=recon_hours, recon_last=recon_last)
+
+
+@bp.post("/reconcile/hours")
+def save_recon_hours():
+    """保存自动对账频率(config recon_hours, 仅 admin): 距上次满 N 小时就跑一遍, 0=关闭"""
+    if session.get("dev_user_id") != 1:
+        flash("此项仅管理员(admin)可改 — 其他用户只读", "error")
+        return redirect(url_for("strategies.reconcile_stats"))
+    try:
+        h = int(request.form.get("recon_hours", 24))
+        api.put("/config/recon_hours", {"value": h})
+        flash(f"自动对账频率已保存: {'关闭' if h == 0 else f'每 {h} 小时'}"
+              " — 心跳主节点下一拍(30秒内)按新频率走", "ok")
+    except (api.ApiError, ValueError) as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("strategies.reconcile_stats"))
 
 
 @bp.post("/<int:strategy_id>/reconcile")

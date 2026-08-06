@@ -9,6 +9,20 @@
     <span><span id="rs-prog" class="muted mono"></span>
       <button type="button" id="rs-recalc" class="live" style="margin-left:8px">全部重算</button></span>
   </div>
+  {# 自动对账频率(2026-08-06 与 Frank 定, schema/060): 语义="距上次满 N 小时就跑"(不挑钟点);
+     心跳主节点搭车逐个重算, 结果喂「回测概览」三卡。仅 admin 可改, 其他人同控件只读 #}
+  {% set is_admin = dev_user_id == 1 %}
+  {% if is_admin %}<form method="post" action="{{ url_for('strategies.save_recon_hours') }}" class="inline" style="margin-top:6px">
+  {% else %}<div class="inline" style="margin-top:6px">{% endif %}
+    <label title="距上次满 N 小时就自动跑一遍全部策略的对账重算(每拍一个策略, 不占用心跳); 0=关闭, 只留手动「全部重算」">回测 vs 实盘 · 对账统计频率
+      每 <select name="recon_hours" class="small" {% if not is_admin %}disabled{% endif %}>
+        <option value="0" {% if recon_hours == 0 %}selected{% endif %}>关闭</option>
+        {% for h in [3, 6, 12, 24, 36, 72] %}
+        <option value="{{ h }}" {% if recon_hours == h %}selected{% endif %}>{{ h }}</option>{% endfor %}
+      </select> 小时</label>
+    {% if is_admin %}<button class="small">保存</button>{% endif %}
+    <span class="muted">管理员可改, 其他用户只读{% if recon_last %} · 上次自动跑完 {{ m.lts(recon_last) }}{% endif %}</span>
+  {% if is_admin %}</form>{% else %}</div>{% endif %}
 
   <div class="stats" style="margin-top:12px">
     <div class="stat">

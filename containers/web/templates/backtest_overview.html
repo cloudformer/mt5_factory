@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('回测概览', '回测可信度总览(全量口径, 不带筛选) + worker 余额 · 读已存对账结果, 自动对账按频率刷新') }}
+
+{# 三卡 = 对账统计页那三张的全量版(2026-08-06 Frank 定): 概览不带筛选器, 要筛着看去对账统计页 #}
+{% if cards %}
+<div class="stats">
+  <div class="stat" title="全部有实盘成交策略的笔数堆一起算: 配对笔数 / 并集笔数 — 回测能复现实盘的比例">
+    <div class="stat-label">总笔数匹配率</div>
+    <div class="stat-value {{ 'pos' if cards.pooled is not none and cards.pooled >= 90 else ('neg' if cards.pooled is not none else '') }}">
+      {{ m.pct(cards.pooled) if cards.pooled is not none else '—' }}</div>
+    <div class="stat-sub">配对 {{ '{:,}'.format(cards.paired) }} / 并集 {{ '{:,}'.format(cards.union) }} 笔({{ cards.n_scored }} 策略)</div>
+  </div>
+  <div class="stat" title="每策略的综合匹配分等权平均(满分100) — 一个策略一票, 不被大笔数策略主导">
+    <div class="stat-label">策略平均分</div>
+    <div class="stat-value {{ 'pos' if cards.avg is not none and cards.avg >= 90 else ('neg' if cards.avg is not none else '') }}">
+      {{ cards.avg if cards.avg is not none else '—' }}</div>
+    <div class="stat-sub">{{ cards.n_scored }} 策略等权 · 满分100</div>
+  </div>
+  <div class="stat" title="达标 = 笔数匹配率与方向匹配率都 ≥90%(回测质量 v1 验收) — 这批策略里回测可信的占比">
+    <div class="stat-label">达标率 ≥90</div>
+    <div class="stat-value {{ 'pos' if cards.q10_pct is not none and cards.q10_pct >= 70 else ('neg' if cards.q10_pct is not none else '') }}">
+      {{ cards.q10 }}/{{ cards.n_scored }}{% if cards.q10_pct is not none %} = {{ cards.q10_pct }}%{% endif %}</div>
+    <div class="stat-sub">回测可信的策略占比</div>
+  </div>
+</div>
+<p class="muted" style="margin:0 0 4px">
+  {%- if cards.n_total > cards.n_scored %}另有 {{ cards.n_total - cards.n_scored }} 个有实盘成交但还没算过对账(等自动对账轮到, 或去
+  <a href="{{ url_for('strategies.reconcile_stats') }}">对账统计</a>页点「全部重算」)。{% endif %}
+  最近一次对账结果时间: {{ m.lts(cards.last_at) if cards.last_at else '—' }} ·
+  按品种/状态筛着看 → <a href="{{ url_for('strategies.reconcile_stats') }}">对账统计</a>(那页三卡随筛选实时重算, 并可改自动对账频率)</p>
+{% elif err %}
+<p class="muted">对账数据读取失败: {{ err }}</p>
+{% else %}
+<p class="muted">还没有任何实盘成交 — 有 demo/live 成交后这里才有对账可信度。</p>
+{% endif %}
+
+{# worker 余额(2026-08-06 从 Regime 概览搬来: 钱属于交易/回测视角, 不属于行情视角) #}
+<h2 style="margin-top:18px">worker 余额</h2>
+<div class="stats">
+  {% for w in workers %}
+  <div class="stat" title="初始资金 ≈ {{ '%.2f' % w.initial if w.initial is not none else '—' }} · 按无出入金推算(余额 − 库内已实现合计) · 心跳 {{ w.hb_fmt or '—' }}">
+    <div class="stat-label">{{ w.name }} · {{ w.runner }}</div>
+    <div class="stat-value mono">{{ '{:,.2f}'.format(w.balance) if w.balance is not none else '—' }}<span
+        style="font-size:12px;font-weight:500;color:var(--muted)"> {{ w.currency or '' }}</span></div>
+    <div class="stat-sub">已实现
+      {%- if w.realized is not none %} <b class="{{ 'pos' if w.realized >= 0 else 'neg' }}">{{ '{:+,.2f}'.format(w.realized) }}</b>
+        {%- if w.pnl_pct is not none %} <span class="{{ 'pos' if w.pnl_pct >= 0 else 'neg' }}">({{ '%+.2f' % w.pnl_pct }}%)</span>{% endif %}
+      {%- else %} —{% endif %}</div>
+  </div>
+  {% endfor %}
+  {% if not workers %}<p class="muted">没有跑策略的 worker(指派 demo/live 角色后这里显示余额)。</p>{% endif %}
+</div>
+{% endblock %}

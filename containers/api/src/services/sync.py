@@ -255,6 +255,53 @@ async def _auto_sync_tick(pool: asyncpg.Pool) -> None:
     logger.info("auto sync submitted: %s jobs (every %sh)", r.get("jobs"), hours)
 
 
+async def _recon_tick(pool: asyncpg.Pool) -> None:
+    """自动对账(2026-08-06 与 Frank 定, 搭心跳班车): 距上次满 config.recon_hours 小时就跑一遍
+    【全部有实盘成交的策略】的对账重算 → 结果 UPSERT 进 reconciliations, 回测概览三卡自动新鲜。
+    频率语义"满N小时就跑"(不挑钟点, 与 auto_sync_hours 同款; 0=关闭, 只留页面手动全部重算)。
+    每拍最多跑 1 个策略(一个约1秒, 不长占心跳循环) — 60 策略约 1 分钟走完一轮, 跑完记时刻。
+    幂等: 重算即覆盖(同 strategy×account 一行); 有回测/筛选批次在跑也不影响(纯读 M1 重放)。"""
+    hours = await pool.fetchval("SELECT value FROM config WHERE key='recon_hours'")
+    try:
+        hours = int(hours or 0)
+    except (TypeError, ValueError):
+        return
+    if hours <= 0:
+        return
+    last = await pool.fetchval("SELECT value #>> '{}' FROM config WHERE key='recon_last_run'")
+    due = True
+    if last:
+        try:
+            due = (datetime.now(timezone.utc)
+                   - datetime.fromisoformat(last)) >= timedelta(hours=hours)
+        except ValueError:
+            due = True
+    if not due:
+        return
+    # 本轮进度 = 找"这轮还没算过的"策略(对账结果比本轮起点旧的那个) — 逐拍推进不集中占用
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    sid = await pool.fetchval(
+        "SELECT t.strategy_id FROM (SELECT DISTINCT strategy_id FROM trades"
+        "        WHERE strategy_id IS NOT NULL) t"
+        "  LEFT JOIN LATERAL (SELECT max(updated_at) AS u FROM reconciliations r"
+        "        WHERE r.strategy_id = t.strategy_id) rc ON true"
+        " WHERE rc.u IS NULL OR rc.u < $1 ORDER BY rc.u NULLS FIRST, t.strategy_id LIMIT 1",
+        cutoff)
+    if sid is None:      # 全部策略本轮都算过了 → 记时刻, 下一轮等满 N 小时
+        await pool.execute(
+            "INSERT INTO config (key, value) VALUES ('recon_last_run', to_jsonb($1::text))"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+            datetime.now(timezone.utc).isoformat())
+        logger.info("auto recon: 本轮全部策略已算完(间隔 %dh)", hours)
+        return
+    try:   # 计算逻辑复用对账端点那一份(routes.backtests.compute_reconcile), 不抄第二份
+        from src.routes import backtests as bt_routes
+        await bt_routes.compute_reconcile(pool, int(sid), "all", None)
+        logger.info("auto recon: #%s 已重算", sid)
+    except Exception as e:
+        logger.warning("auto recon #%s failed: %s", sid, e)
+
+
 async def _regime_refresh_tick(pool: asyncpg.Pool) -> None:
     """regime 时间线保鲜(2026-08-03 与 Frank 定, 搭心跳班车):
     治理集合 = 【全部已存在版本 × 全部下载品种】(动态取表 — 新建版本自动纳入,
@@ -328,6 +375,10 @@ async def heartbeat_loop(pool: asyncpg.Pool):
                         await screen.finalize(pool)
                     except Exception as e:
                         logger.warning("regime screen finalize error: %s", e)
+                    try:   # 自动对账(满 recon_hours 就逐个重算, 每拍一个)
+                        await _recon_tick(pool)
+                    except Exception as e:
+                        logger.warning("auto recon tick error: %s", e)
                     if lock_conn.is_closed():   # 锁连接断 = 主身份已失效, 停止双写
                         raise asyncpg.PostgresConnectionError("leader lock conn lost")
                     await asyncio.sleep(30)

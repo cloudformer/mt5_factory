@@ -386,6 +386,7 @@ CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
                # config 只留 regime_version 指针(由版本端点维护, 不走通用 PUT)
                "download_timeframes",  # 下载周期层(2026-07-29, schema/049): M1 必含 + 可选高周期
                "auto_sync_hours",  # 自动增量同步间隔(2026-08-01, schema/055): admin 页面可改, 0=关
+               "recon_hours",      # 自动对账频率(2026-08-06, schema/060): 距上次满N小时就跑, 0=关
                "regime_view",      # Regime页默认视图(2026-08-04, schema/058): 全局共享, admin 可改
                "backtest_window_days"}  # 批量回测默认窗口天数(2026-07-29, schema/051)
 
@@ -597,6 +598,10 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
             raise HTTPException(status_code=400,
                                 detail=f"download_timeframes 须为包含 M1 的列表, 可选值 {allowed_tf}")
         req.value = [t for t in allowed_tf if t in req.value]   # 去重并按周期从细到粗定序
+    if key == "recon_hours":  # 自动对账频率(小时): 0=关闭; 选项与页面下拉一致
+        if req.value not in (0, 3, 6, 12, 24, 36, 72):
+            raise HTTPException(status_code=400,
+                                detail="recon_hours 须为 0(关闭)/3/6/12/24/36/72")
     if key == "auto_sync_hours":  # 自动同步间隔(小时): 0=关闭, 上限一周
         if not isinstance(req.value, int) or not 0 <= req.value <= 168:
             raise HTTPException(status_code=400, detail="auto_sync_hours 须为 0~168 的整数(小时, 0=关闭)")

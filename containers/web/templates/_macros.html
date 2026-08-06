@@ -297,9 +297,11 @@ worker 90 秒无心跳 — Windows 侧看 bridge/runner 进程与网络; 恢复�
    lines: {格子: [显示行, ...]}(Regime页装天数占比, 策略页装胜率净点 — 同一张图两处用);
    current: 实线圈(今天所在格); neighbors: 虚线圈(距离1邻格) #}
 {# fills: 可选 {格子: 底色} — 底色改按业务含义着色(如九币矩阵盈亏绿/红), 左色条恒为 regime 本色 #}
-{% macro regime_grid(lines, current=None, neighbors=[], fills=None) -%}
+{% macro regime_grid(lines, current=None, neighbors=[], fills=None, corner='') -%}
+{# corner(2026-08-06): 左上废角可放说明(行情概览用它标 v号/口径/数据日) — 全站八格
+   都走这一个组件, 别再手写 table(样式会走形) #}
 <div class="regime-quad" style="grid-template-columns:auto 1fr 1fr 18px 1fr 1fr">
-  <div></div>
+  <div class="muted" style="font-size:12px;align-self:end">{{ corner | safe }}</div>
   <div class="regime-axis" style="grid-column:2/4">短 <span class="pos">↑</span></div>
   <div class="regime-axis" style="grid-column:5/7">短 <span class="neg">↓</span></div>
   <div></div>

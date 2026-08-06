@@ -1,46 +1,17 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('行情概览', '全部下载品种的【当日格】落位(regime 图, 本色标格) + worker 余额 · 读时现拼') }}
+{{ m.page_header('Regime 概览', '全部下载品种的【当日格】落位 — 每个口径版本一张八格图(读时现拼零落库) · worker 余额在「回测概览」') }}
 
 {% if data and data.versions %}
 {# 全版本对比(2026-08-03 Frank 定): 每个版本一张八格落位图, 上下排开 —
    左上废角 = v号+口径+绝对数据日(券商服务器时间); 保鲜由心跳班车负责 #}
 {% for ver in data.versions %}
 {% if ver.date %}
-{# 版本号/口径/数据日 合并进左上废角(2026-08-03 Frank 定), 不另起标题行 #}
-<table class="dense" data-nosort style="max-width:1020px{% if not loop.first %};margin-top:16px{% endif %}">
-  <tr>
-    <th rowspan="2" style="vertical-align:middle">
-      <b class="mono">v{{ ver.id }}</b> <span class="muted" style="font-weight:normal">{{ ver.label }}</span><br>
-      <b class="mono">{{ ver.date }}</b>
-      <span class="muted" style="font-weight:normal">券商时间</span></th>
-    <th colspan="2">短 <span class="pos">↑</span></th>
-    <th colspan="2">短 <span class="neg">↓</span></th>
-  </tr>
-  <tr>
-    <th>波动性 <span class="pos">↑</span></th><th>波动性 <span class="neg">↓</span></th>
-    <th>波动性 <span class="pos">↑</span></th><th>波动性 <span class="neg">↓</span></th>
-  </tr>
-  {% for lt, row in [('A', ['AAA', 'AAB', 'ABA', 'ABB']), ('B', ['BAA', 'BAB', 'BBA', 'BBB'])] %}
-  <tr>
-    <th>长 <span class="{{ 'pos' if lt == 'A' else 'neg' }}">{{ '↑' if lt == 'A' else '↓' }}</span></th>
-    {% for cell in row %}
-    <td style="border-left:5px solid {{ m.regime_color(cell) }};vertical-align:top;min-width:150px">
-      <b class="mono">{{ cell }}</b> <span class="muted">{{ m.regime_cn(cell) }}</span>
-      {% set members = ver.cells.get(cell) or [] %}
-      {% if members %}
-      {% for e in members %}
-      <div><a class="mono {{ 'muted' if e.stale }}" href="{{ url_for('datasync.regime', symbol=e.symbol) }}"
-              title="已在 {{ cell }} 连续 {{ e.run_days }} 天{{ ' · 数据截至 ' ~ e.date if e.stale }}">{{ e.symbol }}</a>
-        {%- if e.stale %} <span class="muted">(截至 {{ e.date_short }})</span>{% endif %}</div>
-      {% endfor %}
-      {% else %}<div class="muted">—</div>{% endif %}
-    </td>
-    {% endfor %}
-  </tr>
-  {% endfor %}
-</table>
+{# 全站标准八格组件(2026-08-06 修): 原来这里手写 table, 底色/圆角与其他页八格不一致;
+   corner 参数把 v号+口径+数据日 放回左上废角 — 布局不变, 样式统一 #}
+{{ m.regime_grid(ver.lines, corner='<b class="mono">v' ~ ver.id ~ '</b> ' ~ ver.label
+   ~ '<br><b class="mono">' ~ ver.date ~ '</b> 券商时间') }}
 {% if ver.no_timeline %}
 <p class="muted">v{{ ver.id }} 无时间线: {{ ver.no_timeline | join(', ') }} — 心跳保鲜几分钟内自动补齐</p>
 {% endif %}
@@ -53,21 +24,4 @@
 {% elif data %}
 <p class="muted">还没有任何品种的 regime 时间线 — 去「数据 → 市场状态 Regime」页重建。</p>
 {% endif %}
-
-<h2 style="margin-top:18px">worker 余额</h2>
-{# 用全站标准卡片组件 .stats/.stat(白底+边框+阴影+统一字号) — 2026-08-06 修:
-   之前手写 inline 卡片只有边框没底色, 和页面背景糊在一起(违"标准组件, 禁内联补丁") #}
-<div class="stats">
-  {% for w in data.workers %}
-  <div class="stat" title="初始资金 ≈ {{ '%.2f' % w.initial if w.initial is not none else '—' }} · 按无出入金推算(余额 − 库内已实现合计) · 心跳 {{ w.hb_fmt or '—' }}">
-    <div class="stat-label">{{ w.name }} · {{ w.runner }}</div>
-    <div class="stat-value mono">{{ '{:,.2f}'.format(w.balance) if w.balance is not none else '—' }}<span
-        style="font-size:12px;font-weight:500;color:var(--muted)"> {{ w.currency or '' }}</span></div>
-    <div class="stat-sub">已实现
-      {%- if w.realized is not none %} <b class="{{ 'pos' if w.realized >= 0 else 'neg' }}">{{ '{:+,.2f}'.format(w.realized) }}</b>
-        {%- if w.pnl_pct is not none %} <span class="{{ 'pos' if w.pnl_pct >= 0 else 'neg' }}">({{ '%+.2f' % w.pnl_pct }}%)</span>{% endif %}
-      {%- else %} —{% endif %}</div>
-  </div>
-  {% endfor %}
-</div>
 {% endblock %}

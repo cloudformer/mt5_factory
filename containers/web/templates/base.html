@@ -16,7 +16,8 @@
     <a href="{{ url_for('dashboard.index') }}" {% if ep.startswith('dashboard.') %}class="active"{% endif %}>概览 ▾</a>
     <div class="navmenu-items">
       <a href="{{ url_for('dashboard.index') }}" {% if ep == 'dashboard.index' %}class="active"{% endif %}>系统概览</a>
-      <a href="{{ url_for('dashboard.market_overview') }}" {% if ep == 'dashboard.market_overview' %}class="active"{% endif %}>行情概览</a>
+      <a href="{{ url_for('dashboard.market_overview') }}" {% if ep == 'dashboard.market_overview' %}class="active"{% endif %}>Regime 概览</a>
+      <a href="{{ url_for('dashboard.backtest_overview') }}" {% if ep == 'dashboard.backtest_overview' %}class="active"{% endif %}>回测概览</a>
     </div>
   </div>
   <a href="{{ url_for('workers.index') }}" {% if ep.startswith('workers.') %}class="active"{% endif %}>Workers</a>
