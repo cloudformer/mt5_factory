@@ -527,3 +527,32 @@ document.addEventListener("submit", (e) => {
   const q = new URLSearchParams(new FormData(f)).toString();
   ajaxSwap(f.action.split("?")[0] + (q ? "?" + q : ""), f.getAttribute("data-ajax"));
 });
+
+/* ===== 按钮 POST 局部化(全站统一, 2026-08-06 与 Frank 定) =====
+   用法: <form method="post" data-post-ajax><button>做点什么</button></form>
+   行为: 提交走 fetch(带 X-Requested-With), 不刷整页; 按钮就地回显 ✓/✗ 两秒后复原,
+        服务端回 JSON {ok/message} 就显示 message, 回 HTML(老路由)也不炸(显示 ✓)。
+   兜底: 网络/服务端异常 → 按钮显示 ✗ 并 alert 原因; onsubmit 里 confirm 取消时不处理。 */
+document.addEventListener("submit", async (e) => {
+  const form = e.target.closest("form[data-post-ajax]");
+  if (!form || e.defaultPrevented) return;
+  e.preventDefault();
+  const btn = form.querySelector("button");
+  const label = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try {
+    const resp = await fetch(form.action, {
+      method: "POST", headers: { "X-Requested-With": "fetch" }, body: new FormData(form),
+    });
+    const raw = await resp.text();
+    let msg = "";
+    try { const d = JSON.parse(raw); msg = d.message || d.error || ""; if (!resp.ok && !msg) msg = "HTTP " + resp.status; } catch { /* 老路由回 HTML: 当成功 */ }
+    if (!resp.ok) throw new Error(msg || "HTTP " + resp.status);
+    if (btn) { btn.textContent = "✓" + (msg ? " " + msg : ""); btn.title = msg || label; }
+  } catch (err) {
+    if (btn) btn.textContent = "✗";
+    alert("操作失败: " + err.message);
+  } finally {
+    if (btn) setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 2000);
+  }
+});

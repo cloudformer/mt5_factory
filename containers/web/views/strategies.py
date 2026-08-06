@@ -753,11 +753,17 @@ def generate():
 
 @bp.post("/<int:strategy_id>/backtest")
 def run_backtest(strategy_id: int):
-    """单策略回测 (成本用系统默认; 结果在回测页排名可见)"""
+    """单策略回测 (成本用系统默认; 结果在回测页排名可见)。
+    AJAX 提交(data-post-ajax)回 JSON 就地回显, 不刷整页; 普通提交仍走 flash+重定向"""
+    ajax = request.headers.get("X-Requested-With") == "fetch"
     try:
         api.post("/backtest/run", {"strategy_ids": [strategy_id]})
+        if ajax:
+            return {"ok": True, "message": "已投队列"}
         flash(f"策略 #{strategy_id} 回测已启动, 结果见回测页", "ok")
     except api.ApiError as e:
+        if ajax:
+            return {"error": str(e)}, 502
         flash(f"回测启动失败: {e}", "error")
     return redirect(request.referrer or url_for("strategies.index"))
 

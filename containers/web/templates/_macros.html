@@ -42,8 +42,11 @@
    合着=现状标签; 展开=空闲(停跑) / 每台 worker(挂到该机开跑, 标签自动跟机器角色) / 删除归档。
    hosts = 有运行角色的启用主机清单(调用方现查传入) #}
 {% macro strategy_actions(s, hosts=[]) -%}
-  <form method="post" action="{{ url_for('strategies.run_backtest', strategy_id=s.id) }}" class="inline">
-    <button class="small">回测</button>
+  {# 回测按钮 AJAX(2026-08-06 Frank 要): 投任务不刷整页 — 按钮就地回显"已投/失败",
+     进度在「策略回测」页看(这里只负责把任务丢进队列) #}
+  <form method="post" action="{{ url_for('strategies.run_backtest', strategy_id=s.id) }}"
+        class="inline" data-post-ajax>
+    <button class="small" title="投一个回测任务进队列(worker 并行跑); 结果见排名列/回测页">回测</button>
   </form>
   <a class="btn" href="{{ url_for('strategies.analysis', strategy_id=s.id) }}"
      title="进单策略分析: 对账(回测vs实盘) + 胜负归因 + 逐笔明细">分析</a>
