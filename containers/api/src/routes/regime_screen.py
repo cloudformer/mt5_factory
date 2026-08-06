@@ -18,21 +18,32 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import backtest, identity, regime
+from src.services import backtest, identity, jobs, regime
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 TAG = "regime筛过"   # basis 标签词根: 已含即幂等跳过; 列表页搜"标签/生因"可一键捞幸存者
 
-# 运行进度(api 内存, 页面 AJAX 轮询 — 与下载编排进度同一裁定: 筛选无状态,
-# api 挂了重新触发即可, 进度 jobs 化属过度设计不做)
+# 运行进度(点名诊断走 api 内存; 全池清理走 jobs 队列, 见 screen_progress)
 _progress = {"running": False, "done": 0, "total": 0, "current": "", "report_id": None}
 
 
 @router.get("/regime_screen/progress")
-async def screen_progress():
-    return _progress
+async def screen_progress(request: Request):
+    """进度(2026-08-05 起两条路合一个出口):
+      · 全池清理 = jobs 队列(kind=regime_screen)聚合 — 关页面/重启 api 都不丢, 任何副本能答
+      · 点名诊断 = api 内存(几个 ID 秒级, 同步跑完就返回)
+    页面只认这一个形状: {running, done, total, current, report_id, phase}"""
+    if _progress["running"]:      # 点名诊断正在同步跑
+        return {**_progress, "phase": "diagnose"}
+    p = await jobs.progress(request.app.state.pool, jobs.SCREEN_KIND)
+    if p["total"]:
+        return {"running": p["running"], "done": p["done"], "total": p["total"],
+                "current": p["current"] or "", "report_id": None,
+                "phase": "backtest" if p["running"] else "judging",
+                "errors": p["errors"]}
+    return {**_progress, "phase": "idle"}
 
 
 # ---------- 判据参数(config regime_screen 唯一源; 切分 = 近 b 年 vs 剩余, b 可小数) ----------
@@ -286,6 +297,39 @@ async def screen_run(req: ScreenRun, request: Request):
         run_syms = [r["symbol"] for r in await pool.fetch(
             "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
 
+    # ===== 全池清理 = 投 jobs 队列, worker 并行跑回测(2026-08-05 步骤2) =====
+    # 判定不在这里做: 队列跑完由主节点收尾(步骤3) — 报告/打标签/归档都在那一步一次性发生。
+    # 点名诊断(req.ids)保持下面的同步路径: 几个 ID 秒级, 走队列绕远。
+    if not req.ids:
+        if await jobs.has_active(pool, jobs.SCREEN_KIND):
+            raise HTTPException(status_code=409, detail="已有一批筛选在跑, 等它完成再点")
+        t_to = datetime.now(timezone.utc)
+        t_from = t_to - timedelta(days=p["window_years"] * 365.25)
+        costs = await pool.fetchval(
+            "SELECT value FROM config WHERE key='backtest_costs'") or {}
+        costs = {k: costs.get(k)
+                 for k in ("slippage_points", "commission_points", "spread_points")}
+        # 每个任务 payload 带上本次运行配置(判定阶段从任一 payload 重建 → 不需要新表新列;
+        # 队列删空 = 没有待收尾的批次, 天然幂等自清理)
+        run_cfg = {"mode": req.mode, "version": vid, "symbols": req.symbols,
+                   "judge": p, "scope": scope, "owner": getattr(request.state, "user_id", 1),
+                   "skipped": details, "not_run": not_run}
+        syms_all = run_syms if req.symbols == "all" else None
+        items = [{"strategy_id": s["id"], "name": s["name"], "symbol": sym,
+                  "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs,
+                  "main_symbol": s["symbol"], "run": run_cfg}
+                 for s in targets
+                 for sym in (syms_all if syms_all else [s["symbol"]])]
+        if not items:
+            raise HTTPException(status_code=404, detail="没有可判定的策略(都已筛过?)")
+        await jobs.submit_batch(pool, items, jobs.SCREEN_KIND)
+        logger.info("regime_screen submitted: %d jobs (%d strategies, mode=%s)",
+                    len(items), len(targets), req.mode)
+        return {"queued": True, "jobs": len(items), "strategies": len(targets),
+                "mode": req.mode, "version": vid, "skipped": len(details),
+                "not_run": not_run}
+
+    # ===== 点名诊断: api 内同步现跑现判(只读, 不入库) =====
     # 引擎配置与批量回测同一来源(对比三铁律: 成本/oos/trail 回落一致)
     costs = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
     costs = {k: costs.get(k)

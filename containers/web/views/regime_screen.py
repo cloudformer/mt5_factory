@@ -108,8 +108,16 @@ def run():
         flash("ID 列表/单次上限需为整数", "error")
         return redirect(url_for("regime_screen.index"))
     try:
-        # 现跑真回测(~1-3s/个×上限), 超时给足 — 别用默认 30s
+        # 全池清理 = 投队列秒回(worker 并行跑, 页面轮询进度);
+        # 点名诊断 = api 内同步跑完才回(几个 ID, 给足超时)
         r = api.post("/regime_screen/run", payload, timeout=570)
+        if r.get("queued"):
+            flash(f"已投队列: {r['jobs']} 个回测任务({r['strategies']} 策略) · "
+                  f"{'预览' if r['mode'] == 'preview' else '执行'} · regime v{r['version']}"
+                  + (f" · 跳过{r['skipped']}" if r.get("skipped") else "")
+                  + (f" · 未跑{r['not_run']}(超单次上限)" if r.get("not_run") else "")
+                  + " — worker 并行跑, 跑完自动判定出报告(可以关页面)", "success")
+            return redirect(url_for("regime_screen.index"))
         s = r["summary"]
         msg = (("预览" if r["mode"] == "preview" else "已执行")
                + (f" · 报告#{r['report_id']}" if r.get("report_id") else " · 点名诊断(未入库)")
