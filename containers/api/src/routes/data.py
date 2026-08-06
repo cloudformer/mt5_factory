@@ -10,7 +10,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import identity, regime, sync
+from src.services import identity, jobs, regime, sync
 
 logger = logging.getLogger("data")
 
@@ -115,6 +115,25 @@ async def regime_evaluate(request: Request):
     return {"candidates": out, "symbols": sorted(all_syms), "skipped": skipped,
             "current_symbols": symbols}   # 当前下载品种集(与 cached_symbols 比 = 缓存是否旧)
 
+
+
+@router.get("/overview/jobs")
+async def overview_jobs(request: Request):
+    """跑批池 + 队列(概览"任务"卡, 2026-08-06 Frank 要): 只回个数不回进度。
+    副本数 = pg_stat_activity 里 worker 名牌的连接(worker.py 打的) — 连接断名牌就没,
+    崩了/缩容立刻反映, 零注册表零心跳; api 进程内还自带 1 路消费者, 所以在跑数可能 = 副本+1。
+    在跑 = RUNNING 任务数(一路同时只跑一个任务); 待跑 = PENDING。"""
+    pool = request.app.state.pool
+    # 工种无关(解耦): 只按状态汇总所有跑批工种 — 概览不认识"回测/筛选"是什么,
+    # 加/删工种(如可插拔的筛选功能)这里零改动
+    row = await pool.fetchrow(
+        "SELECT count(*) FILTER (WHERE status='RUNNING')::int AS running,"
+        "       count(*) FILTER (WHERE status='PENDING')::int AS pending"
+        "  FROM jobs WHERE kind = ANY($1)", list(jobs.ENGINE_KINDS))
+    replicas = await pool.fetchval(
+        "SELECT count(DISTINCT application_name)::int FROM pg_stat_activity"
+        " WHERE application_name LIKE 'worker:%'")
+    return {"replicas": replicas or 0, "running": row["running"], "pending": row["pending"]}
 
 
 @router.get("/overview/market")

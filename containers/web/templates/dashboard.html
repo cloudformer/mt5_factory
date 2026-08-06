@@ -22,16 +22,15 @@
     <div class="stat-value" id="cov-count">…</div>
     <div class="stat-sub"><span id="cov-bars">…</span> 根 M1</div>
   </div>
-  <div class="stat">
-    <div class="stat-label">任务</div>
-    <div class="stat-value">
-      {% if sync.running %}<span class="badge ok">同步中</span>
-      {% elif backtest.running %}<span class="badge ok">回测中</span>
-      {% else %}<span class="muted">空闲</span>{% endif %}
-    </div>
-    <div class="stat-sub">
-      {% if backtest.running %}{{ backtest.done }}/{{ backtest.total }}{% elif sync.running %}{{ "{:,}".format(sync.bars_written) }} 根已写入{% else %}—{% endif %}
-    </div>
+  {# 任务卡(2026-08-06 Frank 定): 只讲"有多少活、几路副本", 不提任何工种名 —
+     工种(回测/筛选…)是各自功能的事, 概览不认识它们(筛选是可插拔功能, 删了这里也不用改) #}
+  <div class="stat" title="task: running = 正在执行的任务数(每路同时只跑一个) · wait = 队列里排队的
+task runner: 活着的跑批副本容器(docker compose --scale worker=N); api 进程内还自带 1 路,
+所以 running 可能 = 副本数+1。哪种任务/进度到各自页面看">
+    <div class="stat-label">任务 task</div>
+    <div class="stat-value"><span class="pos">{{ pool.running or 0 }}</span> running
+      / {{ pool.pending or 0 }} wait</div>
+    <div class="stat-sub">task runner: {{ pool.replicas or 0 }} 副本</div>
   </div>
   {% set sto = health.storage if health else none %}
   <div class="stat">

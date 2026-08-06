@@ -22,8 +22,12 @@ logger = logging.getLogger("worker")
 async def main() -> None:
     for attempt in range(1, 6):   # 带重试等 postgres 就绪(与 api 同节奏)
         try:
+            # 连接上打名牌(2026-08-06 Frank 要: 概览要看见几路跑批副本) —
+            # api 数 pg_stat_activity 里的名牌就知道有几个副本活着; 连接断名牌自动消失,
+            # 副本崩了/缩容了立刻反映, 不需要注册表也不需要心跳(零新机制零清理)
             pool = await asyncpg.create_pool(
-                DATABASE_URL, min_size=1, max_size=3, init=_init_conn)
+                DATABASE_URL, min_size=1, max_size=3, init=_init_conn,
+                server_settings={"application_name": f"worker:{jobs.WORKER}"})
             logger.info("worker pool ready: %s", DB_URL_MASKED)
             break
         except Exception as e:

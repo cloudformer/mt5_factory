@@ -10,12 +10,14 @@ bp = Blueprint("dashboard", __name__)
 
 @bp.get("/")
 def index():
-    data = {"health": None, "hosts": [], "sync": {}, "backtest": {}, "coverage": []}
+    data = {"health": None, "hosts": [], "sync": {}, "backtest": {}, "coverage": [],
+            "pool": {}}
     try:
         data["health"] = api.get("/health")
         data["hosts"] = api.get("/hosts")["hosts"]
         data["sync"] = api.get("/syncdata/status")
         data["backtest"] = api.get("/backtest/status")
+        data["pool"] = api.get("/overview/jobs")   # 跑批副本忙闲 + 队列待跑(任务卡)
         # 覆盖懒加载(2026-07-30 Frank 定): 覆盖统计(大表 GROUP BY)慢 → 首页秒开, 覆盖卡片/表
         # 由页面 AJAX 走 /datasync/coverage 异步填(见 dashboard.html)
     except api.ApiError as e:
