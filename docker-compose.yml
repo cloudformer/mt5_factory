@@ -103,6 +103,7 @@ services:
       - ./containers/api/src:/app/src:ro       # 开发热更新 (uvicorn --reload)
       - ./strategy_core:/app/strategy_core:ro
       - ./containers/postgres/schema:/app/schema:ro   # schema 唯一来源, api 启动自动执行
+      - ./scripts:/app/scripts:ro   # 运维/验收脚本(只读): docker compose exec api python /app/scripts/xxx.py
     depends_on:
       postgres:
         condition: service_healthy

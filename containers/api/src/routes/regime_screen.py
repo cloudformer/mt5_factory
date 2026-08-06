@@ -236,12 +236,14 @@ async def screen_run(req: ScreenRun, request: Request):
         run_cfg = {"mode": req.mode, "version": vid, "symbols": req.symbols,
                    "judge": p, "scope": scope, "owner": getattr(request.state, "user_id", 1),
                    "skipped": details, "not_run": not_run}
-        syms_all = run_syms if req.symbols == "all" else None
+        # 全货币 = 全部下载品种 ∪ 策略自己的主品种(主品种不在下载列表时也必须判它 —
+        # 否则主品种没有回测行 → 整策略被跳过, 与同步路径不一致)
         items = [{"strategy_id": s["id"], "name": s["name"], "symbol": sym,
                   "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs,
                   "main_symbol": s["symbol"], "run": run_cfg}
                  for s in targets
-                 for sym in (syms_all if syms_all else [s["symbol"]])]
+                 for sym in (sorted(set(run_syms) | {s["symbol"]})
+                             if req.symbols == "all" else [s["symbol"]])]
         if not items:
             raise HTTPException(status_code=404, detail="没有可判定的策略(都已筛过?)")
         await jobs.submit_batch(pool, items, jobs.SCREEN_KIND)
