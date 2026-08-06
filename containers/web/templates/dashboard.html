@@ -76,7 +76,8 @@
 <section>
   <h2>任务</h2>
   <table>
-    <tr><th>任务</th><th>状态</th><th>详情</th></tr>
+    {# 时间列(2026-08-05 Frank 要) = 本批最后一个任务结束的时刻(任务级, 库内 UTC→浏览器本地) #}
+    <tr><th>任务</th><th>状态</th><th>详情</th><th title="本批最后一个任务结束的时刻(跑着的批次=已完成部分的最新时刻)">时间</th></tr>
     <tr>
       <td>数据同步</td>
       <td>{% if sync.running %}<span class="badge ok">进行中</span>{% else %}<span class="muted">空闲</span>{% endif %}</td>
@@ -85,6 +86,7 @@
         {% if sync.bars_written %}已写入 {{ "{:,}".format(sync.bars_written) }} 根{% endif %}
         {% for e in sync.errors %}<span class="badge error">{{ e }}</span>{% endfor %}
       </td>
+      <td class="mono muted">{{ m.lts(sync.last_sync) }}</td>
     </tr>
     <tr>
       <td>回测</td>
@@ -94,6 +96,7 @@
         {% elif backtest.total %}上次 {{ backtest.done }}/{{ backtest.total }}，{{ backtest.errors | length }} 个错误
         {% else %}—{% endif %}
       </td>
+      <td class="mono muted">{{ m.lts(backtest.last_finished) }}</td>
     </tr>
   </table>
 </section>

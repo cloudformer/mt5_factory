@@ -62,8 +62,13 @@ async def progress(pool: asyncpg.Pool) -> dict:
               for r in await pool.fetch(
                   "SELECT payload, error FROM jobs WHERE kind=$1 AND status='FAILED'"
                   " ORDER BY id LIMIT 50", KIND)]
+    # 本批最后一个任务结束的时刻(2026-08-05 Frank 要: 概览任务表显示时间) —
+    # 跑着的批次也给已完成部分的最新时刻, 空批次 None
+    last = await pool.fetchval(
+        "SELECT max(finished_at) FROM jobs WHERE kind=$1 AND finished_at IS NOT NULL", KIND)
     return {"running": (n.get("PENDING", 0) + n.get("RUNNING", 0)) > 0,
-            "current": current, "done": done, "total": total, "errors": errors}
+            "current": current, "done": done, "total": total, "errors": errors,
+            "last_finished": last.isoformat() if last else None}
 
 
 async def _reclaim(pool: asyncpg.Pool):
