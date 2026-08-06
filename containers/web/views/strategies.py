@@ -10,6 +10,9 @@ bp = Blueprint("strategies", __name__, url_prefix="/strategies")
 
 TIMEFRAMES = ["M5", "M15", "M30", "H1", "H4", "D1"]
 
+# 薄样本提醒(样本层事实, 三处八格共用一份措辞): 数字照给, 只提示巧合风险
+BADGE = '<span class="neg" title="n&lt;20 笔: 数字如实, 但样本太小 — 单笔运气就能翻转胜率/PF, 可能只是巧合; 攒够笔数再下结论">！注意: 样本不足</span>'
+
 
 @bp.get("/")
 def index():
@@ -138,15 +141,20 @@ def set_volume(strategy_id: int):
 
 def _regime_lines(ana) -> dict:
     """八格战绩显示行(v2.5 第五步): {格子: [行1, 行2]} — 喂给 m.regime_grid(与 Regime 页同一张图)。
-    格内笔数 <20 = 样本不足未证实(灰显), 与全局小样本纪律一致"""
+
+    小样本待遇(2026-08-06 与 Frank 定"不能不显示"): 数字一律照给(哪怕 1 笔)、底色照按盈亏上,
+    <20 笔只在旁边加一句「！注意: 样本不足」提醒 — 看得清是第一位, 风险靠提示而不是靠藏数字。
+    用词分层: "样本不足"=样本层的事实(单笔运气就能翻转, 可能是巧合);
+    "未证实"=结论层的判词(留给文字结论/文档, 不当格子角标用)。
+    """
     lines = {}
     for cell, v in ((ana or {}).get("regime_cells") or {}).items():
+        net_cls = "pos" if v["net"] >= 0 else "neg"
+        head = f'{v["trades"]} 笔 · 胜 {v["win_rate"]}%'
         if v["trades"] < 20:
-            lines[cell] = [f'<span class="muted">{v["trades"]} 笔 · 未证实(&lt;20)</span>']
-        else:
-            net_cls = "pos" if v["net"] >= 0 else "neg"
-            lines[cell] = [f'{v["trades"]} 笔 · 胜 {v["win_rate"]}%',
-                           f'<span class="{net_cls}">{v["net"]:+g} 点</span> · PF {v["pf"] if v["pf"] is not None else "∞"}']
+            head += ' ' + BADGE
+        lines[cell] = [head,
+                       f'<span class="{net_cls}">{v["net"]:+g} 点</span> · PF {v["pf"] if v["pf"] is not None else "∞"}']
     return lines
 
 
@@ -189,24 +197,24 @@ def analysis():
 
 
 def _cells_fills(cells) -> dict:
-    """八格底色(统一模版): 净点≥0 绿 / <0 红 / 样本<20 灰 — 左色条恒为 regime 本色。
-    喂给 m.regime_grid(fills=); 无盈亏数据的格子(占比/对账)不传 = 白底"""
-    return {cell: ("#94a3b8" if v["trades"] < 20 else
-                   "#16a34a" if v["net"] >= 0 else "#dc2626")
+    """八格底色(统一模版): 净点≥0 绿 / <0 红 — 左色条恒为 regime 本色。
+    2026-08-06 Frank 定"看得清第一位": 薄样本不再灰显压制(数字和颜色都照给),
+    风险由格内「！注意: 样本不足」提醒。无盈亏数据的格子(占比/对账)不传 = 白底"""
+    return {cell: ("#16a34a" if v["net"] >= 0 else "#dc2626")
             for cell, v in (cells or {}).items()}
 
 
 def _matrix_total_lines(data) -> dict:
     """九币矩阵汇总八格显示行: 第1行笔数+胜率(纯计数, 跨品种真实可比);
-    第2行净点+PF 灰显(混单位, 金点≠欧点, 只作参考); <20笔=未证实(小样本纪律同口径)"""
+    第2行净点+PF 灰显(混单位, 金点≠欧点, 只作参考); <20笔=样本不足(小样本纪律同口径)"""
     lines = {}
     for cell, v in ((data or {}).get("total_cells") or {}).items():
+        head = f'{v["trades"]} 笔 · 胜 {v["win_rate"]}%'
         if v["trades"] < 20:
-            lines[cell] = [f'<span class="muted">{v["trades"]} 笔 · 未证实(&lt;20)</span>']
-        else:
-            lines[cell] = [f'{v["trades"]} 笔 · 胜 {v["win_rate"]}%',
-                           f'<span class="muted">{v["net"]:+g} 点 · PF '
-                           f'{v["pf"] if v["pf"] is not None else "∞"}</span>']
+            head += ' ' + BADGE
+        lines[cell] = [head,
+                       f'<span class="muted">{v["net"]:+g} 点 · PF '
+                       f'{v["pf"] if v["pf"] is not None else "∞"}</span>']
     return lines
 
 

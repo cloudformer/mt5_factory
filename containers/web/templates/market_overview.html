@@ -50,19 +50,24 @@
 {% endif %}
 {% endfor %}
 
-<h2 style="margin-top:18px">worker 余额</h2>
-<div style="display:flex;gap:14px;flex-wrap:wrap">
-  {% for w in data.workers %}
-  <div style="border:1px solid var(--border);border-radius:10px;padding:10px 16px;min-width:190px"
-       title="初始资金 ≈ {{ '%.2f' % w.initial if w.initial is not none else '—' }}{{ ' · 已实现盈亏 ' ~ ('%+.2f' % w.realized) ~ '(' ~ ('%+.2f' % w.pnl_pct) ~ '%)' if w.pnl_pct is not none else '' }} · 按无出入金推算 · 心跳 {{ w.hb_fmt or '—' }}">
-    <div class="muted">余额 ({{ w.name }} · {{ w.runner }})</div>
-    <div style="font-size:20px" class="mono {{ 'pos' if (w.pnl_pct or 0) >= 0 else 'neg' }}">
-      {{ '{:,.2f}'.format(w.balance) if w.balance is not none else '—' }} {{ w.currency or '' }}</div>
-    <div class="muted">已实现</div>
-  </div>
-  {% endfor %}
-</div>
 {% elif data %}
 <p class="muted">还没有任何品种的 regime 时间线 — 去「数据 → 市场状态 Regime」页重建。</p>
 {% endif %}
+
+<h2 style="margin-top:18px">worker 余额</h2>
+{# 用全站标准卡片组件 .stats/.stat(白底+边框+阴影+统一字号) — 2026-08-06 修:
+   之前手写 inline 卡片只有边框没底色, 和页面背景糊在一起(违"标准组件, 禁内联补丁") #}
+<div class="stats">
+  {% for w in data.workers %}
+  <div class="stat" title="初始资金 ≈ {{ '%.2f' % w.initial if w.initial is not none else '—' }} · 按无出入金推算(余额 − 库内已实现合计) · 心跳 {{ w.hb_fmt or '—' }}">
+    <div class="stat-label">{{ w.name }} · {{ w.runner }}</div>
+    <div class="stat-value mono">{{ '{:,.2f}'.format(w.balance) if w.balance is not none else '—' }}<span
+        style="font-size:12px;font-weight:500;color:var(--muted)"> {{ w.currency or '' }}</span></div>
+    <div class="stat-sub">已实现
+      {%- if w.realized is not none %} <b class="{{ 'pos' if w.realized >= 0 else 'neg' }}">{{ '{:+,.2f}'.format(w.realized) }}</b>
+        {%- if w.pnl_pct is not none %} <span class="{{ 'pos' if w.pnl_pct >= 0 else 'neg' }}">({{ '%+.2f' % w.pnl_pct }}%)</span>{% endif %}
+      {%- else %} —{% endif %}</div>
+  </div>
+  {% endfor %}
+</div>
 {% endblock %}
