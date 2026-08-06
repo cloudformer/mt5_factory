@@ -146,12 +146,15 @@
         </td>
     {% endmacro %}
     <h3>逐笔对照(实盘 ↔ 回测;按对比窗口分组;匹配的点开看价/净点详情)</h3>
-    {# 用全宽正表(subtable 是详情小表: 不撑满+首列锁90px, 五列表格会挤死) #}
-    <table>
+    {# 全宽正表 + 全站标准工具条(排序/分页/搜索) — 2026-08-06 Frank 要: 笔数只会越来越多。
+       首列窗口标签改成每行重复(原来是 rowspan 合并): 排序/翻页会把合并格切散, 重复反而
+       在排序后仍看得出每行属于哪段窗口 #}
+    {{ m.table_toolbar('recon-pairs', hint='时间/方向/描述…') }}
+    <table id="recon-pairs">
       <tr><th title="对比窗口 = 运行区间±{{ recon.tol_minutes }}分钟(重叠合并); 无区间的实盘笔用单笔±{{ recon.tol_minutes }}分钟兜底。两边只在窗口内互相找对家">对比窗口</th>
           <th>时间</th>
           <th title="入场当天的市场状态格子(现拼自主品种 regime_timeline; —=时间线未覆盖)">Regime</th>
-          <th>实盘(demo/live)</th><th>回测</th><th>描述</th></tr>
+          <th>实盘(demo/live)</th><th>回测</th><th data-nosort>描述</th></tr>
       {% set shown = namespace(n=0) %}
       {% for w in recon.windows %}
         {% set rows = recon.pairs | selectattr('window', 'equalto', loop.index0) | list %}
@@ -159,19 +162,16 @@
         {% set shown.n = shown.n + 1 %}
         {% for p in rows %}
         <tr>
-          {% if loop.first %}
-          <td class="muted nowrap" rowspan="{{ rows | length }}">{{ w.from }} → {{ w.to }}
-            {% if rows | length > 1 or w.actual != w.bt %}<br>实盘{{ w.actual }} · 回测{{ w.bt }}{% endif %}</td>
-          {% endif %}
+          <td class="muted nowrap" title="本窗口 实盘{{ w.actual }} 笔 · 回测{{ w.bt }} 笔">{{ w.from }} → {{ w.to }}
+            {%- if w.actual != w.bt %} <span class="neg">({{ w.actual }}/{{ w.bt }})</span>{% endif %}</td>
           {{ pair_cells(p) }}
         </tr>
         {% endfor %}
         {% endif %}
       {% endfor %}
-      {% set orphans = recon.pairs | selectattr('window', 'none') | list %}
-      {% for p in orphans %}
+      {% for p in recon.pairs | selectattr('window', 'none') | list %}
       <tr>
-        {% if loop.first %}<td class="muted" rowspan="{{ orphans | length }}">窗口外(兜底)</td>{% endif %}
+        <td class="muted">窗口外(兜底)</td>
         {{ pair_cells(p) }}
       </tr>
       {% endfor %}
