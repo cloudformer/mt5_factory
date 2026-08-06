@@ -27,17 +27,21 @@ def index():
     per = request.args.get("per", 50, type=int)
     page = max(request.args.get("page", 1, type=int), 1)
     verdict = request.args.get("verdict", "")
+    sort = request.args.get("sort", "")      # 服务端排序(全量排, 不是只排当页)
+    sdir = request.args.get("dir", "desc")
     try:
         data = _page_data()
         rid = request.args.get("report", type=int)
         if rid:
             data["report"] = api.get(f"/regime_screen/reports/{rid}", limit=per,
                                      offset=(page - 1) * per,
-                                     **({"verdict": verdict} if verdict else {}))
+                                     **({"verdict": verdict} if verdict else {}),
+                                     **({"sort": sort, "dir": sdir} if sort else {}))
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
         data = {"params": None, "versions": None, "reports": [], "report": None}
-    return render_template("regime_screen.html", page=page, per=per, verdict=verdict, **data)
+    return render_template("regime_screen.html", page=page, per=per, verdict=verdict,
+                           sort=sort, sdir=sdir, **data)
 
 
 @bp.get("/regime-screen/progress")
@@ -137,7 +141,7 @@ def run():
                           "params": r["params"], "summary": s, "details": r["details"],
                           "total": len(r["details"]), "offset": 0, "limit": len(r["details"])}
         return render_template("regime_screen.html", page=1, per=len(r["details"]) or 1,
-                               verdict="", **data)
+                               verdict="", sort="", sdir="desc", **data)
     except api.ApiError as e:
         flash(f"筛选失败: {e}", "error")
         return redirect(url_for("regime_screen.index"))

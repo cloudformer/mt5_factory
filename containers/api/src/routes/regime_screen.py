@@ -29,6 +29,20 @@ router = APIRouter()
 
 TAG = screen.TAG   # basis 标签词根(唯一定义在 services/screen.py)
 
+# 报告明细可排序列(白名单, 值=JSONB 表达式): 排序在库里做, 覆盖全量而非当页。
+# PF 的 ∞(无亏损, 存 null)按最大值参与排序; 跳过的行没有这些字段 → NULL → 恒沉底
+SORTS = {
+    "id": "(e->>'id')::bigint",
+    "symbol": "e->>'symbol'",
+    "name": "e->>'name'",
+    "trades": "(e->>'trades')::numeric",
+    "net": "(e->'total'->>'net')::numeric",
+    "pf": ("CASE WHEN e ? 'total' AND e->'total'->>'pf' IS NULL THEN 1e18"
+           "     ELSE (e->'total'->>'pf')::numeric END"),
+    "cells": "jsonb_array_length(e->'pass_cells')",
+    "verdict": ("CASE e->>'verdict' WHEN 'pass' THEN 0 WHEN 'fail' THEN 1 ELSE 2 END"),
+}
+
 # 运行进度(点名诊断走 api 内存; 全池清理走 jobs 队列, 见 screen_progress)
 _progress = {"running": False, "done": 0, "total": 0, "current": "", "report_id": None}
 
@@ -371,30 +385,39 @@ async def screen_reports(request: Request, limit: int = 30):
 
 @router.get("/regime_screen/reports/{report_id}")
 async def screen_report(report_id: int, request: Request, offset: int = 0,
-                        limit: int = 50, verdict: Optional[str] = None):
-    """报告明细(服务端分页 + 结论级瘦身, 2026-08-05 实测定版):
-      · 500 行全量进浏览器会卡死/崩溃 → 库里切片, 一页只回 limit 行
+                        limit: int = 50, verdict: Optional[str] = None,
+                        sort: str = "", dir: str = "desc"):
+    """报告明细(服务端分页 + 排序 + 结论级瘦身, 2026-08-06 定版):
+      · 6000 行全量进浏览器会卡死 → 库里切片, 一页只回 limit 行
+      · 排序也在库里做(2026-08-06 Frank 要): 前端只能排当页 50 行, 排出来的"最好"是假的;
+        sort 白名单见 SORTS, 不传 = 通过优先(pass→fail→skip, 组内原序)
       · splits_stat 占 details 81% 一律剥掉, 展开时走 /reports/{id}/strategy/{sid} 单取
       · verdict=pass/fail/skip 服务端过滤(总数按过滤后算)
     库里 details 仍存全量(审计"为什么被归档"不缩水)"""
     if verdict not in (None, "", "pass", "fail", "skip"):
         raise HTTPException(status_code=400, detail="verdict 需为 pass/fail/skip")
+    if sort and sort not in SORTS:
+        raise HTTPException(status_code=400, detail=f"sort 需为 {sorted(SORTS)}")
     limit = min(max(limit, 1), 200)
     cond = " WHERE e->>'verdict' = $2" if verdict else ""
     args = [report_id] + ([verdict] if verdict else []) + [max(offset, 0), limit]
     p_off, p_lim = f"${len(args) - 1}", f"${len(args)}"
+    # 排序键(默认通过优先) + 方向; 无值行(跳过的没净点/PF)恒沉底 = NULLS LAST
+    if sort:
+        order = f"{SORTS[sort]} {'ASC' if dir == 'asc' else 'DESC'} NULLS LAST, ord"
+    else:
+        order = "rk, ord"
     sql = (
         "SELECT r.id, r.created_at, r.mode, r.version_id, r.scope, r.params, r.summary,"
         "       r.owner_id,"
         f"      (SELECT count(*) FROM jsonb_array_elements(r.details) e{cond}) AS total,"
-        # 通过优先排序(2026-08-05 Frank 定): pass → fail → skip, 组内保持原序(品种,id) —
-        # 幸存者在第一页第一眼, 跨页也是这个序
-        "       (SELECT jsonb_agg(s.e - 'splits_stat' ORDER BY s.rk, s.ord) FROM ("
+        f"      (SELECT jsonb_agg(s.e - 'splits_stat' ORDER BY {order.replace('ord', 's.ord')}"
+        f"                        ) FROM ("
         "          SELECT e, ord, CASE e->>'verdict' WHEN 'pass' THEN 0"
         "                              WHEN 'fail' THEN 1 ELSE 2 END AS rk"
         "            FROM jsonb_array_elements(r.details)"
         f"                            WITH ORDINALITY AS t(e, ord){cond}"
-        f"         ORDER BY rk, ord OFFSET {p_off} LIMIT {p_lim}) s) AS details"
+        f"         ORDER BY {order} OFFSET {p_off} LIMIT {p_lim}) s) AS details"
         " FROM regime_screens r WHERE r.id = $1")
     row = await request.app.state.pool.fetchrow(sql, *args)
     uid = identity.scope_uid(request)
@@ -403,7 +426,8 @@ async def screen_report(report_id: int, request: Request, offset: int = 0,
     return {**{k: row[k] for k in row.keys() if k != "owner_id"},
             "details": row["details"] or [],
             "created_at": row["created_at"].isoformat(),
-            "offset": max(offset, 0), "limit": limit, "verdict": verdict or ""}
+            "offset": max(offset, 0), "limit": limit, "verdict": verdict or "",
+            "sort": sort, "dir": dir}
 
 
 @router.get("/regime_screen/reports/{report_id}/strategy/{sid}")
