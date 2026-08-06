@@ -2,8 +2,8 @@
 UI 拆分(2026-07-13): 生成=进货(偶发), 列表=日常主战场, 各自成页; 导航挂「策略▾」下拉。"""
 from datetime import datetime
 
-from flask import (Blueprint, flash, redirect, render_template, request, session,
-                   url_for)
+from flask import (Blueprint, flash, jsonify, redirect, render_template, request,
+                   session, url_for)
 
 import api_client as api
 
@@ -571,6 +571,16 @@ def reconcile_stats():
         flash(f"读取对账统计失败: {e}", "error")
     return render_template("reconcile_stats.html", rows=rows,
                            recon_hours=recon_hours, recon_last=recon_last)
+
+
+@bp.get("/reconcile/cards")
+def reconcile_cards():
+    """对账三卡(AJAX): 透传筛选给 api, 算法唯一在 api._recon_cards — 页面不算数"""
+    try:
+        params = {k: v for k, v in request.args.items() if v not in ("", None)}
+        return jsonify(api.get("/reconcile/summary", **params)["cards"])
+    except api.ApiError as e:
+        return jsonify({"error": str(e)}), 502
 
 
 @bp.post("/reconcile/hours")

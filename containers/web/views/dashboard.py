@@ -32,21 +32,9 @@ def backtest_overview():
     要按品种/状态筛着看去「对账统计」页(那页三卡随筛选实时重算)。"""
     cards, workers, err = None, [], None
     try:
-        rows = api.get("/reconcile/summary")["strategies"]
-        scored = [r for r in rows if r.get("score") is not None]
-        paired = sum(r.get("paired") or 0 for r in scored)
-        union = sum(r.get("union") or 0 for r in scored)
-        q10 = sum(1 for r in scored if r.get("q10"))
-        cards = {
-            "n_total": len(rows), "n_scored": len(scored),
-            "pooled": round(paired / union * 100, 1) if union else None,
-            "paired": paired, "union": union,
-            "avg": round(sum(r["score"] for r in scored) / len(scored), 1) if scored else None,
-            "q10": q10,
-            "q10_pct": round(q10 / len(scored) * 100) if scored else None,
-            "last_at": max((r["updated_at"] for r in scored if r.get("updated_at")),
-                           default=None),
-        }
+        # 三卡算法唯一在 api(_recon_cards) — 这里只取结果不算数(2026-08-06 Frank 定
+        # "即使未来修改, 也只改一个地方的逻辑"); 不传筛选 = 全量(实盘数据不过滤)
+        cards = api.get("/reconcile/summary")["cards"]
         workers = (api.get("/overview/market") or {}).get("workers") or []
         for w in workers:
             if w.get("heartbeat"):

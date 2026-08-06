@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('回测概览', '回测可信度总览(全量口径, 不带筛选) + worker 余额 · 读已存对账结果, 自动对账按频率刷新') }}
+{{ m.page_header('回测概览', '回测可信度总览 — 全部实盘数据不做过滤,算法与「对账统计」页一致(单位=策略×账户行) + worker 余额 · 读已存对账结果,自动对账按频率刷新') }}
 
 {# 三卡 = 对账统计页那三张的全量版(2026-08-06 Frank 定): 概览不带筛选器, 要筛着看去对账统计页 #}
 {% if cards %}
@@ -10,26 +10,26 @@
     <div class="stat-label">总笔数匹配率</div>
     <div class="stat-value {{ 'pos' if cards.pooled is not none and cards.pooled >= 90 else ('neg' if cards.pooled is not none else '') }}">
       {{ m.pct(cards.pooled) if cards.pooled is not none else '—' }}</div>
-    <div class="stat-sub">配对 {{ '{:,}'.format(cards.paired) }} / 并集 {{ '{:,}'.format(cards.union) }} 笔({{ cards.n_scored }} 策略)</div>
+    <div class="stat-sub">配对 {{ '{:,}'.format(cards.paired) }} / 并集 {{ '{:,}'.format(cards.union) }} 笔({{ cards.n_scored }} 行)</div>
   </div>
   <div class="stat" title="每策略的综合匹配分等权平均(满分100) — 一个策略一票, 不被大笔数策略主导">
     <div class="stat-label">策略平均分</div>
     <div class="stat-value {{ 'pos' if cards.avg is not none and cards.avg >= 90 else ('neg' if cards.avg is not none else '') }}">
       {{ cards.avg if cards.avg is not none else '—' }}</div>
-    <div class="stat-sub">{{ cards.n_scored }} 策略等权 · 满分100</div>
+    <div class="stat-sub">{{ cards.n_scored }} 行等权(策略×账户) · 满分100</div>
   </div>
   <div class="stat" title="达标 = 笔数匹配率与方向匹配率都 ≥90%(回测质量 v1 验收) — 这批策略里回测可信的占比">
     <div class="stat-label">达标率 ≥90</div>
-    <div class="stat-value {{ 'pos' if cards.q10_pct is not none and cards.q10_pct >= 70 else ('neg' if cards.q10_pct is not none else '') }}">
-      {{ cards.q10 }}/{{ cards.n_scored }}{% if cards.q10_pct is not none %} = {{ cards.q10_pct }}%{% endif %}</div>
-    <div class="stat-sub">回测可信的策略占比</div>
+    <div class="stat-value {{ 'pos' if cards.passed_pct is not none and cards.passed_pct >= 70 else ('neg' if cards.passed_pct is not none else '') }}">
+      {{ cards.passed }}/{{ cards.n_scored }}{% if cards.passed_pct is not none %} = {{ cards.passed_pct }}%{% endif %}</div>
+    <div class="stat-sub">分数≥90 的行占比(算法唯一在 api)</div>
   </div>
 </div>
 <p class="muted" style="margin:0 0 4px">
   {%- if cards.n_total > cards.n_scored %}另有 {{ cards.n_total - cards.n_scored }} 个有实盘成交但还没算过对账(等自动对账轮到, 或去
   <a href="{{ url_for('strategies.reconcile_stats') }}">对账统计</a>页点「全部重算」)。{% endif %}
   最近一次对账结果时间: {{ m.lts(cards.last_at) if cards.last_at else '—' }} ·
-  按品种/状态筛着看 → <a href="{{ url_for('strategies.reconcile_stats') }}">对账统计</a>(那页三卡随筛选实时重算, 并可改自动对账频率)</p>
+  口径同「<a href="{{ url_for('strategies.reconcile_stats') }}">对账统计</a>」页默认视图(全部行, 分数≥90 算达标) — 要按笔数/品种/状态筛着看、或改自动对账频率去那页</p>
 {% elif err %}
 <p class="muted">对账数据读取失败: {{ err }}</p>
 {% else %}

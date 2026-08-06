@@ -631,8 +631,33 @@ def _reconcile_metrics(actual: list, bt: list, tol: int = PAIR_TOL_SECONDS,
     return metrics, pairs
 
 
+def _recon_cards(rows: list) -> dict:
+    """对账三卡(全系统唯一一份算法, 2026-08-06 与 Frank 定"只改一个地方"):
+    总笔数匹配率 = 配对笔数 / 并集笔数(把入选行的笔堆一起算);
+    策略平均分   = 有分数的行等权平均(单位 = 策略×账户行, 一策略两账户各自独立打分);
+    达标率 ≥90   = 分数 ≥90 的行占比(回测可信的比例)。
+    调用方只负责"给哪些行"(全量 or 按筛选), 不再各自算一遍 —
+    「回测概览」与「对账统计」页都吃这个函数的结果。"""
+    scored = [r for r in rows if r.get("score") is not None]
+    paired = sum(r.get("paired") or 0 for r in scored)
+    union = sum(r.get("union") or 0 for r in scored)
+    passed = sum(1 for r in scored if (r.get("score") or 0) >= 90)
+    return {
+        "n_total": len(rows), "n_scored": len(scored),
+        "paired": paired, "union": union,
+        "pooled": round(paired / union * 100, 1) if union else None,
+        "avg": round(sum(r["score"] for r in scored) / len(scored), 1) if scored else None,
+        "passed": passed,
+        "passed_pct": round(passed / len(scored) * 100) if scored else None,
+        "last_at": max((r["updated_at"].isoformat() for r in scored if r.get("updated_at")),
+                       default=None),
+    }
+
+
 @router.get("/reconcile/summary")
-async def reconcile_summary(request: Request):
+async def reconcile_summary(request: Request, min_trades: int = 0,
+                           status: Optional[str] = None, symbol: Optional[str] = None,
+                           template: Optional[str] = None):
     """批量对账统计: 全部有实盘成交的策略 × 已存对账结果(reconciliations) — 纯读秒回。
     顶部三卡(总笔数匹配率/策略平均分/达标率)由页面按筛选现算, 这里只出行数据;
     重算走既有单策略端点(页面 AJAX 循环调), 本端点不触发任何计算。
@@ -663,7 +688,20 @@ async def reconcile_summary(request: Request):
                     "root_rate": m.get("decascaded_count_rate"), "cascade": m.get("cascade_gaps"),
                     "q10": m.get("q10_pass"), "net_bias_pct": m.get("net_bias_pct"),
                     "updated_at": r["updated_at"]})
-    return {"strategies": out}
+    # 三卡(唯一算法 _recon_cards): 筛选参数只影响"喂哪些行", 算法不变 —
+    # 概览不传参 = 全量; 对账统计页按用户选的筛选传参, 两处数字口径必然一致
+    sel = [r for r in out
+           if (r["live_trades"] or 0) >= min_trades
+           and (not status or r["status"] == status)
+           and (not symbol or r["symbol"] == symbol)
+           and (not template or r["template"] == template)]
+    cards = _recon_cards(sel)
+    for r in out:      # 行里的时间戳转字符串(与 cards 一致, 页面统一走 m.lts)
+        if r["updated_at"] is not None:
+            r["updated_at"] = r["updated_at"].isoformat()
+    return {"strategies": out, "cards": cards,
+            "filters": {"min_trades": min_trades, "status": status or "",
+                        "symbol": symbol or "", "template": template or ""}}
 
 
 @router.get("/reconcile/{strategy_id}")
