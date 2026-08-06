@@ -311,6 +311,16 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
         return {"symbol": name, "error": err or "无数据", "rows": [],
                 "stats": {}, "params": params, "version": vid}
     regs = [r["regime"] for r in rows]
+    # 每日收盘价(色带悬停用): 原生 D1 优先, 缺的日子回落 M1 当日最后一根 —
+    # 与 regime 判定用的数据同源(services.regime._d1 也是这套), 不引入第二种价格口径
+    closes = {r["d"]: float(r["c"]) for r in await pool.fetch(
+        "SELECT time::date AS d, close AS c FROM historical_bars"
+        "  WHERE symbol=$1 AND timeframe='D1'", name)}
+    if not closes:   # 没下原生 D1 的品种: 用 M1 每日最后一根收盘补
+        closes = {r["d"]: float(r["c"]) for r in await pool.fetch(
+            "SELECT DISTINCT ON (time::date) time::date AS d, close AS c"
+            "  FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
+            "  ORDER BY time::date, time DESC", name)}
     out = {"symbol": name, "error": err, "params": params, "version": vid,
            "stats": regime.stats(regs),
            # 最新价(库内最后一根 M1 收盘, 券商时间口径) — 页面当前状态条显示"今日 xxx"
@@ -319,7 +329,10 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
                " ORDER BY time DESC LIMIT 1", name),
            "current": {"date": rows[-1]["date"].isoformat(), "regime": rows[-1]["regime"]},
            # 色带与演变表同源, 全量返回(2026-07-29: 色带跨度可选1~20年, 前端切片; 20年≈5200行)
-           "rows": [{"date": r["date"].isoformat(), "regime": r["regime"]}
+           # 带每日收盘价(2026-08-06 Frank 要: 色带悬停能看到当天价) — 从 D1 现取一遍
+           # (时间线表只存格子不存价格; 一次聚合查询, 缺的日子给 null 页面显示"—")
+           "rows": [{"date": r["date"].isoformat(), "regime": r["regime"],
+                     "close": closes.get(r["date"])}
                     for r in rows]}
     if full:  # 标准③区分度: 算法在 services/regime.distinct(与候选族对比共用)
         d1 = await regime._d1(pool, name, regime.warmup_days(params))

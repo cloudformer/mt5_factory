@@ -91,7 +91,8 @@
         {# 格子固定宽(2026-07-29 Frank 定): 满半年自然占满, 没满的半年自然短一截 — 不满即短, 不拉伸不骗人 #}
         <div style="display:flex;gap:1px;height:18px">
           {% for r in mdays %}
-          <span title="{{ r.date }}  {{ r.regime }}({{ m.regime_cn(r.regime) }})"
+          {# 悬停带当天收盘价(2026-08-06 Frank 要): 价格来自 D1(缺则 M1 当日末根), 与判定同源 #}
+          <span title="{{ r.date }}  {{ r.regime }}({{ m.regime_cn(r.regime) }}){% if r.close is not none %}  收 {{ '%g' % r.close }}{% endif %}"
                 style="width:6px;flex:none;border-radius:1px;background:{{ m.regime_color(r.regime) }}"></span>
           {% endfor %}
         </div>
