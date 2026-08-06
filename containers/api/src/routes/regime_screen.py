@@ -1,14 +1,18 @@
 """v0.5 Regime 筛选(现跑回测 + 切片判定 + 落库报告) — 测试性质可插拔功能。
 
-漏斗关 1.5(2026-08-04 与 Frank 定"不用现成的"): 每个策略【现跑】总计年窗口的回测
-(与批量回测同一配方: load_m1 + 悲观撮合 + 成本/oos/trail 同一 config 来源, 结果 UPSERT
-回流 backtests — 顺手治愈历史上"请求 20 年实际只有几个月数据"的假窗口行), 然后逐笔
-贴 regime 时间线切片判稳健: 每刀 = 近 b 年 vs 剩余, 存在 ≥N 个格子全切分前后段都
-(笔数≥地板 且 净点>阈值 且 PF>阈值)才通过。
+漏斗关 1.5: 每个策略【现跑】总计年窗口的回测(与批量回测同一配方: load_m1 + 悲观撮合 +
+成本/oos/trail 同一 config 来源, 结果 UPSERT 回流 backtests — 顺手治愈历史上"请求 20 年
+实际只有几个月数据"的假窗口行), 然后逐笔贴 regime 时间线切片判稳健: 每刀 = 近 b 年 vs 剩余,
+存在 ≥N 个格子全切分前后段都(笔数≥地板 且 净点>阈值 且 PF>阈值)才通过。
+
+两条路(2026-08-05 队列化定版, 六步走完并逐字段比对零差异):
+  · 全池清理(不传 ids) = 投 jobs 队列(kind=regime_screen)秒回 → worker 并行现跑 →
+    主节点收尾判定/落报告/执行动作(services/screen.finalize)。500 个 ~20分钟 → ~3分钟
+  · 点名诊断(传 ids)   = 本请求内同步现跑现判, 只读不入库(任意状态可点名, 强制预览)
+判定逻辑不在本文件 — 全系统一份在 services/screen.py, 两条路共用(结果必然一致)。
 执行动作只有两个系统本来就支持的写入: 通过 → basis 追加 ｜regime筛过#报告id;
-未过 → 归档(死因 regime_unstable, 可逆)。范围默认 = 全部未筛过的空闲策略(轮番清理);
-按 ID 点名 = 只读诊断(任意状态, 强制预览, 报告不入库)。
-自包含: 判据参数读写(config regime_screen)也在本文件; 移除手册见 docs/2.regime_dirction/v0.5。
+未过 → 归档(死因 regime_unstable, 可逆) — 且只在 finalize 里一次性发生。
+自包含: 判据参数读写(config regime_screen)在本文件; 移除手册见 docs/2.regime_dirction/v0.5。
 """
 import asyncio
 import logging
@@ -166,8 +170,11 @@ class ScreenRun(BaseModel):
 
 @router.post("/regime_screen/run")
 async def screen_run(req: ScreenRun, request: Request):
-    """现跑现判(2026-08-04 Frank 定"不用现成的"): 每策略现跑总计年回测(结果 UPSERT 回流
-    backtests, 假窗口旧行被真数据覆盖), 逐笔切片判稳健, 一跑一报告(点名诊断不入库)。"""
+    """两条路(2026-08-05 队列化定版, 判定逻辑共用 services/screen 一份):
+      · 全池清理(不传 ids) = 投 jobs 队列(kind=regime_screen) 秒回 → worker 并行现跑回测
+        → 主节点收尾判定/落报告/打标签/归档(screen.finalize)
+      · 点名诊断(传 ids) = 本请求内同步现跑现判, 只读不入库(几个 ID 秒级, 走队列绕远)
+    两条路的回测都是【现跑】(结果 UPSERT 回流 backtests, 假窗口旧行被真数据覆盖)。"""
     pool = request.app.state.pool
     if req.mode not in ("preview", "execute"):
         raise HTTPException(status_code=400, detail="mode 需为 preview / execute")
@@ -338,39 +345,15 @@ async def screen_run(req: ScreenRun, request: Request):
     finally:
         _progress.update(running=False, current="")
 
-    # 结论构建 = 共用 screen.judge_one(与队列收尾同一份判定, 保证两条路结果一致)
-    tag_ids, archive_ids = [], []
+    # 结论构建 = 共用 screen.judge_one(与队列收尾同一份判定, 两条路结果必然一致);
+    # 点名诊断只读, 动作(tag/archive)一律忽略
     for r in targets:
-        d, action = screen.judge_one(dict(r), judged.get(r["id"], {}), p, req.symbols)
+        d, _action = screen.judge_one(dict(r), judged.get(r["id"], {}), p, req.symbols)
         details.append(d)
-        if action == "tag":
-            tag_ids.append(r["id"])
-        elif action == "archive":
-            archive_ids.append(r["id"])
 
-    summary = screen.summarize(details, archive_ids, req.mode, not_run)
-    # 点名 = 只读诊断连报告都不入库(结果直接返回页面看); regime_screens 只留全池清理履历
-    rid = None
-    if not req.ids:
-        rid = await pool.fetchval(
-            "INSERT INTO regime_screens"
-            " (mode, version_id, scope, params, summary, details, owner_id)"
-            " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-            req.mode, vid, scope, p, summary, details,
-            getattr(request.state, "user_id", None) or 1)   # 报告记发起人(schema/059)
-        _progress["report_id"] = rid
-    if req.mode == "execute":
-        if tag_ids:   # 通过 → basis 追加标签(报告号可溯源到本次参数与全量明细)
-            await pool.execute(
-                "UPDATE strategies SET basis = CASE WHEN COALESCE(basis, '') = ''"
-                " THEN $2 ELSE basis || '｜' || $2 END, updated_at = now()"
-                " WHERE id = ANY($1)", tag_ids, f"{TAG}#{rid}")
-        if archive_ids:   # 未过 → 归档(可逆; 条件重申 CANDIDATE 防运行间隙被切状态)
-            await pool.execute(
-                "UPDATE strategies SET status='ARCHIVED', archive_reason='regime_unstable',"
-                " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'",
-                archive_ids)
-    return {"report_id": rid, "mode": req.mode, "version": vid,
+    summary = screen.summarize(details, [], req.mode, not_run)
+    # 点名诊断恒为只读: 不入库不打标签不归档(报告/动作只属于全池清理的收尾, 见 services/screen)
+    return {"report_id": None, "mode": req.mode, "version": vid,
             "scope": scope, "params": p, "summary": summary, "details": details}
 
 
