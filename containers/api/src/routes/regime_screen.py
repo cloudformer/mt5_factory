@@ -18,12 +18,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import backtest, identity, jobs, regime
+from src.services import backtest, identity, jobs, regime, screen
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-TAG = "regime筛过"   # basis 标签词根: 已含即幂等跳过; 列表页搜"标签/生因"可一键捞幸存者
+TAG = screen.TAG   # basis 标签词根(唯一定义在 services/screen.py)
 
 # 运行进度(点名诊断走 api 内存; 全池清理走 jobs 队列, 见 screen_progress)
 _progress = {"running": False, "done": 0, "total": 0, "current": "", "report_id": None}
@@ -43,7 +43,12 @@ async def screen_progress(request: Request):
                 "current": p["current"] or "", "report_id": None,
                 "phase": "backtest" if p["running"] else "judging",
                 "errors": p["errors"]}
-    return {**_progress, "phase": "idle"}
+    # 队列空 = 收尾已完成: 回最新报告 id(归属过滤), 页面从"判定中"跳过去看结果
+    uid = identity.scope_uid(request)
+    last = await request.app.state.pool.fetchval(
+        "SELECT id FROM regime_screens" + (" WHERE owner_id = $1" if uid else "")
+        + " ORDER BY id DESC LIMIT 1", *([uid] if uid else []))
+    return {**_progress, "phase": "idle", "report_id": _progress["report_id"] or last}
 
 
 # ---------- 判据参数(config regime_screen 唯一源; 切分 = 近 b 年 vs 剩余, b 可小数) ----------
@@ -54,16 +59,6 @@ class ScreenParams(BaseModel):
     min_pass_cells: int = 1            # 至少几个格子全切分达标才算通过
     min_net_points: float = 0          # 净点阈值(严格大于; 默认 0 ≡ 净点为正)
     min_pf: float = 1.0                # PF 阈值(严格大于; 默认 1 与净点>0 等价, 调高即收紧)
-
-
-def _cfg_params(cfg: dict) -> dict:
-    """config → 判据(带默认): run/plan/params 三处同一口径"""
-    return {"window_years": float(cfg.get("window_years") or 5),
-            "boundaries_years": sorted(cfg.get("boundaries_years") or [1, 2, 3, 4]),
-            "min_cell_trades": int(cfg.get("min_cell_trades") or 5),
-            "min_pass_cells": int(cfg.get("min_pass_cells") or 1),
-            "min_net_points": float(cfg.get("min_net_points") or 0),
-            "min_pf": float(cfg.get("min_pf") if cfg.get("min_pf") is not None else 1.0)}
 
 
 @router.post("/regime_screen/params")
@@ -128,7 +123,7 @@ async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str 
             id_list = [int(x) for x in ids.replace("，", ",").split(",") if x.strip()]
         except ValueError:
             raise HTTPException(status_code=400, detail="ID 列表需为逗号分隔的整数")
-    p = _cfg_params(
+    p = screen.cfg_params(
         await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {})
     need_days = int(p["window_years"] * 365.25) - 45
     conds, args, _ = _scope_conds(id_list, symbols, identity.scope_uid(request))
@@ -155,81 +150,8 @@ async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str 
             "runs_per_strategy": len(ok_syms) if symbols == "all" else 1}
 
 
-# ---------- 切片判定 ----------
-def _pf(gp: float, gl: float):
-    """毛利/毛损 → PF; None=∞(无亏损有盈利), 0=没有盈利"""
-    return round(gp / gl, 2) if gl > 0 else (None if gp > 0 else 0)
-
-
-def _stat(n: int, gp: float, gl: float) -> dict:
-    return {"n": n, "net": round(gp - gl, 1), "pf": _pf(gp, gl)}
-
-
-async def _judge_symbol(pool, tls, bt, vid, p):
-    """单品种切片判定: 逐笔按入场日贴指定版本时间线(与九币矩阵同一口径, points×mult 加权),
-    判定窗 = 近 window_years 年。每刀 = 近 b 年(后段) vs 剩余(前段)。
-    段内合格 = 笔数≥地板 且 净点>阈值 且 PF>阈值(无亏损段 PF=∞ 恒过)。
-    返回三层读数: 整窗 total / 每格 cells_stat / 每切分前后段 splits_stat + 合格格。"""
-    sym = bt["symbol"]
-    tl = tls.get(sym)
-    if tl is None:      # 切谁治谁: 先自愈指定版本的时间线
-        try:
-            await regime.ensure_timeline(pool, sym, vid)
-        except Exception as e:
-            logger.warning("regime ensure %s v%s failed: %s", sym, vid, e)
-        tl = tls[sym] = await regime.tl_map(pool, sym, vid)
-    win_start = bt["to_time"] - timedelta(days=p["window_years"] * 365.25)
-    tagged, unlabeled, cnt = [], 0, 0
-    for t in (bt["trades"] or []):
-        if t["entry_time"] < win_start.timestamp():
-            continue
-        cnt += 1
-        cell = tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
-        if cell is None:
-            unlabeled += 1
-            continue
-        tagged.append((t["entry_time"], cell,
-                       float(t.get("points") or 0) * float(t.get("mult") or 1)))
-    floor, min_net, min_pf = p["min_cell_trades"], p["min_net_points"], p["min_pf"]
-
-    def _seg_ok(n, gp, gl):
-        if n < floor or gp - gl <= min_net:
-            return False
-        return (gp / gl > min_pf) if gl > 0 else gp > 0   # 无亏损段 PF=∞
-
-    # 整窗 + 每格: [n, 毛利, 毛损]
-    tot, per_cell = [0, 0.0, 0.0], {}
-    for ts, cell, net in tagged:
-        for acc in (tot, per_cell.setdefault(cell, [0, 0.0, 0.0])):
-            acc[0] += 1
-            if net >= 0:
-                acc[1] += net
-            else:
-                acc[2] -= net
-    qual, splits, splits_stat = None, {}, {}
-    for y in p["boundaries_years"]:
-        cut_ts = (bt["to_time"] - timedelta(days=y * 365.25)).timestamp()
-        seg: dict = {}      # 格 → [剩余段 n/毛利/毛损, 近段 n/毛利/毛损]
-        for ts, cell, net in tagged:
-            s = seg.setdefault(cell, [0, 0.0, 0.0, 0, 0.0, 0.0])
-            o = 0 if ts < cut_ts else 3
-            s[o] += 1
-            if net >= 0:
-                s[o + 1] += net
-            else:
-                s[o + 2] -= net
-        ok = {c for c, v in seg.items()
-              if _seg_ok(v[0], v[1], v[2]) and _seg_ok(v[3], v[4], v[5])}
-        splits[f"{y:g}"] = sorted(ok)
-        splits_stat[f"{y:g}"] = {c: {"f": _stat(v[0], v[1], v[2]),
-                                     "b": _stat(v[3], v[4], v[5])} for c, v in seg.items()}
-        qual = ok if qual is None else (qual & ok)
-    return {"symbol": sym, "trades": cnt, "unlabeled": unlabeled,
-            "splits": splits, "cells": sorted(qual or ()),
-            "total": _stat(*tot),
-            "cells_stat": {c: _stat(*v) for c, v in sorted(per_cell.items())},
-            "splits_stat": splits_stat,
-            "window": f"{max(bt['from_time'], win_start):%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"}
+# 切片判定/收尾在 services/screen.py(判定逻辑全系统一份, 与队列收尾共用) —
+# 本文件只保留"点名诊断"的同步现跑路径, 判定调 screen.judge_symbol / screen.judge_one
 
 
 # ---------- 运行(现跑回测 + 切片判定; 品种外层循环 = M1 单槽缓存零抖动) ----------
@@ -254,7 +176,7 @@ async def screen_run(req: ScreenRun, request: Request):
     if req.ids and req.mode == "execute":
         raise HTTPException(status_code=400, detail="按 ID 点名 = 只读诊断, 只支持预览模式")
 
-    p = _cfg_params(
+    p = screen.cfg_params(
         await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {})
     need_days = int(p["window_years"] * 365.25) - 45
     p["boundaries_years"] = [b for b in p["boundaries_years"] if b < p["window_years"]]
@@ -409,64 +331,22 @@ async def screen_run(req: ScreenRun, request: Request):
                     judged.setdefault(strat["id"], {})[sym] = None
                 else:
                     judged.setdefault(strat["id"], {})[sym] = \
-                        await _judge_symbol(pool, tls, bt, vid, p)
+                        await screen.judge_symbol(pool, tls, bt, vid, p)
                 _progress["done"] += 1
     finally:
         _progress.update(running=False, current="")
 
+    # 结论构建 = 共用 screen.judge_one(与队列收尾同一份判定, 保证两条路结果一致)
     tag_ids, archive_ids = [], []
     for r in targets:
-        d = {"id": r["id"], "name": r["name"], "symbol": r["symbol"], "status": r["status"]}
-        res_map = judged.get(r["id"], {})
-        main_res = res_map.get(r["symbol"])
-        if isinstance(main_res, dict) and "error" in main_res:
-            d.update(verdict="skip", reason=f"回测失败: {main_res['error']}")
-            details.append(d)
-            continue
-        if main_res is None:
-            d.update(verdict="skip",
-                     reason=f"主品种 M1 覆盖不足总计 {p['window_years']:g} 年")
-            details.append(d)
-            continue
-        results = [x for x in res_map.values()
-                   if isinstance(x, dict) and "error" not in x and x is not None]
-        # 明细三层读数: 窗口/笔数按判定窗口径; 整窗 total → 每格 → 每切分前后段 → 结论
-        d.update(window=main_res["window"], trades=main_res["trades"],
-                 splits=main_res["splits"], unlabeled=main_res["unlabeled"],
-                 pass_cells=main_res["cells"], total=main_res["total"],
-                 cells_stat=main_res["cells_stat"], splits_stat=main_res["splits_stat"])
-        if req.symbols == "all":
-            d["cross"] = [{"symbol": x["symbol"], "pass_cells": x["cells"],
-                           "trades": x["trades"]} for x in results
-                          if x["symbol"] != r["symbol"]]
-        ok_list = [(x["symbol"], x["cells"]) for x in results
-                   if len(x["cells"]) >= p["min_pass_cells"]]
-        readonly = r["status"] != "CANDIDATE"   # 点名可带任意状态: 非空闲只读判定
-        # 通过判定(2026-08-04 Frank 定): 主货币=主品种达标;
-        # 全货币=任一品种存在合格格即过(发现型 — 如实列出哪个货币哪些格合格)
-        ok = bool(ok_list) if req.symbols == "all" \
-            else len(main_res["cells"]) >= p["min_pass_cells"]
-        if ok:
-            d.update(verdict="pass",
-                     reason="合格: " + " · ".join(f"{s} {'·'.join(c)}" for s, c in ok_list)
-                     + ("(非空闲, 只记录不打标签)" if readonly else ""))
-            if not readonly:
-                tag_ids.append(r["id"])
-        else:
-            d.update(verdict="fail",
-                     reason=("各品种均无" if req.symbols == "all" else "无")
-                     + f"合格格(全切分达标格 < {p['min_pass_cells']} 个)"
-                     + ("(非空闲, 只记录不归档)" if readonly else ""))
-            if not readonly:
-                archive_ids.append(r["id"])
+        d, action = screen.judge_one(dict(r), judged.get(r["id"], {}), p, req.symbols)
         details.append(d)
+        if action == "tag":
+            tag_ids.append(r["id"])
+        elif action == "archive":
+            archive_ids.append(r["id"])
 
-    summary = {"total": len(details),
-               "passed": sum(1 for d in details if d["verdict"] == "pass"),
-               "failed": sum(1 for d in details if d["verdict"] == "fail"),
-               "archived": len(archive_ids) if req.mode == "execute" else 0,
-               "skipped": sum(1 for d in details if d["verdict"] == "skip"),
-               "not_run": not_run}
+    summary = screen.summarize(details, archive_ids, req.mode, not_run)
     # 点名 = 只读诊断连报告都不入库(结果直接返回页面看); regime_screens 只留全池清理履历
     rid = None
     if not req.ids:
