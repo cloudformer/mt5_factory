@@ -159,16 +159,29 @@ def _regime_lines(ana) -> dict:
 
 
 def _recon_regime_lines(recon) -> dict:
-    """对账八格显示行(v2.5): 每格 实盘/回测 各自笔数+胜率 — 同格对照"回测的赢法实盘还成立吗"。
-    对账窗口本来就短(样本小), 不做<20灰显压制, 由页面总注"样本少=未证实"兜底"""
+    """对账八格显示行(v2.5): 每格 实盘/回测 各自笔数+胜率+净点 — 同格对照"回测的赢法实盘还成立吗"。
+    净点(2026-08-06 Frank 要): 两行各自带净点, 正绿负红(与全站盈亏定色同款);
+    两边口径不同(实盘含真实点差滑点, 回测悲观撮合)故只并排不做减法 — 偏差看页面上方"盈亏精度"。
+    对账窗口本来就短(样本小), 不做压制, 由页面总注兜底"""
     lines = {}
     for cell, v in ((recon or {}).get("regime_recon") or {}).items():
-        def _ln(tag, n, w):
+        def _ln(tag, n, w, net):
             if not n:
                 return f'<span class="muted">{tag} 0 笔</span>'
-            return f'{tag} {n} 笔 · 胜 {round(w / n * 100)}%'
-        lines[cell] = [_ln("实", v["act_n"], v["act_w"]), _ln("回", v["bt_n"], v["bt_w"])]
+            cls = "pos" if net >= 0 else "neg"
+            return (f'{tag} {n} 笔 · 胜 {round(w / n * 100)}% · '
+                    f'<span class="{cls}">{net:+g} 点</span>')
+        lines[cell] = [_ln("实", v["act_n"], v["act_w"], v.get("act_net") or 0),
+                       _ln("回", v["bt_n"], v["bt_w"], v.get("bt_net") or 0)]
     return lines
+
+
+def _recon_fills(recon) -> dict:
+    """对账八格底色: 按【实盘】净点方向(真金是真相; 悬停注明色跟实盘) — 与其他八格同一套
+    绿赚红亏; 一格里两个净点, 只能有一个染色源, 选实盘"""
+    return {cell: ("#16a34a" if (v.get("act_net") or 0) >= 0 else "#dc2626")
+            for cell, v in ((recon or {}).get("regime_recon") or {}).items()
+            if v.get("act_n")}   # 实盘该格没有成交 = 不染色(白底)
 
 
 @bp.get("/analysis")
@@ -193,7 +206,8 @@ def analysis():
                            regime_fills=_cells_fills((ana or {}).get("regime_cells")),
                            act_regime_lines=_regime_lines((ana or {}).get("actual")),
                            act_regime_fills=_cells_fills(((ana or {}).get("actual") or {}).get("regime_cells")),
-                           recon_regime_lines=_recon_regime_lines(recon))
+                           recon_regime_lines=_recon_regime_lines(recon),
+                           recon_fills=_recon_fills(recon))
 
 
 def _cells_fills(cells) -> dict:

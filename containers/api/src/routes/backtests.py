@@ -919,21 +919,29 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
     metrics["real_miss"] = sum(1 for p in pairs   # 真扣分的: 真漏单(无归因) + 回测真无信号
                                if (p["actual"] is None and not p.get("gap"))
                                or p.get("gap") == "not_triggered")
-    # Regime 八格汇总(v2.5): 逐笔对照按格子聚合 实盘/回测 各自的笔数与胜数 —
-    # 只进返回体不进 metrics(reconciliations 落库保持不变, 数据干净可随时撤)
+    # Regime 八格汇总(v2.5): 逐笔对照按格子聚合 实盘/回测 各自的笔数/胜数/净点 —
+    # 只进返回体不进 metrics(reconciliations 落库保持不变, 数据干净可随时撤)。
+    # 净点(2026-08-06 Frank 要: 钱才是最终答案): 两边各自累加自己的口径 —
+    # 实盘 net 已含真实点差滑点佣金, 回测 points 是悲观撮合估值; 并排看方向与量级, 不做减法
     rg: dict = {}
     rg_unlabeled = 0
     for p in pairs:
         if p.get("regime") is None:
             rg_unlabeled += 1
             continue
-        c = rg.setdefault(p["regime"], {"act_n": 0, "act_w": 0, "bt_n": 0, "bt_w": 0})
+        c = rg.setdefault(p["regime"], {"act_n": 0, "act_w": 0, "act_net": 0.0,
+                                        "bt_n": 0, "bt_w": 0, "bt_net": 0.0})
         if p["actual"] is not None:
             c["act_n"] += 1
             c["act_w"] += 1 if p["actual"].get("win") else 0
+            c["act_net"] += float(p["actual"].get("net") or 0)
         if p["bt"] is not None:
             c["bt_n"] += 1
             c["bt_w"] += 1 if p["bt"].get("win") else 0
+            c["bt_net"] += float(p["bt"].get("points") or 0)
+    for c in rg.values():   # 点数保留一位, 页面直接展示
+        c["act_net"] = round(c["act_net"], 1)
+        c["bt_net"] = round(c["bt_net"], 1)
     out["regime_recon"] = rg
     out["regime_unlabeled"] = rg_unlabeled
     def _fmt(ts):

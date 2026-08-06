@@ -183,7 +183,7 @@
     {# Regime 八格对账(v2.5): 同格对照 实盘 vs 回测 胜率 — 对账窗口短样本天然少, 只看方向不下结论 #}
     {% if recon_regime_lines %}
     <h3>Regime 八格对账 <span class="muted" style="font-weight:normal">每格: 实盘/回测 各自笔数与胜率(仅对账窗口内) · 样本少 = 未证实, 只对方向</span></h3>
-    {{ m.regime_grid(recon_regime_lines) }}
+    {{ m.regime_grid(recon_regime_lines, fills=recon_fills) }}
     {% if recon.regime_unlabeled %}<p class="muted">另有 {{ recon.regime_unlabeled }} 行入场日时间线未覆盖(暖机期/历史缺口), 未计入八格。</p>{% endif %}
     {% endif %}
     {% endif %}
