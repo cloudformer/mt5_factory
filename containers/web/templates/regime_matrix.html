@@ -104,9 +104,9 @@
     {# 汇总行年数跟随展示窗(数字本来就是按它筛的), 没选展示窗才是全回测区间 #}
     <span class="muted">共 {{ data.total_trades }} 笔 · {{ data.symbols|length }} 品种{% if show_years %} · {% if show_years > 0 %}近{{ show_years }}年{% else %}{{ -show_years }}年以前{% endif %}{% elif win_label %} · {{ win_label }}{% endif %}{% if data.total_unlabeled %} · {{ data.total_unlabeled }} 笔无时间线标签未计入{% endif %}</span></h2>
   {{ m.regime_grid(total_lines, fills=matrix_fills) }}
-  <p class="muted">格子底色 = 净点方向(绿赚/红亏, 灰=样本&lt;20); 左侧色条 = regime 本色。
-    {% if sym_filter %}单品种视图({{ sym_filter }}): 同品种同单位, 四项全部真实可信; &lt;20 笔=未证实。
-    {% else %}汇总格口径: 笔数/胜率真实可比(纯计数); 净点/PF 跨品种混单位(金点≠欧点, 大点值品种主导)只作参考故灰显; &lt;20 笔=未证实。{% endif %}</p>
+  <p class="muted">格子底色 = 净点方向(绿赚/红亏); 左侧色条 = regime 本色。样本&lt;20 笔照给数字, 格内标「！注意: 样本不足」。
+    {% if sym_filter %}单品种视图({{ sym_filter }}): 同品种同单位, 四项全部真实可信; &lt;20 笔=样本不足(数字如实, 单笔运气就能翻转)。
+    {% else %}汇总格口径: 笔数/胜率真实可比(纯计数); 净点/PF 跨品种混单位(金点≠欧点, 大点值品种主导)只作参考故灰显; &lt;20 笔=样本不足(数字如实, 单笔运气就能翻转)。{% endif %}</p>
 
   <h2>每品种八格 <span class="muted">行内四项全部真实(同品种同单位)</span></h2>
   {% set CELLS = ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}

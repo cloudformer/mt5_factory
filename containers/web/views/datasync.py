@@ -12,6 +12,14 @@ import api_client as api
 
 bp = Blueprint("datasync", __name__, url_prefix="/datasync")
 
+# 占比热力 8 档(2026-08-06 与 Frank 定): 签名蓝 #3193d6 与白调和, 由深到浅 —
+# 八格按【时间占比】排名上色(第1名最深, 第8名最浅), 深浅=相对多少, 绝对数就印在格里。
+# 为什么用蓝不用红绿: 绿赚红亏是全站硬语义, 占比图用红绿会被读成好坏(Frank 2026-08-06)。
+# 最深档仍能压住深蓝灰正文(#2c3e50), 不改字色。
+HEAT_BLUES = ["#8fc3e8", "#a3cdec", "#b4d6f0", "#c4def3", "#d2e5f6", "#dfecf8",
+              "#ebf3fb", "#f4f8fd"]
+
+
 
 # 周期层用途标注(下载页勾选项显示用): 谁吃这层数据一眼可见
 TF_ROLE = {"M1": "回测", "D1": "regime"}
@@ -170,8 +178,9 @@ def regime():
         win_counts = Counter(r["regime"] for r in sel)
         win_days = len(sel)
         quad_label = f"近{show_years}年" if show_years > 0 else f"{-show_years}年以前"
-    # 象限图显示准备: 每格一行"N天 · P%"(稀格标红), 今天所在格 + 海明距离1的三个邻格
-    cell_lines, neighbors = {}, []
+    # 象限图显示准备: 每格一行"N天 · P%"(稀格标红), 今天所在格 + 海明距离1的三个邻格;
+    # 底色 = 占比热力(8档蓝, 第①级战绩色不适用于占比图 — 见三级制注释)
+    cell_lines, neighbors, quad_fills = {}, [], {}
     if data and data.get("stats", {}).get("cells"):
         if win_counts is not None:
             for cell in ("AAA", "AAB", "ABA", "ABB", "BAA", "BAB", "BBA", "BBB"):
@@ -188,8 +197,17 @@ def regime():
                 cell_lines[cell] = [f'<span{cls}>{d} 天 · {pct}%</span>']
         cur = data["current"]["regime"]
         neighbors = [cur[:i] + ("B" if cur[i] == "A" else "A") + cur[i + 1:] for i in range(3)]
+        # 热力上色: 取每格占比(窗口内现算 win_counts 优先, 否则 stats 全历史), 排名配色
+        if win_counts is not None:
+            pcts = {c: win_counts.get(c, 0) for c in data["stats"]["cells"]}
+        else:
+            pcts = dict(data["stats"]["cells"])
+        for rank, (cell, _) in enumerate(
+                sorted(pcts.items(), key=lambda kv: -kv[1])):
+            quad_fills[cell] = HEAT_BLUES[min(rank, len(HEAT_BLUES) - 1)]
     return render_template("regime.html", symbols=symbols, symbol=symbol, days=days,
                            full=full, data=data, cell_lines=cell_lines, neighbors=neighbors,
+                           quad_fills=quad_fills,
                            score=score, band_months=band_months, show_years=show_years,
                            quad_label=quad_label,
                            band_default=int(view_cfg.get("band_years") or 3),

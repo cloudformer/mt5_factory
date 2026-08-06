@@ -250,16 +250,21 @@ a.btn:hover { background: #d9ecf9; }
 .regime-quad { display: grid; grid-template-columns: auto 1fr 1fr; gap: 8px; align-items: stretch;
                background: #f7f9fa; border: 1px solid var(--border); border-radius: var(--radius);
                padding: 12px 14px; }
-.regime-axis { font-size: 12px; color: var(--muted); text-align: center; align-self: end; padding: 0 4px; }
-/* 八格统一模版(2026-07-31 Frank 定): 左色条恒=regime本色(认格子), 底色=涨跌含义 —
-   有盈亏数据的格传 --fill(绿赚/红亏), 战绩语境没数据的格保持白底;
-   纯 regime 语境(落位/占比图, 不传 fills)由 .q-tint 给每格上自己 regime 本色的极浅底
-   (2026-08-06): 颜色有含义且不与"本色只在Regime图上"的纪律冲突(左色条本就全站带本色) */
+/* 轴标签: 12px 但用正文色(2026-08-06 Frank: 小字用灰太浅不好分辨) */
+.regime-axis { font-size: 12px; color: var(--text); text-align: center;
+               align-self: end; padding: 0 4px; }
+/* 八格底色三级制(2026-08-06 Frank 定, 防歧义 — 一格只可能落一级):
+     ①有战绩 → 净点方向: 绿赚/红亏(9% 淡色,  调用方传 fills=绿/红)
+     ②纯 regime 占比 → 蓝色深浅表示时间占比(8 档由高到低, 传 fills + heat)
+     ③默认 → 白底(不上色) — 曾用 regime 本色浅底, 但本色是绿=牛/红=熊, 与①的绿赚红亏
+       撞语义, 已撤(2026-08-06)
+   左侧 5px 色条恒 = regime 本色(认格子用, 与底色分工不冲突) */
 .regime-cell { border: 1px solid #e4eaec; border-left: 5px solid var(--cell); border-radius: 6px;
                padding: 7px 10px; min-width: 170px; background: #fff;
                box-shadow: 0 1px 1px rgba(16, 24, 40, .04); }
 .regime-cell[style*="--fill"] { background: color-mix(in srgb, var(--fill) 9%, #fff); }
-.q-tint .regime-cell { background: color-mix(in srgb, var(--cell) 7%, #fff); }
+/* 占比热力图: fills 已是最终色(8 档蓝), 直接当底色不再调和 */
+.q-heat .regime-cell[style*="--fill"] { background: var(--fill); }
 .regime-cell.cur { outline: 2px solid #2563eb; outline-offset: 1px; }
 .regime-cell.nb  { outline: 2px dashed #93c5fd; outline-offset: 1px; }
 .regime-cell-line { font-size: 12.5px; margin-top: 3px; font-variant-numeric: tabular-nums; }
