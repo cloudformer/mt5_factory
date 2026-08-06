@@ -153,7 +153,13 @@
 
 {% if report %}
 <section>
-  <h2>{% if report.id %}报告 #{{ report.id }}{% else %}点名诊断(只读 · 未入库, 刷新即消失){% endif %}</h2>
+  <h2>{% if report.id %}报告 #{{ report.id }}
+      <span class="muted" style="font-weight:normal;font-size:12px">下载
+        <a href="{{ url_for('regime_screen.report_download', report_id=report.id, fmt='csv') }}"
+           title="结论级 CSV(一行一策略, Excel 友好)">csv</a>
+        <a href="{{ url_for('regime_screen.report_download', report_id=report.id, fmt='json') }}"
+           title="全量 JSON(含格×切片深层数字) — 贴给 AI 找规律">json</a></span>
+    {% else %}点名诊断(只读 · 未入库, 刷新即消失){% endif %}</h2>
   <p class="muted">{{ m.lts(report.created_at) }} · {{ '预览' if report.mode == 'preview' else '执行' }} · regime v{{ report.version_id }}
     {% if report.scope.task %}· 任务「{{ report.scope.task }}」{% endif %}
     · 范围 {% if report.scope.ids %}ID {{ report.scope.ids | join(',') }}{% elif report.scope.label %}标签「{{ report.scope.label }}」{% else %}全部未筛过{% endif %}
@@ -219,7 +225,7 @@
   <h2>历史报告</h2>
   {% if reports %}
   <table class="dense">
-    <thead><tr><th>#</th><th>时间</th><th>模式</th><th>regime</th><th>范围</th><th>判据</th><th>结果</th><th></th></tr></thead>
+    <thead><tr><th>#</th><th>时间</th><th>模式</th><th>regime</th><th>范围</th><th>判据</th><th>结果</th><th>报告</th></tr></thead>
     <tbody>
     {% for r in reports %}
     <tr>
@@ -234,7 +240,12 @@
       <td>共{{ r.summary.total }} <span class="pos">过{{ r.summary.passed }}</span>
           <span class="neg">未过{{ r.summary.failed }}</span>{% if r.mode == 'execute' %}(归档{{ r.summary.archived }}){% endif %}
           跳过{{ r.summary.skipped }}</td>
-      <td><a href="{{ url_for('regime_screen.index', report=r.id) }}">明细</a></td>
+      {# 报告列(2026-08-06 Frank 定): 明细 / csv 给 Excel / json 全量深层贴给 AI 找规律 #}
+      <td><a href="{{ url_for('regime_screen.index', report=r.id) }}">预览</a>
+        <a href="{{ url_for('regime_screen.report_download', report_id=r.id, fmt='csv') }}"
+           title="结论级 CSV(一行一策略, Excel 友好)">csv</a>
+        <a href="{{ url_for('regime_screen.report_download', report_id=r.id, fmt='json') }}"
+           title="全量 JSON(含每策略的格×切片深层数字) — 直接贴给 AI 找规律">json</a></td>
     </tr>
     {% endfor %}
     </tbody>

@@ -1,9 +1,13 @@
 """v0.5 Regime 筛选页(可插拔测试功能): 判据参数 + 运行(预览/执行) + 历史报告回看。
 只调 api(regime_screen.py), 移除 = 删本文件 + app.py 注册两行 + base.html 导航一行。
 时间显示: created_at 原样透传, 模板 m.lts() 交给浏览器转本地时区(全站统一机制)。"""
+import csv
+import io
+import json
 from datetime import datetime, timezone
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
+from flask import (Blueprint, Response, flash, jsonify, redirect, render_template, request,
+                   url_for)
 
 import api_client as api
 
@@ -60,6 +64,57 @@ def detail(report_id: int, sid: int):
         return jsonify(api.get(f"/regime_screen/reports/{report_id}/strategy/{sid}"))
     except api.ApiError as e:
         return jsonify({"error": str(e)}), 502
+
+
+@bp.get("/regime-screen/report/<int:report_id>.<fmt>")
+def report_download(report_id: int, fmt: str):
+    """报告下载(2026-08-06 Frank 要: 复制到 AI 找规律):
+      .json = 全量原样(含每策略的格×切片深层数字) — 直接贴给 AI
+      .csv  = 结论级一行一策略(Excel 友好): 判定窗/笔数/净点/PF/通过格/各切分合格格/结论
+    走 api 全量取(limit 拉满), 不受页面分页/排序影响。"""
+    if fmt not in ("json", "csv"):
+        return {"error": "只支持 .json / .csv"}, 400
+    try:
+        rep = api.get(f"/regime_screen/reports/{report_id}", limit=200, offset=0)
+        total = rep.get("total") or 0
+        details = list(rep.get("details") or [])
+        while len(details) < total:      # 分页拉满(api 单页上限 200)
+            more = api.get(f"/regime_screen/reports/{report_id}",
+                           limit=200, offset=len(details))
+            batch = more.get("details") or []
+            if not batch:
+                break
+            details += batch
+        rep["details"] = details
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+    if fmt == "json":
+        body = json.dumps(rep, ensure_ascii=False, indent=1, default=str)
+        return Response(body, mimetype="application/json; charset=utf-8", headers={
+            "Content-Disposition": f'attachment; filename="regime_screen_{report_id}.json"'})
+    # CSV: 表头 = 页面那张表的列(切分列按报告自己的切点动态展开)
+    cuts = [f"{c:g}" for c in sorted(rep["params"].get("boundaries_years") or [], reverse=True)]
+    win = rep["params"].get("window_years") or 5
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["报告", "策略ID", "名称", "品种", "状态", "判定窗", "笔数", "净点", "PF",
+                "通过格", "结论", "原因"]
+               + [f"前{win - float(c):g}年/近{c}年合格格" for c in cuts])
+    for d in rep["details"]:
+        tot = d.get("total") or {}
+        w.writerow([
+            report_id, d.get("id"), d.get("name"), d.get("symbol"), d.get("status"),
+            d.get("window") or "", d.get("trades") if d.get("trades") is not None else "",
+            tot.get("net") if tot.get("n") else "",
+            ("∞" if tot.get("pf") is None and tot.get("n") else (tot.get("pf") or "")),
+            "·".join(d.get("pass_cells") or []),
+            {"pass": "通过", "fail": "未过", "skip": "跳过"}.get(d.get("verdict"), ""),
+            d.get("reason") or "",
+        ] + ["·".join((d.get("splits") or {}).get(c) or []) for c in cuts])
+    return Response("\ufeff" + buf.getvalue(),   # BOM: Excel 打开中文不乱码
+                    mimetype="text/csv; charset=utf-8", headers={
+                        "Content-Disposition":
+                            f'attachment; filename="regime_screen_{report_id}.csv"'})
 
 
 @bp.get("/regime-screen/plan")
