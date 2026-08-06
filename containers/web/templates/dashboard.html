@@ -27,10 +27,17 @@
   <div class="stat" title="task: running = 正在执行的任务数(每路同时只跑一个) · wait = 队列里排队的
 task runner: 活着的跑批副本容器(docker compose --scale worker=N); api 进程内还自带 1 路,
 所以 running 可能 = 副本数+1。哪种任务/进度到各自页面看">
-    <div class="stat-label">任务 task</div>
-    <div class="stat-value"><span class="pos">{{ pool.running or 0 }}</span> running
-      / {{ pool.pending or 0 }} wait</div>
-    <div class="stat-sub">task runner: {{ pool.replicas or 0 }} 副本</div>
+    <div class="stat-label">任务</div>
+    {# 有活: 大数字 + 小单位(与其他卡"大值小注"一致); 全空: 走 .stat-dim 淡字, 不喊 0 #}
+    {% if pool.running or pool.pending %}
+    <div class="stat-value"><span class="pos">{{ pool.running }}</span><span
+        style="font-size:12px;font-weight:500;color:var(--muted)"> running</span>
+      <span style="color:var(--border)">/</span> {{ pool.pending }}<span
+        style="font-size:12px;font-weight:500;color:var(--muted)"> wait</span></div>
+    {% else %}
+    <div class="stat-value stat-dim">空闲</div>
+    {% endif %}
+    <div class="stat-sub">task runner {{ pool.replicas or 0 }} 副本</div>
   </div>
   {% set sto = health.storage if health else none %}
   <div class="stat">
