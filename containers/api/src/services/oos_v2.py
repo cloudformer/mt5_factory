@@ -14,9 +14,10 @@
   · 警示与判定分离: 0 笔段 / 笔数 < min_seg_trades 挂「样本不足」只提示人工, 不参与判定
 
 数据安全铁则(照 v0.5, 改这里前先读):
-  1. 任务 FAILED / 缺回测行 → 该策略记 skip, 永不归档 — 缺数据绝不淘汰
-  2. 执行动作(若开)写入时重申 status='CANDIDATE'
-  3. 预览模式除报告外零写入
+  1. 任务 FAILED / 缺回测行 → 该策略记 skip, 永不归档也不打标签 — 缺数据绝不淘汰, 下次重跑
+  2. 归档写入时重申 status='CANDIDATE'(防跑批期间被挂上机器)
+  3. 预览模式除【报告 + 出池标签(basis)】外零写入(2026-08-07 Frank 定: 预览也打标签,
+     否则 6000 个永远跑不完一轮); 点名诊断恒零写入
   4. 判定是纯读+纯计算; 引擎路径不在这里(worker 的 jobs._run_one 与批量回测同一份)
   5. 收尾完删空本工种队列 = "队列空即无待收尾批次", 幂等自清理(不加表不加列)
 """
@@ -164,11 +165,27 @@ def summarize(details: list, mode: str, archived: int, not_run: int) -> dict:
             "not_run": not_run}
 
 
+async def apply_actions(pool, mode: str, rid: int, tag_ids: list, archive_ids: list) -> None:
+    """出池标签 + 执行动作(第6步):
+      · 被判定过(pass/fail)一律追加 basis「oos_v2#<rid>」 — 预览也打(出池 + 报告溯源,
+        只写 basis 一列不改 status); skip 不打, 下次重跑(铁则1)
+      · 归档只在 execute: FAIL → ARCHIVED(死因 oos_v2_fail, 可逆),
+        写入重申 status='CANDIDATE'(铁则2: 跑批期间被挂上机器的绝不动)"""
+    if tag_ids:
+        await pool.execute(
+            "UPDATE strategies SET basis = CASE WHEN COALESCE(basis, '') = ''"
+            " THEN $2 ELSE basis || '｜' || $2 END, updated_at = now()"
+            " WHERE id = ANY($1)", tag_ids, f"{TAG}#{rid}")
+    if mode == "execute" and archive_ids:
+        await pool.execute(
+            "UPDATE strategies SET status='ARCHIVED', archive_reason='oos_v2_fail',"
+            " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'", archive_ids)
+
+
 async def finalize(pool: asyncpg.Pool) -> int | None:
-    """全池清理的收尾(主节点心跳调用): 队列(kind=oos_v2)全跑完 → 切段判定 → 落报告 → 清队列。
-    返回报告 id; 没有待收尾的批次返回 None。
-    并发安全: 整个收尾在 advisory lock 内; 结束即删空队列 → 别的副本看不到批次, 不会重复收尾。
-    动作(打标签/归档)第 6 步接 — 现在无论 preview/execute 都只落报告(铁则3之外零写入)。"""
+    """全池清理的收尾(主节点心跳调用): 队列(kind=oos_v2)全跑完 → 切段判定 → 落报告
+    → 打出池标签(+execute 归档) → 清队列。返回报告 id; 没有待收尾的批次返回 None。
+    并发安全: 整个收尾在 advisory lock 内; 结束即删空队列 → 别的副本看不到批次, 不会重复收尾。"""
     rows = await pool.fetch(
         "SELECT payload, status, error FROM jobs WHERE kind=$1", jobs.OOS_KIND)
     if not rows or any(r["status"] in ("PENDING", "RUNNING") for r in rows):
@@ -217,7 +234,11 @@ async def finalize(pool: asyncpg.Pool) -> int | None:
                     continue
                 bt = {"error": info["error"]} if info["error"] else bt_rows.get(sid)
                 details.append(judge_one(strat, bt, anchor, p))
-            summary = summarize(details, mode, archived=0,
+            # 出池标签 = 被判定过的(pass/fail); 归档 = execute 下的 fail(skip 永不动)
+            tag_ids = [d["id"] for d in details if d["verdict"] in ("pass", "fail")]
+            archive_ids = [d["id"] for d in details if d["verdict"] == "fail"] \
+                if mode == "execute" else []
+            summary = summarize(details, mode, archived=len(archive_ids),
                                 not_run=int(cfg.get("not_run") or 0))
             rid = await pool.fetchval(
                 "INSERT INTO oos_v2_screens"
@@ -225,11 +246,12 @@ async def finalize(pool: asyncpg.Pool) -> int | None:
                 " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
                 mode, anchor, cfg["scope"], p, summary, details,
                 int(cfg.get("owner") or 1))
+            await apply_actions(pool, mode, rid, tag_ids, archive_ids)
             # 收尾完删空队列: "队列空 = 无待收尾批次"(幂等自清理, 不加表不加列)
             await pool.execute("DELETE FROM jobs WHERE kind=$1", jobs.OOS_KIND)
-            logger.info("oos_v2 finalized: report #%s (%s) 共%d 通过%d 未过%d 跳过%d",
+            logger.info("oos_v2 finalized: report #%s (%s) 共%d 通过%d 未过%d 归档%d 跳过%d",
                         rid, mode, summary["total"], summary["passed"],
-                        summary["failed"], summary["skipped"])
+                        summary["failed"], summary["archived"], summary["skipped"])
             return rid
         finally:
             await conn.fetchval("SELECT pg_advisory_unlock($1)", LOCK_KEY)

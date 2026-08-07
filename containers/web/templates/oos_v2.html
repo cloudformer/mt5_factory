@@ -17,10 +17,10 @@
     </div>
     <div class="row">
       <span class="tag">选项</span>
-      <label title="预览=纯报告零动作(默认); 执行=打标签/归档(第6步开通)">模式
+      <label title="两种模式都会给被判定过的策略追加出池标签 oos_v2#报告号(下次自动出池+溯源, 不改状态); 执行额外把 FAIL 归档(死因 oos_v2_fail, 可逆), 在跑/跑批期间被挂上机器的绝不动">模式
         <select name="mode">
-          <option value="preview">预览(零动作)</option>
-          <option value="execute">执行(打标签/归档)</option>
+          <option value="preview">预览(出报告+出池标签)</option>
+          <option value="execute">执行(另把未过归档)</option>
         </select></label>
       <label title="本次最多现跑多少个策略(超出的下次再跑); 每个 ≈ 一发 20 年回测 ~10 秒">单次上限
         <input name="limit" type="number" min="1" style="width:70px"
@@ -208,7 +208,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="muted">还没有筛选报告 — 上方圈定范围后「开始筛选」(默认预览, 零动作)。</p>
+  <p class="muted">还没有筛选报告 — 上方圈定范围后「开始筛选」(默认预览: 只出报告+出池标签)。</p>
   {% endif %}
 </section>
 {% endblock %}

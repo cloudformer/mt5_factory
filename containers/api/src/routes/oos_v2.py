@@ -167,9 +167,8 @@ async def oos_run(req: OosRun, request: Request):
     pool = request.app.state.pool
     if req.mode not in ("preview", "execute"):
         raise HTTPException(status_code=400, detail="mode 需为 preview / execute")
-    if req.mode == "execute":   # 第6步开通; 届时点名仍恒为只读诊断
-        raise HTTPException(status_code=400,
-                            detail="执行模式(打标签/归档)第6步开通, 现在只有预览")
+    if req.ids and req.mode == "execute":
+        raise HTTPException(status_code=400, detail="按 ID 点名 = 只读诊断, 只支持预览模式")
 
     p = oos_v2.cfg_params(
         await pool.fetchval("SELECT value FROM config WHERE key='oos_v2'") or {})
