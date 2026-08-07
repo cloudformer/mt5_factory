@@ -20,12 +20,14 @@ logger = logging.getLogger("jobs")
 
 # 工种(2026-08-05 与 Frank 定, 命名跟随各自概念既有的名字, 不新造词):
 #   backtest       批量回测(回测页)
-#   regime_screen  自动化筛选 by Regime(现跑回测 + 切片判定)
+#   regime_screen  自动化筛选v1(现跑回测 + regime 切片判定)
+#   oos_v2         自动化筛选-oos_v2(现跑 20 年回测 + 三期六段判定, v0.6)
 # 各工种"一次一批"独立自清理(submit 只删同工种旧批) — 筛选不会抹掉手上的批量回测, 反之亦然;
 # 同时跑只是共享 worker 排队(总量守恒)。下载队列在 sync.py(DOWNLOAD_KIND), 消费在 worker 侧
 KIND = "backtest"            # 默认工种(不传 kind 的老调用 = 批量回测, 行为不变)
 SCREEN_KIND = "regime_screen"
-ENGINE_KINDS = (KIND, SCREEN_KIND)   # 消费者认的工种: 都是"跑一次回测"的活, 同一执行路径
+OOS_KIND = "oos_v2"
+ENGINE_KINDS = (KIND, OOS_KIND, SCREEN_KIND)   # 消费者认的工种: 都是"跑一次回测"的活, 同一执行路径
 POLL_SECONDS = 3             # 队列空时的轮询间隔
 LEASE_MINUTES = 30           # RUNNING 超时视为消费者死单, 扫回重试(单个回测秒级, 30分钟很宽)
 MAX_ATTEMPTS = 2             # 含首跑; 超过则 FAILED(错误留在行里可查)

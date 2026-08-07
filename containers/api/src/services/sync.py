@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import asyncpg
 
-from src.services import regime, screen
+from src.services import oos_v2, regime, screen
 
 logger = logging.getLogger("sync")
 
@@ -375,6 +375,10 @@ async def heartbeat_loop(pool: asyncpg.Pool):
                         await screen.finalize(pool)
                     except Exception as e:
                         logger.warning("regime screen finalize error: %s", e)
+                    try:   # oos_v2 筛选收尾(v0.6: 队列跑完 → 切段判定 → 报告 → 清队列)
+                        await oos_v2.finalize(pool)
+                    except Exception as e:
+                        logger.warning("oos_v2 finalize error: %s", e)
                     try:   # 自动对账(满 recon_hours 就逐个重算, 每拍一个)
                         await _recon_tick(pool)
                     except Exception as e:

@@ -19,7 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.services import backtest, identity, oos_v2, regime
+from src.services import backtest, identity, jobs, oos_v2, regime
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -129,10 +129,24 @@ async def oos_plan(request: Request, ids: Optional[str] = None):
 
 @router.get("/oos_v2/progress")
 async def oos_progress(request: Request):
-    """进度: 点名诊断 = api 内存(同步秒级); 全池清理的队列聚合第4步接到这里"""
-    if _progress["running"]:
+    """进度(两条路合一个出口, 照 v1 定版):
+      · 全池清理 = jobs 队列(kind=oos_v2)聚合 — 关页面/重启 api 都不丢, 任何副本能答
+      · 点名诊断 = api 内存(几个 ID 秒级, 同步跑完就返回)
+    页面只认这一个形状: {running, done, total, current, report_id, phase}"""
+    if _progress["running"]:      # 点名诊断正在同步跑
         return {**_progress, "phase": "diagnose"}
-    return {**_progress, "phase": "idle"}
+    p = await jobs.progress(request.app.state.pool, jobs.OOS_KIND)
+    if p["total"]:
+        return {"running": p["running"], "done": p["done"], "total": p["total"],
+                "current": p["current"] or "", "report_id": None,
+                "phase": "backtest" if p["running"] else "judging",
+                "errors": p["errors"]}
+    # 队列空 = 收尾已完成: 回最新报告 id(归属过滤), 页面从"判定中"跳过去看结果
+    uid = identity.scope_uid(request)
+    last = await request.app.state.pool.fetchval(
+        "SELECT id FROM oos_v2_screens" + (" WHERE owner_id = $1" if uid else "")
+        + " ORDER BY id DESC LIMIT 1", *([uid] if uid else []))
+    return {**_progress, "phase": "idle", "report_id": _progress["report_id"] or last}
 
 
 # ---------- 运行(第2步: 点名诊断 = 同步现跑现判, 只读不入库) ----------
@@ -145,16 +159,17 @@ class OosRun(BaseModel):
 
 @router.post("/oos_v2/run")
 async def oos_run(req: OosRun, request: Request):
-    """点名诊断(传 ids): 本请求内同步现跑 20 年回测 → 切六段判定 → 直接返回报告(不入库)。
-    全池清理(不传 ids)第 4 步接队列 — 在那之前明确拒绝, 不给半吊子行为。"""
+    """两条路(照 v1 定版, 判定逻辑共用 services/oos_v2 一份):
+      · 全池清理(不传 ids) = 投 jobs 队列(kind=oos_v2) 秒回 → worker 并行现跑 20 年回测
+        → 主节点收尾判定/落报告(oos_v2.finalize)
+      · 点名诊断(传 ids) = 本请求内同步现跑现判, 只读不入库(几个 ID, 走队列绕远)
+    两条路的回测都是【现跑】(结果 UPSERT 回流 backtests, 结论以报告为准)。"""
     pool = request.app.state.pool
     if req.mode not in ("preview", "execute"):
         raise HTTPException(status_code=400, detail="mode 需为 preview / execute")
-    if not req.ids:
+    if req.mode == "execute":   # 第6步开通; 届时点名仍恒为只读诊断
         raise HTTPException(status_code=400,
-                            detail="全池清理走队列(第4步接); 现在请按 ID 点名诊断")
-    if req.mode == "execute":
-        raise HTTPException(status_code=400, detail="按 ID 点名 = 只读诊断, 只支持预览模式")
+                            detail="执行模式(打标签/归档)第6步开通, 现在只有预览")
 
     p = oos_v2.cfg_params(
         await pool.fetchval("SELECT value FROM config WHERE key='oos_v2'") or {})
@@ -167,7 +182,41 @@ async def oos_run(req: OosRun, request: Request):
         "       s.timeframe, s.metadata"
         f" FROM strategies s WHERE {' AND '.join(conds)} ORDER BY s.symbol, s.id", *args)
     if not rows:
-        raise HTTPException(status_code=404, detail="点名的 ID 不存在")
+        raise HTTPException(status_code=404, detail=(
+            "点名的 ID 不存在" if req.ids else "没有未筛过的空闲策略 — 池子已清完"))
+
+    # ===== 全池清理 = 投 jobs 队列, worker 并行跑回测(第4步) =====
+    # 判定不在这里做: 队列跑完由主节点心跳收尾(oos_v2.finalize) — 报告在那一步一次性落库。
+    if not req.ids:
+        if await jobs.has_active(pool, jobs.OOS_KIND):
+            raise HTTPException(status_code=409, detail="已有一批筛选在跑, 等它完成再点")
+        limit = req.limit if req.limit else p["batch_limit"]
+        targets, not_run = list(rows[:limit]), max(len(rows) - limit, 0)
+        if limit:
+            scope["limit"] = limit
+        costs = await pool.fetchval(
+            "SELECT value FROM config WHERE key='backtest_costs'") or {}
+        costs = {k: costs.get(k)
+                 for k in ("slippage_points", "commission_points", "spread_points")}
+        # 窗口: 锚点往回 window_years 年 → now(引擎 to_time 记实际末根, 不撒谎)
+        t_from = oos_v2.anchor_dt(anchor) - timedelta(
+            days=oos_v2.window_years(p) * oos_v2.YEAR_DAYS)
+        t_to = datetime.now(timezone.utc)
+        # 每个任务 payload 带上本次运行配置(收尾从任一 payload 重建 → 不加表不加列;
+        # 队列删空 = 没有待收尾的批次, 天然幂等自清理)。每策略一个任务(只跑主品种)。
+        run_cfg = {"mode": req.mode, "anchor": anchor.isoformat(), "judge": p,
+                   "scope": scope, "owner": getattr(request.state, "user_id", 1),
+                   "skipped": [], "not_run": not_run}
+        items = [{"strategy_id": s["id"], "name": s["name"], "symbol": s["symbol"],
+                  "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs,
+                  "run": run_cfg} for s in targets]
+        await jobs.submit_batch(pool, items, jobs.OOS_KIND)
+        logger.info("oos_v2 submitted: %d jobs (mode=%s, anchor=%s)",
+                    len(items), req.mode, anchor)
+        return {"queued": True, "jobs": len(items), "strategies": len(targets),
+                "mode": req.mode, "anchor": anchor.isoformat(), "not_run": not_run}
+
+    # ===== 点名诊断: api 内同步现跑现判(只读, 不入库) =====
 
     # 引擎配置与批量回测同一来源(对比三铁律: 成本/oos/trail 回落一致)
     costs = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}

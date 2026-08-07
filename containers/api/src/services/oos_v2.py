@@ -20,9 +20,14 @@
   4. 判定是纯读+纯计算; 引擎路径不在这里(worker 的 jobs._run_one 与批量回测同一份)
   5. 收尾完删空本工种队列 = "队列空即无待收尾批次", 幂等自清理(不加表不加列)
 """
+import logging
 from datetime import date, datetime, timedelta, timezone
 
-from src.services import backtest
+import asyncpg
+
+from src.services import backtest, jobs
+
+logger = logging.getLogger("oos_v2")
 
 TAG = "oos_v2"           # basis 标签词根: 「oos_v2#<报告号>」= 已筛过出池 + 报告溯源
 LOCK_KEY = 0x005EC42     # advisory lock: 同一时刻只有一个 api 副本在收尾(与 screen 不同键)
@@ -157,3 +162,74 @@ def summarize(details: list, mode: str, archived: int, not_run: int) -> dict:
             "warned": sum(1 for d in details if d.get("warn")),
             "archived": archived if mode == "execute" else 0,
             "not_run": not_run}
+
+
+async def finalize(pool: asyncpg.Pool) -> int | None:
+    """全池清理的收尾(主节点心跳调用): 队列(kind=oos_v2)全跑完 → 切段判定 → 落报告 → 清队列。
+    返回报告 id; 没有待收尾的批次返回 None。
+    并发安全: 整个收尾在 advisory lock 内; 结束即删空队列 → 别的副本看不到批次, 不会重复收尾。
+    动作(打标签/归档)第 6 步接 — 现在无论 preview/execute 都只落报告(铁则3之外零写入)。"""
+    rows = await pool.fetch(
+        "SELECT payload, status, error FROM jobs WHERE kind=$1", jobs.OOS_KIND)
+    if not rows or any(r["status"] in ("PENDING", "RUNNING") for r in rows):
+        return None      # 没批次 / 还在跑
+    async with pool.acquire() as conn:
+        if not await conn.fetchval("SELECT pg_try_advisory_lock($1)", LOCK_KEY):
+            return None  # 另一个副本正在收尾
+        try:
+            # 锁内复查(拿锁期间对方可能已收尾并清空队列)
+            n = await conn.fetchval("SELECT count(*) FROM jobs WHERE kind=$1", jobs.OOS_KIND)
+            if not n:
+                return None
+            cfg = rows[0]["payload"]["run"]
+            p = cfg["judge"]
+            anchor = date.fromisoformat(cfg["anchor"])   # 锚点 = 提交那天(批内冻结)
+            mode = cfg["mode"]
+            # 每策略一个任务(只跑主品种): 失败记 error(铁则1 → skip 永不淘汰)
+            by_sid: dict = {}
+            strat_ids = []
+            for r in rows:
+                pl = r["payload"]
+                sid = int(pl["strategy_id"])
+                if sid not in by_sid:
+                    by_sid[sid] = {"symbol": pl["symbol"], "name": pl.get("name"),
+                                   "error": None}
+                    strat_ids.append(sid)
+                if r["status"] == "FAILED":
+                    by_sid[sid]["error"] = r["error"] or "未知原因"
+            # 策略现状临判现查(状态可能在跑批期间变了)
+            strats = {r["id"]: dict(r) for r in await pool.fetch(
+                "SELECT id, name, symbol, status FROM strategies WHERE id = ANY($1)",
+                strat_ids)}
+            # 回测行 = worker 刚跑完 UPSERT 的新鲜数据(只取主品种那行)
+            bt_rows = {r["strategy_id"]: dict(r) for r in await pool.fetch(
+                "SELECT b.strategy_id, b.trades FROM backtests b"
+                " JOIN strategies s ON s.id = b.strategy_id AND s.symbol = b.symbol"
+                " WHERE b.strategy_id = ANY($1)", strat_ids)}
+            details = list(cfg.get("skipped") or [])
+            for sid in strat_ids:
+                info = by_sid[sid]
+                strat = strats.get(sid)
+                if strat is None:   # 跑批期间被删
+                    details.append({"id": sid, "name": info["name"],
+                                    "symbol": info["symbol"], "status": "—",
+                                    "verdict": "skip", "reason": "策略已删除"})
+                    continue
+                bt = {"error": info["error"]} if info["error"] else bt_rows.get(sid)
+                details.append(judge_one(strat, bt, anchor, p))
+            summary = summarize(details, mode, archived=0,
+                                not_run=int(cfg.get("not_run") or 0))
+            rid = await pool.fetchval(
+                "INSERT INTO oos_v2_screens"
+                " (mode, anchor, scope, params, summary, details, owner_id)"
+                " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+                mode, anchor, cfg["scope"], p, summary, details,
+                int(cfg.get("owner") or 1))
+            # 收尾完删空队列: "队列空 = 无待收尾批次"(幂等自清理, 不加表不加列)
+            await pool.execute("DELETE FROM jobs WHERE kind=$1", jobs.OOS_KIND)
+            logger.info("oos_v2 finalized: report #%s (%s) 共%d 通过%d 未过%d 跳过%d",
+                        rid, mode, summary["total"], summary["passed"],
+                        summary["failed"], summary["skipped"])
+            return rid
+        finally:
+            await conn.fetchval("SELECT pg_advisory_unlock($1)", LOCK_KEY)
