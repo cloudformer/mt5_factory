@@ -12,6 +12,7 @@ load_m1 + 悲观撮合 + 成本/oos/trail 同一 config 来源, 结果 UPSERT �
 """
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -24,6 +25,30 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 TAG = oos_v2.TAG   # basis 标签词根(唯一定义在 services/oos_v2.py)
+
+# 报告明细可排序列(白名单, 值=JSONB 表达式): 排序在库里做, 覆盖全量而非当页。
+# PF 的 ∞(有笔无亏损, 存 null)按最大值参与排序; 0 笔段/跳过行 NULL 恒沉底
+SORTS = {
+    "id": "(e->>'id')::bigint",
+    "symbol": "e->>'symbol'",
+    "name": "e->>'name'",
+    "trades": "(e->'total'->>'n')::numeric",
+    "net": "(e->'total'->>'net')::numeric",
+    "pf": ("CASE WHEN (e->'total'->>'n')::int > 0 AND e->'total'->>'pf' IS NULL"
+           " THEN 1e18 ELSE (e->'total'->>'pf')::numeric END"),
+    "verdict": "CASE e->>'verdict' WHEN 'pass' THEN 0 WHEN 'fail' THEN 1 ELSE 2 END",
+}
+
+
+def _sort_expr(sort: str) -> Optional[str]:
+    """排序键 → SQL 表达式。段 PF 列: seg<期序号>:<train|test>(段是配置数组, 序号动态);
+    正则钉死形状 + 序号转 int, 不存在拼接注入面"""
+    m = re.fullmatch(r"seg(\d):(train|test)", sort)
+    if m:
+        base = f"e->'periods'->{int(m.group(1))}->'{m.group(2)}'"
+        return (f"CASE WHEN ({base}->>'n')::int > 0 AND {base}->>'pf' IS NULL"
+                f" THEN 1e18 ELSE ({base}->>'pf')::numeric END")
+    return SORTS.get(sort)
 
 # 点名诊断进度(api 内存, 几个 ID 秒级; 全池清理的队列进度第4步接)
 _progress = {"running": False, "done": 0, "total": 0, "current": "", "report_id": None}
@@ -218,3 +243,59 @@ async def oos_run(req: OosRun, request: Request):
     # 点名诊断恒为只读: 不入库不打标签(报告落库只属于全池清理的收尾, 第4步)
     return {"report_id": None, "mode": req.mode, "anchor": anchor.isoformat(),
             "scope": scope, "params": p, "summary": summary, "details": details}
+
+
+# ---------- 报告回看(归属过滤照 v0.5: owner 只见自己的, admin 全见) ----------
+@router.get("/oos_v2/reports")
+async def oos_reports(request: Request, limit: int = 30):
+    uid = identity.scope_uid(request)
+    rows = await request.app.state.pool.fetch(
+        "SELECT id, created_at, mode, anchor, scope, params, summary"
+        " FROM oos_v2_screens" + (" WHERE owner_id = $2" if uid else "")
+        + " ORDER BY id DESC LIMIT $1",
+        min(max(limit, 1), 200), *([uid] if uid else []))
+    return {"reports": [{**dict(r), "created_at": r["created_at"].isoformat(),
+                         "anchor": r["anchor"].isoformat()} for r in rows]}
+
+
+@router.get("/oos_v2/reports/{report_id}")
+async def oos_report(report_id: int, request: Request, offset: int = 0,
+                     limit: int = 50, verdict: Optional[str] = None,
+                     sort: str = "", dir: str = "desc"):
+    """报告明细(服务端分页 + 排序, 照 v0.5 定版: 几千行全量进浏览器会卡死, 排序须全量排)。
+    periods 本身就轻(每策略 ~1KB), 不需要 v0.5 那种深层字段剥离 — 行内即全部数字。"""
+    if verdict not in (None, "", "pass", "fail", "skip"):
+        raise HTTPException(status_code=400, detail="verdict 需为 pass/fail/skip")
+    order_expr = _sort_expr(sort) if sort else None
+    if sort and order_expr is None:
+        raise HTTPException(status_code=400,
+                            detail=f"sort 需为 {sorted(SORTS)} 或 seg<i>:train|test")
+    limit = min(max(limit, 1), 200)
+    cond = " WHERE e->>'verdict' = $2" if verdict else ""
+    args = [report_id] + ([verdict] if verdict else []) + [max(offset, 0), limit]
+    p_off, p_lim = f"${len(args) - 1}", f"${len(args)}"
+    if order_expr:
+        order = f"{order_expr} {'ASC' if dir == 'asc' else 'DESC'} NULLS LAST, ord"
+    else:
+        order = "rk, ord"   # 默认通过优先(pass→fail→skip, 组内原序)
+    sql = (
+        "SELECT r.id, r.created_at, r.mode, r.anchor, r.scope, r.params, r.summary,"
+        "       r.owner_id,"
+        f"      (SELECT count(*) FROM jsonb_array_elements(r.details) e{cond}) AS total,"
+        f"      (SELECT jsonb_agg(s.e ORDER BY {order.replace('ord', 's.ord').replace('rk', 's.rk')})"
+        "         FROM ("
+        "          SELECT e, ord, CASE e->>'verdict' WHEN 'pass' THEN 0"
+        "                              WHEN 'fail' THEN 1 ELSE 2 END AS rk"
+        "            FROM jsonb_array_elements(r.details)"
+        f"                            WITH ORDINALITY AS t(e, ord){cond}"
+        f"         ORDER BY {order} OFFSET {p_off} LIMIT {p_lim}) s) AS details"
+        " FROM oos_v2_screens r WHERE r.id = $1")
+    row = await request.app.state.pool.fetchrow(sql, *args)
+    uid = identity.scope_uid(request)
+    if row is None or (uid and row["owner_id"] != uid):   # 别人的报告 = 404 不暴露存在性
+        raise HTTPException(status_code=404, detail="report not found")
+    return {**{k: row[k] for k in row.keys() if k != "owner_id"},
+            "details": row["details"] or [],
+            "created_at": row["created_at"].isoformat(), "anchor": row["anchor"].isoformat(),
+            "offset": max(offset, 0), "limit": limit, "verdict": verdict or "",
+            "sort": sort, "dir": dir}

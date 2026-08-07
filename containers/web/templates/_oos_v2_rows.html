@@ -1,0 +1,121 @@
+{# oos_v2 报告明细片段(2026-08-07): 筛选条 + 当页表格 + 行内三期六段详情。
+   翻页/筛选/排序走全站 data-ajax 只换 #o2-report-box; 服务端分页+全量排序(照 v1 定版)。
+   段读数就在行里(periods 每策略 ~1KB, 不需要 v1 那种深层按需加载) — 展开零请求。 #}
+
+{# 段 PF 单元: 绿=过(∞恒过) 红=有笔且≤门槛 灰—=0笔不追责; ！=样本不足 #}
+{% macro pfcell(st) -%}
+  {%- if not st or not st.n -%}
+  <td class="num mono pf-nil" title="0 笔: 无数据不追责 = 算过">—</td>
+  {%- else -%}
+  <td class="num mono {{ 'pf-ok' if st.ok else 'pf-bad' }}">{{ '∞' if st.inf else '%g' % st.pf }}{% if st.warn %} <span class="muted" title="段内 {{ st.n }} 笔, 样本不足需人工留意">！</span>{% endif %}</td>
+  {%- endif -%}
+{%- endmacro %}
+
+{% set segs = report.params.segments %}
+{% if report.id %}
+{% set total = report.total or 0 %}
+{% set pages = ((total / per) | round(0, 'ceil') | int) if per else 1 %}
+{% set sm = report.summary %}
+<p class="inline" style="margin:6px 0">
+  <span class="muted">结论</span>
+  {% set opts = [('', '全部 ' ~ sm.total)] %}
+  {% if sm.passed %}{% set opts = opts + [('pass', 'PASS ' ~ sm.passed)] %}{% endif %}
+  {% if sm.failed %}{% set opts = opts + [('fail', 'FAIL ' ~ sm.failed)] %}{% endif %}
+  {% if sm.skipped %}{% set opts = opts + [('skip', '跳过 ' ~ sm.skipped)] %}{% endif %}
+  {% for v, zh in opts %}
+  <a href="{{ url_for('oos_v2.index', report=report.id, verdict=v, per=per) }}"
+     data-ajax="#o2-report-box" {% if v == 'skip' %}title="未判定的: 回测失败 / 缺回测行(铁则: 缺数据永不淘汰)"{% endif %}
+     class="{{ 'badge ok' if verdict == v else 'muted' }}">{{ zh }}</a>{{ ' · ' if not loop.last }}
+  {% endfor %}
+  <span class="op-sep">│</span>
+  <span class="muted">每页</span>
+  {% for n in [30, 50, 100] %}
+  <a href="{{ url_for('oos_v2.index', report=report.id, verdict=verdict, per=n) }}"
+     data-ajax="#o2-report-box" class="{{ 'badge ok' if per == n else 'muted' }}">{{ n }}</a>{{ ' · ' if not loop.last }}
+  {% endfor %}
+  <span class="op-sep">│</span>
+  {% if page > 1 %}<a href="{{ url_for('oos_v2.index', report=report.id, verdict=verdict, per=per, page=page-1) }}" data-ajax="#o2-report-box">‹ 上一页</a>{% else %}<span class="muted">‹ 上一页</span>{% endif %}
+  <span class="muted">第 {{ page }} / {{ pages if pages else 1 }} 页 · 本页 {{ report.details | length }} 行 · 匹配 {{ total }}</span>
+  {% if page < pages %}<a href="{{ url_for('oos_v2.index', report=report.id, verdict=verdict, per=per, page=page+1) }}" data-ajax="#o2-report-box">下一页 ›</a>{% else %}<span class="muted">下一页 ›</span>{% endif %}
+</p>
+{% endif %}
+
+{# 表头排序 = 服务端全量排; 段 PF 列键 seg<期序号>:<train|test> #}
+{% macro sh(key, label, tip='') -%}
+  {%- set active = (sort == key) %}
+  {%- set nd = 'asc' if (active and sdir == 'desc') else 'desc' %}
+  <th class="num"{% if tip %} title="{{ tip }} · 点表头按全量排序"{% else %} title="点表头按全量排序(不是只排当页)"{% endif %}>
+    <a data-ajax="#o2-report-box" style="text-decoration:none"
+       href="{{ url_for('oos_v2.index', report=report.id, verdict=verdict, per=per, sort=key, dir=nd) }}">{{ label }}{% if active %} <b>{{ '▼' if sdir == 'desc' else '▲' }}</b>{% endif %}</a></th>
+{%- endmacro %}
+{% set ncols = 6 + segs | length * 2 %}
+<table id="o2-details" class="dense" data-nosort>
+  <thead><tr>
+    {%- if report.id %}
+    {{ sh('id', 'ID') }}{{ sh('name', '名称') }}{{ sh('symbol', '品种') }}
+    {%- for s in segs %}{{ sh('seg' ~ loop.index0 ~ ':train', s.label ~ '训', s.label ~ '训练段 PF') }}{{ sh('seg' ~ loop.index0 ~ ':test', s.label ~ '测', s.label ~ '测试段 PF') }}{% endfor %}
+    {{ sh('net', '总净点', '整窗净点(已扣成本)') }}{{ sh('trades', '总笔数') }}{{ sh('verdict', '结论') }}<th>明细</th>
+    {%- else %}
+    <th>ID</th><th>名称</th><th>品种</th>
+    {%- for s in segs %}<th class="num">{{ s.label }}训</th><th class="num">{{ s.label }}测</th>{% endfor %}
+    <th class="num">总净点</th><th class="num">总笔数</th><th>结论</th><th>明细</th>
+    {%- endif %}
+  </tr></thead>
+  <tbody>
+  {% for d in report.details %}
+  {% set pers = {} %}
+  {% for per_ in (d.periods or []) %}{% if pers.update({per_.name: per_}) %}{% endif %}{% endfor %}
+  <tr>
+    <td class="mono">{{ d.id }}</td>
+    <td class="clip" title="{{ d.name }}">{{ d.name }}</td>
+    <td class="mono">{{ d.symbol }}</td>
+    {% for s in segs %}{% set per_ = pers.get(s.name) %}
+    {{ pfcell(per_.train if per_ else None) }}{{ pfcell(per_.test if per_ else None) }}
+    {% endfor %}
+    <td class="num mono">{% if d.total and d.total.n %}<span class="{{ 'pos' if d.total.net > 0 else 'neg' }}">{{ '{:+,.1f}'.format(d.total.net) }}</span>{% else %}—{% endif %}</td>
+    <td class="num mono">{{ d.total.n if d.total else '—' }}</td>
+    <td>{% if d.verdict == 'pass' %}<span class="pos">PASS</span>
+        {% elif d.verdict == 'fail' %}<span class="neg">FAIL</span>
+        {% else %}<span class="muted" title="{{ d.reason }}">跳过</span>{% endif %}
+        {% if d.warn %}<span class="muted" title="有段样本不足(0笔或低于提示线), 结论照给, 请人工留意">！</span>{% endif %}</td>
+    <td>{% if d.periods %}<button class="small" data-json-toggle="o2-d-{{ d.id }}"
+           title="展开: 三期六段完整读数(PF/净点/笔数/回撤/起止日期)">六段</button>{% endif %}</td>
+  </tr>
+  {% if d.periods %}
+  <tr id="o2-d-{{ d.id }}" class="detail-row" hidden>
+    <td colspan="{{ ncols }}" style="padding:8px 12px">
+      <div class="o2-stage">
+        {% for per_ in d.periods %}
+        <div class="o2-col">
+          <div class="o2-colhead">{{ per_.label }} · PF&gt;{{ '%g' % per_.min_pf }}</div>
+          {% for part, part_cn in [('train', '训练'), ('test', '测试')] %}
+          {% set st = per_[part] %}
+          <div class="o2-blk">
+            <div class="seghead"><b>{{ part_cn }}</b><span class="mono">{{ st['from'] }} → {{ st.to }}</span></div>
+            {% if st.n %}
+            <span class="o2-pf mono {{ 'pf-ok' if st.ok else 'pf-bad' }}">{{ '∞' if st.inf else '%g' % st.pf }} <small style="font-size:11px;font-weight:400">PF</small></span>
+            {% if st.warn %}<span class="muted" title="段内笔数低于提示线">！样本不足</span>{% endif %}
+            <dl>
+              <dt>净点</dt><dd class="{{ 'pos' if st.net > 0 else 'neg' }}">{{ '{:+,.1f}'.format(st.net) }}</dd>
+              <dt>笔数</dt><dd>{{ '{:,}'.format(st.n) }}</dd>
+              <dt>最大回撤</dt><dd>{{ '{:,.1f}'.format(st.dd) if st.dd is not none else '—' }}</dd>
+            </dl>
+            {% else %}
+            <span class="o2-pf mono pf-nil">—</span>
+            <div class="muted">0 笔 — 无数据不追责(算过) · ！样本不足</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+      <div class="muted" style="font-size:12px">{{ d.reason }}</div>
+    </td>
+  </tr>
+  {% endif %}
+  {% endfor %}
+  {% if not report.details %}
+  <tr><td colspan="{{ ncols }}" class="muted">本页无行 — 换个结论筛选或回第 1 页</td></tr>
+  {% endif %}
+  </tbody>
+</table>

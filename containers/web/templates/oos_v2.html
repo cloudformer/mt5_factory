@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('自动化筛选-oos_v2', 'Regime OOS Screen v2 · 三期六段（20年/5年/2年 × 训练/测试）：每策略只跑一次 20 年回测（悲观撮合，结果回流库），按锚点=跑批当天切六段，六段 PF 全合格 = PASS（∞恒过，0笔不追责）。默认预览只出报告不动策略') }}
+
+<section>
+  <h2>批量筛选</h2>
+  <form method="post" action="{{ url_for('oos_v2.run') }}" class="runbar">
+    <div class="row">
+      <span class="tag">选策略</span>
+      <span class="muted">默认 = 全部未筛过的空闲策略(按单次上限轮番清理, 筛过的自动出池)</span>
+      <span class="op-sep">│</span>
+      <label title="点名 = 只读诊断: 任意状态都可点名, 强制预览零动作(不入库不打标签); 不填 = 默认全池">或按 ID
+        <input name="ids" size="14" placeholder="逗号分隔(只读诊断)"></label>
+      <label title="可选: 给这次清理任务起个名, 记进报告好认(不参与筛选逻辑)">任务标签
+        <input name="task" size="12" placeholder="可选"></label>
+    </div>
+    <div class="row">
+      <span class="tag">选项</span>
+      <label title="预览=纯报告零动作(默认); 执行=打标签/归档(第6步开通)">模式
+        <select name="mode">
+          <option value="preview">预览(零动作)</option>
+          <option value="execute">执行(打标签/归档)</option>
+        </select></label>
+      <label title="本次最多现跑多少个策略(超出的下次再跑); 每个 ≈ 一发 20 年回测 ~10 秒">单次上限
+        <input name="limit" type="number" min="1" style="width:70px"
+               value="{{ params.batch_limit if params else 50 }}"></label>
+      {% if params %}
+      <span class="muted" title="锚点 = 跑批当天 00:00 UTC, 每批运行时冻结, 全批共用一把刀(批内可比)">
+        锚点 = 跑批当天(今天 {{ params.anchor }}) · 回测窗 {{ '%g' % params.window_years }} 年(=各段最早起点)</span>
+      {% endif %}
+    </div>
+    <div class="row">
+      <span class="tag">判据</span>
+      <span class="muted">
+        {% if params %}
+        {% for s in params.segments %}{{ s.label }} 训{{ '%g' % s.train[0] }}→{{ '%g' % s.train[1] }}·测{{ '%g' % s.test[0] }}→{{ '%g' % s.test[1] }}年前{{ '　' if not loop.last }}{% endfor %}
+        · 段合格 = PF&gt;{{ '%g' % params.default_pf }}(每期可覆盖) 或 ∞ 或 0笔不追责
+        · &lt;{{ params.min_seg_trades }}笔挂｢！样本不足｣只提示不判定
+        {% else %}<span class="neg">api 不可用 — 判据读不到</span>{% endif %}
+      </span>
+    </div>
+    <div class="row">
+      <span class="tag">预览</span>
+      <span id="o2-plan" class="muted">…</span>
+      <span class="spacer"></span>
+      <button class="go">开始筛选</button>
+    </div>
+  </form>
+
+  {# 运行预估 + 进度轮询(照 v1 页同款机制) #}
+  <script>
+  (function () {
+    const form = document.querySelector("form.runbar");
+    const planEl = document.getElementById("o2-plan");
+    const go = form.querySelector("button.go");
+    let timer;
+    async function refreshPlan() {
+      const ids = form.querySelector("input[name=ids]").value.trim();
+      const modeSel = form.querySelector("select[name=mode]");
+      if (ids) modeSel.value = "preview";   // 点名 = 只读诊断, 强制预览
+      modeSel.disabled = !!ids;
+      const p = new URLSearchParams();
+      if (ids) p.set("ids", ids);
+      try {
+        const d = await fetch("{{ url_for('oos_v2.plan') }}?" + p).then((r) => r.json());
+        if (d.error) { planEl.textContent = "预估不可用: " + d.error; go.disabled = false; return; }
+        const lim = parseInt(form.querySelector("input[name=limit]").value) || 0;
+        const run = lim ? Math.min(lim, d.total) : d.total;
+        let txt = `${ids ? "点名" : "未筛过池"} ${d.total} 个策略(${d.symbols} 品种)`
+          + ` → 本次真跑 ${run} 个 × 1 发 ${d.window_years}年回测(约10s/个, 锚点 ${d.anchor})`;
+        if (lim && d.total > lim) txt += ` · 剩余 ${d.total - lim} 个下次再跑`;
+        if (d.tagged) txt += ` · 已筛过跳过 ${d.tagged}`;
+        planEl.textContent = d.total === 0
+          ? (ids ? "点名的 ID 不存在" : "没有未筛过的空闲策略 — 池子已清完") : txt;
+        go.disabled = (d.total === 0);
+      } catch { planEl.textContent = "预估不可用"; go.disabled = false; }
+    }
+    form.addEventListener("change", refreshPlan);
+    form.querySelectorAll("input[name=ids], input[name=limit]").forEach((el) =>
+      el.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(refreshPlan, 400); }));
+    refreshPlan();
+    let pollTimer = null, watching = false;
+    async function pollProgress() {
+      try {
+        const s = await fetch("{{ url_for('oos_v2.progress') }}").then((r) => r.json());
+        if (s.running) {
+          watching = true; go.disabled = true;
+          const ph = s.phase === "diagnose" ? "点名诊断" : "回测阶段(worker 并行)";
+          planEl.textContent = `${ph} ${s.done}/${s.total} · ${s.current || ""}`;
+        } else if (s.phase === "judging") {
+          watching = true; go.disabled = true;
+          planEl.textContent = `回测阶段完成 ${s.done}/${s.total} · 判定中(30秒内出报告)…`;
+        } else if (watching) {
+          clearInterval(pollTimer); pollTimer = null; watching = false;
+          if (s.report_id) { location = "?report=" + s.report_id; return; }
+          go.disabled = false; refreshPlan();
+        } else { clearInterval(pollTimer); pollTimer = null; }
+      } catch (e) { /* 网络抖动忽略 */ }
+    }
+    function watchProgress() {
+      if (!pollTimer) pollTimer = setInterval(pollProgress, 1500);
+      pollProgress();
+    }
+    form.addEventListener("submit", () => {
+      go.disabled = true; planEl.textContent = "现跑回测中…"; watching = true; watchProgress();
+    });
+    fetch("{{ url_for('oos_v2.progress') }}").then((r) => r.json())
+      .then((s) => { if (s.running) watchProgress(); }).catch(() => {});
+  })();
+  </script>
+
+  {# 判据配置(探索期在本页, 稳定后搬配置页 — 2026-08-07 Frank 定): 唯一编辑处, 存 config.oos_v2;
+     每次运行把整份判据快照进报告 → 老报告按当时口径自解释, 改判据不篡改历史。
+     第一版不做加期/删期按钮: 加第四期直接改库里数组(仍是配置不是代码)。 #}
+  {% if params %}
+  <form method="post" action="{{ url_for('oos_v2.save_params') }}" class="inline" style="margin-top:10px">
+    <input type="hidden" name="seg_count" value="{{ params.segments | length }}">
+    <table class="dense" data-nosort style="max-width:880px">
+      <thead><tr>
+        <th>期</th>
+        <th title="距锚点年数(0=当天, 可小数): 起 必须大于 止">训练段(起→止, 年前)</th>
+        <th>测试段(起→止, 年前)</th>
+        <th title="该期 PF 门槛; 空 = 用默认 PF(未来可长0.8/中1.0/短1.2 分开收紧)">该期PF&gt;</th>
+        <th>本次实际日期(锚点 {{ params.anchor }})</th>
+      </tr></thead>
+      <tbody>
+      {% for s in params.segments %}
+      <tr>
+        <td>{{ s.label }} <span class="muted mono">{{ s.name }}</span>
+          <input type="hidden" name="seg{{ loop.index0 }}_name" value="{{ s.name }}">
+          <input type="hidden" name="seg{{ loop.index0 }}_label" value="{{ s.label }}"></td>
+        <td><input class="mono" name="seg{{ loop.index0 }}_train_from" size="4" value="{{ '%g' % s.train[0] }}">
+          → <input class="mono" name="seg{{ loop.index0 }}_train_to" size="4" value="{{ '%g' % s.train[1] }}"></td>
+        <td><input class="mono" name="seg{{ loop.index0 }}_test_from" size="4" value="{{ '%g' % s.test[0] }}">
+          → <input class="mono" name="seg{{ loop.index0 }}_test_to" size="4" value="{{ '%g' % s.test[1] }}"></td>
+        <td><input class="mono" name="seg{{ loop.index0 }}_min_pf" size="4"
+                   value="{{ '%g' % s.min_pf if s.min_pf is not none else '' }}" placeholder="默认"></td>
+        <td class="mono muted">{{ s.train_dates[0] }} → {{ s.train_dates[1] }}　｜　{{ s.test_dates[0] }} → {{ s.test_dates[1] }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <span class="muted">改判据:</span>
+    <label title="各期 min_pf 为空时用这个门槛(严格大于)">默认PF&gt;
+      <input class="mono" name="default_pf" size="4" value="{{ '%g' % params.default_pf }}"></label>
+    <label title="段内笔数低于此值挂｢！样本不足｣徽标 — 只提示人工留意, 不参与判定">样本不足提示(笔)
+      <input name="min_seg_trades" type="number" min="1" style="width:56px" value="{{ params.min_seg_trades }}"></label>
+    <label title="运行框｢单次上限｣的默认值">单次上限默认
+      <input name="batch_limit" type="number" min="1" style="width:64px" value="{{ params.batch_limit }}"></label>
+    <button class="small">保存判据</button>
+    <span class="muted">段内 0 笔 → 灰 — (无数据不追责=算过) · 加第四期改库里 config.oos_v2 的数组</span>
+  </form>
+  {% endif %}
+</section>
+
+{% if report %}
+<section>
+  <h2>{% if report.id %}报告 #{{ report.id }}
+      <span class="muted" style="font-weight:normal;font-size:12px">下载
+        <a href="{{ url_for('oos_v2.report_download', report_id=report.id, fmt='csv') }}"
+           title="结论级 CSV(一行一策略 · 六段 PF/净点/笔数/回撤, Excel 友好)">csv</a>
+        <a href="{{ url_for('oos_v2.report_download', report_id=report.id, fmt='json') }}"
+           title="全量 JSON(六段深层 + 判据快照) — 贴给 AI 找规律">json</a></span>
+    {% else %}点名诊断(只读 · 未入库, 刷新即消失){% endif %}</h2>
+  <p class="muted">{{ m.lts(report.created_at) }} · {{ '预览' if report.mode == 'preview' else '执行' }}
+    · 锚点 <b class="mono">{{ report.anchor }}</b>
+    {% if report.scope.task %}· 任务「{{ report.scope.task }}」{% endif %}
+    {% if report.scope.ids %}· ID×{{ report.scope.ids | length }}{% else %}· 全部未筛过{% endif %}
+    · 判据: {% for s in report.params.segments %}{{ s.label }}{{ '%g' % s.train[0] }}/{{ '%g' % s.test[0] }}{{ ' · ' if not loop.last }}{% endfor %}
+    · PF&gt;{{ '%g' % report.params.default_pf }} · 提示&lt;{{ report.params.min_seg_trades }}笔</p>
+  <p style="margin:4px 0">共 {{ report.summary.total }}
+    <span class="pos">通过 {{ report.summary.passed }}</span>
+    <span class="neg">未过 {{ report.summary.failed }}</span>
+    {% if report.summary.warned %}<span class="muted" title="0笔段或段内笔数<提示线: 结论照给, 人工留意">！样本不足 {{ report.summary.warned }}</span>{% endif %}
+    {% if report.summary.skipped %}<span class="muted" title="回测失败/缺回测行: 未判定, 永不归档">跳过 {{ report.summary.skipped }}</span>{% endif %}
+    {% if report.summary.not_run %}<span class="muted">未跑 {{ report.summary.not_run }}(超单次上限)</span>{% endif %}</p>
+  <div id="o2-report-box">{% include "_oos_v2_rows.html" %}</div>
+</section>
+{% endif %}
+
+<section>
+  <h2>历史报告</h2>
+  {% if reports %}
+  <table class="dense">
+    <thead><tr><th>#</th><th>时间</th><th>模式</th><th>锚点</th><th>范围</th><th>判据</th><th>结果</th><th>报告</th></tr></thead>
+    <tbody>
+    {% for r in reports %}
+    <tr>
+      <td class="mono">{{ r.id }}</td>
+      <td class="mono">{{ m.lts(r.created_at) }}</td>
+      <td>{{ '预览' if r.mode == 'preview' else '执行' }}</td>
+      <td class="mono">{{ r.anchor }}</td>
+      <td>{% if r.scope.task %}「{{ r.scope.task }}」· {% endif %}{% if r.scope.ids %}ID×{{ r.scope.ids | length }}{% else %}全部未筛过{% endif %}</td>
+      <td class="mono" title="各期 训总年/测年 · 默认PF · 样本提示线(当时快照, 改判据不篡改历史)">
+        {% for s in r.params.segments %}{{ '%g' % s.train[0] }}/{{ '%g' % s.test[0] }}{{ ' · ' if not loop.last }}{% endfor %}
+        · PF&gt;{{ '%g' % r.params.default_pf }} · 提示&lt;{{ r.params.min_seg_trades }}笔</td>
+      <td>共{{ r.summary.total }} <span class="pos">过{{ r.summary.passed }}</span>
+          <span class="neg">未过{{ r.summary.failed }}</span>{% if r.mode == 'execute' %}(归档{{ r.summary.archived }}){% endif %}
+          {% if r.summary.skipped %}跳过{{ r.summary.skipped }}{% endif %}</td>
+      <td><a href="{{ url_for('oos_v2.index', report=r.id) }}">预览</a>
+        <a href="{{ url_for('oos_v2.report_download', report_id=r.id, fmt='csv') }}"
+           title="结论级 CSV(一行一策略, Excel 友好)">csv</a>
+        <a href="{{ url_for('oos_v2.report_download', report_id=r.id, fmt='json') }}"
+           title="全量 JSON(六段深层数字) — 直接贴给 AI 找规律">json</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">还没有筛选报告 — 上方圈定范围后「开始筛选」(默认预览, 零动作)。</p>
+  {% endif %}
+</section>
+{% endblock %}

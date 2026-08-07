@@ -422,3 +422,27 @@ table.kv td:first-child { width: 130px; color: var(--muted); font-weight: 600; w
   font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px;
   overflow-wrap: anywhere; user-select: all;   /* 一点全选, 方便手动复制 */
 }
+
+/* ---------- v0.6 自动化筛选-oos_v2: 段PF着色 + 三期六段详情 block ---------- */
+/* 段PF三色(2026-08-07 定版): 绿=PF>门槛(∞恒过) 红=有笔且PF≤门槛 灰—=0笔不追责算过 */
+td.pf-ok  { color: var(--ok-fg);  background: var(--ok-bg);  font-weight: 600; }
+td.pf-bad { color: var(--err-fg); background: var(--err-bg); font-weight: 600; }
+td.pf-nil { color: var(--muted);  background: #f0f2f4; }
+.o2-stage { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px; padding: 4px 0 8px; }
+.o2-col   { display: flex; flex-direction: column; gap: 6px; }
+.o2-colhead { font-size: 12px; color: var(--text); font-weight: 600; }
+.o2-blk   { border: 1px solid var(--border); border-radius: 4px; background: #fff;
+            padding: 7px 10px 8px; font-size: 12.5px; }
+.o2-blk .seghead { display: flex; justify-content: space-between; gap: 8px;
+                   color: var(--muted); font-size: 12px; }
+.o2-blk .seghead b { color: var(--text); }
+.o2-pf    { display: inline-block; margin: 4px 0 5px; padding: 1px 8px; border-radius: 3px;
+            font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.o2-pf.pf-ok  { color: var(--ok-fg);  background: var(--ok-bg); }
+.o2-pf.pf-bad { color: var(--err-fg); background: var(--err-bg); }
+.o2-pf.pf-nil { color: var(--muted);  background: #f0f2f4; font-weight: 400; }
+.o2-blk dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 0; }
+.o2-blk dt { color: var(--muted); }
+.o2-blk dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums;
+             font-family: var(--mono, ui-monospace, Menlo, monospace); }

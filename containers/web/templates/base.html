@@ -43,13 +43,14 @@
   {# 策略组: 造和跑(生成/回测/排名) #}
   <div class="navmenu">
     <a href="{{ url_for('strategies.index') }}"
-       {% if ep in ('strategies.index', 'strategies.generate_page', 'strategies.strategy_tree') or ep.startswith('backtests.') or ep.startswith('regime_screen.') %}class="active"{% endif %}>策略 ▾</a>
+       {% if ep in ('strategies.index', 'strategies.generate_page', 'strategies.strategy_tree') or ep.startswith('backtests.') or ep.startswith('regime_screen.') or ep.startswith('oos_v2.') %}class="active"{% endif %}>策略 ▾</a>
     <div class="navmenu-items">
       <a href="{{ url_for('strategies.generate_page') }}" {% if ep == 'strategies.generate_page' %}class="active"{% endif %}>策略生成</a>
       <a href="{{ url_for('backtests.index') }}" {% if ep.startswith('backtests.') %}class="active"{% endif %}>策略回测</a>
       <a href="{{ url_for('strategies.index') }}" {% if ep == 'strategies.index' %}class="active"{% endif %}>策略列表排名</a>
       <a href="{{ url_for('strategies.strategy_tree') }}" {% if ep == 'strategies.strategy_tree' %}class="active"{% endif %}>策略谱系</a>
       <a href="{{ url_for('regime_screen.index') }}" {% if ep == 'regime_screen.index' %}class="active"{% endif %}>自动化筛选v1</a>
+      <a href="{{ url_for('oos_v2.index') }}" {% if ep == 'oos_v2.index' %}class="active"{% endif %}>自动化筛选-oos_v2</a>
     </div>
   </div>
   {# 分析组: 看深度(单策略归因 / 回测体系质量) #}
