@@ -44,6 +44,8 @@
       <span class="tag">预览</span>
       <span id="o2-plan" class="muted">…</span>
       <span class="spacer"></span>
+      <button type="button" id="o2-stop" class="small danger" hidden
+              title="删空本批队列: 不出报告不打标签; 在跑的把手头回测跑完即自然结束(结果回流无害)">停止(删队列)</button>
       <button class="go">开始筛选</button>
     </div>
   </form>
@@ -82,9 +84,21 @@
       el.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(refreshPlan, 400); }));
     refreshPlan();
     let pollTimer = null, watching = false;
+    const stopBtn = document.getElementById("o2-stop");
+    stopBtn.addEventListener("click", async () => {
+      if (!confirm("停止本批? 队列删空 = 不出报告不打标签(在跑的把手头跑完即结束)")) return;
+      stopBtn.disabled = true;
+      try {
+        const d = await fetch("{{ url_for('oos_v2.stop') }}", { method: "POST" }).then((r) => r.json());
+        planEl.textContent = d.message || d.error || "已停止";
+        watching = false; go.disabled = false; stopBtn.hidden = true;
+        setTimeout(refreshPlan, 1500);
+      } catch (e) { alert("停止失败: " + e); } finally { stopBtn.disabled = false; }
+    });
     async function pollProgress() {
       try {
         const s = await fetch("{{ url_for('oos_v2.progress') }}").then((r) => r.json());
+        stopBtn.hidden = (s.phase !== "backtest");   // 只有队列批次可停(点名秒级/判定中已到收尾)
         if (s.running) {
           watching = true; go.disabled = true;
           const ph = s.phase === "diagnose" ? "点名诊断" : "回测阶段(worker 并行)";
@@ -115,7 +129,9 @@
      每次运行把整份判据快照进报告 → 老报告按当时口径自解释, 改判据不篡改历史。
      第一版不做加期/删期按钮: 加第四期直接改库里数组(仍是配置不是代码)。 #}
   {% if params %}
-  <form method="post" action="{{ url_for('oos_v2.save_params') }}" class="inline" style="margin-top:10px">
+  {# 配置区高亮(2026-08-07 Frank: 配置要明显) + data-post-ajax 就地保存不刷页 #}
+  <form method="post" action="{{ url_for('oos_v2.save_params') }}" class="inline o2-cfg" data-post-ajax>
+    <span class="cfg-title">⚙ 判据配置</span><span class="muted">唯一源 = config.oos_v2 · 保存就地生效, 每次运行快照进报告</span>
     <input type="hidden" name="seg_count" value="{{ params.segments | length }}">
     <table class="dense" data-nosort style="max-width:880px">
       <thead><tr>
@@ -142,7 +158,6 @@
       {% endfor %}
       </tbody>
     </table>
-    <span class="muted">改判据:</span>
     <label title="各期 min_pf 为空时用这个门槛(严格大于)">默认PF&gt;
       <input class="mono" name="default_pf" size="4" value="{{ '%g' % params.default_pf }}"></label>
     <label title="段内笔数低于此值挂｢！样本不足｣徽标 — 只提示人工留意, 不参与判定">样本不足提示(笔)
@@ -151,8 +166,8 @@
       <input name="batch_limit" type="number" min="1" style="width:64px" value="{{ params.batch_limit }}"></label>
     <label title="N 天内跑过覆盖全窗(20年)的回测行 → 不重跑直接判定(数据最多旧 N 天, 短测段少最后几天的笔); 0 = 每次都现跑">复用(天)
       <input name="reuse_days" type="number" min="0" style="width:52px" value="{{ params.reuse_days }}"></label>
-    <button class="small">保存判据</button>
-    <span class="muted">段内 0 笔 → 灰 — (无数据不追责=算过) · 加第四期改库里 config.oos_v2 的数组</span>
+    <button>保存判据</button>
+    <span class="muted">段内 0 笔 → 灰 — (无数据不追责=算过) · 加第四期改库里 config.oos_v2 的数组 · 改了段年数后刷新页面看新实际日期</span>
   </form>
   {% endif %}
 </section>

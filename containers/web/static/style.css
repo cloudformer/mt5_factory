@@ -446,3 +446,10 @@ td.pf-nil { color: var(--muted);  background: #f0f2f4; }
 .o2-blk dt { color: var(--muted); }
 .o2-blk dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums;
              font-family: var(--mono, ui-monospace, Menlo, monospace); }
+
+/* oos_v2 判据配置区(2026-08-07 Frank: 配置要明显): 左蓝条高亮 + 标签用正文色加粗 */
+.o2-cfg { background: #f7f9fa; border: 1px solid var(--border);
+          border-left: 3px solid var(--accent); border-radius: 4px;
+          padding: 10px 12px 12px; margin-top: 12px; }
+.o2-cfg .cfg-title { font-weight: 700; color: var(--text); margin-right: 10px; }
+.o2-cfg label { color: var(--text); font-weight: 600; }

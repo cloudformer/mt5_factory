@@ -60,10 +60,22 @@ def plan():
         return jsonify({"error": str(e)}), 502
 
 
+@bp.post("/oos-v2/stop")
+def stop():
+    """停止当前全池批次: 删空队列(不出报告不打标签); 在跑的把手头回测跑完即自然结束"""
+    try:
+        r = api.post("/oos_v2/stop")
+        return jsonify({"message": f"已停止, 删除 {r['deleted']} 个任务(不出报告)"})
+    except api.ApiError as e:
+        return jsonify({"error": str(e)}), 502
+
+
 @bp.post("/oos-v2/params")
 def save_params():
     """保存判据(整包 PUT): 段定义每期一行(训练/测试起止 + 该期PF) + 全局三项。
-    校验在 api(services/oos_v2.cfg_params), 不合法 400 不落库。"""
+    校验在 api(services/oos_v2.cfg_params), 不合法 400 不落库。
+    AJAX 提交(data-post-ajax)回 JSON 就地 ✓/✗ 不刷页; 老式提交回 redirect 兜底。"""
+    is_ajax = request.headers.get("X-Requested-With") == "fetch"
     try:
         segments = []
         for i in range(int(request.form.get("seg_count", 0))):
@@ -85,13 +97,19 @@ def save_params():
             f"{s['label']} 训{s['train'][0]:g}→{s['train'][1]:g} 测{s['test'][0]:g}→{s['test'][1]:g}"
             + (f" PF>{s['min_pf']:g}" if s.get("min_pf") is not None else "")
             for s in r["segments"])
-        flash(f"判据已保存: {segs} · 默认PF>{r['default_pf']:g}"
-              f" · 样本提示<{r['min_seg_trades']}笔 · 单次上限{r['batch_limit']}"
-              f" · 复用{r['reuse_days']}天内回测" if r["reuse_days"]
-              else f"判据已保存: {segs} · 复用已关(每次都现跑)", "success")
+        msg = (f"已保存: {segs} · 默认PF>{r['default_pf']:g}"
+               f" · 样本提示<{r['min_seg_trades']}笔 · 单次上限{r['batch_limit']}"
+               + (f" · 复用{r['reuse_days']}天" if r["reuse_days"] else " · 复用已关"))
+        if is_ajax:
+            return jsonify({"message": "已保存"})
+        flash(msg, "success")
     except ValueError:
+        if is_ajax:
+            return jsonify({"error": "判据各项需为数字(年数可小数)"}), 400
         flash("判据各项需为数字(年数可小数)", "error")
     except api.ApiError as e:
+        if is_ajax:
+            return jsonify({"error": str(e)}), 400
         flash(f"保存失败: {e}", "error")
     return redirect(url_for("oos_v2.index"))
 

@@ -161,6 +161,18 @@ async def oos_progress(request: Request):
     return {**_progress, "phase": "idle", "report_id": _progress["report_id"] or last}
 
 
+@router.post("/oos_v2/stop")
+async def oos_stop(request: Request):
+    """停止当前全池批次(2026-08-07 Frank 要: 防误点/变更计划): 删空队列 = 不出报告不打标签。
+    正在跑的任务把手头回测跑完(结果回流 backtests 幂等无害), 完成时更新 0 行自然结束。
+    点名诊断(同步)不受此按钮管 — 它本来就秒级跑完且零写入。"""
+    n = await request.app.state.pool.execute(
+        "DELETE FROM jobs WHERE kind=$1", jobs.OOS_KIND)
+    deleted = int(n.split()[-1]) if n.split()[-1].isdigit() else 0
+    logger.info("oos_v2 stopped: %d jobs deleted", deleted)
+    return {"deleted": deleted}
+
+
 # ---------- 运行(第2步: 点名诊断 = 同步现跑现判, 只读不入库) ----------
 class OosRun(BaseModel):
     mode: str = "preview"              # preview=纯报告零动作(默认) / execute=第6步再开
