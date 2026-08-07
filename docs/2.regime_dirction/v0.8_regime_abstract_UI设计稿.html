@@ -1,0 +1,205 @@
+<title>regime_abstract 口径试验田（设计稿 v0.8）</title>
+<style>
+  :root {
+    --bg: #eef1f3; --panel: #ffffff; --sub: #f6f8f9; --line: #d9e0e5;
+    --ink: #1b2530; --muted: #5f6c78; --accent: #1f6feb;
+    --pos: #14713a; --pos-bg: #e3f4e8; --neg: #b3231f; --neg-bg: #fbe6e4;
+    --warn: #8a5a00; --warn-bg: #fdf1d8; --nil: #8a949d; --nil-bg: #f0f2f4;
+    --shadow: 0 1px 2px rgba(20,32,44,.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12171c; --panel:#1a2027; --sub:#151b21; --line:#2c353e; --ink:#e4e9ee;
+      --muted:#96a2ad; --accent:#6aa6ff; --pos:#6cd08e; --pos-bg:#14301f; --neg:#ff8d84;
+      --neg-bg:#351916; --warn:#e0b055; --warn-bg:#322616; --nil:#7c8791; --nil-bg:#1f262d;
+      --shadow:0 1px 2px rgba(0,0,0,.4); }
+  }
+  :root[data-theme="dark"] { --bg:#12171c; --panel:#1a2027; --sub:#151b21; --line:#2c353e;
+    --ink:#e4e9ee; --muted:#96a2ad; --accent:#6aa6ff; --pos:#6cd08e; --pos-bg:#14301f;
+    --neg:#ff8d84; --neg-bg:#351916; --warn:#e0b055; --warn-bg:#322616; --nil:#7c8791;
+    --nil-bg:#1f262d; --shadow:0 1px 2px rgba(0,0,0,.4); }
+  :root[data-theme="light"] { --bg:#eef1f3; --panel:#ffffff; --sub:#f6f8f9; --line:#d9e0e5;
+    --ink:#1b2530; --muted:#5f6c78; --accent:#1f6feb; --pos:#14713a; --pos-bg:#e3f4e8;
+    --neg:#b3231f; --neg-bg:#fbe6e4; --warn:#8a5a00; --warn-bg:#fdf1d8; --nil:#8a949d;
+    --nil-bg:#f0f2f4; --shadow:0 1px 2px rgba(20,32,44,.07); }
+  body { margin:0; padding:22px 20px 60px; background:var(--bg); color:var(--ink);
+    font:14.5px/1.55 -apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif; }
+  .wrap { max-width:1120px; margin:0 auto; display:flex; flex-direction:column; gap:20px; }
+  .mono, td.num { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-variant-numeric:tabular-nums; }
+  h1 { font-size:21px; margin:0 0 3px; letter-spacing:-.2px; }
+  h2 { font-size:15.5px; margin:0 0 2px; }
+  .lede { color:var(--muted); font-size:13px; margin:0; max-width:70ch; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:5px;
+    box-shadow:var(--shadow); padding:14px 16px 16px; }
+  .eyebrow { font-size:11px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--muted); font-weight:600; margin:0 0 8px; }
+  .note { color:var(--muted); font-size:12.5px; }
+  a { color:var(--accent); }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; }
+  th,td { border-bottom:1px solid var(--line); padding:6px 9px; text-align:left; white-space:nowrap; }
+  thead th { background:var(--sub); font-weight:600; font-size:12px; color:var(--muted); }
+  td.num, th.num { text-align:right; }
+  tbody tr:hover { background:var(--sub); }
+  label { font-size:12.5px; color:var(--muted); }
+  input, select { font:inherit; font-size:13px; padding:3px 6px; color:var(--ink);
+    background:var(--panel); border:1px solid var(--line); border-radius:3px; }
+  input.mono { font-family:ui-monospace,Menlo,monospace; text-align:right;
+    font-variant-numeric:tabular-nums; }
+  button { font:inherit; font-size:13px; padding:4px 13px; border-radius:3px; cursor:pointer;
+    border:1px solid var(--accent); background:var(--accent); color:#fff; }
+  button:disabled { background:var(--nil-bg); border-color:var(--line); color:var(--nil); cursor:default; }
+  input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible {
+    outline:2px solid var(--accent); outline-offset:1px; }
+  .verdict { font-size:12px; font-weight:700; padding:1px 8px; border-radius:10px; }
+  .v-pass { color:var(--pos); background:var(--pos-bg); }
+  .v-fail { color:var(--neg); background:var(--neg-bg); }
+  .v-nil  { color:var(--nil); background:var(--nil-bg); }
+  td.ok  { color:var(--pos); background:var(--pos-bg); font-weight:600; }
+  td.bad { color:var(--neg); background:var(--neg-bg); font-weight:600; }
+  .warnflag { color:var(--warn); font-size:12px; }
+  .hl { background:var(--warn-bg); border:1px solid var(--line); border-left:3px solid var(--warn);
+    border-radius:3px; padding:10px 12px; font-size:13px; }
+  .caption { font-size:12px; color:var(--muted); margin:10px 0 0; }
+  .dims { display:flex; flex-direction:column; gap:6px; }
+  .dim { display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+    background:var(--sub); border:1px solid var(--line); border-radius:4px; padding:7px 10px; }
+  .dim .no { font-weight:700; color:var(--muted); width:34px; }
+  .runbar { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  .spacer { flex:1; }
+</style>
+
+<div class="wrap">
+
+<header>
+  <h1>regime_abstract 口径试验田 <span class="verdict v-nil">设计稿 v0.8</span></h1>
+  <p class="lede">把 regime 从写死的三维抽象成「指标库 × 自由组合」：配 3~4 个维度现算实验
+    timeline（不落库不碰正式版本），中性记分卡判这套口径稳不稳，全达标才允许冻结成正式口径版本。
+    <b>试验田永远不显示策略盈亏</b> —— 用盈利选口径 = 循环论证，赚钱关系由预测验证在未来数据上裁决。</p>
+</header>
+
+<!-- ── 1. 口径实验配置 ── -->
+<section>
+  <p class="eyebrow">口径实验 · 指标库(代码词汇) × 组合(配置句子) · 现算零落库</p>
+  <h2>配置维度</h2>
+  <div class="dims" style="margin-top:8px">
+    <div class="dim"><span class="no mono">维1</span>
+      <select><option>ma_side — 收盘在N日均线上/下</option><option>ma_slope</option><option>atr_regime</option><option>range_pos</option><option>ma_cross</option><option>ret_sign</option></select>
+      <label>period <input class="mono" value="200" size="4"></label>
+      <span class="note">桶: A=线上 B=线下</span>
+      <span class="spacer"></span><a href="#" title="删除本维">✕</a></div>
+    <div class="dim"><span class="no mono">维2</span>
+      <select><option>ma_side — 收盘在N日均线上/下</option></select>
+      <label>period <input class="mono" value="20" size="4"></label>
+      <span class="note">桶: A=线上 B=线下</span>
+      <span class="spacer"></span><a href="#" title="删除本维">✕</a></div>
+    <div class="dim"><span class="no mono">维3</span>
+      <select><option>atr_regime — ATR vs 滚动年中位</option></select>
+      <label>period <input class="mono" value="14" size="4"></label>
+      <span class="note">桶: A=高波动 B=低波动</span>
+      <span class="spacer"></span><a href="#" title="删除本维">✕</a></div>
+    <div class="dim"><span class="no mono">维4</span>
+      <select><option>range_pos — 收盘在N日区间上/下半</option></select>
+      <label>days <input class="mono" value="20" size="4"></label>
+      <span class="note">桶: A=上半 B=下半</span>
+      <span class="spacer"></span><a href="#" title="删除本维">✕</a></div>
+  </div>
+  <div class="runbar">
+    <a href="#">＋ 加一维</a>
+    <span class="note" title="3~4 维最佳(8~16格); 20年≈5200交易日, 5维32格≈160天/格, 8维=纯噪声。超上限只警告, 记分卡的覆盖均衡/持续性会把爆炸口径判死">维数护栏: 3~4 维最佳 · 当前 4 维 = 16 格 ✓</span>
+    <span class="spacer"></span>
+    <label>品种 <select><option>全部下载品种(9)</option><option>EURUSD</option></select></label>
+    <label>年数 <input class="mono" value="20" size="3"></label>
+    <button>跑实验</button>
+  </div>
+  <p class="caption">现有 v1 = ma_side(200) + ma_side(20) + atr_regime(14) 的特例 —— 兼容不推翻；
+    这次实验 = 在它基础上加了第 4 维 range_pos(20)。</p>
+</section>
+
+<!-- ── 2. 记分卡 ── -->
+<section>
+  <p class="eyebrow">实验 #4 · 2026-08-08 10:32 · 4维16格 · 20年 · 9品种</p>
+  <h2>记分卡（四标准 × 每品种）　<span class="verdict v-fail">7 / 9 品种达标 — 未全过</span></h2>
+  <div class="scroll" style="margin-top:10px">
+  <table>
+    <thead><tr>
+      <th>品种</th>
+      <th class="num" title="组合格龄中位数(天), 门槛 ≥3 — 格子必须比策略持仓活得久">持续性 格龄中位</th>
+      <th class="num" title="年均翻转次数, 门槛 ≤60">年翻转</th>
+      <th class="num" title="最稀格占比, 门槛 ≥5% — 稀到没样本的格没有统计价值">覆盖 最稀格</th>
+      <th class="num" title="最密格占比, 门槛 ≤35%">最密格</th>
+      <th class="num" title="高/低波动态的日均真实波幅比, 门槛 ≥1.5× — 中性指标, 与策略盈亏无关">区分 波幅比</th>
+      <th class="num" title="趋势维 A/B 两态次日收益均值差的 t 值, 门槛 |t|≥2">收益t</th>
+      <th class="num" title="任两维同向一致率最大值, 门槛 ≤75%(≥90% = 两维是一回事, 砍一维)">冗余 最大一致率</th>
+      <th>总评</th>
+    </tr></thead>
+    <tbody>
+      <tr><td class="mono">EURUSD</td>
+        <td class="num mono ok">5.2</td><td class="num mono ok">41</td>
+        <td class="num mono ok">7.1%</td><td class="num mono ok">21%</td>
+        <td class="num mono ok">1.8×</td><td class="num mono ok">2.6</td>
+        <td class="num mono ok">68%</td>
+        <td><span class="verdict v-pass">达标</span></td></tr>
+      <tr><td class="mono">GBPUSD</td>
+        <td class="num mono ok">4.8</td><td class="num mono ok">47</td>
+        <td class="num mono ok">6.3%</td><td class="num mono ok">24%</td>
+        <td class="num mono ok">1.7×</td><td class="num mono ok">2.2</td>
+        <td class="num mono ok">71%</td>
+        <td><span class="verdict v-pass">达标</span></td></tr>
+      <tr><td class="mono">XAUUSD</td>
+        <td class="num mono bad">2.1</td><td class="num mono bad">96</td>
+        <td class="num mono bad">1.2%</td><td class="num mono ok">33%</td>
+        <td class="num mono ok">2.1×</td><td class="num mono ok">3.0</td>
+        <td class="num mono ok">64%</td>
+        <td><span class="verdict v-fail">未达标</span> <span class="note">长牛品种: B格天然稀</span></td></tr>
+      <tr><td class="mono">USDJPY</td>
+        <td class="num mono ok">4.1</td><td class="num mono ok">52</td>
+        <td class="num mono bad">3.9%</td><td class="num mono ok">28%</td>
+        <td class="num mono ok">1.6×</td><td class="num mono ok">2.1</td>
+        <td class="num mono bad">88%</td>
+        <td><span class="verdict v-fail">未达标</span> <span class="note">维2/维4 高度一致 — 疑似冗余</span></td></tr>
+      <tr><td class="mono note" colspan="9">… 其余 5 品种（达标）折叠，点开看全部</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">全部读数是<b>中性指标</b>（格龄/覆盖/波幅/维度独立）——
+    这里永远看不到 PF/净点。门槛全配置化，首轮全过/全不过允许校一次，选定后连同门槛冻结。</p>
+  <div class="hl" style="margin-top:10px">
+    <b>结论</b>：维4(range_pos·20) 与 维2(ma_side·20) 在 USDJPY 一致率 88% —— 两维讲的是一回事。
+    建议：删维4 重跑，或换 range_pos 的 days 拉开语义。<b>[冻结为新口径版本]</b> 按钮在
+    全品种达标前不亮（admin）。
+  </div>
+</section>
+
+<!-- ── 3. 历史实验 ── -->
+<section>
+  <p class="eyebrow">历史实验 · 每次一行 · json 可下载喂 AI 提下一轮参数(AI 配参数闭环)</p>
+  <h2>历史实验</h2>
+  <div class="scroll" style="margin-top:8px">
+  <table>
+    <thead><tr><th>#</th><th>时间</th><th>配置</th><th>格数</th><th>记分卡</th><th>报告</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">4</td><td class="mono">2026-08-08 10:32</td>
+        <td class="mono">ma_side(200)+ma_side(20)+atr_regime(14)+range_pos(20)</td>
+        <td class="num mono">16</td>
+        <td><span class="pos" style="color:var(--pos)">达标7</span> <span style="color:var(--neg)">未达2</span></td>
+        <td><a href="#">预览</a> <a href="#" title="配置+全部品种记分卡数字, 贴给 AI 提下一轮">json</a></td></tr>
+      <tr><td class="mono">3</td><td class="mono">2026-08-08 10:11</td>
+        <td class="mono">ma_side(200)+ma_slope(50,10)+atr_regime(14)</td>
+        <td class="num mono">8</td>
+        <td><span style="color:var(--pos)">达标9</span> <span class="note">全过 · 可冻结</span></td>
+        <td><a href="#">预览</a> <a href="#">json</a> <a href="#" title="admin: 配置原样写进 regime_versions(features 新格式), 之后门/矩阵/筛选/预测都能引用">❄ 冻结</a></td></tr>
+      <tr><td class="mono">2</td><td class="mono">2026-08-08 09:58</td>
+        <td class="mono">ma_side(200)+ma_side(20)+atr_regime(14)</td>
+        <td class="num mono">8</td>
+        <td><span style="color:var(--pos)">达标8</span> <span style="color:var(--neg)">未达1</span> <span class="note">= 现 v1 基准</span></td>
+        <td><a href="#">预览</a> <a href="#">json</a></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">冻结 = 实验配置原样写进 regime_versions（features 数组新格式，存量版本零迁移）；
+    冻结后被 门/九币矩阵/筛选/预测验证 引用的机制全不变。实验报告表独立
+    (regime_abstract_screens)，移除本功能 = 删表删页面，不碰正式时间线。</p>
+</section>
+
+</div>
