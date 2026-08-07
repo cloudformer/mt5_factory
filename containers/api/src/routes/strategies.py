@@ -769,6 +769,20 @@ async def archive_orphans(request: Request):
     return {"archived": len(rows)}
 
 
+@router.get("/strategies/{strategy_id}/profile")
+async def strategy_profile(strategy_id: int, request: Request):
+    """策略 Profile(v0.7 批次2): 结论级完整画像, 读时现拼零落库 —
+    base/tags履历/stability(20·5·2年窗, 与oos_v2同刀法)/oos六段结论/states(格×战绩)/
+    live战绩+对账/prediction(批次3)。原始档案(全量逐笔)在 /report(AI成绩单), 分工不重复。"""
+    pool = request.app.state.pool
+    await identity.assert_strategy_visible(pool, request, strategy_id)
+    from src.services import profile as profile_svc
+    prof = await profile_svc.build(pool, strategy_id)
+    if prof is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    return prof
+
+
 @router.get("/strategies/{strategy_id}/report")
 async def ai_report(strategy_id: int, request: Request):
     """AI 成绩单(结构化 JSON, 纯数字无评语 — 事实只存一份, 表述现算):

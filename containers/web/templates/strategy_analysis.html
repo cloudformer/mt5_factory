@@ -12,6 +12,8 @@
     {% if sid %}
     <a class="btn" href="{{ url_for('strategies.ai_report', strategy_id=sid) }}" target="_blank"
        title="该策略的结构化成绩单(纯数字): 参数+回测(oos/分年/MAE/MFE)+跨品种+对账可信度+实盘+同模板尸体死因 — 未来 AI 调参训练的输入, 现在也可人工下载查看">AI成绩单 JSON</a>
+    <a class="btn" href="{{ url_for('strategies.profile_json', strategy_id=sid) }}" target="_blank"
+       title="策略完整画像(v0.7, 读时现拼): 基础信息+tags履历+稳定性(20/5/2年窗)+OOS六段结论+每regime格战绩+实盘/对账 — 结论级小而全, 与成绩单(原始档案)分工">Profile JSON</a>
     {% endif %}
   </form>
   {% if sid %}

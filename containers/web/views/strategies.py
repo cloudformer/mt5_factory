@@ -625,6 +625,15 @@ def analysis_fragment():
                            regime_fills=_cells_fills((ana or {}).get("regime_cells")))
 
 
+@bp.get("/<int:strategy_id>/profile.json")
+def profile_json(strategy_id: int):
+    """策略 Profile(v0.7): 结论级画像 JSON(读时现拼) — 人看/贴给AI/未来预测模块引用"""
+    try:
+        return api.get(f"/strategies/{strategy_id}/profile")
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
 @bp.get("/<int:strategy_id>/report.json")
 def ai_report(strategy_id: int):
     """AI 成绩单 JSON 透传(浏览器/未来 AI 训练脚本直接下载; api 内网名浏览器够不到)"""
