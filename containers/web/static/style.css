@@ -5,7 +5,7 @@
   --border: #e2e7e9;
   --border-strong: #c9d2d6;  /* 表头分隔线等需要更实的地方 */
   --text: #2c3e50;           /* 深蓝灰正文(参考图) */
-  --muted: #7f8c9b;
+  --muted: #64748b;   /* 2026-08-07 加深一档(原 #7f8c9b 太浅, 设计稿口径) */
   --accent: #3193d6;         /* Lucid 蓝 */
   --accent-hover: #2980ba;
   --green: #2ecc71;          /* Lucid 绿(与蓝构成签名渐变) */
@@ -25,7 +25,7 @@
 
 body {
   margin: 0;
-  font: 14px/1.55 -apple-system, "SF Pro Text", "Segoe UI", "PingFang SC",
+  font: 14.5px/1.55 -apple-system, "SF Pro Text", "Segoe UI", "PingFang SC",
         "Microsoft YaHei", sans-serif;
   background: var(--bg);
   background-image: linear-gradient(180deg, #f7f9f9 0, rgba(247, 249, 249, 0) 320px);
@@ -163,6 +163,8 @@ th, td {
   overflow-wrap: anywhere;   /* 长 token(如时间戳/长参数名)能断行, 不撑宽表格 */
 }
 td { font-variant-numeric: tabular-nums; }  /* 等宽数字: 数据列上下对齐, 可读性 */
+/* 数字列右对齐(2026-08-07 设计稿口径, 全站规范): 模板给数字列加 class="num" 即可 */
+th.num, td.num { text-align: right; }
 th { white-space: nowrap; }  /* 表头短, 保持单行不折 */
 td form.inline { white-space: nowrap; }  /* 操作列按钮不折行 */
 /* 密集表(列很多, 如 Demo/Live 策略表): 单元格一律不换行 → 行高整齐、列宽自动稳定,
@@ -204,7 +206,8 @@ th.sortable.sort-asc::after { content: "▲"; opacity: 1; }
 th.sortable.sort-desc::after { content: "▼"; opacity: 1; }
 td.mono {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 12px; white-space: normal; color: #475569;
+  font-size: 12.5px; white-space: normal; color: #475569;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- 徽章 ---------- */
