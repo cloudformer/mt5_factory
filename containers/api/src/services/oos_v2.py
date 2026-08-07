@@ -68,10 +68,12 @@ def cfg_params(cfg: dict) -> dict:
                     "train": _span("train"), "test": _span("test"),
                     "min_pf": None if mp in (None, "") else float(mp)})
     dp = cfg.get("default_pf")
+    rd = cfg.get("reuse_days")   # 复用天数: N天内跑过覆盖全窗的回测就不重跑; 0=每次都现跑
     return {"segments": out,
             "default_pf": float(dp) if dp is not None else 1.0,
             "min_seg_trades": int(cfg.get("min_seg_trades") or 10),
-            "batch_limit": int(cfg.get("batch_limit") or 50)}
+            "batch_limit": int(cfg.get("batch_limit") or 50),
+            "reuse_days": int(rd) if rd is not None else 7}
 
 
 def window_years(p: dict) -> float:
@@ -182,9 +184,53 @@ async def apply_actions(pool, mode: str, rid: int, tag_ids: list, archive_ids: l
             " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'", archive_ids)
 
 
+async def settle(pool, cfg: dict, entries: list, errors: dict) -> tuple[int, dict]:
+    """判定 + 落报告 + 出池标签/归档 — finalize(队列收尾) 与 run(全复用零任务直落) 共用。
+    entries = [{"id","name","symbol"}](含现跑的和复用的); errors = {sid: 失败原因}(铁则1 → skip)。
+    返回 (报告id, summary)。"""
+    p = cfg["judge"]
+    anchor = date.fromisoformat(cfg["anchor"])   # 锚点 = 提交那天(批内冻结, 不随收尾日漂移)
+    mode = cfg["mode"]
+    strat_ids = [int(e["id"]) for e in entries]
+    # 策略现状临判现查(状态可能在跑批期间变了)
+    strats = {r["id"]: dict(r) for r in await pool.fetch(
+        "SELECT id, name, symbol, status FROM strategies WHERE id = ANY($1)", strat_ids)}
+    # 回测行: 现跑的 = worker 刚 UPSERT 的新鲜数据; 复用的 = reuse_days 内的既有行(只取主品种)
+    bt_rows = {r["strategy_id"]: dict(r) for r in await pool.fetch(
+        "SELECT b.strategy_id, b.trades FROM backtests b"
+        " JOIN strategies s ON s.id = b.strategy_id AND s.symbol = b.symbol"
+        " WHERE b.strategy_id = ANY($1)", strat_ids)}
+    details = list(cfg.get("skipped") or [])
+    for e in entries:
+        sid = int(e["id"])
+        strat = strats.get(sid)
+        if strat is None:   # 跑批期间被删
+            details.append({"id": sid, "name": e.get("name"), "symbol": e.get("symbol"),
+                            "status": "—", "verdict": "skip", "reason": "策略已删除"})
+            continue
+        bt = {"error": errors[sid]} if sid in errors else bt_rows.get(sid)
+        details.append(judge_one(strat, bt, anchor, p))
+    # 出池标签 = 被判定过的(pass/fail); 归档 = execute 下的 fail(skip 永不动)
+    tag_ids = [d["id"] for d in details if d["verdict"] in ("pass", "fail")]
+    archive_ids = [d["id"] for d in details if d["verdict"] == "fail"] \
+        if mode == "execute" else []
+    summary = summarize(details, mode, archived=len(archive_ids),
+                        not_run=int(cfg.get("not_run") or 0))
+    rid = await pool.fetchval(
+        "INSERT INTO oos_v2_screens"
+        " (mode, anchor, scope, params, summary, details, owner_id)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+        mode, anchor, cfg["scope"], p, summary, details, int(cfg.get("owner") or 1))
+    await apply_actions(pool, mode, rid, tag_ids, archive_ids)
+    logger.info("oos_v2 report #%s (%s) 共%d 通过%d 未过%d 归档%d 跳过%d",
+                rid, mode, summary["total"], summary["passed"],
+                summary["failed"], summary["archived"], summary["skipped"])
+    return rid, summary
+
+
 async def finalize(pool: asyncpg.Pool) -> int | None:
-    """全池清理的收尾(主节点心跳调用): 队列(kind=oos_v2)全跑完 → 切段判定 → 落报告
-    → 打出池标签(+execute 归档) → 清队列。返回报告 id; 没有待收尾的批次返回 None。
+    """全池清理的收尾(主节点心跳调用): 队列(kind=oos_v2)全跑完 → settle(判定/报告/标签/归档)
+    → 清队列。返回报告 id; 没有待收尾的批次返回 None。
     并发安全: 整个收尾在 advisory lock 内; 结束即删空队列 → 别的副本看不到批次, 不会重复收尾。"""
     rows = await pool.fetch(
         "SELECT payload, status, error FROM jobs WHERE kind=$1", jobs.OOS_KIND)
@@ -199,59 +245,22 @@ async def finalize(pool: asyncpg.Pool) -> int | None:
             if not n:
                 return None
             cfg = rows[0]["payload"]["run"]
-            p = cfg["judge"]
-            anchor = date.fromisoformat(cfg["anchor"])   # 锚点 = 提交那天(批内冻结)
-            mode = cfg["mode"]
-            # 每策略一个任务(只跑主品种): 失败记 error(铁则1 → skip 永不淘汰)
-            by_sid: dict = {}
-            strat_ids = []
+            # 现跑条目来自队列(每策略一个任务, 只跑主品种), 失败记 error(铁则1 → skip);
+            # 复用条目(reuse_days 内已有全窗回测行)冻结在 run_cfg 里, 一并判定
+            entries, errors, seen = [], {}, set()
             for r in rows:
                 pl = r["payload"]
                 sid = int(pl["strategy_id"])
-                if sid not in by_sid:
-                    by_sid[sid] = {"symbol": pl["symbol"], "name": pl.get("name"),
-                                   "error": None}
-                    strat_ids.append(sid)
+                if sid not in seen:
+                    seen.add(sid)
+                    entries.append({"id": sid, "name": pl.get("name"),
+                                    "symbol": pl["symbol"]})
                 if r["status"] == "FAILED":
-                    by_sid[sid]["error"] = r["error"] or "未知原因"
-            # 策略现状临判现查(状态可能在跑批期间变了)
-            strats = {r["id"]: dict(r) for r in await pool.fetch(
-                "SELECT id, name, symbol, status FROM strategies WHERE id = ANY($1)",
-                strat_ids)}
-            # 回测行 = worker 刚跑完 UPSERT 的新鲜数据(只取主品种那行)
-            bt_rows = {r["strategy_id"]: dict(r) for r in await pool.fetch(
-                "SELECT b.strategy_id, b.trades FROM backtests b"
-                " JOIN strategies s ON s.id = b.strategy_id AND s.symbol = b.symbol"
-                " WHERE b.strategy_id = ANY($1)", strat_ids)}
-            details = list(cfg.get("skipped") or [])
-            for sid in strat_ids:
-                info = by_sid[sid]
-                strat = strats.get(sid)
-                if strat is None:   # 跑批期间被删
-                    details.append({"id": sid, "name": info["name"],
-                                    "symbol": info["symbol"], "status": "—",
-                                    "verdict": "skip", "reason": "策略已删除"})
-                    continue
-                bt = {"error": info["error"]} if info["error"] else bt_rows.get(sid)
-                details.append(judge_one(strat, bt, anchor, p))
-            # 出池标签 = 被判定过的(pass/fail); 归档 = execute 下的 fail(skip 永不动)
-            tag_ids = [d["id"] for d in details if d["verdict"] in ("pass", "fail")]
-            archive_ids = [d["id"] for d in details if d["verdict"] == "fail"] \
-                if mode == "execute" else []
-            summary = summarize(details, mode, archived=len(archive_ids),
-                                not_run=int(cfg.get("not_run") or 0))
-            rid = await pool.fetchval(
-                "INSERT INTO oos_v2_screens"
-                " (mode, anchor, scope, params, summary, details, owner_id)"
-                " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-                mode, anchor, cfg["scope"], p, summary, details,
-                int(cfg.get("owner") or 1))
-            await apply_actions(pool, mode, rid, tag_ids, archive_ids)
+                    errors[sid] = r["error"] or "未知原因"
+            entries += [e for e in (cfg.get("reused") or []) if int(e["id"]) not in seen]
+            rid, _ = await settle(pool, cfg, entries, errors)
             # 收尾完删空队列: "队列空 = 无待收尾批次"(幂等自清理, 不加表不加列)
             await pool.execute("DELETE FROM jobs WHERE kind=$1", jobs.OOS_KIND)
-            logger.info("oos_v2 finalized: report #%s (%s) 共%d 通过%d 未过%d 归档%d 跳过%d",
-                        rid, mode, summary["total"], summary["passed"],
-                        summary["failed"], summary["archived"], summary["skipped"])
             return rid
         finally:
             await conn.fetchval("SELECT pg_advisory_unlock($1)", LOCK_KEY)

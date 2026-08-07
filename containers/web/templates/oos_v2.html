@@ -67,8 +67,9 @@
         if (d.error) { planEl.textContent = "预估不可用: " + d.error; go.disabled = false; return; }
         const lim = parseInt(form.querySelector("input[name=limit]").value) || 0;
         const run = lim ? Math.min(lim, d.total) : d.total;
-        let txt = `${ids ? "点名" : "未筛过池"} ${d.total} 个策略(${d.symbols} 品种)`
-          + ` → 本次真跑 ${run} 个 × 1 发 ${d.window_years}年回测(约10s/个, 锚点 ${d.anchor})`;
+        let txt = `${ids ? "点名" : "未筛过池"} ${d.total} 个策略(${d.symbols} 品种)`;
+        if (d.reusable) txt += ` · 可复用 ${d.reusable}(≤${d.reuse_days}天前的全窗回测, 不重跑)`;
+        txt += ` → 本次处理 ${run} 个(现跑的约30~60s/个, 锚点 ${d.anchor})`;
         if (lim && d.total > lim) txt += ` · 剩余 ${d.total - lim} 个下次再跑`;
         if (d.tagged) txt += ` · 已筛过跳过 ${d.tagged}`;
         planEl.textContent = d.total === 0
@@ -148,6 +149,8 @@
       <input name="min_seg_trades" type="number" min="1" style="width:56px" value="{{ params.min_seg_trades }}"></label>
     <label title="运行框｢单次上限｣的默认值">单次上限默认
       <input name="batch_limit" type="number" min="1" style="width:64px" value="{{ params.batch_limit }}"></label>
+    <label title="N 天内跑过覆盖全窗(20年)的回测行 → 不重跑直接判定(数据最多旧 N 天, 短测段少最后几天的笔); 0 = 每次都现跑">复用(天)
+      <input name="reuse_days" type="number" min="0" style="width:52px" value="{{ params.reuse_days }}"></label>
     <button class="small">保存判据</button>
     <span class="muted">段内 0 笔 → 灰 — (无数据不追责=算过) · 加第四期改库里 config.oos_v2 的数组</span>
   </form>
