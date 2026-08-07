@@ -109,7 +109,7 @@
         <th title="策略在数据库的固定唯一 ID, 用于批量回测的『策略ID』框点名">ID</th>
         <th title="排名参数模板的综合分(0~100, 四维百分位加权); 默认排序下无">评分</th>
         <th>策略</th>
-        <th title="批次标签/生因(basis): 生成时打的批次名(如 实验组A-趋势跟踪海龟-金H1)或 AI 调参依据; 搜索选「标签/生因」可按它模糊筛">标签</th>
+        <th title="筛选履历(tags: 报告名·结论, 绿=pass 红=fail, 悬停看时间; 报告号可去对应筛选页溯源) + 批次标签/生因(basis: 生成时的批次名或AI调参依据); 搜索选「标签/生因」两者一起模糊(oos_v2# / pass 都能捞)">标签</th>
         <th title="生成用的策略模板(逻辑代码)">策略模板</th><th>品种</th><th>券商</th><th>周期</th><th>状态</th>
         <th data-nosort title="可见性(v5.4): 私有=只有自己 / 公开=市场全可见可复制 / 共享=市场只给汇总战绩; 默认私有, 上市场是逐个主动打标; 执法在v5.6, 现在只是标签">可见性</th>
         <th>笔数</th><th title="回测的胜率(跨所有测过品种合计)">回测胜率</th><th>净点数</th><th>PF</th><th>最大回撤</th>
@@ -131,7 +131,11 @@
       <td class="mono">{{ r.strategy_id }}</td>
       <td>{% if r.score is not none %}<b>{{ r.score }}</b>{% else %}<span class="muted">—</span>{% endif %}</td>
       <td class="clip" title="{{ r.name }}">{{ r.name }}</td>
-      <td class="muted clip" title="{{ r.basis or '' }}">{{ r.basis or '—' }}</td>
+      {# 标签列(v0.7 批次1): tags=筛选履历list(report·status, 绿pass红fail, 悬停看时间) + basis=生因 #}
+      <td class="muted clip" title="{% for t in r.tags or [] %}{{ t.report }} {{ t.status }} {{ t.created_time }}
+{% endfor %}{{ r.basis or '' }}">
+        {%- for t in r.tags or [] %}<span class="{{ 'pos' if t.status == 'pass' else 'neg' }}" style="font-weight:600">{{ t.report }}·{{ t.status }}</span> {% endfor -%}
+        {{ r.basis or ('—' if not r.tags) }}</td>
       <td class="muted">{{ r.template }}</td>
       <td>{{ r.symbol }}</td>
       <td class="muted">{{ r.broker or '—' }}</td>

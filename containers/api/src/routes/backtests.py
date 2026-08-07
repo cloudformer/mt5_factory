@@ -350,8 +350,8 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         t = q_text.strip()
         if q_field == "name":
             _and("s.name ILIKE ${n}", f"%{t}%")
-        elif q_field == "basis":   # 批次标签/生因模糊(2026-07-27): 验尺实验按批查找
-            _and("s.basis ILIKE ${n}", f"%{t}%")
+        elif q_field == "basis":   # 标签/生因模糊: 生因(basis)与筛选履历(tags)一起搜
+            _and("(s.basis ILIKE ${n} OR s.tags::text ILIKE ${n})", f"%{t}%")
         elif q_field == "id" and t.isdigit():
             _and("s.id = ${n}", int(t))
         elif q_field == "timeframe":
@@ -365,7 +365,7 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
             "SELECT value FROM config WHERE key='ranking_templates'") or [])
             if t.get("name") == rank_template), None)
 
-    cols = ("s.id AS strategy_id, s.name, s.basis, s.template, s.symbol, s.timeframe, s.status,"
+    cols = ("s.id AS strategy_id, s.name, s.basis, s.tags, s.template, s.symbol, s.timeframe, s.status,"
             " s.visibility, s.params, s.magic_number, s.volume,"
             " COALESCE(b.broker, sy.broker) AS broker, b.metrics, b.created_at")
     joins = (" FROM strategies s"

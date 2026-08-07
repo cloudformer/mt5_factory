@@ -93,7 +93,9 @@ def _scope_conds(req_ids, uid):
         conds.append(f"s.id = ANY(${len(args)})")
         scope = {"ids": req_ids}
     else:
+        # 已筛过 = tags 里有本模块履历(schema/064) 或 老格式 basis 标签(存量不追改)
         conds, args = ["s.status = 'CANDIDATE'",
+                       f"s.tags::text NOT LIKE '%{TAG}#%'",
                        f"COALESCE(s.basis, '') NOT LIKE '%{TAG}#%'"], []
         scope = {"pool": "unscreened"}
     if uid:
@@ -118,7 +120,8 @@ async def oos_plan(request: Request, ids: Optional[str] = None):
     conds, args, _ = _scope_conds(id_list, identity.scope_uid(request))
     row = await pool.fetchrow(
         "SELECT count(*)::int AS total,"
-        f"      count(*) FILTER (WHERE COALESCE(s.basis, '') LIKE '%{TAG}#%')::int AS tagged,"
+        f"      count(*) FILTER (WHERE s.tags::text LIKE '%{TAG}#%'"
+        f"                        OR COALESCE(s.basis, '') LIKE '%{TAG}#%')::int AS tagged,"
         "       count(DISTINCT s.symbol)::int AS symbols"
         f" FROM strategies s WHERE {' AND '.join(conds)}", *args)
     anchor = datetime.now(timezone.utc).date()

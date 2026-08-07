@@ -16,7 +16,7 @@
 数据安全铁则(照 v0.5, 改这里前先读):
   1. 任务 FAILED / 缺回测行 → 该策略记 skip, 永不归档也不打标签 — 缺数据绝不淘汰, 下次重跑
   2. 归档写入时重申 status='CANDIDATE'(防跑批期间被挂上机器)
-  3. 预览模式除【报告 + 出池标签(basis)】外零写入(2026-08-07 Frank 定: 预览也打标签,
+  3. 预览模式除【报告 + 出池履历(tags, schema/064)】外零写入(预览也追加履历,
      否则 6000 个永远跑不完一轮); 点名诊断恒零写入
   4. 判定是纯读+纯计算; 引擎路径不在这里(worker 的 jobs._run_one 与批量回测同一份)
   5. 收尾完删空本工种队列 = "队列空即无待收尾批次", 幂等自清理(不加表不加列)
@@ -30,7 +30,7 @@ from src.services import backtest, jobs
 
 logger = logging.getLogger("oos_v2")
 
-TAG = "oos_v2"           # basis 标签词根: 「oos_v2#<报告号>」= 已筛过出池 + 报告溯源
+TAG = "oos_v2"           # 报告名词根: tags 元素 report=「oos_v2#<报告号>」= 出池 + 报告溯源
 LOCK_KEY = 0x005EC42     # advisory lock: 同一时刻只有一个 api 副本在收尾(与 screen 不同键)
 YEAR_DAYS = 365.25       # 年 = 365.25 天(与 v0.5 同约定, 测试锁死)
 
@@ -167,21 +167,27 @@ def summarize(details: list, mode: str, archived: int, not_run: int) -> dict:
             "not_run": not_run}
 
 
-async def apply_actions(pool, mode: str, rid: int, tag_ids: list, archive_ids: list) -> None:
-    """出池标签 + 执行动作(第6步):
-      · 被判定过(pass/fail)一律追加 basis「oos_v2#<rid>」 — 预览也打(出池 + 报告溯源,
-        只写 basis 一列不改 status); skip 不打, 下次重跑(铁则1)
+async def apply_actions(pool, mode: str, rid: int,
+                        pass_ids: list, fail_ids: list) -> None:
+    """出池履历 + 执行动作(v0.7 批次1, 2026-08-08 Frank 定: tags 独立 list, 每批追加一个元素):
+      · 被判定过的往 strategies.tags(JSONB 数组, schema/064)追加
+        {"report": "oos_v2#<rid>", "status": "pass|fail", "created_time": <UTC时刻>}
+        — 预览也追加(出池 + 报告溯源 + 列表一眼见结论); basis 不再写(回归生因本职);
+        结构化全量数据在报告里(report 可 JOIN), 元素只是带结论的指针。
+        skip 不追加, 下次重跑(铁则1)
       · 归档只在 execute: FAIL → ARCHIVED(死因 oos_v2_fail, 可逆),
         写入重申 status='CANDIDATE'(铁则2: 跑批期间被挂上机器的绝不动)"""
-    if tag_ids:
-        await pool.execute(
-            "UPDATE strategies SET basis = CASE WHEN COALESCE(basis, '') = ''"
-            " THEN $2 ELSE basis || '｜' || $2 END, updated_at = now()"
-            " WHERE id = ANY($1)", tag_ids, f"{TAG}#{rid}")
-    if mode == "execute" and archive_ids:
+    at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for ids, verdict in ((pass_ids, "pass"), (fail_ids, "fail")):
+        if ids:
+            await pool.execute(
+                "UPDATE strategies SET tags = tags || $2::jsonb, updated_at = now()"
+                " WHERE id = ANY($1)", ids,
+                [{"report": f"{TAG}#{rid}", "status": verdict, "created_time": at}])
+    if mode == "execute" and fail_ids:
         await pool.execute(
             "UPDATE strategies SET status='ARCHIVED', archive_reason='oos_v2_fail',"
-            " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'", archive_ids)
+            " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'", fail_ids)
 
 
 async def settle(pool, cfg: dict, entries: list, errors: dict) -> tuple[int, dict]:
@@ -210,18 +216,18 @@ async def settle(pool, cfg: dict, entries: list, errors: dict) -> tuple[int, dic
             continue
         bt = {"error": errors[sid]} if sid in errors else bt_rows.get(sid)
         details.append(judge_one(strat, bt, anchor, p))
-    # 出池标签 = 被判定过的(pass/fail); 归档 = execute 下的 fail(skip 永不动)
-    tag_ids = [d["id"] for d in details if d["verdict"] in ("pass", "fail")]
-    archive_ids = [d["id"] for d in details if d["verdict"] == "fail"] \
-        if mode == "execute" else []
-    summary = summarize(details, mode, archived=len(archive_ids),
+    # 出池履历 = 被判定过的(带结论/时间); 归档 = execute 下的 fail(skip 永不动)
+    pass_ids = [d["id"] for d in details if d["verdict"] == "pass"]
+    fail_ids = [d["id"] for d in details if d["verdict"] == "fail"]
+    summary = summarize(details, mode,
+                        archived=len(fail_ids) if mode == "execute" else 0,
                         not_run=int(cfg.get("not_run") or 0))
     rid = await pool.fetchval(
         "INSERT INTO oos_v2_screens"
         " (mode, anchor, scope, params, summary, details, owner_id)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
         mode, anchor, cfg["scope"], p, summary, details, int(cfg.get("owner") or 1))
-    await apply_actions(pool, mode, rid, tag_ids, archive_ids)
+    await apply_actions(pool, mode, rid, pass_ids, fail_ids)
     logger.info("oos_v2 report #%s (%s) 共%d 通过%d 未过%d 归档%d 跳过%d",
                 rid, mode, summary["total"], summary["passed"],
                 summary["failed"], summary["archived"], summary["skipped"])
