@@ -62,6 +62,9 @@
       <input name="strategy_ids" size="14" placeholder="逗号分隔" disabled
              title="直接点名策略(ID 在「策略列表排名」的 ID 列); 选中按ID时筛选失效">
       {# 时间窗保护(2026-07-29 Frank 定): 批量=配置默认(180天); 点名可手动拉长(regime归因/长验尺) #}
+      <label title="本次复用有效期(天): N 天内跑过且窗口覆盖的行直接复用不重跑; 0 = 本次实际跑。默认值来自配置「复用有效期-单ID」(admin改), 只影响点名的策略">有效期
+        <input name="reuse_days" class="mono" size="3" disabled
+               value="{{ reuse_single if reuse_single is not none else '' }}"></label>
       <label>窗口 <select name="window_days" disabled
           title="回测数据窗口(从现在往回数): 只在按ID点名时可选; 批量走配置页的默认窗口(180天)。同一批同窗口, 成绩单里存 from/to 可追溯; 不同窗口的成绩不要互比(对比三铁律)">
         <option value="180">180 天(批量同款)</option>
@@ -117,6 +120,7 @@
       fsels.forEach((s) => (s.disabled = byIds));
       // 窗口选择器只在按ID时可用(批量走配置默认窗口, 不给临时改 — 批次口径一致)
       form.querySelector("select[name=window_days]").disabled = !byIds;
+      form.querySelector("input[name=reuse_days]").disabled = !byIds;   // 有效期只属于点名
     }
     let timer;
     async function refreshPlan() {

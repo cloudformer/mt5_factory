@@ -33,6 +33,7 @@ def backtest_params():
     download_timeframes = []  # 唯一源=config表(schema/049种子); api不可用即空
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空(铁律欠账4)
     volume_default = None
+    reuse_days, reuse_days_single, oos_v2_params = None, None, None  # 复用两档 + oos_v2判据
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
@@ -42,6 +43,8 @@ def backtest_params():
         volume_default = cfg.get("volume_default")
         oos_split = cfg.get("backtest_oos_split", 0.7)
         window_days = cfg.get("backtest_window_days")
+        reuse_days = cfg.get("backtest_reuse_days")
+        reuse_days_single = cfg.get("backtest_reuse_days_single")
         reuse_days = cfg.get("backtest_reuse_days")
         mt5_days = cfg.get("mt5_trades_days") or [7, 30, 90]
         runtime_write = cfg.get("runtime_write_minutes", 5)
@@ -58,10 +61,12 @@ def backtest_params():
         regime_current = rv["current"]
         regime_params = next((v["params"] for v in regime_versions
                               if v["id"] == regime_current), {})
+        oos_v2_params = api.get("/oos_v2/params")
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
                            window_days=window_days, reuse_days=reuse_days,
+                           reuse_days_single=reuse_days_single, oos_v2_params=oos_v2_params, reuse_days=reuse_days,
                            generate_limit=generate_limit, volume_presets=volume_presets,
                            volume_default=volume_default,
                            oos_split=oos_split, mt5_days=mt5_days,

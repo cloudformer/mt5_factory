@@ -389,7 +389,8 @@ CONFIG_KEYS = {"backtest_costs", "backtest_batch_limit", "generate_batch_limit",
                "recon_hours",      # 自动对账频率(2026-08-06, schema/060): 距上次满N小时就跑, 0=关
                "regime_view",      # Regime页默认视图(2026-08-04, schema/058): 全局共享, admin 可改
                "backtest_window_days",  # 批量回测默认窗口天数(2026-07-29, schema/051)
-               "backtest_reuse_days"}   # 回测复用有效期天数(2026-08-07, schema/062; 0=关)
+               "backtest_reuse_days",   # 回测复用有效期-批量档(2026-08-07, schema/062; 0=关)
+               "backtest_reuse_days_single"}  # 同上-单ID点名档(schema/063, 默认1天, 缺键落回全局)
 
 # worker_params 各项允许区间(用户按网络自调, 区间防脚枪):
 # heartbeat 上限 60 = 轮询侧"新鲜推送"窗口 75s 的安全边界(推得比窗口慢会推/拉来回抖)
@@ -589,10 +590,9 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
             v = req.value.get(k)
             if not isinstance(v, int) or not lo <= v <= hi:
                 raise HTTPException(status_code=400, detail=f"worker_params.{k} 须为 {lo}~{hi} 的整数")
-    if key == "backtest_reuse_days":   # 复用有效期(天): 0=关闭, 上限一年
-        if not isinstance(value, int) or not 0 <= value <= 365:
-            raise HTTPException(status_code=400,
-                                detail="backtest_reuse_days 须为 0~365 的整数(天, 0=关)")
+    if key in ("backtest_reuse_days", "backtest_reuse_days_single"):
+        if not isinstance(req.value, int) or not 0 <= req.value <= 365:  # 复用: 0=关, 上限一年
+            raise HTTPException(status_code=400, detail=f"{key} 须为 0~365 的整数(天, 0=关)")
     if key == "backtest_window_days":  # 批量回测默认窗口(天): 30天~20年
         if not isinstance(req.value, int) or not 30 <= req.value <= 7400:
             raise HTTPException(status_code=400, detail="backtest_window_days 须为 30~7400 的整数(天)")

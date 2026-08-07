@@ -11,10 +11,13 @@ def index():
     """策略回测页(纯执行): 批量/单策略回测 + 进度 + 孤儿警告。结果排名在「策略列表排名」。"""
     bt, costs, brokers, symbols, orphans, templates = {}, {}, [], [], [], []
     window_days = None  # 唯一源=config(schema/051); api不可用即空
+    reuse_single = None  # 单ID点名复用有效期(schema/063; 缺键落回全局 062)
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
         window_days = cfg.get("backtest_window_days")
+        reuse_single = cfg.get("backtest_reuse_days_single",
+                               cfg.get("backtest_reuse_days"))
         bt = api.get("/backtest/status")
         # 运行表单筛选下拉的选项从库里拉 (货币对/券商), 默认全部; 与 worker 无关
         syms = api.get("/symbols")["symbols"]
@@ -27,7 +30,7 @@ def index():
         flash(f"api 不可用: {e}", "error")
     return render_template("backtests.html", bt=bt, costs=costs,
                            brokers=brokers, symbols=symbols, orphans=orphans,
-                           templates=templates, window_days=window_days)
+                           templates=templates, window_days=window_days, reuse_single=reuse_single)
 
 
 @bp.get("/status")
@@ -88,6 +91,13 @@ def save_costs():
         if request.form.get("window_days", "").strip():  # 批量回测默认窗口(天, 2026-07-29)
             api.put("/config/backtest_window_days",
                     {"value": int(request.form["window_days"])})
+        # 复用两档(2026-08-08, admin; 非admin输入框disabled不随表单提交 → 自动跳过)
+        if request.form.get("reuse_days", "").strip():
+            api.put("/config/backtest_reuse_days",
+                    {"value": int(request.form["reuse_days"])})
+        if request.form.get("reuse_days_single", "").strip():
+            api.put("/config/backtest_reuse_days_single",
+                    {"value": int(request.form["reuse_days_single"])})
         if request.form.get("reuse_days", "").strip():  # 复用有效期(天, 2026-08-07; 0=关)
             api.put("/config/backtest_reuse_days",
                     {"value": int(request.form["reuse_days"])})
@@ -115,6 +125,8 @@ def run():
             return redirect(url_for("backtests.index"))
         if request.form.get("window_days", "").strip():   # 点名模式的时间窗(默认5年)
             payload["window_days"] = int(request.form["window_days"])
+        if request.form.get("reuse_days", "").strip():   # 本次复用有效期(0=本次实际跑)
+            payload["reuse_days"] = int(request.form["reuse_days"])
     else:  # 按筛选圈一批
         if request.form.get("template"):
             payload["template"] = request.form["template"]

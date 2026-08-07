@@ -109,7 +109,8 @@ def save_params():
         if is_ajax:
             return jsonify({"error": str(e)}), 400
         flash(f"保存失败: {e}", "error")
-    return redirect(url_for("oos_v2.index"))
+    # 表单在「配置→策略参数」(2026-08-08 搬家), 非 ajax 兜底跳回那里
+    return redirect(url_for("symbols.backtest_params"))
 
 
 @bp.post("/oos-v2/run")

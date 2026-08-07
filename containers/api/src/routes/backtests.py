@@ -99,6 +99,9 @@ class BacktestRequest(BaseModel):
     cross_symbol: bool = False
     # 范围选项: True=只跑还没有回测记录(主品种行)的策略 — 补漏不重复跑; 默认 False=全部(现状)
     untested_only: bool = False
+    # 本次复用有效期(天, 2026-08-08; 仅按ID点名生效): 页面预填单ID配置(默认1), 0=本次实际跑;
+    # 不传 = 读配置 backtest_reuse_days_single(缺键落回全局 backtest_reuse_days)
+    reuse_days: Optional[int] = None
 
 
 @router.post("/backtest/run")
@@ -168,8 +171,22 @@ async def run(req: BacktestRequest, request: Request):
     qualified = None
     if req.cross_symbol and not req.strategy_ids:
         qualified, _ = await _cross_qualified(pool, [s["id"] for s in rows])
+    # 单ID点名的复用有效期(2026-08-08): 请求值 > 单ID配置 > 全局配置, 冻结进 payload;
+    # 批量不带(执行层用全局档)。0 = 本次实际跑
+    extra = {}
+    if req.strategy_ids:
+        if req.reuse_days is not None:
+            if not 0 <= req.reuse_days <= 365:
+                raise HTTPException(status_code=400, detail="reuse_days 须为 0~365 的整数(天)")
+            extra["reuse_days"] = req.reuse_days
+        else:
+            single = await pool.fetchval(
+                "SELECT value FROM config WHERE key='backtest_reuse_days_single'")
+            extra["reuse_days"] = int(single) if single is not None else int(
+                await pool.fetchval(
+                    "SELECT value FROM config WHERE key='backtest_reuse_days'") or 0)
     items = [{"strategy_id": s["id"], "name": s["name"], "symbol": sym,
-              "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs}
+              "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs, **extra}
              for s in rows
              for sym in ({s["symbol"]} | universe
                          if (qualified is None or s["id"] in qualified) else {s["symbol"]})]
