@@ -1,0 +1,220 @@
+"""v0.6 OOS 筛选 v2(Regime OOS Screen v2) — 自动初筛器, 测试性质可插拔功能。
+
+每个策略【现跑】一次 20 年回测(窗口 = 各段最早起点自动取最大, 与批量回测同一配方:
+load_m1 + 悲观撮合 + 成本/oos/trail 同一 config 来源, 结果 UPSERT 回流 backtests),
+再按锚点(跑批当天 UTC 0点)把同一份 trades 切三期六段(训练/测试), 六段 PF 全合格 = PASS。
+判定逻辑不在本文件 — 全系统一份在 services/oos_v2.py。
+
+两条路(照 v0.5 的定版):
+  · 点名诊断(传 ids) = 本请求内同步现跑现判, 只读不入库(任意状态可点名, 强制预览) — 本步已通
+  · 全池清理(不传 ids) = 投 jobs 队列(kind=oos_v2) → worker 并行 → 主节点收尾落报告(第4步接)
+自包含: 判据参数读写(config oos_v2)在本文件; 设计与移除手册见 docs/2.regime_dirction/v0.6。
+"""
+import asyncio
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
+
+from src.services import backtest, identity, oos_v2, regime
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+TAG = oos_v2.TAG   # basis 标签词根(唯一定义在 services/oos_v2.py)
+
+# 点名诊断进度(api 内存, 几个 ID 秒级; 全池清理的队列进度第4步接)
+_progress = {"running": False, "done": 0, "total": 0, "current": "", "report_id": None}
+
+
+# ---------- 判据参数(config oos_v2 唯一源; 校验在 services/oos_v2.cfg_params) ----------
+@router.get("/oos_v2/params")
+async def oos_params(request: Request):
+    """判据 + 本次实际日期预览: 页面配置区直接渲染(锚点=今天, 只是预览, 运行时各批自冻结)"""
+    cfg = await request.app.state.pool.fetchval(
+        "SELECT value FROM config WHERE key='oos_v2'") or {}
+    p = oos_v2.cfg_params(cfg)
+    anchor = datetime.now(timezone.utc).date()
+    a = oos_v2.anchor_dt(anchor)
+    for s in p["segments"]:   # 每段附实际日期(页面"本次实际日期"列, 改配置立刻反映)
+        for part in ("train", "test"):
+            t0, t1 = oos_v2.seg_window(a, s[part])
+            s[f"{part}_dates"] = [
+                f"{datetime.fromtimestamp(t0, tz=timezone.utc):%Y-%m-%d}",
+                f"{datetime.fromtimestamp(t1, tz=timezone.utc):%Y-%m-%d}"]
+    return {**p, "anchor": anchor.isoformat(), "window_years": oos_v2.window_years(p)}
+
+
+@router.put("/oos_v2/params")
+async def oos_params_save(request: Request):
+    """保存判据(整包): 校验不过 = 400 不落库(config 唯一源, 页面是唯一编辑处)"""
+    body = await request.json()
+    try:
+        p = oos_v2.cfg_params(body)   # 非法配置在这里被拒
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await request.app.state.pool.execute(
+        "INSERT INTO config (key, value) VALUES ('oos_v2', $1)"
+        " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", p)
+    return p
+
+
+# ---------- 范围(plan 与 run 共用; 默认 = 全部未筛过的空闲策略, ID 点名 = 只读诊断) ----------
+def _scope_conds(req_ids, uid):
+    if req_ids:
+        conds, args = [], [req_ids]
+        conds.append(f"s.id = ANY(${len(args)})")
+        scope = {"ids": req_ids}
+    else:
+        conds, args = ["s.status = 'CANDIDATE'",
+                       f"COALESCE(s.basis, '') NOT LIKE '%{TAG}#%'"], []
+        scope = {"pool": "unscreened"}
+    if uid:
+        args.append(uid)
+        conds.append(f"s.owner_id = ${len(args)}")
+    return conds, args, scope
+
+
+@router.get("/oos_v2/plan")
+async def oos_plan(request: Request, ids: Optional[str] = None):
+    """运行预估(页面预览行实时刷): 匹配多少策略 / 涉及哪些品种 — 纯读零动作。
+    不做 M1 覆盖预检: 数据不够的段自然 0 笔(无数据不追责算过+警示), 代码不设跳开逻辑。"""
+    pool = request.app.state.pool
+    id_list = None
+    if ids:
+        try:
+            id_list = [int(x) for x in ids.replace("，", ",").split(",") if x.strip()]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="ID 列表需为逗号分隔的整数")
+    p = oos_v2.cfg_params(
+        await pool.fetchval("SELECT value FROM config WHERE key='oos_v2'") or {})
+    conds, args, _ = _scope_conds(id_list, identity.scope_uid(request))
+    row = await pool.fetchrow(
+        "SELECT count(*)::int AS total,"
+        f"      count(*) FILTER (WHERE COALESCE(s.basis, '') LIKE '%{TAG}#%')::int AS tagged,"
+        "       count(DISTINCT s.symbol)::int AS symbols"
+        f" FROM strategies s WHERE {' AND '.join(conds)}", *args)
+    return {"total": row["total"], "tagged": row["tagged"], "symbols": row["symbols"],
+            "window_years": oos_v2.window_years(p),
+            "batch_limit": p["batch_limit"],
+            "anchor": datetime.now(timezone.utc).date().isoformat()}
+
+
+@router.get("/oos_v2/progress")
+async def oos_progress(request: Request):
+    """进度: 点名诊断 = api 内存(同步秒级); 全池清理的队列聚合第4步接到这里"""
+    if _progress["running"]:
+        return {**_progress, "phase": "diagnose"}
+    return {**_progress, "phase": "idle"}
+
+
+# ---------- 运行(第2步: 点名诊断 = 同步现跑现判, 只读不入库) ----------
+class OosRun(BaseModel):
+    mode: str = "preview"              # preview=纯报告零动作(默认) / execute=第6步再开
+    ids: Optional[list[int]] = None    # 按 ID 点名 = 只读诊断(强制预览, 不入库)
+    task: Optional[str] = None         # 任务标签(可选, 记进报告好认)
+    limit: Optional[int] = None        # 单次上限(不传 = 用配置 batch_limit)
+
+
+@router.post("/oos_v2/run")
+async def oos_run(req: OosRun, request: Request):
+    """点名诊断(传 ids): 本请求内同步现跑 20 年回测 → 切六段判定 → 直接返回报告(不入库)。
+    全池清理(不传 ids)第 4 步接队列 — 在那之前明确拒绝, 不给半吊子行为。"""
+    pool = request.app.state.pool
+    if req.mode not in ("preview", "execute"):
+        raise HTTPException(status_code=400, detail="mode 需为 preview / execute")
+    if not req.ids:
+        raise HTTPException(status_code=400,
+                            detail="全池清理走队列(第4步接); 现在请按 ID 点名诊断")
+    if req.mode == "execute":
+        raise HTTPException(status_code=400, detail="按 ID 点名 = 只读诊断, 只支持预览模式")
+
+    p = oos_v2.cfg_params(
+        await pool.fetchval("SELECT value FROM config WHERE key='oos_v2'") or {})
+    anchor = datetime.now(timezone.utc).date()   # 锚点 = 跑批当天(本批冻结)
+    conds, args, scope = _scope_conds(req.ids, identity.scope_uid(request))
+    if (req.task or "").strip():
+        scope["task"] = req.task.strip()
+    rows = await pool.fetch(
+        "SELECT s.id, s.name, s.symbol, s.status, s.template, s.params,"
+        "       s.timeframe, s.metadata"
+        f" FROM strategies s WHERE {' AND '.join(conds)} ORDER BY s.symbol, s.id", *args)
+    if not rows:
+        raise HTTPException(status_code=404, detail="点名的 ID 不存在")
+
+    # 引擎配置与批量回测同一来源(对比三铁律: 成本/oos/trail 回落一致)
+    costs = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
+    costs = {k: costs.get(k)
+             for k in ("slippage_points", "commission_points", "spread_points")}
+    oos_split = await pool.fetchval(
+        "SELECT value FROM config WHERE key='backtest_oos_split'") or 0.7
+    trail_default = await pool.fetchval("SELECT value FROM config WHERE key='trail_default'")
+    syms_meta = {r["symbol"]: dict(r) for r in await pool.fetch(
+        "SELECT symbol, point, broker FROM symbols")}
+    t_to = datetime.now(timezone.utc)
+    t_from = oos_v2.anchor_dt(anchor) - timedelta(
+        days=oos_v2.window_years(p) * oos_v2.YEAR_DAYS)
+
+    m1_cache: dict = {"sym": None, "m1": None}
+
+    async def _fresh_bt(strat):
+        """现跑一发全窗回测(与 jobs._run_one 同一配方) → {trades, ...};
+        品种不在 symbols 表 / 无 M1 → 抛错(judge_one 记 skip, 铁则1 永不淘汰)"""
+        sym = strat["symbol"]
+        if sym not in syms_meta:
+            raise ValueError(f"{sym} 不在 symbols 表")
+        if m1_cache["sym"] != sym:
+            m1_cache["m1"] = await backtest.load_m1(pool, sym, t_from, t_to)
+            m1_cache["sym"] = sym
+        m1 = m1_cache["m1"]
+        if m1 is None:
+            raise ValueError(f"{sym} 无 M1 数据")
+        params = strat["params"]
+        if isinstance(params, dict) and not params.get("trail") \
+                and isinstance(trail_default, dict) and trail_default.get("active"):
+            params = {**params, "trail": trail_default}
+        gate = await regime.gate_for(pool, strat["metadata"], sym)
+        result = await asyncio.to_thread(
+            backtest.run_backtest, m1, strat["template"], params,
+            syms_meta[sym]["point"], strat["timeframe"], oos_split=oos_split,
+            gate=gate, **costs)
+        cov_from = datetime.fromtimestamp(int(m1["time"][0]), tz=timezone.utc)
+        cov_to = datetime.fromtimestamp(int(m1["time"][-1]), tz=timezone.utc)
+        # 结果 UPSERT 回流(from/to = 实际首末根, 标签不撒谎; 覆盖 20 年窗为既定行为, 结论以报告为准)
+        await pool.execute(
+            "INSERT INTO backtests"
+            " (strategy_id, from_time, to_time, symbol, broker, metrics, trades)"
+            " VALUES ($1, $2, $3, $4, $5, $6, $7)"
+            " ON CONFLICT (strategy_id, symbol) DO UPDATE SET"
+            "   from_time=EXCLUDED.from_time, to_time=EXCLUDED.to_time,"
+            "   broker=EXCLUDED.broker, metrics=EXCLUDED.metrics,"
+            "   trades=EXCLUDED.trades, created_at=now()",
+            strat["id"], cov_from, cov_to, sym, syms_meta[sym]["broker"],
+            result["metrics"], result["trades"])
+        return {"trades": result["trades"]}
+
+    # running 标志紧贴 try 设置(中间零 await): 任何异常路径都必经 finally 复位
+    if _progress["running"]:
+        raise HTTPException(status_code=409, detail="已有一批诊断在跑, 等它完成再点")
+    _progress.update(running=True, done=0, current="", report_id=None, total=len(rows))
+    details = []
+    try:
+        # 按品种排序(SQL 已排): 同品种连续命中 M1 单槽缓存
+        for strat in rows:
+            _progress["current"] = f"#{strat['id']} {strat['name']} @ {strat['symbol']}"
+            try:
+                bt_row = await _fresh_bt(strat)
+            except Exception as e:
+                logger.warning("oos_v2 fresh backtest #%s failed: %s", strat["id"], e)
+                bt_row = {"error": str(e)}
+            details.append(oos_v2.judge_one(dict(strat), bt_row, anchor, p))
+            _progress["done"] += 1
+    finally:
+        _progress.update(running=False, current="")
+
+    summary = oos_v2.summarize(details, req.mode, archived=0, not_run=0)
+    # 点名诊断恒为只读: 不入库不打标签(报告落库只属于全池清理的收尾, 第4步)
+    return {"report_id": None, "mode": req.mode, "anchor": anchor.isoformat(),
+            "scope": scope, "params": p, "summary": summary, "details": details}

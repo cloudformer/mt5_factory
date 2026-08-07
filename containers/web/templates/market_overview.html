@@ -10,8 +10,9 @@
 {% if ver.date %}
 {# 全站标准八格组件(2026-08-06 修): 原来这里手写 table, 底色/圆角与其他页八格不一致;
    corner 参数把 v号+口径+数据日 放回左上废角 — 布局不变, 样式统一 #}
-{{ m.regime_grid(ver.lines, corner='<b class="mono">v' ~ ver.id ~ '</b> ' ~ ver.label
-   ~ '<br><b class="mono">' ~ ver.date ~ '</b> <span class="muted">券商时间</span>') }}
+{# 角标颜色(2026-08-07 Frank: 太浅要重一点超过背景): 去 muted, 全用正文色加粗重 #}
+{{ m.regime_grid(ver.lines, corner='<b class="mono">v' ~ ver.id ~ '</b> <b>' ~ ver.label
+   ~ '</b><br><b class="mono">' ~ ver.date ~ '</b> 券商时间') }}
 {% if ver.no_timeline %}
 <p class="muted">v{{ ver.id }} 无时间线: {{ ver.no_timeline | join(', ') }} — 心跳保鲜几分钟内自动补齐</p>
 {% endif %}

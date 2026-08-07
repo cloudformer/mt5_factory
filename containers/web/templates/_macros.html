@@ -301,7 +301,7 @@ worker 90 秒无心跳 — Windows 侧看 bridge/runner 进程与网络; 恢复�
 {# corner(2026-08-06): 左上废角可放说明(行情概览用它标 v号/口径/数据日) — 全站八格
    都走这一个组件, 别再手写 table(样式会走形) #}
 <div class="regime-quad{{ ' q-heat' if heat else '' }}" style="grid-template-columns:auto 1fr 1fr 18px 1fr 1fr">
-  <div style="font-size:12px;color:var(--text);line-height:1.5;align-self:end">{{ corner | safe }}</div>
+  <div style="font-size:12.5px;font-weight:500;color:var(--text);line-height:1.5;align-self:end">{{ corner | safe }}</div>
   <div class="regime-axis" style="grid-column:2/4">短 <span class="pos">↑</span></div>
   <div class="regime-axis" style="grid-column:5/7">短 <span class="neg">↓</span></div>
   <div></div>
