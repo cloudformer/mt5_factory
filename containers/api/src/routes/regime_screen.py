@@ -8,7 +8,8 @@
 两条路(2026-08-05 队列化定版, 六步走完并逐字段比对零差异):
   · 全池清理(不传 ids) = 投 jobs 队列(kind=regime_screen)秒回 → worker 并行现跑 →
     主节点收尾判定/落报告/执行动作(services/screen.finalize)。500 个 ~20分钟 → ~3分钟
-  · 点名诊断(传 ids)   = 本请求内同步现跑现判, 只读不入库(任意状态可点名, 强制预览)
+  · 点名诊断(传 ids)   = 本请求内同步现跑现判, 报告落库但零动作(任意状态可点名, 强制预览;
+    2026-08-08 起单ID报告也进历史 — 不打标签不归档)
 判定逻辑不在本文件 — 全系统一份在 services/screen.py, 两条路共用(结果必然一致)。
 执行动作只有两个系统本来就支持的写入: 通过 → basis 追加 ｜regime筛过#报告id;
 未过 → 归档(死因 regime_unstable, 可逆) — 且只在 finalize 里一次性发生。
@@ -371,8 +372,14 @@ async def screen_run(req: ScreenRun, request: Request):
         details.append(d)
 
     summary = screen.summarize(details, [], req.mode, not_run)
-    # 点名诊断恒为只读: 不入库不打标签不归档(报告/动作只属于全池清理的收尾, 见 services/screen)
-    return {"report_id": None, "mode": req.mode, "version": vid,
+    # 点名诊断也落库报告(2026-08-08 Frank 改: 单ID也要有历史可溯源);
+    # 动作恒为零 — 不打标签不归档(执行只属于全池清理的收尾, 见 services/screen)
+    rid = await pool.fetchval(
+        "INSERT INTO regime_screens"
+        " (mode, version_id, scope, params, summary, details, owner_id)"
+        " VALUES ('preview', $1, $2, $3, $4, $5, $6) RETURNING id",
+        vid, scope, p, summary, details, getattr(request.state, "user_id", 1))
+    return {"report_id": rid, "mode": req.mode, "version": vid,
             "scope": scope, "params": p, "summary": summary, "details": details}
 
 

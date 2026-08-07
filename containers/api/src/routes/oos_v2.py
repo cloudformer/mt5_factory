@@ -324,8 +324,14 @@ async def oos_run(req: OosRun, request: Request):
         _progress.update(running=False, current="")
 
     summary = oos_v2.summarize(details, req.mode, archived=0, not_run=0)
-    # 点名诊断恒为只读: 不入库不打标签(报告落库只属于全池清理的收尾, 第4步)
-    return {"report_id": None, "mode": req.mode, "anchor": anchor.isoformat(),
+    # 点名诊断也落库报告(2026-08-08 Frank 改: 单ID也要有历史可溯源);
+    # 动作恒为零 — 不追加 tags 不归档(出池履历只属于全池清理的收尾)
+    rid = await pool.fetchval(
+        "INSERT INTO oos_v2_screens"
+        " (mode, anchor, scope, params, summary, details, owner_id)"
+        " VALUES ('preview', $1, $2, $3, $4, $5, $6) RETURNING id",
+        anchor, scope, p, summary, details, getattr(request.state, "user_id", 1))
+    return {"report_id": rid, "mode": req.mode, "anchor": anchor.isoformat(),
             "scope": scope, "params": p, "summary": summary, "details": details}
 
 
