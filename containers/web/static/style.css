@@ -277,11 +277,20 @@ form.inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 label { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
 
 input, select {
-  padding: 7px 10px;
-  border: 1px solid #d1d5db; border-radius: 8px;
+  padding: 5px 9px;                      /* 2026-08-07 收一号: 原 7px 10px 大而无神 */
+  border: 1px solid #d1d5db; border-radius: 6px;
   background: #fff; color: var(--text);
   font: inherit;
   transition: border-color .15s, box-shadow .15s;
+}
+/* 表内小输入(判据配置这类两三位数的小框): 紧凑才有神 — 小字号/细圆角/贴身内距 */
+table input, table select {
+  padding: 2px 6px; border-radius: 4px; font-size: 12.5px;
+}
+/* 数字输入(class=mono): 等宽 + 右对齐, 和数字列同一气质 */
+input.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right;
 }
 input:focus, select:focus {
   outline: none; border-color: var(--accent);
