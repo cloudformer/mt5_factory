@@ -122,19 +122,22 @@ async def oos_plan(request: Request, ids: Optional[str] = None):
         "       count(DISTINCT s.symbol)::int AS symbols"
         f" FROM strategies s WHERE {' AND '.join(conds)}", *args)
     anchor = datetime.now(timezone.utc).date()
+    # 可复用读数(纯显示): 全局配置 backtest_reuse_days(schema/062), 真判定在执行层 reuse_row
+    rd = int(await pool.fetchval(
+        "SELECT value FROM config WHERE key='backtest_reuse_days'") or 0)
     reusable = 0
-    if p["reuse_days"] and row["total"]:   # 复用 = reuse_days 内已有覆盖全窗的主品种回测行
-        args2 = list(args) + [p["reuse_days"],
-                              oos_v2.anchor_dt(anchor) - timedelta(
-                                  days=oos_v2.window_years(p) * oos_v2.YEAR_DAYS - 45)]
+    if rd and row["total"]:
+        need = int(oos_v2.window_years(p) * oos_v2.YEAR_DAYS) - 45
+        args2 = list(args) + [rd, need]
         reusable = await pool.fetchval(
             "SELECT count(*) FROM strategies s"
             " JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol"
             f" WHERE {' AND '.join(conds)}"
             f"   AND b.created_at >= now() - make_interval(days => ${len(args) + 1})"
-            f"   AND b.from_time <= ${len(args) + 2}", *args2)
+            f"   AND b.to_time - b.from_time >= make_interval(days => ${len(args) + 2})",
+            *args2)
     return {"total": row["total"], "tagged": row["tagged"], "symbols": row["symbols"],
-            "reusable": reusable, "reuse_days": p["reuse_days"],
+            "reusable": reusable, "reuse_days": rd,
             "window_years": oos_v2.window_years(p),
             "batch_limit": p["batch_limit"], "anchor": anchor.isoformat()}
 
@@ -217,23 +220,8 @@ async def oos_run(req: OosRun, request: Request):
         targets, not_run = list(rows[:limit]), max(len(rows) - limit, 0)
         if limit:
             scope["limit"] = limit
-        # 复用(2026-08-07 Frank 定, 20年现跑太重): reuse_days 内跑过覆盖全窗的主品种回测行
-        # → 不重跑只判定(复用行最多旧 N 天, 短测段少最后几天的笔 — 已接受); 0 = 每次都现跑。
-        # 复用不占"单次上限"额度之外(上限圈的是本次要处理的策略数, 复用的判定几乎零成本)
-        reused_ids: set = set()
-        if p["reuse_days"]:
-            reused_ids = {r["id"] for r in await pool.fetch(
-                "SELECT s.id FROM strategies s"
-                " JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol"
-                " WHERE s.id = ANY($1)"
-                "   AND b.created_at >= now() - make_interval(days => $2)"
-                "   AND b.from_time <= $3",
-                [s["id"] for s in targets], p["reuse_days"],
-                oos_v2.anchor_dt(anchor)
-                - timedelta(days=oos_v2.window_years(p) * oos_v2.YEAR_DAYS - 45))}
-        to_run = [s for s in targets if s["id"] not in reused_ids]
-        reused = [{"id": s["id"], "name": s["name"], "symbol": s["symbol"]}
-                  for s in targets if s["id"] in reused_ids]
+        # 复用不在这里预筛(2026-08-07 全局统一): 全部照常投队列, 执行层 reuse_row 命中的
+        # 任务几毫秒 DONE(不进引擎) — 批量/单ID/v1/oos_v2 同一守卫, 本路由零复用逻辑
         costs = await pool.fetchval(
             "SELECT value FROM config WHERE key='backtest_costs'") or {}
         costs = {k: costs.get(k)
@@ -246,21 +234,15 @@ async def oos_run(req: OosRun, request: Request):
         # 队列删空 = 没有待收尾的批次, 天然幂等自清理)。每策略一个任务(只跑主品种)。
         run_cfg = {"mode": req.mode, "anchor": anchor.isoformat(), "judge": p,
                    "scope": scope, "owner": getattr(request.state, "user_id", 1),
-                   "skipped": [], "not_run": not_run, "reused": reused}
+                   "skipped": [], "not_run": not_run}
         items = [{"strategy_id": s["id"], "name": s["name"], "symbol": s["symbol"],
                   "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs,
-                  "run": run_cfg} for s in to_run]
-        if not items:
-            # 全部可复用 = 零任务: 不走队列, 直接判定落报告(与收尾同一份 settle)
-            rid, summary = await oos_v2.settle(pool, run_cfg, reused, {})
-            return {"report_id": rid, "mode": req.mode, "anchor": anchor.isoformat(),
-                    "summary": summary, "reused": len(reused), "not_run": not_run}
+                  "run": run_cfg} for s in targets]
         await jobs.submit_batch(pool, items, jobs.OOS_KIND)
-        logger.info("oos_v2 submitted: %d jobs + %d reused (mode=%s, anchor=%s)",
-                    len(items), len(reused), req.mode, anchor)
+        logger.info("oos_v2 submitted: %d jobs (mode=%s, anchor=%s)",
+                    len(items), req.mode, anchor)
         return {"queued": True, "jobs": len(items), "strategies": len(targets),
-                "reused": len(reused), "mode": req.mode,
-                "anchor": anchor.isoformat(), "not_run": not_run}
+                "mode": req.mode, "anchor": anchor.isoformat(), "not_run": not_run}
 
     # ===== 点名诊断: api 内同步现跑现判(只读, 不入库) =====
 
@@ -285,6 +267,10 @@ async def oos_run(req: OosRun, request: Request):
         sym = strat["symbol"]
         if sym not in syms_meta:
             raise ValueError(f"{sym} 不在 symbols 表")
+        # 复用守卫(2026-08-07 全局统一, 唯一实现在 backtest.reuse_row): 命中即不重跑
+        row = await backtest.reuse_row(pool, strat["id"], sym, t_from, t_to)
+        if row:
+            return {"trades": row["trades"]}
         if m1_cache["sym"] != sym:
             m1_cache["m1"] = await backtest.load_m1(pool, sym, t_from, t_to)
             m1_cache["sym"] = sym

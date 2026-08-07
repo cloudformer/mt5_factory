@@ -68,12 +68,12 @@ def cfg_params(cfg: dict) -> dict:
                     "train": _span("train"), "test": _span("test"),
                     "min_pf": None if mp in (None, "") else float(mp)})
     dp = cfg.get("default_pf")
-    rd = cfg.get("reuse_days")   # 复用天数: N天内跑过覆盖全窗的回测就不重跑; 0=每次都现跑
+    # 复用天数不在这里: 全局唯一配置 backtest_reuse_days(2026-08-07 定, schema/062),
+    # 判定在执行层 backtest.reuse_row — 本模块无复用逻辑
     return {"segments": out,
             "default_pf": float(dp) if dp is not None else 1.0,
             "min_seg_trades": int(cfg.get("min_seg_trades") or 10),
-            "batch_limit": int(cfg.get("batch_limit") or 50),
-            "reuse_days": int(rd) if rd is not None else 7}
+            "batch_limit": int(cfg.get("batch_limit") or 50)}
 
 
 def window_years(p: dict) -> float:

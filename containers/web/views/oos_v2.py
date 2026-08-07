@@ -91,15 +91,13 @@ def save_params():
             "segments": segments,
             "default_pf": float(request.form.get("default_pf", 1)),
             "min_seg_trades": int(request.form.get("min_seg_trades", 10)),
-            "batch_limit": int(request.form.get("batch_limit", 50)),
-            "reuse_days": int(request.form.get("reuse_days", 7))})
+            "batch_limit": int(request.form.get("batch_limit", 50))})
         segs = " · ".join(
             f"{s['label']} 训{s['train'][0]:g}→{s['train'][1]:g} 测{s['test'][0]:g}→{s['test'][1]:g}"
             + (f" PF>{s['min_pf']:g}" if s.get("min_pf") is not None else "")
             for s in r["segments"])
         msg = (f"已保存: {segs} · 默认PF>{r['default_pf']:g}"
-               f" · 样本提示<{r['min_seg_trades']}笔 · 单次上限{r['batch_limit']}"
-               + (f" · 复用{r['reuse_days']}天" if r["reuse_days"] else " · 复用已关"))
+               f" · 样本提示<{r['min_seg_trades']}笔 · 单次上限{r['batch_limit']}")
         if is_ajax:
             return jsonify({"message": "已保存"})
         flash(msg, "success")
@@ -135,7 +133,6 @@ def run():
         if r.get("queued"):
             flash(f"已投队列: {r['jobs']} 个回测任务 · "
                   f"{'预览' if r['mode'] == 'preview' else '执行'} · 锚点 {r['anchor']}"
-                  + (f" · 复用{r['reused']}个(不重跑, 收尾一并判定)" if r.get("reused") else "")
                   + (f" · 跳过{r['skipped']}" if r.get("skipped") else "")
                   + (f" · 未跑{r['not_run']}(超单次上限)" if r.get("not_run") else "")
                   + " — worker 并行跑, 跑完自动判定出报告(可以关页面)", "success")

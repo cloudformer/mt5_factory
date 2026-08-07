@@ -219,5 +219,4 @@ def test_config_defaults_and_min_pf_empty_string():
                                   "test": [1, 0], "min_pf": ""}]})
     assert p["segments"][0]["min_pf"] is None
     assert (p["default_pf"], p["min_seg_trades"], p["batch_limit"]) == (1.0, 10, 50)
-    assert p["reuse_days"] == 7                       # 复用默认 7 天
-    assert cfg_params({**p, "reuse_days": 0})["reuse_days"] == 0   # 0 = 关闭不回落
+    assert "reuse_days" not in p   # 复用是全局配置 backtest_reuse_days, 不在本模块判据里

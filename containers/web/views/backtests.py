@@ -88,6 +88,9 @@ def save_costs():
         if request.form.get("window_days", "").strip():  # 批量回测默认窗口(天, 2026-07-29)
             api.put("/config/backtest_window_days",
                     {"value": int(request.form["window_days"])})
+        if request.form.get("reuse_days", "").strip():  # 复用有效期(天, 2026-08-07; 0=关)
+            api.put("/config/backtest_reuse_days",
+                    {"value": int(request.form["reuse_days"])})
         flash("策略参数已保存", "ok")
     except (api.ApiError, ValueError, KeyError) as e:
         flash(f"保存失败: {e}", "error")

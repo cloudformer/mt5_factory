@@ -38,6 +38,8 @@
         title="批量/筛选回测的数据窗口: 从提交时刻往回数这么多天(默认180)。按ID点名时页面可临时选1/5/10/20年不受此限。同一批同窗口, 不同窗口的成绩不要互比(对比三铁律)"></label>
     <label>回测单批上限 <input name="batch_limit" value="{{ batch_limit }}" size="5"
         title="一次批量回测最多跑多少个策略(防失控保护)。策略总数超过它时'全部'跑不全 — 调大到不小于策略总数"></label>
+    <label>复用有效期(天) <input name="reuse_days" value="{{ reuse_days if reuse_days is not none else '' }}" size="3"
+        title="全局复用守卫(所有走库的回测: 批量/单ID/自动化筛选v1/oos_v2): 该策略×品种的回测行是 N 天内跑的且跨度覆盖本次要求窗口 → 直接复用不重跑(20年行可喂5年/180天请求, 反之不行)。0=关闭, 每次都现跑 — 需要精确同窗对比时用"></label>
     <label>OOS训练占比 <input name="oos_split" value="{{ '%g' % oos_split }}" size="4"
         title="样本外切分: 0.7=训练7:留出3(推荐, 长期固定)。纪律: 换比例后必须'范围=全部'跑一次全量收敛, 否则库里新旧口径混着不可比"></label>
     <button>保存</button>

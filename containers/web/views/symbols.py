@@ -25,7 +25,7 @@ def index():
 def backtest_params():
     """配置·策略参数: 生成收货上限 + 成本模型 + 回测单批上限 + OOS 切分"""
     costs, batch_limit, oos_split, mt5_days = {}, 500, 0.7, [7, 30, 90]
-    window_days, regime_view = None, {}
+    window_days, regime_view, reuse_days = None, {}, None
     runtime_write, runtime_gap, gate, recon_tol = 5, 15, {}, 2
     generate_limit, worker_params, regime_params = 500, {}, {}
     regime_versions, regime_current = [], None
@@ -42,6 +42,7 @@ def backtest_params():
         volume_default = cfg.get("volume_default")
         oos_split = cfg.get("backtest_oos_split", 0.7)
         window_days = cfg.get("backtest_window_days")
+        reuse_days = cfg.get("backtest_reuse_days")
         mt5_days = cfg.get("mt5_trades_days") or [7, 30, 90]
         runtime_write = cfg.get("runtime_write_minutes", 5)
         runtime_gap = cfg.get("runtime_gap_minutes", 15)
@@ -60,7 +61,7 @@ def backtest_params():
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
-                           window_days=window_days,
+                           window_days=window_days, reuse_days=reuse_days,
                            generate_limit=generate_limit, volume_presets=volume_presets,
                            volume_default=volume_default,
                            oos_split=oos_split, mt5_days=mt5_days,

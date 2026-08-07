@@ -28,6 +28,27 @@ def _spread_at(m1, j, point, spread_points):
     return (spread_points if spread_points is not None else m1["spread"][j]) * point
 
 
+async def reuse_row(pool, strategy_id: int, symbol: str,
+                    t_from: datetime, t_to: datetime):
+    """回测复用守卫(2026-08-07 与 Frank 定, 全局唯一实现 — 所有走库的回测路径共用):
+    config backtest_reuse_days(0=关) 天内跑过、且行跨度覆盖本次要求窗口(差45天容差,
+    吸收数据首根晚几天/周末)的 (策略×品种) 行 → 返回该行(调用方直接用, 不重跑); 否则 None。
+    大窗行永远能当小窗用(20年行喂饱 5年/180天请求); 小窗行冒充不了大请求。
+    覆盖: jobs._run_one(批量/单ID/v1/oos_v2 队列) + 两筛选的点名诊断同步路径;
+    不覆盖: trail 变体对比(内存现算, 参数是临时变体 — 复用即错误)。"""
+    rd = int(await pool.fetchval(
+        "SELECT value FROM config WHERE key='backtest_reuse_days'") or 0)
+    if not rd:
+        return None
+    need_days = max(int((t_to - t_from).days) - 45, 1)
+    return await pool.fetchrow(
+        "SELECT from_time, to_time, metrics, trades, created_at FROM backtests"
+        " WHERE strategy_id = $1 AND symbol = $2"
+        "   AND created_at >= now() - make_interval(days => $3)"
+        "   AND to_time - from_time >= make_interval(days => $4)",
+        strategy_id, symbol, rd, need_days)
+
+
 async def load_m1(pool, symbol: str, t_from: datetime, t_to: datetime):
     """从 historical_bars 加载 M1 到 numpy 数组"""
     where = "symbol=$1 AND timeframe='M1' AND time >= $2 AND time < $3"

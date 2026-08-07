@@ -109,6 +109,10 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
     meta = await pool.fetchrow("SELECT point, broker FROM symbols WHERE symbol=$1", sym)
     if meta is None:
         raise ValueError("symbol not in symbols table")
+    # 复用守卫(2026-08-07 全局统一): 有效期内已有覆盖本窗的行 → 秒完不进引擎
+    # (批量/单ID/v1/oos_v2 同走这里 = 一处生效; 配置 backtest_reuse_days=0 即恢复每次现跑)
+    if await backtest.reuse_row(pool, s["id"], sym, t_from, t_to):
+        return
     key = (sym, payload["from"], payload["to"])
     if cache.get("key") != key:
         cache["m1"] = await backtest.load_m1(pool, sym, t_from, t_to)

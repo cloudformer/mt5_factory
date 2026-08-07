@@ -292,6 +292,11 @@ async def screen_run(req: ScreenRun, request: Request):
     async def _fresh_bt(strat, sym):
         """现跑一发总计年回测(与 jobs._run_one 同一配方) → bt 行 dict;
         None = 该品种 M1 覆盖不足总计年。结果 UPSERT 回流(from/to = 实际首末根, 标签不撒谎)"""
+        # 复用守卫(2026-08-07 全局统一, 唯一实现在 backtest.reuse_row): 命中即不重跑
+        row = await backtest.reuse_row(pool, strat["id"], sym, t_from, t_to)
+        if row:
+            return {"symbol": sym, "from_time": row["from_time"],
+                    "to_time": row["to_time"], "trades": row["trades"]}
         if m1_cache["sym"] != sym:
             m1_cache["m1"] = await backtest.load_m1(pool, sym, t_from, t_to)
             m1_cache["sym"] = sym
