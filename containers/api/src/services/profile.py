@@ -27,7 +27,7 @@ async def build(pool, strategy_id: int) -> dict | None:
     """现拼 Profile。None = 策略不存在。"""
     s = await pool.fetchrow(
         "SELECT id, name, template, symbol, timeframe, params, status, magic_number,"
-        "       basis, tags, archive_reason, parent_id, origin, owner_id, volume,"
+        "       basis, tags, archive_reason, parent_id, origin_id, owner_id, volume,"
         "       metadata, created_at, updated_at"
         " FROM strategies WHERE id=$1", strategy_id)
     if s is None:
@@ -105,7 +105,7 @@ async def build(pool, strategy_id: int) -> dict | None:
                  "symbol": s["symbol"], "timeframe": s["timeframe"],
                  "params": s["params"], "status": s["status"],
                  "magic_number": s["magic_number"], "volume": s["volume"],
-                 "origin": s["origin"], "parent_id": s["parent_id"],
+                 "origin_id": s["origin_id"], "parent_id": s["parent_id"],
                  "owner_id": s["owner_id"], "gate": s["metadata"] or None,
                  "created_time": s["created_at"].isoformat()},
         "history": {"tags": s["tags"] or [], "basis": s["basis"],
