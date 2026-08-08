@@ -159,6 +159,12 @@ async def oos_progress(request: Request):
                 "current": p["current"] or "", "report_id": None,
                 "phase": "backtest" if p["running"] else "judging",
                 "errors": p["errors"]}
+    # 判定阶段(2026-08-08 判定下放 worker): 块级进度 — done/total 按判定块计
+    jp = await jobs.progress(request.app.state.pool, jobs.OOS_JUDGE_KIND)
+    if jp["total"]:
+        return {"running": jp["running"], "done": jp["done"], "total": jp["total"],
+                "current": jp["current"] or "", "report_id": None,
+                "phase": "judging", "errors": jp["errors"]}
     # 队列空 = 收尾已完成: 回最新报告 id(归属过滤), 页面从"判定中"跳过去看结果
     uid = identity.scope_uid(request)
     last = await request.app.state.pool.fetchval(
@@ -217,8 +223,11 @@ async def oos_run(req: OosRun, request: Request):
     # ===== 全池清理 = 投 jobs 队列, worker 并行跑回测(第4步) =====
     # 判定不在这里做: 队列跑完由主节点心跳收尾(oos_v2.finalize) — 报告在那一步一次性落库。
     if not req.ids:
-        if await jobs.has_active(pool, jobs.OOS_KIND):
+        if await jobs.has_active(pool, jobs.OOS_KIND) \
+                or await jobs.has_active(pool, jobs.OOS_JUDGE_KIND):
             raise HTTPException(status_code=409, detail="已有一批筛选在跑, 等它完成再点")
+        if req.limit and req.limit > 10000:   # 硬顶护栏(2026-08-08): 防手滑十万级一把梭
+            raise HTTPException(status_code=400, detail="单次上限最大 10000")
         limit = req.limit if req.limit else p["batch_limit"]
         targets, not_run = list(rows[:limit]), max(len(rows) - limit, 0)
         if limit:

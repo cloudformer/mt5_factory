@@ -52,6 +52,24 @@ async def reuse_row(pool, strategy_id: int, symbol: str,
         strategy_id, symbol, rd, need_days)
 
 
+async def reuse_ok(pool, strategy_id: int, symbol: str,
+                   t_from: datetime, t_to: datetime, days: int | None = None) -> bool:
+    """复用守卫轻量版(2026-08-08): 只判"有没有可复用的行", 不搬数据 —
+    队列守卫(jobs._run_one)用这个; 全池 6100 任务时守卫若用 reuse_row 会把整份
+    trades(1~2MB/行)白搬回来(实测 postgres 网络出量上百GB)。条件与 reuse_row 完全一致。"""
+    rd = int(days) if days is not None else int(await pool.fetchval(
+        "SELECT value FROM config WHERE key='backtest_reuse_days'") or 0)
+    if not rd:
+        return False
+    need_days = max(int((t_to - t_from).days) - 45, 1)
+    return await pool.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM backtests"
+        " WHERE strategy_id = $1 AND symbol = $2"
+        "   AND created_at >= now() - make_interval(days => $3)"
+        "   AND to_time - from_time >= make_interval(days => $4))",
+        strategy_id, symbol, rd, need_days)
+
+
 async def load_m1(pool, symbol: str, t_from: datetime, t_to: datetime):
     """从 historical_bars 加载 M1 到 numpy 数组"""
     where = "symbol=$1 AND timeframe='M1' AND time >= $2 AND time < $3"

@@ -106,7 +106,7 @@
           setPlan(`${ph} ${s.done}/${s.total} · ${s.current || ""}`);
         } else if (s.phase === "judging") {
           watching = true; go.disabled = true;
-          setPlan(`回测阶段完成 ${s.done}/${s.total} · 判定中(30秒内出报告)…`);
+          setPlan(`判定中(worker 分块并行) ${s.done}/${s.total} 块 · 完成即出报告`);
         } else if (watching) {
           clearInterval(pollTimer); pollTimer = null; watching = false;
           if (s.report_id) { location = "?report=" + s.report_id; return; }

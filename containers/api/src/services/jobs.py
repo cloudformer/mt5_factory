@@ -27,7 +27,9 @@ logger = logging.getLogger("jobs")
 KIND = "backtest"            # 默认工种(不传 kind 的老调用 = 批量回测, 行为不变)
 SCREEN_KIND = "regime_screen"
 OOS_KIND = "oos_v2"
-ENGINE_KINDS = (KIND, OOS_KIND, SCREEN_KIND)   # 消费者认的工种: 都是"跑一次回测"的活, 同一执行路径
+OOS_JUDGE_KIND = "oos_v2_judge"   # oos_v2 判定任务(2026-08-08: 判定下放 worker, 500/块并行)
+ENGINE_KINDS = (KIND, OOS_KIND, SCREEN_KIND)   # "跑一次回测"的工种, 同一执行路径(_run_one)
+CLAIM_KINDS = ENGINE_KINDS + (OOS_JUDGE_KIND,)  # 消费者抢单认的全部工种(判定走 _run_judge)
 POLL_SECONDS = 3             # 队列空时的轮询间隔
 LEASE_MINUTES = 30           # RUNNING 超时视为消费者死单, 扫回重试(单个回测秒级, 30分钟很宽)
 MAX_ATTEMPTS = 2             # 含首跑; 超过则 FAILED(错误留在行里可查)
@@ -90,7 +92,7 @@ async def _reclaim(pool: asyncpg.Pool):
         "   finished_at = CASE WHEN attempts >= $2 THEN now() ELSE NULL END"
         " WHERE kind = ANY($3) AND status='RUNNING'"
         "   AND started_at < now() - make_interval(mins => $1)",
-        LEASE_MINUTES, MAX_ATTEMPTS, list(ENGINE_KINDS))
+        LEASE_MINUTES, MAX_ATTEMPTS, list(CLAIM_KINDS))
     if n != "UPDATE 0":
         logger.warning("reclaimed stale jobs: %s", n)
 
@@ -111,9 +113,9 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
         raise ValueError("symbol not in symbols table")
     # 复用守卫(2026-08-07 全局统一): 有效期内已有覆盖本窗的行 → 秒完不进引擎。
     # payload.reuse_days = 单ID点名把页面「有效期」随任务带来(默认1天档, 填0=本次实际跑);
-    # 没带 = 批量/筛选档, 用全局配置 backtest_reuse_days(0=全局关)
-    if await backtest.reuse_row(pool, s["id"], sym, t_from, t_to,
-                                days=payload.get("reuse_days")):
+    # 没带 = 批量/筛选档, 用全局配置。轻量版 reuse_ok 只判存在不搬 trades(2026-08-08)
+    if await backtest.reuse_ok(pool, s["id"], sym, t_from, t_to,
+                               days=payload.get("reuse_days")):
         return
     key = (sym, payload["from"], payload["to"])
     if cache.get("key") != key:
@@ -151,6 +153,42 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
         s["id"], t_from, cov_to, sym, meta["broker"], result["metrics"], result["trades"])
 
 
+async def _run_judge(pool: asyncpg.Pool, job_id: int, payload: dict):
+    """执行一个 oos_v2 判定任务(2026-08-08 判定下放 worker): 一块 ≤judge_chunk 个策略 —
+    取回测行 → 纯计算切六段判定(挪线程, 不噎事件循环) → 明细写回本 job 的 result 列。
+    api 收尾只合并各块 result 出报告 — 内存/CPU 摊到全部 worker, api 峰值从 27GB → 几十MB。"""
+    from datetime import date as _date
+    from src.services import oos_v2   # 函数级 import: oos_v2 顶层 import jobs, 防环
+    cfg = payload["run"]
+    p = cfg["judge"]
+    anchor = _date.fromisoformat(cfg["anchor"])
+    entries = payload["chunk"]
+    errors = payload.get("errors") or {}
+    ids = [int(e["id"]) for e in entries]
+    strats = {r["id"]: dict(r) for r in await pool.fetch(
+        "SELECT id, name, symbol, status FROM strategies WHERE id = ANY($1)", ids)}
+    bt_rows = {r["strategy_id"]: dict(r) for r in await pool.fetch(
+        "SELECT b.strategy_id, b.trades FROM backtests b"
+        " JOIN strategies s ON s.id = b.strategy_id AND s.symbol = b.symbol"
+        " WHERE b.strategy_id = ANY($1)", ids)}
+
+    def _judge_all() -> list:
+        out = []
+        for e in entries:
+            sid = int(e["id"])
+            strat = strats.get(sid)
+            if strat is None:   # 跑批期间被删
+                out.append({"id": sid, "name": e.get("name"), "symbol": e.get("symbol"),
+                            "status": "—", "verdict": "skip", "reason": "策略已删除"})
+                continue
+            bt = {"error": errors[str(sid)]} if str(sid) in errors else bt_rows.get(sid)
+            out.append(oos_v2.judge_one(strat, bt, anchor, p))
+        return out
+
+    details = await asyncio.to_thread(_judge_all)
+    await pool.execute("UPDATE jobs SET result=$2 WHERE id=$1", job_id, details)
+
+
 async def consumer_loop(pool: asyncpg.Pool):
     """常驻消费者(api 内 1 路 + worker 容器 N 路, 同一函数):
     抢单(SKIP LOCKED, 按品种排序) → 执行 → DONE/FAILED; 空队列时低频轮询 + 顺手回收租约。
@@ -167,13 +205,16 @@ async def consumer_loop(pool: asyncpg.Pool):
                 " WHERE id = (SELECT id FROM jobs WHERE kind = ANY($2) AND status='PENDING'"
                 "             ORDER BY kind, payload->>'symbol', id LIMIT 1"
                 "             FOR UPDATE SKIP LOCKED)"
-                " RETURNING id, payload, attempts", WORKER, list(ENGINE_KINDS))
+                " RETURNING id, kind, payload, attempts", WORKER, list(CLAIM_KINDS))
             if job is None:
                 cache.clear()   # 队列空: 释放缓存的 M1(可能几百MB), 再睡
                 await asyncio.sleep(POLL_SECONDS)
                 continue
             try:
-                await _run_one(pool, job["payload"], cache)
+                if job["kind"] == OOS_JUDGE_KIND:   # 判定块(纯计算) vs 回测(引擎)
+                    await _run_judge(pool, job["id"], job["payload"])
+                else:
+                    await _run_one(pool, job["payload"], cache)
                 await pool.execute(
                     "UPDATE jobs SET status='DONE', error=NULL, finished_at=now()"
                     " WHERE id=$1", job["id"])

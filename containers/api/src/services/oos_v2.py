@@ -69,11 +69,13 @@ def cfg_params(cfg: dict) -> dict:
                     "min_pf": None if mp in (None, "") else float(mp)})
     dp = cfg.get("default_pf")
     # 复用天数不在这里: 全局唯一配置 backtest_reuse_days(2026-08-07 定, schema/062),
-    # 判定在执行层 backtest.reuse_row — 本模块无复用逻辑
+    # 判定在执行层 backtest.reuse_ok — 本模块无复用逻辑
+    jc = int(cfg.get("judge_chunk") or 500)   # 判定块大小(worker 每块峰值≈块数×每策略几MB)
     return {"segments": out,
             "default_pf": float(dp) if dp is not None else 1.0,
             "min_seg_trades": int(cfg.get("min_seg_trades") or 10),
-            "batch_limit": int(cfg.get("batch_limit") or 50)}
+            "batch_limit": int(cfg.get("batch_limit") or 50),
+            "judge_chunk": min(max(jc, 50), 2000)}
 
 
 def window_years(p: dict) -> float:
@@ -190,33 +192,10 @@ async def apply_actions(pool, mode: str, rid: int,
             " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'", fail_ids)
 
 
-async def settle(pool, cfg: dict, entries: list, errors: dict) -> tuple[int, dict]:
-    """判定 + 落报告 + 出池标签/归档 — finalize(队列收尾) 与 run(全复用零任务直落) 共用。
-    entries = [{"id","name","symbol"}](含现跑的和复用的); errors = {sid: 失败原因}(铁则1 → skip)。
-    返回 (报告id, summary)。"""
-    p = cfg["judge"]
-    anchor = date.fromisoformat(cfg["anchor"])   # 锚点 = 提交那天(批内冻结, 不随收尾日漂移)
+async def finish_report(pool, cfg: dict, details: list) -> tuple[int, dict]:
+    """合并出报告(收尾状态B的末段): summary → 落库 → 出池履历/归档。纯装配, 秒级。"""
     mode = cfg["mode"]
-    strat_ids = [int(e["id"]) for e in entries]
-    # 策略现状临判现查(状态可能在跑批期间变了)
-    strats = {r["id"]: dict(r) for r in await pool.fetch(
-        "SELECT id, name, symbol, status FROM strategies WHERE id = ANY($1)", strat_ids)}
-    # 回测行: 现跑的 = worker 刚 UPSERT 的新鲜数据; 复用的 = reuse_days 内的既有行(只取主品种)
-    bt_rows = {r["strategy_id"]: dict(r) for r in await pool.fetch(
-        "SELECT b.strategy_id, b.trades FROM backtests b"
-        " JOIN strategies s ON s.id = b.strategy_id AND s.symbol = b.symbol"
-        " WHERE b.strategy_id = ANY($1)", strat_ids)}
-    details = list(cfg.get("skipped") or [])
-    for e in entries:
-        sid = int(e["id"])
-        strat = strats.get(sid)
-        if strat is None:   # 跑批期间被删
-            details.append({"id": sid, "name": e.get("name"), "symbol": e.get("symbol"),
-                            "status": "—", "verdict": "skip", "reason": "策略已删除"})
-            continue
-        bt = {"error": errors[sid]} if sid in errors else bt_rows.get(sid)
-        details.append(judge_one(strat, bt, anchor, p))
-    # 出池履历 = 被判定过的(带结论/时间); 归档 = execute 下的 fail(skip 永不动)
+    anchor = date.fromisoformat(cfg["anchor"])
     pass_ids = [d["id"] for d in details if d["verdict"] == "pass"]
     fail_ids = [d["id"] for d in details if d["verdict"] == "fail"]
     summary = summarize(details, mode,
@@ -226,8 +205,9 @@ async def settle(pool, cfg: dict, entries: list, errors: dict) -> tuple[int, dic
         "INSERT INTO oos_v2_screens"
         " (mode, anchor, scope, params, summary, details, owner_id)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-        mode, anchor, cfg["scope"], p, summary, details, int(cfg.get("owner") or 1))
-    await apply_actions(pool, mode, rid, pass_ids, fail_ids)
+        mode, anchor, cfg["scope"], cfg["judge"], summary, details,
+        int(cfg.get("owner") or 1))
+    await apply_actions(pool, mode, rid, anchor, pass_ids, fail_ids)
     logger.info("oos_v2 report #%s (%s) 共%d 通过%d 未过%d 归档%d 跳过%d",
                 rid, mode, summary["total"], summary["passed"],
                 summary["failed"], summary["archived"], summary["skipped"])
@@ -235,24 +215,64 @@ async def settle(pool, cfg: dict, entries: list, errors: dict) -> tuple[int, dic
 
 
 async def finalize(pool: asyncpg.Pool) -> int | None:
-    """全池清理的收尾(主节点心跳调用): 队列(kind=oos_v2)全跑完 → settle(判定/报告/标签/归档)
-    → 清队列。返回报告 id; 没有待收尾的批次返回 None。
-    并发安全: 整个收尾在 advisory lock 内; 结束即删空队列 → 别的副本看不到批次, 不会重复收尾。"""
+    """全池收尾两态状态机(2026-08-08 与 Frank 定: 判定下放 worker, api 只装配):
+
+      状态A  回测任务(kind=oos_v2)全跑完 → 归拢策略清单/失败原因 → 切 judge_chunk(默认500)
+             一块投「判定任务」(kind=oos_v2_judge, payload 带清单+运行配置) → 删回测任务。
+             worker 并行判块(jobs._run_judge, 每块峰值≈1.5G 贴 worker 2G 预算),
+             明细写回各 job 的 result 列。
+      状态B  判定任务全跑完 → 合并各块 result → finish_report(报告/履历/归档) → 删光队列。
+             FAILED 的判定块 → 该块全员 skip(铁则1: 缺结果绝不淘汰)。
+
+    api 峰值从 27GB/单核20分钟 → 合并几十MB/秒级; 崩溃安全: 任一状态中断, 队列还在,
+    下一拍心跳从当前状态续走(判定任务幂等可重跑)。并发安全: 整个收尾在 advisory lock 内。"""
+    # ---- 状态B: 判定任务收口(优先查, 两态不会同时满足动作条件) ----
+    jrows = await pool.fetch(
+        "SELECT id, status, error, payload, result FROM jobs WHERE kind=$1 ORDER BY id",
+        jobs.OOS_JUDGE_KIND)
+    if jrows:
+        if any(r["status"] in ("PENDING", "RUNNING") for r in jrows):
+            return None      # 判定还在并行跑
+        async with pool.acquire() as conn:
+            if not await conn.fetchval("SELECT pg_try_advisory_lock($1)", LOCK_KEY):
+                return None
+            try:
+                n = await conn.fetchval(
+                    "SELECT count(*) FROM jobs WHERE kind=$1", jobs.OOS_JUDGE_KIND)
+                if not n:
+                    return None
+                cfg = jrows[0]["payload"]["run"]
+                details = list(cfg.get("skipped") or [])
+                for r in jrows:
+                    if r["status"] == "DONE" and r["result"]:
+                        details += r["result"]
+                    else:   # 判定块失败(重试耗尽): 全员 skip, 永不淘汰(铁则1)
+                        details += [{"id": int(e["id"]), "name": e.get("name"),
+                                     "symbol": e.get("symbol"), "status": "—",
+                                     "verdict": "skip",
+                                     "reason": f"判定任务失败: {r['error'] or '未知原因'}"}
+                                    for e in r["payload"]["chunk"]]
+                rid, _ = await finish_report(pool, cfg, details)
+                # 收尾完删光两工种队列(回测任务在状态A已删, 这里兜底)
+                await pool.execute("DELETE FROM jobs WHERE kind = ANY($1)",
+                                   [jobs.OOS_KIND, jobs.OOS_JUDGE_KIND])
+                return rid
+            finally:
+                await conn.fetchval("SELECT pg_advisory_unlock($1)", LOCK_KEY)
+
+    # ---- 状态A: 回测任务收口 → 切块投判定任务 ----
     rows = await pool.fetch(
         "SELECT payload, status, error FROM jobs WHERE kind=$1", jobs.OOS_KIND)
     if not rows or any(r["status"] in ("PENDING", "RUNNING") for r in rows):
-        return None      # 没批次 / 还在跑
+        return None      # 没批次 / 回测还在跑
     async with pool.acquire() as conn:
         if not await conn.fetchval("SELECT pg_try_advisory_lock($1)", LOCK_KEY):
-            return None  # 另一个副本正在收尾
+            return None
         try:
-            # 锁内复查(拿锁期间对方可能已收尾并清空队列)
             n = await conn.fetchval("SELECT count(*) FROM jobs WHERE kind=$1", jobs.OOS_KIND)
             if not n:
                 return None
             cfg = rows[0]["payload"]["run"]
-            # 现跑条目来自队列(每策略一个任务, 只跑主品种), 失败记 error(铁则1 → skip);
-            # 复用条目(reuse_days 内已有全窗回测行)冻结在 run_cfg 里, 一并判定
             entries, errors, seen = [], {}, set()
             for r in rows:
                 pl = r["payload"]
@@ -262,11 +282,15 @@ async def finalize(pool: asyncpg.Pool) -> int | None:
                     entries.append({"id": sid, "name": pl.get("name"),
                                     "symbol": pl["symbol"]})
                 if r["status"] == "FAILED":
-                    errors[sid] = r["error"] or "未知原因"
+                    errors[str(sid)] = r["error"] or "未知原因"
             entries += [e for e in (cfg.get("reused") or []) if int(e["id"]) not in seen]
-            rid, _ = await settle(pool, cfg, entries, errors)
-            # 收尾完删空队列: "队列空 = 无待收尾批次"(幂等自清理, 不加表不加列)
+            chunk = int(cfg["judge"].get("judge_chunk") or 500)
+            items = [{"chunk": entries[i:i + chunk], "errors": errors, "run": cfg}
+                     for i in range(0, len(entries), chunk)]
+            await jobs.submit_batch(pool, items, jobs.OOS_JUDGE_KIND)
             await pool.execute("DELETE FROM jobs WHERE kind=$1", jobs.OOS_KIND)
-            return rid
+            logger.info("oos_v2 judge submitted: %d chunks × ≤%d (共 %d 策略)",
+                        len(items), chunk, len(entries))
+            return None      # 报告在状态B出
         finally:
             await conn.fetchval("SELECT pg_advisory_unlock($1)", LOCK_KEY)
