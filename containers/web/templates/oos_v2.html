@@ -84,6 +84,7 @@
       el.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(refreshPlan, 400); }));
     refreshPlan();
     let pollTimer = null, watching = false;
+    function setPlan(t) { if (planEl.textContent !== t) planEl.textContent = t; }  // 防闪: 没变不写
     const stopBtn = document.getElementById("o2-stop");
     stopBtn.addEventListener("click", async () => {
       if (!confirm("停止本批? 队列删空 = 不出报告不打标签(在跑的把手头跑完即结束)")) return;
@@ -102,10 +103,10 @@
         if (s.running) {
           watching = true; go.disabled = true;
           const ph = s.phase === "diagnose" ? "点名诊断" : "回测阶段(worker 并行)";
-          planEl.textContent = `${ph} ${s.done}/${s.total} · ${s.current || ""}`;
+          setPlan(`${ph} ${s.done}/${s.total} · ${s.current || ""}`);
         } else if (s.phase === "judging") {
           watching = true; go.disabled = true;
-          planEl.textContent = `回测阶段完成 ${s.done}/${s.total} · 判定中(30秒内出报告)…`;
+          setPlan(`回测阶段完成 ${s.done}/${s.total} · 判定中(30秒内出报告)…`);
         } else if (watching) {
           clearInterval(pollTimer); pollTimer = null; watching = false;
           if (s.report_id) { location = "?report=" + s.report_id; return; }
@@ -114,7 +115,7 @@
       } catch (e) { /* 网络抖动忽略 */ }
     }
     function watchProgress() {
-      if (!pollTimer) pollTimer = setInterval(pollProgress, 1500);
+      if (!pollTimer) pollTimer = setInterval(pollProgress, 2500);
       pollProgress();
     }
     form.addEventListener("submit", () => {
