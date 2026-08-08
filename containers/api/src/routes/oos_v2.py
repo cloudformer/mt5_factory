@@ -92,11 +92,16 @@ async def oos_params_save(request: Request):
 
 
 # ---------- 范围(plan 与 run 共用; 默认 = 全部未筛过的空闲策略, ID 点名 = 只读诊断) ----------
-def _scope_conds(req_ids, uid):
+def _scope_conds(req_ids, uid, rescreen: bool = False):
     if req_ids:
         conds, args = [], [req_ids]
         conds.append(f"s.id = ANY(${len(args)})")
         scope = {"ids": req_ids}
+    elif rescreen:
+        # 重算(2026-08-08 Frank 要: 池子清完也能随便重算): 无视履历, 全部空闲策略再跑;
+        # tags 只追加新履历不覆盖旧的 — 每轮重算都是一条新记录, 历史全留
+        conds, args = ["s.status = 'CANDIDATE'"], []
+        scope = {"pool": "rescreen"}
     else:
         # 已筛过 = tags 里有本模块履历(schema/064) 或 老格式 basis 标签(存量不追改)
         conds, args = ["s.status = 'CANDIDATE'",
@@ -110,7 +115,7 @@ def _scope_conds(req_ids, uid):
 
 
 @router.get("/oos_v2/plan")
-async def oos_plan(request: Request, ids: Optional[str] = None):
+async def oos_plan(request: Request, ids: Optional[str] = None, rescreen: bool = False):
     """运行预估(页面预览行实时刷): 匹配多少策略 / 涉及哪些品种 — 纯读零动作。
     不做 M1 覆盖预检: 数据不够的段自然 0 笔(无数据不追责算过+警示), 代码不设跳开逻辑。"""
     pool = request.app.state.pool
@@ -122,7 +127,7 @@ async def oos_plan(request: Request, ids: Optional[str] = None):
             raise HTTPException(status_code=400, detail="ID 列表需为逗号分隔的整数")
     p = oos_v2.cfg_params(
         await pool.fetchval("SELECT value FROM config WHERE key='oos_v2'") or {})
-    conds, args, _ = _scope_conds(id_list, identity.scope_uid(request))
+    conds, args, _ = _scope_conds(id_list, identity.scope_uid(request), rescreen)
     row = await pool.fetchrow(
         "SELECT count(*)::int AS total,"
         f"      count(*) FILTER (WHERE s.tags::text LIKE '%{TAG}#%'"
@@ -196,6 +201,7 @@ class OosRun(BaseModel):
     ids: Optional[list[int]] = None    # 按 ID 点名 = 只读诊断(强制预览, 不入库)
     task: Optional[str] = None         # 任务标签(可选, 记进报告好认)
     limit: Optional[int] = None        # 单次上限(不传 = 用配置 batch_limit)
+    rescreen: bool = False             # 重算: 无视履历跑全部空闲(tags 追加新履历, 历史全留)
 
 
 @router.post("/oos_v2/run")
@@ -214,7 +220,7 @@ async def oos_run(req: OosRun, request: Request):
     p = oos_v2.cfg_params(
         await pool.fetchval("SELECT value FROM config WHERE key='oos_v2'") or {})
     anchor = datetime.now(timezone.utc).date()   # 锚点 = 跑批当天(本批冻结)
-    conds, args, scope = _scope_conds(req.ids, identity.scope_uid(request))
+    conds, args, scope = _scope_conds(req.ids, identity.scope_uid(request), req.rescreen)
     if (req.task or "").strip():
         scope["task"] = req.task.strip()
     rows = await pool.fetch(
@@ -223,7 +229,8 @@ async def oos_run(req: OosRun, request: Request):
         f" FROM strategies s WHERE {' AND '.join(conds)} ORDER BY s.symbol, s.id", *args)
     if not rows:
         raise HTTPException(status_code=404, detail=(
-            "点名的 ID 不存在" if req.ids else "没有未筛过的空闲策略 — 池子已清完"))
+            "点名的 ID 不存在" if req.ids else (
+                "没有空闲策略" if req.rescreen else "没有未筛过的空闲策略 — 池子已清完(可切「重算」)")))
 
     # ===== 全池清理 = 投 jobs 队列, worker 并行跑回测(第4步) =====
     # 判定不在这里做: 队列跑完由主节点心跳收尾(oos_v2.finalize) — 报告在那一步一次性落库。
@@ -231,10 +238,9 @@ async def oos_run(req: OosRun, request: Request):
         if await jobs.has_active(pool, jobs.OOS_KIND) \
                 or await jobs.has_active(pool, jobs.OOS_JUDGE_KIND):
             raise HTTPException(status_code=409, detail="已有一批筛选在跑, 等它完成再点")
-        if req.limit and req.limit > p["max_limit"]:   # 硬顶护栏(config.oos_v2.max_limit)
-            raise HTTPException(status_code=400,
-                                detail=f"单次上限最大 {p['max_limit']}(库里 max_limit 可调)")
-        limit = req.limit if req.limit else p["batch_limit"]
+        # 硬顶护栏(config.oos_v2.max_limit, 库直改): 超了不报错, 静默钳到硬顶执行
+        # (2026-08-08 Frank 定: 填十万就按一万跑, 不打断)
+        limit = min(req.limit if req.limit else p["batch_limit"], p["max_limit"])
         targets, not_run = list(rows[:limit]), max(len(rows) - limit, 0)
         if limit:
             scope["limit"] = limit

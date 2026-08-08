@@ -124,6 +124,8 @@ def run():
             payload["task"] = request.form["task"].strip()
         if (request.form.get("limit") or "").strip():
             payload["limit"] = int(request.form["limit"])
+        if request.form.get("rescreen"):   # 范围=重算(无视履历)
+            payload["rescreen"] = True
     except ValueError:
         flash("ID 列表/单次上限需为整数", "error")
         return redirect(url_for("oos_v2.index"))

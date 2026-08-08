@@ -17,6 +17,11 @@
     </div>
     <div class="row">
       <span class="tag">选项</span>
+      <label title="未筛过=默认池(判过自动出池); 重算=无视履历把全部空闲策略再跑一轮(tags 追加新履历, 历史全留) — 池子清完后想再算就切这个">范围
+        <select name="rescreen">
+          <option value="">未筛过(默认)</option>
+          <option value="1">全部空闲(重算)</option>
+        </select></label>
       <label title="两种模式都会给被判定过的策略追加出池标签 oos_v2#报告号(下次自动出池+溯源, 不改状态); 执行额外把 FAIL 归档(死因 oos_v2_fail, 可逆), 在跑/跑批期间被挂上机器的绝不动">模式
         <select name="mode">
           <option value="preview">预览(出报告+出池标签)</option>
@@ -63,18 +68,21 @@
       modeSel.disabled = !!ids;
       const p = new URLSearchParams();
       if (ids) p.set("ids", ids);
+      const rsSel = form.querySelector("select[name=rescreen]");
+      if (rsSel.value) p.set("rescreen", "true");
       try {
         const d = await fetch("{{ url_for('oos_v2.plan') }}?" + p).then((r) => r.json());
         if (d.error) { planEl.textContent = "预估不可用: " + d.error; go.disabled = false; return; }
         const lim = parseInt(form.querySelector("input[name=limit]").value) || 0;
         const run = lim ? Math.min(lim, d.total) : d.total;
-        let txt = `${ids ? "点名" : "未筛过池"} ${d.total} 个策略(${d.symbols} 品种)`;
+        let txt = `${ids ? "点名" : (rsSel.value ? "重算·空闲池" : "未筛过池")} ${d.total} 个策略(${d.symbols} 品种)`;
         if (d.reusable) txt += ` · 可复用 ${d.reusable}(≤${d.reuse_days}天前的全窗回测, 不重跑)`;
         txt += ` → 本次处理 ${run} 个(现跑的约30~60s/个, 锚点 ${d.anchor})`;
         if (lim && d.total > lim) txt += ` · 剩余 ${d.total - lim} 个下次再跑`;
         if (d.tagged) txt += ` · 已筛过跳过 ${d.tagged}`;
         planEl.textContent = d.total === 0
-          ? (ids ? "点名的 ID 不存在" : "没有未筛过的空闲策略 — 池子已清完") : txt;
+          ? (ids ? "点名的 ID 不存在"
+             : (rsSel.value ? "没有空闲策略" : "没有未筛过的空闲策略 — 切「重算」可再跑")) : txt;
         go.disabled = (d.total === 0);
       } catch { planEl.textContent = "预估不可用"; go.disabled = false; }
     }
@@ -141,7 +149,7 @@
   <p class="muted">{{ m.lts(report.created_at) }} · {{ '预览' if report.mode == 'preview' else '执行' }}
     · 锚点 <b class="mono">{{ report.anchor }}</b>
     {% if report.scope.task %}· 任务「{{ report.scope.task }}」{% endif %}
-    {% if report.scope.ids %}· ID×{{ report.scope.ids | length }}{% else %}· 全部未筛过{% endif %}
+    {% if report.scope.ids %}· ID×{{ report.scope.ids | length }}{% elif report.scope.pool == 'rescreen' %}· 重算·全部空闲{% else %}· 全部未筛过{% endif %}
     · 判据: {% for s in report.params.segments %}{{ s.label }}{{ '%g' % s.train[0] }}/{{ '%g' % s.test[0] }}{{ ' · ' if not loop.last }}{% endfor %}
     · PF&gt;{{ '%g' % report.params.default_pf }} · 提示&lt;{{ report.params.min_seg_trades }}笔</p>
   <p style="margin:4px 0">共 {{ report.summary.total }}
@@ -167,7 +175,7 @@
       <td class="mono">{{ m.lts(r.created_at) }}</td>
       <td>{{ '预览' if r.mode == 'preview' else '执行' }}</td>
       <td class="mono">{{ r.anchor }}</td>
-      <td>{% if r.scope.task %}「{{ r.scope.task }}」· {% endif %}{% if r.scope.ids %}ID×{{ r.scope.ids | length }}{% else %}全部未筛过{% endif %}</td>
+      <td>{% if r.scope.task %}「{{ r.scope.task }}」· {% endif %}{% if r.scope.ids %}ID×{{ r.scope.ids | length }}{% elif r.scope.pool == 'rescreen' %}重算·全部空闲{% else %}全部未筛过{% endif %}</td>
       <td class="mono" title="各期 训总年/测年 · 默认PF · 样本提示线(当时快照, 改判据不篡改历史)">
         {% for s in r.params.segments %}{{ '%g' % s.train[0] }}/{{ '%g' % s.test[0] }}{{ ' · ' if not loop.last }}{% endfor %}
         · PF&gt;{{ '%g' % r.params.default_pf }} · 提示&lt;{{ r.params.min_seg_trades }}笔</td>
