@@ -11,7 +11,10 @@
     <select name="symbol" onchange="this.form.submit()"
             title="过滤到单品种: 汇总八格=该品种自己的八格(同单位, 净点/PF 也真实可信); 全部=十品种同格相加">
       <option value="">全部</option>
-      {% for s in syms_all %}<option value="{{ s }}" {% if sym_filter == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      {# 主品种置顶带(主)标注(2026-08-08 Frank 要: 下拉一眼看到主货币) #}
+      {% for s in ([data.main_symbol] if data.main_symbol in syms_all else []) + (syms_all | reject('equalto', data.main_symbol) | list) %}
+      <option value="{{ s }}" {% if sym_filter == s %}selected{% endif %}>{{ s }}{% if s == data.main_symbol %}(主){% endif %}</option>
+      {%- endfor %}
     </select></label>
   {% endif %}
   {% if data and rv_versions %}
