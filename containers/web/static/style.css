@@ -344,6 +344,14 @@ select.small:hover { color: var(--text); }
   text-transform: uppercase; letter-spacing: .6px; min-width: 32px;
 }
 .runbar .spacer { flex: 1 1 auto; }            /* 把按钮推到最右 */
+/* 运行状态行(2026-08-08 Frank: 卡顿总换行一会刷新): 网格钉死四列 —
+   标签 | 状态文本(占满, 只在自己格子里换行, 预留最小高) | 停止 | 开始。
+   文本长短变化不再推挤按钮/不再整行重排, 配合 setPlan(变了才写)彻底稳住 */
+.runbar .row.status { display: grid; grid-template-columns: auto 1fr auto auto;
+                      align-items: center; gap: 12px; }
+.runbar .row.status .plan { min-height: 22px; font-variant-numeric: tabular-nums;
+                            overflow-wrap: anywhere; }
+.runbar label { white-space: nowrap; }         /* 标签自身永不折行(折行=视觉跳动源) */
 .runbar .go { padding: 8px 22px; background: var(--grad); }  /* 主操作: 签名蓝绿渐变 */
 .runbar .go:hover:not(:disabled) { filter: brightness(1.06); }
 

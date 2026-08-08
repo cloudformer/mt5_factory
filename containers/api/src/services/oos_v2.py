@@ -75,6 +75,8 @@ def cfg_params(cfg: dict) -> dict:
             "default_pf": float(dp) if dp is not None else 1.0,
             "min_seg_trades": int(cfg.get("min_seg_trades") or 10),
             "batch_limit": int(cfg.get("batch_limit") or 50),
+            # 单次上限硬顶(schema/067): UI 无编辑口, 改库直改(同一行 config 不分权限)
+            "max_limit": int(cfg.get("max_limit") or 10000),
             "judge_chunk": min(max(jc, 50), 2000)}
 
 

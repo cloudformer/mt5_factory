@@ -40,10 +40,9 @@
         {% else %}<span class="neg">api 不可用 — 判据读不到</span>{% endif %}
       </span>
     </div>
-    <div class="row">
-      <span class="tag">预览</span>
-      <span id="o2-plan" class="muted">…</span>
-      <span class="spacer"></span>
+    <div class="row status">
+      <span class="tag">状态</span>
+      <span id="o2-plan" class="muted plan">…</span>
       <button type="button" id="o2-stop" class="small danger" hidden
               title="删空本批队列: 不出报告不打标签; 在跑的把手头回测跑完即自然结束(结果回流无害)">停止(删队列)</button>
       <button class="go">开始筛选</button>
@@ -127,9 +126,7 @@
   </script>
 
   {# 判据配置已搬「配置→策略参数」(2026-08-08 Frank 定, 归 admin); 本页只读摘要在上方判据行 #}
-  <p class="muted" style="margin-top:10px">判据配置(切分段/默认PF/样本提示/单次上限)在
-    <a href="{{ url_for('symbols.backtest_params') }}">配置 → 策略参数</a>(admin 可改) ·
-    每次运行把判据快照进报告, 改判据不篡改历史。</p>
+  <p class="muted" style="margin-top:8px">判据在 <a href="{{ url_for('symbols.backtest_params') }}">配置 → 策略参数</a> · 快照随报告, 改判据不篡改历史</p>
 </section>
 
 {% if report %}

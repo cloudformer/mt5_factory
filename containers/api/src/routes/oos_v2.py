@@ -76,6 +76,11 @@ async def oos_params(request: Request):
 async def oos_params_save(request: Request):
     """保存判据(整包): 校验不过 = 400 不落库(config 唯一源, 页面是唯一编辑处)"""
     body = await request.json()
+    if "max_limit" not in body:   # 硬顶无 UI 编辑口(schema/067, 库直改) — 保存判据不得冲掉库里现值
+        cur = await request.app.state.pool.fetchval(
+            "SELECT value FROM config WHERE key='oos_v2'") or {}
+        if cur.get("max_limit") is not None:
+            body["max_limit"] = cur["max_limit"]
     try:
         p = oos_v2.cfg_params(body)   # 非法配置在这里被拒
     except ValueError as e:
@@ -226,8 +231,9 @@ async def oos_run(req: OosRun, request: Request):
         if await jobs.has_active(pool, jobs.OOS_KIND) \
                 or await jobs.has_active(pool, jobs.OOS_JUDGE_KIND):
             raise HTTPException(status_code=409, detail="已有一批筛选在跑, 等它完成再点")
-        if req.limit and req.limit > 10000:   # 硬顶护栏(2026-08-08): 防手滑十万级一把梭
-            raise HTTPException(status_code=400, detail="单次上限最大 10000")
+        if req.limit and req.limit > p["max_limit"]:   # 硬顶护栏(config.oos_v2.max_limit)
+            raise HTTPException(status_code=400,
+                                detail=f"单次上限最大 {p['max_limit']}(库里 max_limit 可调)")
         limit = req.limit if req.limit else p["batch_limit"]
         targets, not_run = list(rows[:limit]), max(len(rows) - limit, 0)
         if limit:
