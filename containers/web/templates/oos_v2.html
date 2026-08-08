@@ -2,6 +2,9 @@
 {% import "_macros.html" as m %}
 {% block content %}
 {{ m.page_header('自动化筛选-oos_v2', 'Regime OOS Screen v2 · 三期六段（20年/5年/2年 × 训练/测试）：每策略只跑一次 20 年回测（悲观撮合，结果回流库），按锚点=跑批当天切六段，六段 PF 全合格 = PASS（∞恒过，0笔不追责）。默认预览只出报告不动策略') }}
+<p id="o2-topbar" class="mono" hidden
+   style="margin:0 0 10px; padding:7px 12px; background:var(--ok-bg); border:1px solid var(--ok-bd);
+          border-radius:6px; font-weight:600; font-variant-numeric:tabular-nums"></p>
 
 <section>
   <h2>批量筛选</h2>
@@ -91,7 +94,22 @@
       el.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(refreshPlan, 400); }));
     refreshPlan();
     let pollTimer = null, watching = false;
-    function setPlan(t) { if (planEl.textContent !== t) planEl.textContent = t; }  // 防闪: 没变不写
+    // 置顶进度条 + 标签页标题(2026-08-08 Frank 要: 3/6134 在最上面, 切页也能瞄到进度)
+    const topBar = document.getElementById("o2-topbar");
+    const baseTitle = document.title;
+    function setPlan(t) {
+      if (planEl.textContent !== t) planEl.textContent = t;
+      const busy = /\d+\s*\/\s*\d+/.test(t) && !t.includes("本次");   // 进度形如 x/y 才算跑批中
+      if (busy) {
+        if (topBar.textContent !== t) topBar.textContent = "⏳ " + t;
+        topBar.hidden = false;
+        const m = t.match(/(\d+)\s*\/\s*(\d+)/);
+        document.title = m ? `${m[1]}/${m[2]} · 自动化筛选-oos_v2` : baseTitle;
+      } else {
+        topBar.hidden = true;
+        document.title = baseTitle;
+      }
+    }
     const stopBtn = document.getElementById("o2-stop");
     stopBtn.addEventListener("click", async () => {
       if (!confirm("停止本批? 队列删空 = 不出报告不打标签(在跑的把手头跑完即结束)")) return;

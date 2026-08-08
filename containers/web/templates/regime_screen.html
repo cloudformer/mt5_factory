@@ -2,6 +2,9 @@
 {% import "_macros.html" as m %}
 {% block content %}
 {{ m.page_header('自动化筛选v1', '5 年窗 · 漏斗关1.5 批量粗筛：每策略现跑总计年回测（悲观撮合，结果回流库，涉及淘汰必须用刚出炉的真数据）→ 按切片验 regime 稳健性。通过打标签，未过删除归档（可逆）') }}
+<p id="rs-topbar" class="mono" hidden
+   style="margin:0 0 10px; padding:7px 12px; background:var(--ok-bg); border:1px solid var(--ok-bd);
+          border-radius:6px; font-weight:600; font-variant-numeric:tabular-nums"></p>
 
 <section>
   <h2>批量筛选</h2>
@@ -93,7 +96,22 @@
     refreshPlan();
     // 现跑进度(照回测页): 提交后/发现后台批次 → 轮询实时刷预览行, 跑完自动进报告
     let pollTimer = null, watching = false;
-    function setPlan(t) { if (planEl.textContent !== t) planEl.textContent = t; }  // 防闪: 没变不写
+    // 置顶进度条 + 标签页标题(2026-08-08 Frank 要: 3/6134 在最上面, 切页也能瞄到进度)
+    const topBar = document.getElementById("rs-topbar");
+    const baseTitle = document.title;
+    function setPlan(t) {
+      if (planEl.textContent !== t) planEl.textContent = t;
+      const busy = /\d+\s*\/\s*\d+/.test(t) && !t.includes("本次");   // 进度形如 x/y 才算跑批中
+      if (busy) {
+        if (topBar.textContent !== t) topBar.textContent = "⏳ " + t;
+        topBar.hidden = false;
+        const m = t.match(/(\d+)\s*\/\s*(\d+)/);
+        document.title = m ? `${m[1]}/${m[2]} · 自动化筛选v1` : baseTitle;
+      } else {
+        topBar.hidden = true;
+        document.title = baseTitle;
+      }
+    }
     async function pollProgress() {
       try {
         const s = await fetch("{{ url_for('regime_screen.progress') }}").then((r) => r.json());
