@@ -296,10 +296,24 @@ async def clone_gate(strategy_id: int, req: CloneGateRequest, request: Request):
     pool = request.app.state.pool
     await identity.assert_strategy_visible(pool, request, strategy_id)
     parent = await pool.fetchrow(
-        "SELECT template, symbol, timeframe, params FROM strategies WHERE id=$1",
-        strategy_id)
+        "SELECT id, template, symbol, timeframe, params, parent_id, metadata"
+        " FROM strategies WHERE id=$1", strategy_id)
     if parent is None:
         raise HTTPException(status_code=404, detail="strategy not found")
+    # 谱系扁平化(2026-08-08 Frank 定: 一套参数=一族, 门变体都是平辈兄弟不叠罗汉):
+    # 从带门实例页面点克隆 → 新实例挂到它的无门根上(顺链上溯), 不挂带门实例下。
+    # 红利: 预测验证的增益基线(parent 的回测行)永远是无门全量, 语义不歪
+    root_id = strategy_id
+    seen = {root_id}
+    row = parent
+    while isinstance(row["metadata"], dict) and (row["metadata"] or {}).get("regime")             and row["parent_id"] and row["parent_id"] not in seen:
+        seen.add(row["parent_id"])
+        nxt = await pool.fetchrow(
+            "SELECT id, parent_id, metadata FROM strategies WHERE id=$1", row["parent_id"])
+        if nxt is None:
+            break
+        root_id = nxt["id"]
+        row = nxt
     gate = {"version": req.version, "cells": req.cells}
     err = await instances.gate_error(pool, gate)
     if err:
@@ -308,8 +322,8 @@ async def clone_gate(strategy_id: int, req: CloneGateRequest, request: Request):
         f"{k}{float(req.cells[k]):g}" for k in sorted(req.cells))
     r = await instances.create_instances(
         pool, parent["template"], parent["symbol"], parent["timeframe"],
-        [{"params": parent["params"], "basis": f"克隆带门 parent=#{strategy_id}{suffix}"}],
-        parent_id=strategy_id, metadata={"regime": gate}, name_suffix=suffix,
+        [{"params": parent["params"], "basis": f"克隆带门 parent=#{root_id}{suffix}"}],
+        parent_id=root_id, metadata={"regime": gate}, name_suffix=suffix,
         trust_params=True)   # 父参数来自库内现有行, 参数空间演化不应挡克隆
     out = r["results"][0]
     out["created"] = "id" in out
