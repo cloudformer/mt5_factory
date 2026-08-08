@@ -220,6 +220,6 @@ def test_config_defaults_and_min_pf_empty_string():
     assert p["segments"][0]["min_pf"] is None
     assert (p["default_pf"], p["min_seg_trades"], p["batch_limit"]) == (1.0, 10, 50)
     assert "reuse_days" not in p   # 复用是全局配置 backtest_reuse_days, 不在本模块判据里
-    assert p["judge_chunk"] == 500                                   # 判定块默认
+    assert p["judge_chunk"] == 300                    # 判定块默认(schema/068 压测定版)
     assert cfg_params({**p, "judge_chunk": 10})["judge_chunk"] == 50      # 下钳
     assert cfg_params({**p, "judge_chunk": 99999})["judge_chunk"] == 2000  # 上钳

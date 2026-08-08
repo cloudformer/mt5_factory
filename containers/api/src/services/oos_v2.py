@@ -70,7 +70,7 @@ def cfg_params(cfg: dict) -> dict:
     dp = cfg.get("default_pf")
     # 复用天数不在这里: 全局唯一配置 backtest_reuse_days(2026-08-07 定, schema/062),
     # 判定在执行层 backtest.reuse_ok — 本模块无复用逻辑
-    jc = int(cfg.get("judge_chunk") or 500)   # 判定块大小(worker 每块峰值≈块数×每策略几MB)
+    jc = int(cfg.get("judge_chunk") or 300)   # 判定块大小(schema/068 定300: 峰值~1.6G/负载均匀)
     return {"segments": out,
             "default_pf": float(dp) if dp is not None else 1.0,
             "min_seg_trades": int(cfg.get("min_seg_trades") or 10),
@@ -291,7 +291,10 @@ async def finalize(pool: asyncpg.Pool) -> int | None:
                     errors[str(sid)] = r["error"] or "未知原因"
             entries += [e for e in (cfg.get("reused") or []) if int(e["id"]) not in seen]
             chunk = int(cfg["judge"].get("judge_chunk") or 500)
-            items = [{"chunk": entries[i:i + chunk], "errors": errors, "run": cfg}
+            items = [{"chunk": entries[i:i + chunk], "errors": errors, "run": cfg,
+                      # name/symbol 只喂进度行显示(块3 @ 500个), 不参与执行
+                      "name": f"块{i // chunk + 1}",
+                      "symbol": f"{len(entries[i:i + chunk])}个"}
                      for i in range(0, len(entries), chunk)]
             await jobs.submit_batch(pool, items, jobs.OOS_JUDGE_KIND)
             await pool.execute("DELETE FROM jobs WHERE kind=$1", jobs.OOS_KIND)

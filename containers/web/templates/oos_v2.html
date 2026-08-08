@@ -109,8 +109,9 @@
         stopBtn.hidden = (s.phase !== "backtest");   // 只有队列批次可停(点名秒级/判定中已到收尾)
         if (s.running) {
           watching = true; go.disabled = true;
-          const ph = s.phase === "diagnose" ? "点名诊断" : "回测阶段(worker 并行)";
-          setPlan(`${ph} ${s.done}/${s.total} · ${s.current || ""}`);
+          const ph = s.phase === "diagnose" ? "点名诊断"
+                   : s.phase === "judging" ? "判定中(worker 分块并行)" : "回测阶段(worker 并行)";
+          setPlan(`${ph} ${s.done}/${s.total}${s.phase === "judging" ? " 块" : ""} · ${s.current || ""}`);
         } else if (s.phase === "judging") {
           watching = true; go.disabled = true;
           setPlan(`判定中(worker 分块并行) ${s.done}/${s.total} 块 · 完成即出报告`);

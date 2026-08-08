@@ -7,6 +7,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: mt5_postgres
+    mem_reservation: 2g    # 保命线: 唯一数据源, OOM 压力下内核优先保它(不设上限, 页缓存自由用)
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -85,6 +86,7 @@ services:
       context: .
       dockerfile: containers/api/Dockerfile
     container_name: mt5_api
+    mem_limit: 6g          # 压测峰值 2.0G(收尾归拢瞬时), 3倍余量; 判定已下放 worker 不再27G
     restart: unless-stopped
     environment:
       ENV_NAME: ${ENV_NAME}
@@ -125,6 +127,10 @@ services:
       context: .
       dockerfile: containers/api/Dockerfile
     # 不设 container_name: 多副本自动编号 worker-1..N(WORKER=容器名:pid, 租约互不撞)
+    # 内存限额(2026-08-08 全池6136压测定版): 判定块 judge_chunk=300(config.oos_v2, 库直改)
+    # 与 2G worker 配套 — 每块峰值 ~1.6G; 换 worker 尺寸时两者一起调。
+    # 超限只杀本容器, 任务租约30分钟扫回重跑, 不伤别人(原来无限额: api 27G 险些拖全家)
+    mem_limit: 2g
     restart: unless-stopped
     command: ["python", "-m", "src.worker"]
     environment:
