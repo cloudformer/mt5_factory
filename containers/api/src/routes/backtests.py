@@ -288,7 +288,9 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
               max_dd: Optional[float] = None, min_robust: Optional[float] = None,
               positive_only: bool = False, rank_template: Optional[str] = None,
               oos_pass: bool = False, template: Optional[str] = None, page: int = 1,
-              visibility: Optional[str] = None, market: bool = False):
+              visibility: Optional[str] = None, market: bool = False,
+              tag: Optional[str] = None, tag_status: Optional[str] = None,
+              mount_host: Optional[int] = None):
     """策略列表排名: 从 strategies 出发 LEFT JOIN 主品种回测 — 未回测的策略也出现(成绩为空,
     默认沉底), 列表与排名合一。跨品种结果只喂健壮性列/明细, 不参与排名。
 
@@ -358,6 +360,29 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
             _and("s.timeframe = ${n}", t.upper())
         elif q_field == "status":
             _and("s.status = ${n}", t.upper())
+
+    # 筛选履历/挂载(2026-08-08 Frank 要, 独立一行):
+    #   tag(模糊 report) + tag_status 同给 = 【同一条履历元素】须同时满足(第N批的幸存者);
+    #   只给 tag_status = 任何一批出现过该结论; mount_host = 挂载在该 worker 的策略
+    if tag_status not in (None, "", "pass", "fail"):
+        raise HTTPException(status_code=400, detail="tag_status 需为 pass/fail")
+    if tag and tag.strip():
+        if tag_status:
+            args.append(f"%{tag.strip()}%")
+            args.append(tag_status)
+            conds.append(
+                f"EXISTS (SELECT 1 FROM jsonb_array_elements(s.tags) tg"
+                f" WHERE tg->>'report' ILIKE ${len(args) - 1}"
+                f"   AND tg->>'status' = ${len(args)})")
+        else:
+            _and("EXISTS (SELECT 1 FROM jsonb_array_elements(s.tags) tg"
+                 " WHERE tg->>'report' ILIKE ${n})", f"%{tag.strip()}%")
+    elif tag_status:
+        _and("EXISTS (SELECT 1 FROM jsonb_array_elements(s.tags) tg"
+             " WHERE tg->>'status' = ${n})", tag_status)
+    if mount_host:
+        _and("EXISTS (SELECT 1 FROM strategy_mounts m WHERE m.strategy_id = s.id"
+             " AND m.enabled AND m.host_id = ${n})", mount_host)
 
     tpl = None
     if rank_template:  # 排名模板不存在 → 回落默认净点排序(与旧行为一致)

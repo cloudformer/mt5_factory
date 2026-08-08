@@ -7,14 +7,7 @@
   <h2>策略列表排名</h2>
   <form method="get" class="filter-panel">
     <div class="filter-row">
-      <label>状态
-        <select name="status">
-          <option value="">全部</option>
-          {# 归档不在这里(有专门的「归档」三态过滤器, 不重复) #}
-          {% for s in ['CANDIDATE','DEMO','LIVE'] %}
-          <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ m.status_label(s) }}</option>
-          {% endfor %}
-        </select></label>
+      {# 状态下拉已删(2026-08-08 Frank: 没有意义); 搜索字段选「状态」仍可精准筛 #}
       <label>可见性
         <select name="visibility">
           <option value="">全部</option>
@@ -53,6 +46,24 @@
           <option value="">不显示</option>
           <option value="with" {% if archived == 'with' %}selected{% endif %}>显示</option>
           <option value="only" {% if archived == 'only' %}selected{% endif %}>只显示归档</option>
+        </select></label>
+    </div>
+    {# 履历/挂载(2026-08-08 Frank 要, 独立一行): tag+结论同给=同一条履历须同时满足 #}
+    <div class="filter-row">
+      <label title="筛选履历(tags)按报告名模糊: oos_v2#5=第5批全体 / oos_v2=所有批次筛过的。注意: 老批次(oos_v2#2~5)写在生因里, 这里抓不到, 用搜索「标签/生因」">tag
+        <input name="tag" value="{{ tag or '' }}" size="11" placeholder="如 oos_v2#5"></label>
+      <label title="履历结论: 与 tag 同给 = 同一条履历须同时满足(如「第5批的幸存者」); 单给 = 任何一批出现过该结论">结论
+        <select name="tag_status">
+          <option value="">全部</option>
+          <option value="pass" {% if tag_status == 'pass' %}selected{% endif %}>pass</option>
+          <option value="fail" {% if tag_status == 'fail' %}selected{% endif %}>fail</option>
+        </select></label>
+      <label title="只显示挂载在该 worker 上的策略(启用挂载)">挂载
+        <select name="mount">
+          <option value="">全部</option>
+          {% for h in hosts_runner %}
+          <option value="{{ h.id }}" {% if mount == h.id %}selected{% endif %}>{{ h.name }}({{ h.runner }})</option>
+          {% endfor %}
         </select></label>
     </div>
     <div class="filter-row">

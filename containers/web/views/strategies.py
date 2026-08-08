@@ -35,6 +35,9 @@ def index():
     positive = a.get("positive") == "1"
     oos = a.get("oos") == "1"  # 留出段盈利过滤(OOS 一票否决)
     rank = a.get("rank") or ""  # 排名参数模板名, 空=默认(净点数)
+    tag = a.get("tag") or None            # 筛选履历: 报告名模糊(如 oos_v2#5)
+    tag_status = a.get("tag_status") or None   # 履历结论 pass/fail
+    mount = a.get("mount", type=int)      # 挂载 worker(host id)
     page = max(a.get("page", 1, type=int), 1)  # 服务端分页页码(1起)
     results, rank_templates, brokers, symbols, templates = [], [], [], [], []
     mounts_view = {}     # 挂载列(纯显示): {sid: {rows: [启用挂载]}}
@@ -69,6 +72,12 @@ def index():
         if q_text:  # 服务端搜索: 策略名模糊 / ID·周期·状态精准
             params["q_field"] = q_field
             params["q_text"] = q_text
+        if tag:
+            params["tag"] = tag
+        if tag_status:
+            params["tag_status"] = tag_status
+        if mount:
+            params["mount_host"] = mount
         resp = api.get("/backtest/top", **params)
         results = resp["results"]
         total = resp.get("total", len(results))
@@ -101,6 +110,7 @@ def index():
                            status=status, archived=archived, visibility=visibility,
                            min_trades=min_trades, q_field=q_field, q_text=q_text,
                            filters=filters, positive=positive, oos=oos, rank=rank,
+                           tag=tag, tag_status=tag_status, mount=mount,
                            rank_templates=rank_templates, brokers=brokers, symbols=symbols,
                            template=template, templates=templates, oos_split=oos_split,
                            page=page, page_size=page_size, total=total,
