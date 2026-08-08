@@ -27,9 +27,10 @@ logger = logging.getLogger("jobs")
 KIND = "backtest"            # 默认工种(不传 kind 的老调用 = 批量回测, 行为不变)
 SCREEN_KIND = "regime_screen"
 OOS_KIND = "oos_v2"
-OOS_JUDGE_KIND = "oos_v2_judge"   # oos_v2 判定任务(2026-08-08: 判定下放 worker, 500/块并行)
+OOS_JUDGE_KIND = "oos_v2_judge"        # oos_v2 判定任务(判定下放 worker, 按块并行)
+SCREEN_JUDGE_KIND = "regime_screen_judge"   # v1 判定任务(2026-08-08 Frank 定: 所有回测统一下放)
 ENGINE_KINDS = (KIND, OOS_KIND, SCREEN_KIND)   # "跑一次回测"的工种, 同一执行路径(_run_one)
-CLAIM_KINDS = ENGINE_KINDS + (OOS_JUDGE_KIND,)  # 消费者抢单认的全部工种(判定走 _run_judge)
+CLAIM_KINDS = ENGINE_KINDS + (OOS_JUDGE_KIND, SCREEN_JUDGE_KIND)  # 抢单认的全部工种
 POLL_SECONDS = 3             # 队列空时的轮询间隔
 LEASE_MINUTES = 30           # RUNNING 超时视为消费者死单, 扫回重试(单个回测秒级, 30分钟很宽)
 MAX_ATTEMPTS = 2             # 含首跑; 超过则 FAILED(错误留在行里可查)
@@ -189,6 +190,56 @@ async def _run_judge(pool: asyncpg.Pool, job_id: int, payload: dict):
     await pool.execute("UPDATE jobs SET result=$2 WHERE id=$1", job_id, details)
 
 
+async def _run_screen_judge(pool: asyncpg.Pool, job_id: int, payload: dict):
+    """执行一个 v1(regime_screen) 判定任务(2026-08-08 统一下放): 一块 ≤judge_chunk 个策略 —
+    取回测行 → 逐笔贴时间线切片判定(共用 services/screen 唯一判定) → [明细, 动作] 写回 result。
+    时间线按 (品种×版本) 在块内缓存(tls), 十来个品种各取一次。判定循环含 await(取时间线),
+    不挪线程 — worker 消费者本就单工干活, 阻塞自己无碍。"""
+    from src.services import screen   # 函数级 import: screen 顶层 import jobs, 防环
+    cfg = payload["run"]
+    p = cfg["judge"]
+    vid = int(cfg["version"])
+    symbols_mode = cfg["symbols"]
+    need_days = int(p["window_years"] * 365.25) - 45
+    entries = payload["chunk"]
+    errors = payload.get("errors") or {}
+    ids = [int(e["id"]) for e in entries]
+    strats = {r["id"]: dict(r) for r in await pool.fetch(
+        "SELECT id, name, symbol, status FROM strategies WHERE id = ANY($1)", ids)}
+    bt_by_sid: dict = {}
+    for r in await pool.fetch(
+            "SELECT strategy_id, symbol, from_time, to_time, trades FROM backtests"
+            " WHERE strategy_id = ANY($1)", ids):
+        bt_by_sid.setdefault(r["strategy_id"], []).append(dict(r))
+    tls: dict = {}
+    out = []
+    for e in entries:
+        sid = int(e["id"])
+        strat = strats.get(sid)
+        if strat is None:   # 跑批期间被删
+            out.append([{"id": sid, "name": e.get("name"), "symbol": e.get("symbol"),
+                         "status": "—", "verdict": "skip", "reason": "策略已删除"}, None])
+            continue
+        res_map: dict = {}
+        for sym, err in (errors.get(str(sid)) or {}).items():
+            res_map[sym] = {"error": err}
+        for bt in bt_by_sid.get(sid, []):
+            sym = bt["symbol"]
+            if sym in res_map:
+                continue          # 该品种任务失败: 保留失败态, 不用旧行冒充
+            if symbols_mode == "main" and sym != strat["symbol"]:
+                continue          # 主货币模式只判主品种
+            if (bt["to_time"] - bt["from_time"]).days < need_days:
+                res_map[sym] = None   # 窗口不足: 主品种→跳过; 跨品种→不纳入要求
+                continue
+            res_map[sym] = await screen.judge_symbol(pool, tls, bt, vid, p)
+        if strat["symbol"] not in res_map:
+            res_map[strat["symbol"]] = None   # 主品种连回测行都没有
+        d, action = screen.judge_one(strat, res_map, p, symbols_mode)
+        out.append([d, action])
+    await pool.execute("UPDATE jobs SET result=$2 WHERE id=$1", job_id, out)
+
+
 async def consumer_loop(pool: asyncpg.Pool):
     """常驻消费者(api 内 1 路 + worker 容器 N 路, 同一函数):
     抢单(SKIP LOCKED, 按品种排序) → 执行 → DONE/FAILED; 空队列时低频轮询 + 顺手回收租约。
@@ -213,6 +264,8 @@ async def consumer_loop(pool: asyncpg.Pool):
             try:
                 if job["kind"] == OOS_JUDGE_KIND:   # 判定块(纯计算) vs 回测(引擎)
                     await _run_judge(pool, job["id"], job["payload"])
+                elif job["kind"] == SCREEN_JUDGE_KIND:
+                    await _run_screen_judge(pool, job["id"], job["payload"])
                 else:
                     await _run_one(pool, job["payload"], cache)
                 await pool.execute(

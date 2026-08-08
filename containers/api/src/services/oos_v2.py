@@ -70,14 +70,14 @@ def cfg_params(cfg: dict) -> dict:
     dp = cfg.get("default_pf")
     # 复用天数不在这里: 全局唯一配置 backtest_reuse_days(2026-08-07 定, schema/062),
     # 判定在执行层 backtest.reuse_ok — 本模块无复用逻辑
-    jc = int(cfg.get("judge_chunk") or 300)   # 判定块大小(schema/068 定300: 峰值~1.6G/负载均匀)
+    # 判定块大小不在这里: 全局机器参数 config.judge_chunk(schema/069, 2G worker 配 300),
+    # v1/oos_v2 收尾共用 — 配置只在一处
     return {"segments": out,
             "default_pf": float(dp) if dp is not None else 1.0,
             "min_seg_trades": int(cfg.get("min_seg_trades") or 10),
             "batch_limit": int(cfg.get("batch_limit") or 50),
             # 单次上限硬顶(schema/067): UI 无编辑口, 改库直改(同一行 config 不分权限)
-            "max_limit": int(cfg.get("max_limit") or 10000),
-            "judge_chunk": min(max(jc, 50), 2000)}
+            "max_limit": int(cfg.get("max_limit") or 10000)}
 
 
 def window_years(p: dict) -> float:
@@ -290,7 +290,8 @@ async def finalize(pool: asyncpg.Pool) -> int | None:
                 if r["status"] == "FAILED":
                     errors[str(sid)] = r["error"] or "未知原因"
             entries += [e for e in (cfg.get("reused") or []) if int(e["id"]) not in seen]
-            chunk = int(cfg["judge"].get("judge_chunk") or 500)
+            chunk = int(await pool.fetchval(
+                "SELECT value FROM config WHERE key='judge_chunk'") or 300)
             items = [{"chunk": entries[i:i + chunk], "errors": errors, "run": cfg,
                       # name/symbol 只喂进度行显示(块3 @ 500个), 不参与执行
                       "name": f"块{i // chunk + 1}",

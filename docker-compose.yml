@@ -127,7 +127,7 @@ services:
       context: .
       dockerfile: containers/api/Dockerfile
     # 不设 container_name: 多副本自动编号 worker-1..N(WORKER=容器名:pid, 租约互不撞)
-    # 内存限额(2026-08-08 全池6136压测定版): 判定块 judge_chunk=300(config.oos_v2, 库直改)
+    # 内存限额(2026-08-08 全池6136压测定版): 判定块 config.judge_chunk=300(全局键, 库直改)
     # 与 2G worker 配套 — 每块峰值 ~1.6G; 换 worker 尺寸时两者一起调。
     # 超限只杀本容器, 任务租约30分钟扫回重跑, 不伤别人(原来无限额: api 27G 险些拖全家)
     mem_limit: 2g

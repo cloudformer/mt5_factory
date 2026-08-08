@@ -62,6 +62,12 @@ async def screen_progress(request: Request):
                 "current": p["current"] or "", "report_id": None,
                 "phase": "backtest" if p["running"] else "judging",
                 "errors": p["errors"]}
+    # 判定阶段(2026-08-08 统一下放 worker): 块级进度
+    jp = await jobs.progress(request.app.state.pool, jobs.SCREEN_JUDGE_KIND)
+    if jp["total"]:
+        return {"running": jp["running"], "done": jp["done"], "total": jp["total"],
+                "current": jp["current"] or "", "report_id": None,
+                "phase": "judging", "errors": jp["errors"]}
     # 队列空 = 收尾已完成: 回最新报告 id(归属过滤), 页面从"判定中"跳过去看结果
     uid = identity.scope_uid(request)
     last = await request.app.state.pool.fetchval(
@@ -245,7 +251,8 @@ async def screen_run(req: ScreenRun, request: Request):
     # 判定不在这里做: 队列跑完由主节点收尾(步骤3) — 报告/打标签/归档都在那一步一次性发生。
     # 点名诊断(req.ids)保持下面的同步路径: 几个 ID 秒级, 走队列绕远。
     if not req.ids:
-        if await jobs.has_active(pool, jobs.SCREEN_KIND):
+        if await jobs.has_active(pool, jobs.SCREEN_KIND) \
+                or await jobs.has_active(pool, jobs.SCREEN_JUDGE_KIND):
             raise HTTPException(status_code=409, detail="已有一批筛选在跑, 等它完成再点")
         t_to = datetime.now(timezone.utc)
         t_from = t_to - timedelta(days=p["window_years"] * 365.25)
