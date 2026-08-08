@@ -192,8 +192,10 @@ async def apply_actions(pool, mode: str, rid: int,
             " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'", fail_ids)
 
 
-async def finish_report(pool, cfg: dict, details: list) -> tuple[int, dict]:
-    """合并出报告(收尾状态B的末段): summary → 落库 → 出池履历/归档。纯装配, 秒级。"""
+async def finish_report(db, cfg: dict, details: list) -> tuple[int, dict]:
+    """合并出报告(收尾状态B的末段): summary → 落库 → 出池履历/归档。纯装配, 秒级。
+    db = 事务中的连接(状态B把 报告+履历+归档+删队列 包成一个事务 — 任一步失败整体回滚,
+    重试从头来, 绝不留半份报告复读; 2026-08-08 签名错配事故的教训)。"""
     mode = cfg["mode"]
     anchor = date.fromisoformat(cfg["anchor"])
     pass_ids = [d["id"] for d in details if d["verdict"] == "pass"]
@@ -201,13 +203,13 @@ async def finish_report(pool, cfg: dict, details: list) -> tuple[int, dict]:
     summary = summarize(details, mode,
                         archived=len(fail_ids) if mode == "execute" else 0,
                         not_run=int(cfg.get("not_run") or 0))
-    rid = await pool.fetchval(
+    rid = await db.fetchval(
         "INSERT INTO oos_v2_screens"
         " (mode, anchor, scope, params, summary, details, owner_id)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
         mode, anchor, cfg["scope"], cfg["judge"], summary, details,
         int(cfg.get("owner") or 1))
-    await apply_actions(pool, mode, rid, anchor, pass_ids, fail_ids)
+    await apply_actions(db, mode, rid, pass_ids, fail_ids)
     logger.info("oos_v2 report #%s (%s) 共%d 通过%d 未过%d 归档%d 跳过%d",
                 rid, mode, summary["total"], summary["passed"],
                 summary["failed"], summary["archived"], summary["skipped"])
@@ -252,10 +254,12 @@ async def finalize(pool: asyncpg.Pool) -> int | None:
                                      "verdict": "skip",
                                      "reason": f"判定任务失败: {r['error'] or '未知原因'}"}
                                     for e in r["payload"]["chunk"]]
-                rid, _ = await finish_report(pool, cfg, details)
-                # 收尾完删光两工种队列(回测任务在状态A已删, 这里兜底)
-                await pool.execute("DELETE FROM jobs WHERE kind = ANY($1)",
-                                   [jobs.OOS_KIND, jobs.OOS_JUDGE_KIND])
+                # 单事务收口(报告+履历+归档+删队列同生共死): 任一步失败整体回滚,
+                # 下一拍重试从头来 — 不会留下没执行动作的孤儿报告(复读机事故的根治)
+                async with conn.transaction():
+                    rid, _ = await finish_report(conn, cfg, details)
+                    await conn.execute("DELETE FROM jobs WHERE kind = ANY($1)",
+                                       [jobs.OOS_KIND, jobs.OOS_JUDGE_KIND])
                 return rid
             finally:
                 await conn.fetchval("SELECT pg_advisory_unlock($1)", LOCK_KEY)
