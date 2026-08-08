@@ -404,18 +404,16 @@ worker 90 秒无心跳 — Windows 侧看 bridge/runner 进程与网络; 恢复�
    (v1 的 pass 粘到 oos_v2 按ID, 反之亦然; 自动化页读 api 同一字段)。
    pass 全显(幸存者少); fail 折叠(可能几千个)。uid = 元素 id 前缀防两报告同页撞名 #}
 {% macro id_lists(report, uid) -%}
+{# 两边同款: 默认都折叠只显个数(2026-08-08 Frank 定), 点开才铺名单; 复制不用展开 #}
 {% if report.pass_ids is defined %}
-<p style="margin:4px 0">
-  <span class="pos">pass-id</span>
-  <code class="mono" id="{{ uid }}-pass" style="user-select:all">{{ report.pass_ids | tojson }}</code>
-  <button class="small" type="button"
-          onclick="navigator.clipboard.writeText(document.getElementById('{{ uid }}-pass').textContent);this.textContent='✓';setTimeout(()=>this.textContent='复制',1200)">复制</button>
-</p>
+{% for key, cls, ids in [('pass', 'pos', report.pass_ids), ('fail', 'neg', report.fail_ids)] %}
 <details style="margin:4px 0">
-  <summary class="muted" style="cursor:pointer"><span class="neg">fail-id</span> {{ report.fail_ids | length }} 个(点开展开)</summary>
-  <code class="mono" id="{{ uid }}-fail" style="user-select:all;word-break:break-all">{{ report.fail_ids | tojson }}</code>
-  <button class="small" type="button"
-          onclick="navigator.clipboard.writeText(document.getElementById('{{ uid }}-fail').textContent);this.textContent='✓';setTimeout(()=>this.textContent='复制',1200)">复制</button>
+  <summary style="cursor:pointer"><span class="{{ cls }}">{{ key }}-id</span>
+    <span class="muted">{{ ids | length }} 个(点开展开)</span>
+    <button class="small" type="button" title="不用展开, 直接复制整个名单"
+            onclick="event.preventDefault();navigator.clipboard.writeText(document.getElementById('{{ uid }}-{{ key }}').textContent);this.textContent='✓';setTimeout(()=>this.textContent='复制',1200)">复制</button></summary>
+  <code class="mono" id="{{ uid }}-{{ key }}" style="user-select:all;word-break:break-all">{{ ids | tojson }}</code>
 </details>
+{% endfor %}
 {% endif %}
 {%- endmacro %}
