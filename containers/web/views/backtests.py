@@ -11,7 +11,11 @@ def index():
     """策略回测页(纯执行): 批量/单策略回测 + 进度 + 孤儿警告。结果排名在「策略列表排名」。"""
     bt, costs, brokers, symbols, orphans, templates = {}, {}, [], [], [], []
     window_days = None  # 唯一源=config(schema/051); api不可用即空
-    reuse_single = None  # 单ID点名复用有效期(schema/063; 缺键落回全局 062)
+    reuse_single = None  # 单ID点名结果缓存TTL(schema/063; 缺键落回全局 062)
+    # 表单记忆(刚点名跑过一批 → 回填, 防"预览1个提交后显示5个"的复位错觉)
+    last_ids = request.args.get("ids") or None
+    last_window = request.args.get("window", type=int)
+    reuse_prefill = request.args.get("reuse", type=int)
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
@@ -30,7 +34,9 @@ def index():
         flash(f"api 不可用: {e}", "error")
     return render_template("backtests.html", bt=bt, costs=costs,
                            brokers=brokers, symbols=symbols, orphans=orphans,
-                           templates=templates, window_days=window_days, reuse_single=reuse_single)
+                           templates=templates, window_days=window_days,
+                           reuse_single=reuse_single, last_ids=last_ids,
+                           last_window=last_window, reuse_prefill=reuse_prefill)
 
 
 @bp.get("/status")
@@ -143,6 +149,11 @@ def run():
     try:
         result = api.post("/backtest/run", payload)
         flash(f"回测已启动: {result['total']} 个策略 (成本: {result['costs']})", "ok")
+        if request.form.get("mode") == "ids":   # 表单记忆: 点名参数带回页面(防复位错觉)
+            return redirect(url_for("backtests.index",
+                                    ids=request.form.get("strategy_ids", "").strip(),
+                                    window=request.form.get("window_days", "").strip() or None,
+                                    reuse=request.form.get("reuse_days", "").strip() or None))
     except api.ApiError as e:
         if "no strategies matched" in str(e):  # 没有匹配不算故障, 说人话
             flash("没有匹配的策略可回测 — 范围=仅未测试时说明全部都测过了(想重测切'全部')", "error")

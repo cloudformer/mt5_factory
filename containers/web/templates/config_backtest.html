@@ -40,10 +40,10 @@
         title="一次批量回测最多跑多少个策略(防失控保护)。策略总数超过它时'全部'跑不全 — 调大到不小于策略总数"></label>
     <label>复用有效期(天) <input name="reuse_days" value="{{ reuse_days if reuse_days is not none else '' }}" size="3"
         title="全局复用守卫(所有走库的回测: 批量/单ID/自动化筛选v1/oos_v2): 该策略×品种的回测行是 N 天内跑的且跨度覆盖本次要求窗口 → 直接复用不重跑(20年行可喂5年/180天请求, 反之不行)。0=关闭, 每次都现跑 — 需要精确同窗对比时用"></label>
-    <label>复用有效期-批量(天) <input name="reuse_days" size="3"
+    <label>结果缓存-批量(天) <input name="reuse_days" size="3"
         value="{{ reuse_days if reuse_days is not none else '' }}" {% if not is_admin %}disabled{% endif %}
-        title="全局复用守卫(admin改): 批量/筛选回测(含自动化筛选v1/oos_v2与其点名诊断)时, 该策略×品种的回测行是 N 天内跑的且跨度覆盖本次要求窗口 → 直接复用不重跑(20年行可喂5年/180天请求, 反之不行)。语义=跑回测时复用, 不是数据过期作废。0=关闭每次都现跑"></label>
-    <label>复用有效期-单ID(天) <input name="reuse_days_single" size="3"
+        title="回测结果缓存 TTL(admin改): 批量/筛选(含v1/oos_v2与点名诊断)时, N 天内已有跨度覆盖本窗口的结果 → 直接取用不重算(20年结果可喂5年/180天请求, 反之不行)。类似 cache TTL: 认多久内的旧结果, 不是数据过期作废。0=关闭每次重算"></label>
+    <label>结果缓存-单ID(天) <input name="reuse_days_single" size="3"
         value="{{ reuse_days_single if reuse_days_single is not none else '' }}" {% if not is_admin %}disabled{% endif %}
         title="回测页「按ID点名」的复用档(admin改, 默认1天, 缺键落回全局): 人工在看的策略要更新鲜。点名表单预填此值, 可临时改, 填0=本次实际跑(影响面=点名策略×品种数)"></label>
     <label>OOS训练占比 <input name="oos_split" value="{{ '%g' % oos_split }}" size="4"
