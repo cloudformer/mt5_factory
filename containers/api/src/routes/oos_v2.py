@@ -371,6 +371,13 @@ async def oos_report(report_id: int, request: Request, offset: int = 0,
     sql = (
         "SELECT r.id, r.created_at, r.mode, r.anchor, r.scope, r.params, r.summary,"
         "       r.owner_id,"
+        # pass/fail ID 全量名单(2026-08-08 Frank 定: 报告头可复制, 也是筛选器串联的接口)
+        "      (SELECT COALESCE(jsonb_agg((e->>'id')::int ORDER BY (e->>'id')::int), '[]'::jsonb)"
+        "         FROM jsonb_array_elements(r.details) e"
+        "        WHERE e->>'verdict' = 'pass') AS pass_ids,"
+        "      (SELECT COALESCE(jsonb_agg((e->>'id')::int ORDER BY (e->>'id')::int), '[]'::jsonb)"
+        "         FROM jsonb_array_elements(r.details) e"
+        "        WHERE e->>'verdict' = 'fail') AS fail_ids,"
         f"      (SELECT count(*) FROM jsonb_array_elements(r.details) e{cond}) AS total,"
         f"      (SELECT jsonb_agg(s.e ORDER BY {order.replace('ord', 's.ord').replace('rk', 's.rk')})"
         "         FROM ("

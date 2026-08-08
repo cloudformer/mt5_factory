@@ -170,6 +170,7 @@
     ｜ 共 {{ report.summary.total }} / 通过 <span class="pos">{{ report.summary.passed }}</span>
     / 未过 <span class="neg">{{ report.summary.failed }}</span>{% if report.mode == 'execute' %}(归档 {{ report.summary.archived }}){% endif %}
     / 跳过 {{ report.summary.skipped }}{% if report.summary.not_run %} / 未跑 {{ report.summary.not_run }}(超单次上限{{ report.scope.limit }}, 下次再跑){% endif %}</p>
+  {{ m.id_lists(report, 'rs') }}
   {# 报告表 = 片段模板(筛选条+当页表格): 翻页/换筛选 AJAX 只换这块, 渲染逻辑单一份 #}
   <div id="rs-report-box">{% include "_rs_report_rows.html" %}</div>
   {% set win = report.params.get('window_years', 5) %}
