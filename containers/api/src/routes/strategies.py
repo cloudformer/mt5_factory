@@ -809,8 +809,17 @@ _REGIME_AI_PROMPT_HEAD = """\
 任何一项不一致 = 你没有收到或没有读全数据 → 停止分析: match=false, mismatch 里写明
 哪项对不上(expected vs 你算的), regime_report/strategy_report 置 null,
 confidence="unverified"。
-【禁止跳过重算直接抄 expected】— computed 必须来自你对原始行的实际累加;
-后文所有 evidence 引用的格级数字(笔数/毛利/毛损)同样必须来自你的重算, 不得估算。
+【禁止跳过重算直接抄 expected】— computed 必须来自你对原始行的实际累加。
+
+## 第0.5步(必做): 格账对总账 — 贴格结果本身要交出来受审
+对【每个】regime 版本, 把全部交易日贴格后按格累加, 在输出 data_check.cell_totals 里
+交出每格四元组 [笔数, 赢, 毛利点, 毛损点], 外加 unlabeled(时间线覆盖外无标签的日子)。
+硬约束: 每个版本 8 格 + unlabeled 的四列分别加总, 必须等于上面 computed 的
+trades/wins/gross_profit_pts/gross_loss_pts(容差: 点数 ±0.5)。加总不等 = 你的贴格
+是错的, 不许出报告(处理同第0步不一致)。
+后文所有 evidence / recommend 引用的格级数字必须直接取自 cell_totals 及其年切片
+重算, 与 cell_totals 矛盾的数字 = 无效。
+【本次分析必须从零重算 — 禁止复用你先前任何回答里的数字, 哪怕看起来是同一个策略】
 
 ## 第一问: Regime 报告 — 评的是【口径】不是策略
 用本策略全量回测当探针(实际区间见数据 backtest_window, 可能超过20年), 评价 N 个 regime 版本谁更有规律。判定算法(按此执行):
@@ -855,6 +864,8 @@ unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话�
     "computed": {"days": 0, "trades": 0, "wins": 0, "gross_profit_pts": 0.0,
                  "gross_loss_pts": 0.0, "first_date": "YYMMDD", "last_date": "YYMMDD",
                  "versions": {"1": {"runs": 0}, "2": {"runs": 0}}},
+    "cell_totals": {"1": {"AAA": [0, 0, 0.0, 0.0], "...其余7格": [], "unlabeled": []},
+                    "2": {}},
     "mismatch": null
   },
   "regime_report": {
@@ -871,7 +882,8 @@ unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话�
     "ai_regime_recommend": "选哪个 version 及理由; 近5年权重约66%下入选格与倍率的数字依据; 未入选格=不交易的理由; 月切片补充观察; 样本不足处保留意见"
   }
 }
-- data_check 放最前: match=true 才允许出报告; false 时两份报告置 null 只报 mismatch;
+- data_check 放最前: match=true 且 cell_totals 各版本加总=总账, 才允许出报告;
+  否则两份报告置 null 只报 mismatch;
 - regime_report 评的是【口径】(与策略赚不赚钱无关, 稳定亏也算规律), ranking 给版本排序;
 - strategy_report 是【策略可直接使用的配置】: gate 与系统 metadata.regime 格式逐字节兼容;
   没有可信规律时 cells 给 {} 并在 recommend 说明。
