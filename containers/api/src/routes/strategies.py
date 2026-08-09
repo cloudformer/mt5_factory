@@ -821,6 +821,16 @@ trades/wins/gross_profit_pts/gross_loss_pts(容差: 点数 ±0.5)。加总不等
 重算, 与 cell_totals 矛盾的数字 = 无效。
 【本次分析必须从零重算 — 禁止复用你先前任何回答里的数字, 哪怕看起来是同一个策略】
 
+## 计算纪律(诚实条款 — 违者整份报告作废)
+- 第0步/第0.5步的重算、贴格与一切切片统计【必须用你的代码执行工具(Python)对附件
+  实算完成】, 禁止心算、估算、按比例摊派; 输出 data_check.computed_by="code"。
+- 没有代码执行能力, 或没有把握逐日算对 → 【诚实回答】: match=false,
+  computed_by="none", mismatch 写"无法可靠完成计算, 需要预聚合数据",
+  两份报告置 null。说"算不了"是完全合法的答案; 编造看似合理的数字是最严重违规。
+- 探针抽查: 指令数据里 probe_days 点名了若干交易日 — 在 data_check.probes 里回报
+  每个日子在【每个版本】下的格(必须来自你实际展开的时间线)。我方持有这些日子的
+  真实答案将逐一核对, 答错任何一个 = 整份报告作废。
+
 ## 第一问: Regime 报告 — 评的是【口径】不是策略
 用本策略全量回测当探针(实际区间见数据 backtest_window, 可能超过20年), 评价 N 个 regime 版本谁更有规律。判定算法(按此执行):
 - 第一维度 = 8 个格(象限); 对每个格: 拉出【逐年】切片的 PF 序列,
@@ -861,6 +871,8 @@ unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话�
 {
   "data_check": {
     "match": true,
+    "computed_by": "code",
+    "probes": {"YYMMDD": {"1": "AAA", "2": "BBA"}},
     "computed": {"days": 0, "trades": 0, "wins": 0, "gross_profit_pts": 0.0,
                  "gross_loss_pts": 0.0, "first_date": "YYMMDD", "last_date": "YYMMDD",
                  "versions": {"1": {"runs": 0}, "2": {"runs": 0}}},
@@ -993,6 +1005,21 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
             "first_run": v["timeline_runs"][0][0] if v["timeline_runs"] else None,
             "last_run": v["timeline_runs"][-1][0] if v["timeline_runs"] else None,
         } for v in versions}}
+    # 探针抽查(2026-08-09 Frank 定"必须真算"): 点名5个分散的交易日让 AI 回报各版本的格;
+    # 真实答案【不进提示词】, 单独返回给页面自留对答案 — 摊派/编造过不了 8^-5 概率
+    from bisect import bisect_right
+    probe_days = [trades[i][0]
+                  for i in sorted({len(trades) * k // 10 for k in (1, 3, 5, 7, 9)})] \
+        if trades else []
+    probe_answers = {}
+    for d in probe_days:
+        ans = {}
+        for v in versions:
+            runs = v["timeline_runs"]
+            i = bisect_right([r[0] for r in runs], d)
+            ans[str(v["version"])] = runs[i - 1][1] if i else "unlabeled"
+        probe_answers[d] = ans
+    base["probe_days"] = probe_days
     cols = ["date_YYMMDD", "n_trades", "n_wins", "gross_profit_pts", "gross_loss_pts"]
     parts = [
         {"label": "① regime 全部版本 (1/3)", "slug": "regimes",
@@ -1011,7 +1038,7 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
                  + "\n\n【全部发完 — 以上即任务指令, 数据在前两段, 请开始分析】"},
     ]
     full = "\n\n".join(pt["text"] for pt in parts)
-    return {"prompt": full, "parts": parts}
+    return {"prompt": full, "parts": parts, "probe_answers": probe_answers}
 
 
 @router.get("/strategies/{strategy_id}/report")

@@ -31,6 +31,13 @@
             onclick="navigator.clipboard.writeText(PARTS.map(p=>p.text).join('\n\n'));this.textContent='✓ 已复制整段';setTimeout(()=>this.textContent='复制整段(大上下文AI)',1500)">复制整段(大上下文AI)</button>
   </p>
   <p class="muted">按序发给 AI(粘贴或上传附件均可): ①regime 全部版本 → ②全量交易 → ③任务指令(自带「请开始分析」口令)。复制/下载出的文本可随手修改。</p>
+  {% if probes %}
+  {# 探针答案自留(2026-08-09 诚实条款): 提示词只点名日子, 真实的格只显示在这里 —
+     AI 回复 data_check.probes 与此逐一相同 + computed_by=code + 格账加总=总账, 才可信 #}
+  <p class="muted">🔍 探针答案(自留对答案, <b>别发给 AI</b>):
+    {% for d, a in probes.items() %}<code>{{ d }}→{% for v, c in a.items() %}v{{ v }}:{{ c }}{{ '/' if not loop.last }}{% endfor %}</code>{{ ' · ' if not loop.last }}{% endfor %}
+    — AI 回复的 data_check.probes 必须逐一相同, 且 computed_by="code", 否则整份作废</p>
+  {% endif %}
   <textarea id="rg-preview" readonly style="width:100%;height:380px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px"
             title="预览 = 当前选中段(点上面按钮切换)"></textarea>
   <script>
