@@ -14,9 +14,11 @@
   {% if report_json %}
   <p class="muted" style="margin:8px 0 4px">成绩单与「策略分析」页的 AI成绩单 JSON 是<b>同一个接口</b>(/strategies/{{ sid }}/report)——
     未来在那边改内容, 这里自动一致。
-    <a class="btn" href="{{ url_for('strategies.ai_report', strategy_id=sid) }}" target="_blank">新窗口打开 JSON</a></p>
+    <a class="btn" href="{{ url_for('strategies.ai_report', strategy_id=sid) }}" target="_blank">新窗口打开 JSON</a>
+    <button class="small" type="button" id="copy-report">复制成绩单</button>
+    <button class="small" type="button" id="dl-report" title="下载 tune-{{ sid }}-report.json(tune- 前缀, 与 AI·Regime 页 prompt-*.txt 不重名)">⬇ 下载</button></p>
   <details>
-    <summary class="muted">查看成绩单 JSON({{ '{:,}'.format(report_json | length) }} 字符)</summary>
+    <summary class="muted">查看成绩单 JSON({{ '{:,}'.format(report_json | length) }} 字符 ≈ {{ (report_json | length / 1024) | round | int }} KB)</summary>
     <textarea readonly rows="14" style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:11px">{{ report_json }}</textarea>
   </details>
   {% endif %}
@@ -28,7 +30,8 @@
   {% if prompt %}
   <p class="muted" style="margin:0 0 4px">复制下面整段喂给任何 AI(Claude/ChatGPT/本地模型); 它要求 AI 返回 {{ count }} 组参数的 JSON:</p>
   <textarea id="ai-prompt" readonly rows="6" style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:11px">{{ prompt }}</textarea>
-  <button class="small" type="button" id="copy-prompt">复制提示词</button>
+  <button class="small" type="button" id="copy-prompt">复制提示词 · {{ (prompt | length / 1024) | round | int }}KB</button>
+  <button class="small" type="button" id="dl-prompt" title="下载 tune-{{ sid }}-prompt.txt">⬇ 下载</button>
   <span class="muted" id="copy-hint"></span>
   {% endif %}
 </section>
@@ -38,41 +41,32 @@
   <p class="muted">当前策略 <b class="mono">#{{ sid }}</b> · 模板 <b>{{ meta.template if meta else '—' }}</b>
     · 当前参数 <span class="mono">{{ meta.params if meta else '' }}</span>
     · 参数空间 <span class="mono">{{ space }}</span></p>
+  {% if probes %}
+  {# 探针(2026-08-09 诚实条款, 与 AI·Regime 页同格式 data_check{computed_by,probes}):
+     提示词只点行号, 真实答案注入本页 — 解析预览自动逐个核对, 答错=没读成绩单=禁止创建 #}
+  <p class="muted">🔍 探针(解析时自动核对): AI 返回顶层须带 data_check{computed_by, probes} —
+    {% for k, v in probes.items() %}<code>{{ k }}→[{{ v[0] }}, {{ v[1] }}]</code>{{ ' · ' if not loop.last }}{% endfor %}
+    — 答错或缺失 = 没读成绩单, 「创建策略」不点亮</p>
+  {% endif %}
   <textarea id="combos-input" rows="6" style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:12px"
-    placeholder='示例格式(灰字仅提示, 粘贴真实内容覆盖): {"combos": [{"params": {"fast": 10, "slow": 80, "sl_points": 900, "rr": 2.8}, "basis": "依据..."}, ...]}'></textarea>
+    placeholder='示例格式(灰字仅提示, 粘贴真实内容覆盖): {"template": "{{ meta.template if meta else "…" }}", "model": "…", "data_check": {"computed_by": "code|none", "probes": {"row_N": [entry_time, points]}}, "combos": [{"params": {…}, "basis": "依据…"}, …]}'></textarea>
   <p style="margin:8px 0 0">
     <button class="small" type="button" id="parse-btn">解析预览</button>
-    <button class="small" type="button" id="create-btn" disabled title="先解析且模板相符">创建策略</button>
+    <button class="small" type="button" id="create-btn" disabled title="先解析且模板/探针相符">创建策略</button>
     <button class="small" type="button" id="bt-ids-btn" disabled title="先创建策略">回测这批</button>
     <span class="muted" id="step3-hint">流水线: 解析(只读) → 创建(入库) → 回测(主品种) — 上一步满足条件, 下一步才亮起</span>
   </p>
   <div id="combos-preview"></div>
 </section>
 
-<section>
-  {# 第4步(v0.9×AI, 2026-07-25 与 Frank 定): 与生成策略完全分开 — 只调本策略的移动止损。
-     协议只返回 trail(策略参数不出现在返回里, 协议层面杜绝混线); 内存批跑不建实例不落库;
-     「保留」= 写回本策略 params.trail(可反复换), 默认 null 不变 #}
-  <h2>第 4 步 · 插件调优(tsl) <span class="muted">— 只调本策略的移动止损, 不建新实例, 与上面生成策略完全分开</span></h2>
-  <p class="muted" style="margin:0 0 4px">①生成提示词喂 AI(只返回 trail 配置) ②结果贴回
-    ③解析并跑这批(内存跑 N 版+基准, M1 只载一次, 每组附<b>留出段</b>裁判列, 不落库)
-    ④满意的一组「保留」写回本策略(默认关闭不变)。</p>
-  <p style="margin:6px 0 4px">
-    <button class="small" type="button" id="tsl-prompt-btn">生成 tsl 提示词(21组=三类×7)</button>
-    <button class="small" type="button" id="tsl-copy-btn" hidden>复制提示词</button>
-    <span class="muted" id="tsl-hint"></span></p>
-  <textarea id="tsl-prompt" readonly rows="5" hidden
-    style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:11px"></textarea>
-  <textarea id="tsl-input" rows="5" style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:12px; margin-top:6px"
-    placeholder='AI 返回贴这里: {"model":"…","trails":[{"trail":{"active":"atr","atr":{"k":4,"period":14}},"basis":"…"}, …]}'></textarea>
-  <p style="margin:6px 0 0"><button class="small" type="button" id="tsl-run-btn">解析并跑这批</button></p>
-  <div id="tsl-out" style="margin-top:8px"></div>
-</section>
+{# 第4步·插件调优(tsl) 2026-08-09 Frank: 目前先不用 — UI 撤下, 后端接口
+   (trail_prompt/trail_batch/set_trail)保留, 要用时把 git 里这段挂回来即可 #}
 <script>
 (function () {
   const btn = document.getElementById("parse-btn");
   if (!btn) return;
   const space = {{ space | tojson }};          // 模板参数空间(服务端注入)
+  const PROBES = {{ (probes or {}) | tojson }}; // 探针真实答案(服务端注入, 解析时自动核对)
   const keys = Object.keys(space).sort();
   const cbtn = document.getElementById("create-btn");
   const btBtn = document.getElementById("bt-ids-btn");
@@ -88,7 +82,7 @@
   // 流水线回灰: 解析失败/重新解析时, 后续两步都退回初始灰态
   function resetPipeline() {
     lastCombos = null; madeIds = [];
-    cbtn.disabled = true; cbtn.textContent = "创建策略"; cbtn.title = "先解析且模板相符";
+    cbtn.disabled = true; cbtn.textContent = "创建策略"; cbtn.title = "先解析且模板/探针相符";
     btBtn.disabled = true; btBtn.textContent = "回测这批"; btBtn.title = "先创建策略";
   }
 
@@ -111,20 +105,38 @@
     // 协议头核对: AI 必须原样带回 template(第2步提示词约定的返回格式; 不含 id)
     const wantTpl = "{{ meta.template if meta else '' }}";
     const okTpl = payload.template === wantTpl;
-    if (okTpl) {
+    // 探针核对(诚实条款): data_check.probes 与服务端答案逐个比 — 答错=没读成绩单=硬拦截
+    let okProbes = true, probeMsg = "";
+    const pKeys = Object.keys(PROBES);
+    if (pKeys.length) {
+      const dc = payload.data_check || {};
+      const got = dc.probes;
+      const bad = !got ? pKeys : pKeys.filter((k) => {
+        const v = got[k];
+        return !Array.isArray(v) || +v[0] !== +PROBES[k][0]
+          || Math.abs(+v[1] - +PROBES[k][1]) > 0.05;
+      });
+      okProbes = !bad.length;
+      probeMsg = ' · 探针 ' + (okProbes
+        ? '<span class="pos">' + pKeys.length + '/' + pKeys.length + ' ✓</span>'
+          + ' <span class="muted">(computed_by=' + (dc.computed_by || '未报') + ')</span>'
+        : '<span class="neg">✗ ' + (got ? '答错 ' + bad.join(",") : '缺 data_check.probes')
+          + ' — 没读成绩单, 禁止创建</span>');
+    }
+    if (okTpl && okProbes) {
       lastCombos = combos;
       lastModel = payload.model || null;
       cbtn.disabled = false; cbtn.title = "";
       cbtn.textContent = "创建策略(" + combos.length + " 组)";
       cbtn.classList.add("live");
-    } else cbtn.title = "模板不符, 禁止创建";
+    } else cbtn.title = okTpl ? "探针不符(AI没读成绩单), 禁止创建" : "模板不符, 禁止创建";
     let head = '<h3>解析结果</h3><p>'
       + '声明模板 ' + (payload.template
           ? (payload.template + (okTpl ? ' <span class="pos">✓</span>'
                                        : ' <span class="neg">✗ 应为 ' + wantTpl + '</span>'))
           : '<span class="neg">缺 template</span>')
       + ' · 模型 ' + (payload.model || '<span class="muted">未自报(备注只记方法)</span>')
-      + ' · 共 ' + combos.length + ' 组</p>';
+      + ' · 共 ' + combos.length + ' 组' + probeMsg + '</p>';
     let html = head
       + '<table><tr><th style="width:40px">#</th><th>参数</th><th>依据(basis)</th><th style="width:200px">格式检查(仅提示)</th></tr>';
     combos.forEach((c, i) => {
@@ -326,98 +338,29 @@
   });
 })();
 
-// 第4步·插件调优(tsl): 与生成策略完全分开 — 提示词/解析/批跑/保留 全部只作用于本策略的 trail
+// 复制/下载(2026-08-09): 文件名带策略id, tune- 前缀与 AI·Regime 页 prompt- 区分不重名
 (function () {
-  const pb = document.getElementById("tsl-prompt-btn");
-  if (!pb) return;
-  const ta = document.getElementById("tsl-prompt");
-  const cp = document.getElementById("tsl-copy-btn");
-  const hint = document.getElementById("tsl-hint");
-  const out = document.getElementById("tsl-out");
-  pb.addEventListener("click", async () => {
-    pb.disabled = true;
-    hint.textContent = "生成中…";
-    try {
-      const d = await fetch(`/strategies/{{ sid }}/trail_prompt?count=21`).then((r) => r.json());
-      if (d.error) throw new Error(d.error);
-      ta.value = d.prompt; ta.hidden = false; cp.hidden = false;
-      cp.classList.add("live");   // 与第2/3步同套引导: 高亮=下一步点这里
-      hint.textContent = "已生成 — 复制喂 AI, 返回贴下框";
-    } catch (e) { hint.textContent = "失败: " + e.message; }
-    pb.disabled = false;
-  });
-  cp.addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(ta.value); }
-    catch (e) { ta.select(); document.execCommand("copy"); }
-    hint.textContent = "已复制 " + ta.value.length + " 字符";
-  });
-
-  const runBtn = document.getElementById("tsl-run-btn");
-  const input = document.getElementById("tsl-input");
-  input.addEventListener("input", () =>   // 贴上内容 → 高亮下一步(清空则退灯)
-    runBtn.classList.toggle("live", !!input.value.trim()));
-  runBtn.addEventListener("click", async () => {
-    let trails;
-    try {  // 容错: 剥围栏/前后废话, 只取首{到末}
-      let raw = document.getElementById("tsl-input").value;
-      const s = raw.indexOf("{"), e2 = raw.lastIndexOf("}");
-      if (s >= 0 && e2 > s) raw = raw.slice(s, e2 + 1);
-      const j = JSON.parse(raw);
-      trails = j.trails;
-      if (!Array.isArray(trails) || !trails.length) throw new Error("缺 trails 数组");
-    } catch (e) {
-      out.innerHTML = '<p class="neg">解析失败: ' + e.message + ' — 需要 {"trails":[…]} 的 JSON</p>';
-      return;
-    }
-    runBtn.disabled = true;
-    out.innerHTML = `<span class="muted">内存跑 ${trails.length} 版 + 基准中(约${trails.length}~${trails.length * 2}秒)…</span>`;
-    try {
-      const r = await fetch(`/strategies/{{ sid }}/trail_batch`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trails }),
-      });
-      const d = await r.json();
-      if (d.error) throw new Error(d.error);
-      const b = d.baseline;
-      let h = '<table class="dense"><tr><th>#</th><th>trail</th><th>basis</th><th>笔</th><th>净点</th>'
-        + '<th title="70/30 留出段净点 — 裁判列, 胜过基准标绿">留出净点</th><th>留出回撤</th><th>tsl</th><th data-nosort></th></tr>'
-        + `<tr class="row-marked" data-pin><td>基准</td><td class="mono muted">关闭</td><td class="muted">本策略当前(无trail)</td>`
-        + `<td class="mono">${b.trades}</td><td class="mono"><b>${b.net_points}</b></td>`
-        + `<td class="mono"><b>${b.holdout_net}</b></td><td class="mono muted">${b.holdout_dd}</td><td>0</td><td></td></tr>`;
-      d.rows.slice().sort((a, x) => ((x.holdout_net ?? -1e18) - (a.holdout_net ?? -1e18))).forEach((v) => {
-        if (v.error) {
-          h += `<tr><td>${v.i}</td><td class="mono muted">${JSON.stringify(v.trail)}</td>`
-            + `<td colspan="6" class="neg">拒收: ${v.error}</td><td></td></tr>`;
-          return;
-        }
-        // 达标 = 两净点为正 且 留出回撤小于基准(目标是降风险, 不要求净点胜过基准)
-        const win = v.net_points > 0 && v.holdout_net > 0 && v.holdout_dd < b.holdout_dd;
-        const beat = v.holdout_net > b.holdout_net;
-        h += `<tr${win ? ' class="row-win"' : ""}><td>${v.i}</td><td class="mono">${JSON.stringify(v.trail)}</td>`
-          + `<td class="muted clip" title="${(v.basis || "").replace(/"/g, "&quot;")}">${v.basis || "—"}</td>`
-          + `<td class="mono">${v.trades}</td><td class="mono">${v.net_points}</td>`
-          + `<td class="mono ${beat ? "pos" : ""}">${v.holdout_net}</td>`
-          + `<td class="mono muted">${v.holdout_dd}</td><td class="mono">${v.tsl}</td>`
-          + `<td><button class="small tsl-keep" data-trail='${JSON.stringify(v.trail).replace(/'/g, "&#39;")}'>保留</button></td></tr>`;
-      });
-      out.innerHTML = h + '</table><p class="muted">整行绿 = 两净点为正且留出回撤小于基准(降风险不亏钱) · 留出净点绿字 = 胜过基准 · 默认按留出净点排序, 点表头可换列(基准行钉在顶部) · 保留 = 写回本策略 params.trail(可反复换, 不建新实例)</p>';
-      if (window.initTableSort) window.initTableSort(out.querySelector("table"));
-    } catch (e) {
-      out.innerHTML = '<p class="neg">批跑失败: ' + e.message + "</p>";
-    }
-    runBtn.disabled = false;
-  });
-
-  out.addEventListener("click", async (e) => {
-    const b = e.target.closest(".tsl-keep");
-    if (!b) return;
-    if (!confirm("把这组 trail 写回本策略 #{{ sid }}(排名成绩需重跑回测后更新; 再点其他组可覆盖)?")) return;
-    const r = await fetch(`/strategies/{{ sid }}/set_trail`, {
-      method: "POST", body: new URLSearchParams({ trail: b.dataset.trail }),
+  function dl(text, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  const cr = document.getElementById("copy-report");
+  if (cr) {
+    const ta = document.querySelector("details textarea");
+    cr.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(ta.value); } catch (e) {}
+      cr.textContent = "✓ 已复制";
+      setTimeout(() => (cr.textContent = "复制成绩单"), 1500);
     });
-    const d = await r.json();
-    hint.textContent = d.error ? "保留失败: " + d.error : "已写回本策略 ✅";
-  });
+    document.getElementById("dl-report").addEventListener("click", () =>
+      dl(ta.value, "tune-{{ sid }}-report.json"));
+  }
+  const dp = document.getElementById("dl-prompt");
+  if (dp) dp.addEventListener("click", () =>
+    dl(document.getElementById("ai-prompt").value, "tune-{{ sid }}-prompt.txt"));
 })();
 
 // 家族对比区「未回测补跑」(常驻, 服务端算出缺成绩的ID — 页面重载后也能补跑)
