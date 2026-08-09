@@ -55,7 +55,20 @@
 </section>
 
 <section>
-  <h2>{{ cfg.title }}策略 ({{ strategies | length }})
+  {# worker 过滤(2026-08-09 Frank 要): 只过滤显示, 不动任何状态 — demo/live 同模板共用 #}
+  {% if assigned | length > 1 or worker %}
+  <form method="get" class="inline" style="margin:4px 0">
+    <label class="muted">worker
+      <select name="worker" onchange="this.form.submit()"
+              title="只显示挂载在该 worker 上的策略(纯过滤); 全部=本状态全部策略">
+        <option value="">全部</option>
+        {% for h in assigned %}
+        <option value="{{ h.name }}" {% if worker == h.name %}selected{% endif %}>{{ h.name }}</option>
+        {% endfor %}
+      </select></label>
+  </form>
+  {% endif %}
+  <h2>{{ cfg.title }}策略 ({{ strategies | length }}{% if worker %} · 过滤: {{ worker }}{% endif %})
     <a class="btn" href="{{ url_for('mt5.index', host_id=assigned[0].id) if assigned else url_for('mt5.index') }}"
        title="从 MT5 实时读取原始持仓与成交明细(不经数据库), 用于核对本页统计">🔍 MT5 原始流水核对</a>
   </h2>

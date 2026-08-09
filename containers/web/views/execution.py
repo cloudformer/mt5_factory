@@ -48,9 +48,12 @@ def _runner_report(hosts: list) -> tuple:
 def _render(mode: str):
     cfg = MODES[mode]
     hosts, strategies, volume_presets, volume_default = [], [], [], None
+    worker = (request.args.get("worker") or "").strip() or None  # 策略表过滤: 只看挂在该机的
     try:
         hosts = api.get("/hosts")["hosts"]
-        strategies = api.get("/strategies/status", status=cfg["status"], limit=200)["strategies"]
+        # worker 过滤(2026-08-09 Frank 要, 纯显示过滤): 复用 runner 拉挂载的同一 api 口
+        strategies = api.get("/strategies/status", status=cfg["status"], limit=200,
+                             **({"host": worker} if worker else {}))["strategies"]
         # 手数预设/默认(唯一源=config表): 本页手数下拉与策略列表同款
         c = api.get("/config")["config"]
         volume_presets = c.get("volume_presets") or []
@@ -62,6 +65,7 @@ def _render(mode: str):
     assignable = [h for h in hosts if not h["runner"] and h["enabled"]]
     accounts, stats_by_magic, skipped_by_id, stale = _runner_report(assigned)
     return render_template("execution.html", mode=mode, cfg=cfg, assigned=assigned,
+                           worker=worker,
                            assignable=assignable, strategies=strategies,
                            hosts_runner=[h for h in hosts
                                          if h.get("enabled") and h.get("runner")],
