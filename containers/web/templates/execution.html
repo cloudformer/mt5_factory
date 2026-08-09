@@ -55,11 +55,14 @@
 </section>
 
 <section>
-  {# worker 过滤(2026-08-09 Frank 要): 只过滤显示, 不动任何状态 — demo/live 同模板共用 #}
+  <div id="exec-strat-box">
+  {# worker 过滤(2026-08-09 Frank 要): 只过滤显示 — demo/live 同模板共用。
+     铁律8: 默认 AJAX 局部刷新(data-ajax 只换本盒); onchange 必须 requestSubmit
+     (submit() 会绕过 submit 事件监听, ajax 接管不到) #}
   {% if assigned | length > 1 or worker %}
-  <form method="get" class="inline" style="margin:4px 0">
+  <form method="get" class="inline" style="margin:4px 0" data-ajax="#exec-strat-box">
     <label class="muted">worker
-      <select name="worker" onchange="this.form.submit()"
+      <select name="worker" onchange="this.form.requestSubmit()"
               title="只显示挂载在该 worker 上的策略(纯过滤); 全部=本状态全部策略">
         <option value="">全部</option>
         {% for h in assigned %}
@@ -143,6 +146,7 @@
     {% endcall %}
     {% endfor %}
   </table>
+  </div>
   <p class="muted">战绩(按 magic 归因)与账户数据来自 worker 回传，约 30 秒一刷；已实现盈亏统计最近 90 天平仓单（含手续费/隔夜利息）。</p>
 </section>
 
