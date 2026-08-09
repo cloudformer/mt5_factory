@@ -937,9 +937,9 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
     def _j(obj):
         return _json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)
 
-    # 分段(2026-08-09 Frank 定: 网页版 AI 粘贴有长度限制, 每段一钮接力粘贴):
-    # ①指令+策略+全量交易(声明还有N段别急着分析) → ②..各 regime 版本一段 → 末段带开始口令
-    n_parts = 1 + len(versions)
+    # 分段(2026-08-09 Frank 定序: regime 版本在前逐段发, 指令+策略+全量交易压轴 —
+    # 指令与开始口令同在末段, 前面全是原料, AI 收不齐必然等待; 网页版单条长度也友好)
+    n_parts = len(versions) + 1
     base = {"strategy": {"id": s["id"], "name": s["name"], "template": s["template"],
                          "params": s["params"], "symbol": s["symbol"],
                          "timeframe": s["timeframe"], "status": s["status"],
@@ -950,18 +950,21 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
             "trades_columns": ["date_YYMMDD", "n_trades", "n_wins",
                                "gross_profit_pts", "gross_loss_pts"],
             "trades": trades}
-    parts = [{"label": f"① 指令+策略+全量交易 (1/{n_parts})",
-              "text": _REGIME_AI_PROMPT_HEAD + _j(base)
-              + f"\n\n【数据共 {n_parts} 段, 这是第 1 段。接下来我会逐段发送"
-                f" {len(versions)} 个 regime 版本 — 先别开始分析, 收到"
-                f"『全部发完』口令后再按上面的任务与输出协议执行】"}]
+    parts = []
     for i, v in enumerate(versions):
-        tail = ("\n\n【全部发完 — 请按第 1 段的任务与输出协议开始分析】"
-                if i == len(versions) - 1 else
-                f"\n\n【第 {i + 2}/{n_parts} 段完, 还有 {len(versions) - 1 - i} 段, 继续等待】")
-        parts.append({"label": f"{'②③④⑤⑥⑦⑧⑨'[i] if i < 8 else i + 2} regime v{v['version']}"
-                               f" ({i + 2}/{n_parts})",
-                      "text": f"regime 版本数据(第 {i + 2}/{n_parts} 段):\n" + _j(v) + tail})
+        head = ("以下是交易策略 regime 分析的原料数据, 共 %d 段: 前 %d 段为各 regime 口径版本"
+                "(params=格子怎么算; timeline_runs=时间线压缩段[起始日YYMMDD,格], 只记换格日,"
+                " 某日的格=之前最近一段的格), 最后一段为任务指令+策略+全量交易。"
+                "请先暂存, 收到最后一段的指令后再开始分析。\n\n"
+                % (n_parts, len(versions))) if i == 0 else ""
+        parts.append({"label": f"{'①②③④⑤⑥⑦⑧'[i] if i < 8 else i + 1} regime v{v['version']}"
+                               f" ({i + 1}/{n_parts})",
+                      "text": head + f"regime 版本数据(第 {i + 1}/{n_parts} 段):\n" + _j(v)
+                      + f"\n\n【第 {i + 1}/{n_parts} 段完 — 指令在最后一段, 请继续等待】"})
+    parts.append({"label": f"{'①②③④⑤⑥⑦⑧⑨'[len(versions)] if len(versions) < 9 else n_parts}"
+                           f" 指令+策略+全量交易 ({n_parts}/{n_parts})",
+                  "text": _REGIME_AI_PROMPT_HEAD + _j(base)
+                  + "\n\n【全部发完 — 以上即任务指令与全量数据, 请开始分析】"})
     full = "\n\n".join(pt["text"] for pt in parts)
     return {"prompt": full, "parts": parts}
 
