@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('市场状态 Regime', 'v2.5 · 尺子先行只看不选: 三维八格(长趋势/短趋势/波动), 每日一格, 用前一日收盘判定(无未来函数)。口径已版本化(v0.2): 配置页存新口径=新版本 → 本页切版本+点重建 → 每版本一套时间线并存') }}
+{{ m.page_header('全局货币regime', 'v2.5 · 尺子先行只看不选: 三维八格(长趋势/短趋势/波动), 每日一格, 用前一日收盘判定(无未来函数)。口径已版本化(v0.2): 配置页存新口径=新版本 → 本页切版本+点重建 → 每版本一套时间线并存') }}
 
 {# 配色/中文名唯一定义在 _macros(m.regime_color / m.regime_cn): AAA绿→BBB红 八级渐变。
    页面排列(2026-07-28 Frank 定): 色带 → 当前状态 → 八格象限 → 记分卡(含评定流程) → 演变明细(翻页) #}
@@ -14,7 +14,7 @@
         {% for s in symbols %}<option {% if s == symbol %}selected{% endif %}>{{ s }}</option>{% endfor %}
       </select></label>
       <label>八格象限时间窗口 <select name="show_years" id="quad-span"
-          title="八格象限的统计窗口(与九币矩阵同款): 近N年 / N年以前(排除近N年, 对照用); 只影响象限占比, 即时切换不刷新页面">
+          title="八格象限的统计窗口(与单策略regime分析同款): 近N年 / N年以前(排除近N年, 对照用); 只影响象限占比, 即时切换不刷新页面">
         <option value="">全历史</option>
         <optgroup label="近 N 年">
         {% for y in [1, 2, 3, 5, 10] %}<option value="{{ y }}" {% if show_years == y %}selected{% endif %}>近{{ y }}年</option>{% endfor %}

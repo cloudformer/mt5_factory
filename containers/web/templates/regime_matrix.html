@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('Regime 策略分析(九币矩阵)', '一个策略 × 全部回测品种 → 八格战绩: 该策略在哪种市场状态里赚钱 · 现算不落库, 重跑回测/重建时间线后自动更新') }}
+{{ m.page_header('单策略regime分析', '一个策略 × 全部回测品种 → 八格战绩: 该策略在哪种市场状态里赚钱 · 现算不落库, 重跑回测/重建时间线后自动更新') }}
 
 <form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
   <input type="number" name="strategy_id" value="{{ sid or '' }}" placeholder="策略 ID" required style="width:110px">
@@ -208,7 +208,7 @@
       hint.innerHTML = '<span class="neg">启动失败: ' + e.message + "</span>";
     }
   });
-  // 「复制提示词」: 后台取 prompt.txt(说明+原理+JSON) → 剪贴板, 与 AI 策略分析页同交互
+  // 「复制提示词」: 后台取 prompt.txt(说明+原理+JSON) → 剪贴板, 与 单策略AI调参 页同交互
   const cp = document.getElementById("rm-copy-prompt");
   if (cp) cp.addEventListener("click", async () => {
     cp.disabled = true; cp.textContent = "取词中…";

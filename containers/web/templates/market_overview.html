@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('Regime 概览', '全部下载品种的【当日格】落位 — 每个口径版本一张八格图(读时现拼零落库) · worker 余额在「回测概览」') }}
+{{ m.page_header('Regime 概览', '全部下载品种的【当日格】落位 — 每个口径版本一张八格图(读时现拼零落库) · worker 余额在「全局Worker余额」') }}
 
 {% if data and data.versions %}
 {# 全版本对比(2026-08-03 Frank 定): 每个版本一张八格落位图, 上下排开 —
@@ -23,6 +23,6 @@
 {% endfor %}
 
 {% elif data %}
-<p class="muted">还没有任何品种的 regime 时间线 — 去「数据 → 市场状态 Regime」页重建。</p>
+<p class="muted">还没有任何品种的 regime 时间线 — 去「数据 → 全局货币regime」页重建。</p>
 {% endif %}
 {% endblock %}

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('策略列表排名', '全部策略一张表：身份 + 回测成绩 + 评分 + 跨品种健壮性；未回测的成绩为空、沉底。跑回测去「策略回测」') }}
+{{ m.page_header('排名', '全部策略一张表：身份 + 回测成绩 + 评分 + 跨品种健壮性；未回测的成绩为空、沉底。跑回测去「策略回测」') }}
 
 <section>
-  <h2>策略列表排名</h2>
+  <h2>排名</h2>
   <form method="get" class="filter-panel">
     <div class="filter-row">
       {# 状态下拉已删(2026-08-08 Frank: 没有意义); 搜索字段选「状态」仍可精准筛 #}

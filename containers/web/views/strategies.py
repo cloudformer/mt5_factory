@@ -582,18 +582,8 @@ def heal_points():
 
 @bp.get("/reconcile_stats")
 def reconcile_stats():
-    """对账统计: 全部有实盘成交的策略, 批量看 回测vs实盘 匹配率(顶部三卡 + 逐策略行)。
-    行数据 = api /reconcile/summary(纯读已存结果); 重算 = 页面循环调 reconcile_one。"""
-    rows, recon_hours, recon_last = [], 24, None
-    try:
-        rows = api.get("/reconcile/summary")["strategies"]
-        cfg = api.get("/config")["config"]
-        recon_hours = int(cfg.get("recon_hours") or 0)   # 自动对账频率(小时, 0=关)
-        recon_last = cfg.get("recon_last_run")
-    except (api.ApiError, TypeError, ValueError) as e:
-        flash(f"读取对账统计失败: {e}", "error")
-    return render_template("reconcile_stats.html", rows=rows,
-                           recon_hours=recon_hours, recon_last=recon_last)
+    """对账统计已并入「全局回测概览」(2026-08-09 页面整编) — 老书签 302 跳新家"""
+    return redirect(url_for("dashboard.backtest_overview"))
 
 
 @bp.get("/reconcile/cards")
@@ -781,10 +771,7 @@ def ai_backtest():
     return redirect(url_for("strategies.ai_page", strategy_id=sid))
 
 
-@bp.get("/quality")
-def quality():
-    """回测质量分析: 反过拟合工具箱概览(OOS/健壮/邻域); 关2对账已移到「策略分析」页"""
-    return render_template("strategy_quality.html")
+# 回测质量分析页已删(2026-08-09 Frank 定: 静态过时清单, 内容与 CLAUDE.md/设计文档重复)
 
 
 @bp.post("/generate")

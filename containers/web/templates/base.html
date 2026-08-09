@@ -17,7 +17,8 @@
     <div class="navmenu-items">
       <a href="{{ url_for('dashboard.index') }}" {% if ep == 'dashboard.index' %}class="active"{% endif %}>系统概览</a>
       <a href="{{ url_for('dashboard.market_overview') }}" {% if ep == 'dashboard.market_overview' %}class="active"{% endif %}>Regime 概览</a>
-      <a href="{{ url_for('dashboard.backtest_overview') }}" {% if ep == 'dashboard.backtest_overview' %}class="active"{% endif %}>回测概览</a>
+      <a href="{{ url_for('dashboard.backtest_overview') }}" {% if ep == 'dashboard.backtest_overview' %}class="active"{% endif %}>全局回测概览</a>
+      <a href="{{ url_for('dashboard.worker_balance') }}" {% if ep == 'dashboard.worker_balance' %}class="active"{% endif %}>全局Worker余额</a>
     </div>
   </div>
   <a href="{{ url_for('workers.index') }}" {% if ep.startswith('workers.') %}class="active"{% endif %}>Workers</a>
@@ -27,7 +28,6 @@
     <div class="navmenu-items">
       <a href="{{ url_for('symbols.index') }}" {% if ep == 'symbols.index' %}class="active"{% endif %}>货币对</a>
       <a href="{{ url_for('symbols.backtest_params') }}" {% if ep == 'symbols.backtest_params' %}class="active"{% endif %}>策略参数</a>
-      <a href="{{ url_for('symbols.ranking') }}" {% if ep == 'symbols.ranking' %}class="active"{% endif %}>排名参数模板</a>
     </div>
   </div>
   {# 数据组: 数据进出(现在只有下载, 未来扩: 保鲜/校验) #}
@@ -36,8 +36,8 @@
        {% if ep.startswith('datasync.') %}class="active"{% endif %}>数据 ▾</a>
     <div class="navmenu-items">
       <a href="{{ url_for('datasync.index') }}" {% if ep == 'datasync.index' %}class="active"{% endif %}>下载</a>
-      <a href="{{ url_for('datasync.regime') }}" {% if ep == 'datasync.regime' %}class="active"{% endif %}>市场状态 Regime</a>
-      <a href="{{ url_for('datasync.regime_eval') }}" {% if ep == 'datasync.regime_eval' %}class="active"{% endif %}>Regime 候选对比</a>
+      <a href="{{ url_for('datasync.regime') }}" {% if ep == 'datasync.regime' %}class="active"{% endif %}>全局货币regime</a>
+      <a href="{{ url_for('datasync.regime_eval') }}" {% if ep == 'datasync.regime_eval' %}class="active"{% endif %}>regime评判说明-doc</a>
     </div>
   </div>
   {# 策略组: 造和跑(生成/回测/排名) #}
@@ -45,24 +45,22 @@
     <a href="{{ url_for('strategies.index') }}"
        {% if ep in ('strategies.index', 'strategies.generate_page', 'strategies.strategy_tree') or ep.startswith('backtests.') or ep.startswith('regime_screen.') or ep.startswith('oos_v2.') %}class="active"{% endif %}>策略 ▾</a>
     <div class="navmenu-items">
-      <a href="{{ url_for('strategies.generate_page') }}" {% if ep == 'strategies.generate_page' %}class="active"{% endif %}>策略生成</a>
-      <a href="{{ url_for('backtests.index') }}" {% if ep.startswith('backtests.') %}class="active"{% endif %}>策略回测</a>
-      <a href="{{ url_for('strategies.index') }}" {% if ep == 'strategies.index' %}class="active"{% endif %}>策略列表排名</a>
-      <a href="{{ url_for('strategies.strategy_tree') }}" {% if ep == 'strategies.strategy_tree' %}class="active"{% endif %}>策略谱系</a>
-      <a href="{{ url_for('regime_screen.index') }}" {% if ep == 'regime_screen.index' %}class="active"{% endif %}>自动化筛选v1</a>
-      <a href="{{ url_for('oos_v2.index') }}" {% if ep == 'oos_v2.index' %}class="active"{% endif %}>自动化筛选-oos_v2</a>
+      <a href="{{ url_for('strategies.generate_page') }}" {% if ep == 'strategies.generate_page' %}class="active"{% endif %}>生成</a>
+      <a href="{{ url_for('backtests.index') }}" {% if ep.startswith('backtests.') %}class="active"{% endif %}>回测</a>
+      <a href="{{ url_for('strategies.index') }}" {% if ep == 'strategies.index' %}class="active"{% endif %}>排名</a>
+      <a href="{{ url_for('strategies.strategy_tree') }}" {% if ep == 'strategies.strategy_tree' %}class="active"{% endif %}>谱系</a>
+      <a href="{{ url_for('regime_screen.index') }}" {% if ep == 'regime_screen.index' %}class="active"{% endif %}>筛选·Regime</a>
+      <a href="{{ url_for('oos_v2.index') }}" {% if ep == 'oos_v2.index' %}class="active"{% endif %}>筛选·OOS</a>
     </div>
   </div>
   {# 分析组: 看深度(单策略归因 / 回测体系质量) #}
   <div class="navmenu">
     <a href="{{ url_for('strategies.analysis') }}"
-       {% if ep in ('strategies.analysis', 'strategies.quality', 'strategies.ai_page', 'strategies.reconcile_stats') %}class="active"{% endif %}>分析 ▾</a>
+       {% if ep in ('strategies.analysis', 'strategies.regime_matrix', 'strategies.ai_page') %}class="active"{% endif %}>分析 ▾</a>
     <div class="navmenu-items">
-      <a href="{{ url_for('strategies.analysis') }}" {% if ep == 'strategies.analysis' %}class="active"{% endif %}>人工策略分析</a>
-      <a href="{{ url_for('strategies.regime_matrix') }}" {% if ep == 'strategies.regime_matrix' %}class="active"{% endif %}>Regime 策略分析</a>
-      <a href="{{ url_for('strategies.ai_page') }}" {% if ep == 'strategies.ai_page' %}class="active"{% endif %}>AI 策略分析</a>
-      <a href="{{ url_for('strategies.reconcile_stats') }}" {% if ep == 'strategies.reconcile_stats' %}class="active"{% endif %}>对账统计</a>
-      <a href="{{ url_for('strategies.quality') }}" {% if ep == 'strategies.quality' %}class="active"{% endif %}>回测质量分析</a>
+      <a href="{{ url_for('strategies.analysis') }}" {% if ep == 'strategies.analysis' %}class="active"{% endif %}>单策略回测分析</a>
+      <a href="{{ url_for('strategies.regime_matrix') }}" {% if ep == 'strategies.regime_matrix' %}class="active"{% endif %}>单策略regime分析</a>
+      <a href="{{ url_for('strategies.ai_page') }}" {% if ep == 'strategies.ai_page' %}class="active"{% endif %}>单策略AI调参·时间</a>
     </div>
   </div>
   {# 实盘组: 真实下单的两个环境(实盘 = demo 模拟 + live 真金, 纯 UI 汇总概念) #}

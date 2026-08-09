@@ -27,22 +27,36 @@ def index():
 
 @bp.get("/overview/backtest")
 def backtest_overview():
-    """回测概览(2026-08-06 与 Frank 定): 回测可信度三卡(全量口径, 无筛选) + worker 余额卡。
-    三卡读已存对账结果(reconciliations, 自动对账每 recon_hours 刷新一遍) — 纯读秒回;
-    要按品种/状态筛着看去「对账统计」页(那页三卡随筛选实时重算)。"""
-    cards, workers, err = None, [], None
+    """全局回测概览(2026-08-09 页面整编): 三卡(全量口径) + 原「对账统计」页明细整块并入。
+    三卡算法唯一在 api(_recon_cards), 明细行 = /reconcile/summary(纯读已存结果)。"""
+    cards, err = None, None
+    rows, recon_hours, recon_last = [], 24, None
     try:
-        # 三卡算法唯一在 api(_recon_cards) — 这里只取结果不算数(2026-08-06 Frank 定
-        # "即使未来修改, 也只改一个地方的逻辑"); 不传筛选 = 全量(实盘数据不过滤)
-        cards = api.get("/reconcile/summary")["cards"]
+        summary = api.get("/reconcile/summary")
+        cards = summary["cards"]
+        rows = summary["strategies"]
+        cfg = api.get("/config")["config"]
+        recon_hours = int(cfg.get("recon_hours") or 0)   # 自动对账频率(小时, 0=关)
+        recon_last = cfg.get("recon_last_run")
+    except (api.ApiError, TypeError, ValueError) as e:
+        err = str(e)
+        flash(f"api 不可用: {e}", "error")
+    return render_template("backtest_overview.html", cards=cards, err=err, rows=rows,
+                           recon_hours=recon_hours, recon_last=recon_last)
+
+
+@bp.get("/overview/worker-balance")
+def worker_balance():
+    """全局Worker余额(2026-08-09 从回测概览拆出): 每台在跑 worker 的余额/已实现 — 透传展示"""
+    workers = []
+    try:
         workers = (api.get("/overview/market") or {}).get("workers") or []
         for w in workers:
             if w.get("heartbeat"):
                 w["hb_fmt"] = datetime.fromisoformat(w["heartbeat"]).strftime("%H:%M:%S")
     except api.ApiError as e:
-        err = str(e)
         flash(f"api 不可用: {e}", "error")
-    return render_template("backtest_overview.html", cards=cards, workers=workers, err=err)
+    return render_template("worker_balance.html", workers=workers)
 
 
 @bp.get("/overview/market")

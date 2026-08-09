@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('自动化筛选v1', '5 年窗 · 漏斗关1.5 批量粗筛：每策略现跑总计年回测（悲观撮合，结果回流库，涉及淘汰必须用刚出炉的真数据）→ 按切片验 regime 稳健性。通过打标签，未过删除归档（可逆）') }}
+{{ m.page_header('筛选·Regime切片(5年)', '5 年窗 · 漏斗关1.5 批量粗筛：每策略现跑总计年回测（悲观撮合，结果回流库，涉及淘汰必须用刚出炉的真数据）→ 按切片验 regime 稳健性。通过打标签，未过删除归档（可逆）') }}
 <p id="rs-topbar" class="mono" hidden
    style="margin:0 0 10px; padding:7px 12px; background:var(--ok-bg); border:1px solid var(--ok-bd);
           border-radius:6px; font-weight:600; font-variant-numeric:tabular-nums"></p>
@@ -106,7 +106,7 @@
         if (topBar.textContent !== t) topBar.textContent = "⏳ " + t;
         topBar.hidden = false;
         const m = t.match(/(\d+)\s*\/\s*(\d+)/);
-        document.title = m ? `${m[1]}/${m[2]} · 自动化筛选v1` : baseTitle;
+        document.title = m ? `${m[1]}/${m[2]} · 筛选·Regime` : baseTitle;
       } else {
         topBar.hidden = true;
         document.title = baseTitle;

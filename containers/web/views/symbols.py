@@ -34,6 +34,7 @@ def backtest_params():
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空(铁律欠账4)
     volume_default = None
     reuse_days, reuse_days_single, oos_v2_params = None, None, None  # 复用两档 + oos_v2判据
+    rank_templates = []
     try:
         cfg = api.get("/config")["config"]
         costs = cfg.get("backtest_costs", {})
@@ -61,11 +62,13 @@ def backtest_params():
         regime_params = next((v["params"] for v in regime_versions
                               if v["id"] == regime_current), {})
         oos_v2_params = api.get("/oos_v2/params")
+        rank_templates = cfg.get("ranking_templates", [])   # 排名模板并入本页(2026-08-09)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
                            window_days=window_days, reuse_days=reuse_days,
                            reuse_days_single=reuse_days_single, oos_v2_params=oos_v2_params,
+                           rank_templates=rank_templates,
                            generate_limit=generate_limit, volume_presets=volume_presets,
                            volume_default=volume_default,
                            oos_split=oos_split, mt5_days=mt5_days,
@@ -305,13 +308,8 @@ def save_mt5_days():
 
 @bp.get("/ranking")
 def ranking():
-    """配置·排名参数模板: 四维加权评分模板(增删改)"""
-    rank_templates = []
-    try:
-        rank_templates = api.get("/config")["config"].get("ranking_templates", [])
-    except api.ApiError as e:
-        flash(f"api 不可用: {e}", "error")
-    return render_template("config_ranking.html", rank_templates=rank_templates)
+    """排名参数模板已并入「策略参数」页(2026-08-09 页面整编) — 老书签 302 跳新家"""
+    return redirect(url_for("symbols.backtest_params"))
 
 
 @bp.post("/config/ranks")
@@ -340,7 +338,7 @@ def save_ranks():
         flash(f"排名参数模板已保存({len(tpls)} 个)", "ok")
     except api.ApiError as e:
         flash(f"保存失败: {e}", "error")
-    return redirect(url_for("symbols.ranking"))
+    return redirect(url_for("symbols.backtest_params"))
 
 
 @bp.post("/add")

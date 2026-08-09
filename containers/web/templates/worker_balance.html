@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('全局Worker余额', '每台在跑 worker 的账户余额/已实现盈亏 — 券商侧数字透传展示(约30秒一刷), 本系统不推算') }}
+
+{# 2026-08-09 页面整编: 从回测概览拆出独立页 #}
+<div class="stats">
+  {% for w in workers %}
+  <div class="stat" title="初始资金 ≈ {{ '%.2f' % w.initial if w.initial is not none else '—' }} · 按无出入金推算(余额 − 库内已实现合计) · 心跳 {{ w.hb_fmt or '—' }}">
+    <div class="stat-label">{{ w.name }} · {{ w.runner }}</div>
+    <div class="stat-value mono">{{ '{:,.2f}'.format(w.balance) if w.balance is not none else '—' }}<span
+        style="font-size:12px;font-weight:500;color:var(--muted)"> {{ w.currency or '' }}</span></div>
+    <div class="stat-sub">已实现
+      {%- if w.realized is not none %} <b class="{{ 'pos' if w.realized >= 0 else 'neg' }}">{{ '{:+,.2f}'.format(w.realized) }}</b>
+        {%- if w.pnl_pct is not none %} <span class="{{ 'pos' if w.pnl_pct >= 0 else 'neg' }}">({{ '%+.2f' % w.pnl_pct }}%)</span>{% endif %}
+      {%- else %} —{% endif %}</div>
+  </div>
+  {% endfor %}
+  {% if not workers %}<p class="muted">没有跑策略的 worker(指派 demo/live 角色后这里显示余额)。</p>{% endif %}
+</div>
+
+{% endblock %}

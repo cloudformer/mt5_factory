@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('自动化筛选-oos_v2', 'Regime OOS Screen v2 · 三期六段（20年/5年/2年 × 训练/测试）：每策略只跑一次 20 年回测（悲观撮合，结果回流库），按锚点=跑批当天切六段，六段 PF 全合格 = PASS（∞恒过，0笔不追责）。默认预览只出报告不动策略') }}
+{{ m.page_header('筛选·OOS三期(20年)', 'Regime OOS Screen v2 · 三期六段（20年/5年/2年 × 训练/测试）：每策略只跑一次 20 年回测（悲观撮合，结果回流库），按锚点=跑批当天切六段，六段 PF 全合格 = PASS（∞恒过，0笔不追责）。默认预览只出报告不动策略') }}
 <p id="o2-topbar" class="mono" hidden
    style="margin:0 0 10px; padding:7px 12px; background:var(--ok-bg); border:1px solid var(--ok-bd);
           border-radius:6px; font-weight:600; font-variant-numeric:tabular-nums"></p>
@@ -104,7 +104,7 @@
         if (topBar.textContent !== t) topBar.textContent = "⏳ " + t;
         topBar.hidden = false;
         const m = t.match(/(\d+)\s*\/\s*(\d+)/);
-        document.title = m ? `${m[1]}/${m[2]} · 自动化筛选-oos_v2` : baseTitle;
+        document.title = m ? `${m[1]}/${m[2]} · 筛选·OOS` : baseTitle;
       } else {
         topBar.hidden = true;
         document.title = baseTitle;
