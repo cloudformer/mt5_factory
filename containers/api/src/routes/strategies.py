@@ -937,34 +937,45 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
     def _j(obj):
         return _json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)
 
-    # 分段(2026-08-09 Frank 定序: regime 版本在前逐段发, 指令+策略+全量交易压轴 —
-    # 指令与开始口令同在末段, 前面全是原料, AI 收不齐必然等待; 网页版单条长度也友好)
-    n_parts = len(versions) + 1
+    # 分段(2026-08-09 Frank 定序): regime 版本逐段在前 → 交易平均分两段 → 指令+策略
+    # 身份压轴(~6KB 纯文字永不被截, 开始口令在此) — 网页版单条长度全程友好
     base = {"strategy": {"id": s["id"], "name": s["name"], "template": s["template"],
                          "params": s["params"], "symbol": s["symbol"],
                          "timeframe": s["timeframe"], "status": s["status"],
                          **({"note": f"你输入的 #{requested_id} 是门变体(成交被门滤过),"
                                      f" 已自动改用它的无门根 #{s['id']} 的全量回测分析"}
                             if s["id"] != requested_id else {})},
-            "backtest_window": f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}",
-            "trades_columns": ["date_YYMMDD", "n_trades", "n_wins",
-                               "gross_profit_pts", "gross_loss_pts"],
-            "trades": trades}
+            "backtest_window": f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"}
+    half = (len(trades) + 1) // 2          # 交易平均分两半(按行数, 各≈50%)
+    trade_chunks = [c for c in (trades[:half], trades[half:]) if c]
+    n_parts = len(versions) + len(trade_chunks) + 1
+    NUM = "①②③④⑤⑥⑦⑧⑨⑩"
+
+    def _num(i):
+        return NUM[i] if i < len(NUM) else str(i + 1)
+
     parts = []
     for i, v in enumerate(versions):
-        head = ("以下是交易策略 regime 分析的原料数据, 共 %d 段: 前 %d 段为各 regime 口径版本"
+        head = ("以下是交易策略 regime 分析的原料数据, 共 %d 段: 先发 %d 个 regime 口径版本"
                 "(params=格子怎么算; timeline_runs=时间线压缩段[起始日YYMMDD,格], 只记换格日,"
-                " 某日的格=之前最近一段的格), 最后一段为任务指令+策略+全量交易。"
+                " 某日的格=之前最近一段的格), 再发交易数据(平均分 %d 段), 最后一段为任务指令。"
                 "请先暂存, 收到最后一段的指令后再开始分析。\n\n"
-                % (n_parts, len(versions))) if i == 0 else ""
-        parts.append({"label": f"{'①②③④⑤⑥⑦⑧'[i] if i < 8 else i + 1} regime v{v['version']}"
-                               f" ({i + 1}/{n_parts})",
+                % (n_parts, len(versions), len(trade_chunks))) if i == 0 else ""
+        parts.append({"label": f"{_num(i)} regime v{v['version']} ({i + 1}/{n_parts})",
                       "text": head + f"regime 版本数据(第 {i + 1}/{n_parts} 段):\n" + _j(v)
                       + f"\n\n【第 {i + 1}/{n_parts} 段完 — 指令在最后一段, 请继续等待】"})
-    parts.append({"label": f"{'①②③④⑤⑥⑦⑧⑨'[len(versions)] if len(versions) < 9 else n_parts}"
-                           f" 指令+策略+全量交易 ({n_parts}/{n_parts})",
+    cols = ["date_YYMMDD", "n_trades", "n_wins", "gross_profit_pts", "gross_loss_pts"]
+    for k, chunk in enumerate(trade_chunks):
+        idx = len(versions) + k
+        parts.append({"label": f"{_num(idx)} 交易数据 {k + 1}/{len(trade_chunks)}"
+                               f" ({idx + 1}/{n_parts})",
+                      "text": f"交易数据(日聚合, 第 {k + 1}/{len(trade_chunks)} 份,"
+                              f" 段 {idx + 1}/{n_parts}):\n"
+                      + _j({"trades_columns": cols, "trades": chunk})
+                      + f"\n\n【第 {idx + 1}/{n_parts} 段完 — 指令在最后一段, 请继续等待】"})
+    parts.append({"label": f"{_num(n_parts - 1)} 指令+策略身份 ({n_parts}/{n_parts})",
                   "text": _REGIME_AI_PROMPT_HEAD + _j(base)
-                  + "\n\n【全部发完 — 以上即任务指令与全量数据, 请开始分析】"})
+                  + "\n\n【全部发完 — 以上即任务指令, 数据在前面各段, 请开始分析】"})
     full = "\n\n".join(pt["text"] for pt in parts)
     return {"prompt": full, "parts": parts}
 
