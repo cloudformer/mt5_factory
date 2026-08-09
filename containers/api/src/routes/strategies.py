@@ -800,6 +800,18 @@ async def strategy_profile(strategy_id: int, request: Request):
 _REGIME_AI_PROMPT_HEAD = """\
 # 任务(两问, 服务两个对象): ① 对 Regime 口径的评价报告 ② 该策略可直接使用的门(gate)
 
+## 第0步(必做, 先于一切分析): 数据完整性对账 — 防附件截断/略读
+下方 data_check_expected 是我方在数据库侧算好的全量合计。请先用你收到的原始数据
+【逐行重算】并逐项对比:
+- trades: 交易日行数 / 总笔数 / 总胜数 / 总毛利点 / 总毛损点 / 首末日期
+- 每个 regime 版本: timeline_runs 段数 / 首段与末段的起始日
+全部一致 → 输出 data_check.match=true, 继续分析;
+任何一项不一致 = 你没有收到或没有读全数据 → 停止分析: match=false, mismatch 里写明
+哪项对不上(expected vs 你算的), regime_report/strategy_report 置 null,
+confidence="unverified"。
+【禁止跳过重算直接抄 expected】— computed 必须来自你对原始行的实际累加;
+后文所有 evidence 引用的格级数字(笔数/毛利/毛损)同样必须来自你的重算, 不得估算。
+
 ## 第一问: Regime 报告 — 评的是【口径】不是策略
 用本策略全量回测当探针(实际区间见数据 backtest_window, 可能超过20年), 评价 N 个 regime 版本谁更有规律。判定算法(按此执行):
 - 第一维度 = 8 个格(象限); 对每个格: 拉出【逐年】切片的 PF 序列,
@@ -838,6 +850,13 @@ unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话�
 
 ## 输出(严格 JSON, 不要多余文字 — 两份报告分开, 各说各的)
 {
+  "data_check": {
+    "match": true,
+    "computed": {"days": 0, "trades": 0, "wins": 0, "gross_profit_pts": 0.0,
+                 "gross_loss_pts": 0.0, "first_date": "YYMMDD", "last_date": "YYMMDD",
+                 "versions": {"1": {"runs": 0}, "2": {"runs": 0}}},
+    "mismatch": null
+  },
   "regime_report": {
     "ranking": "v1 > v2",
     "versions": [
@@ -852,6 +871,7 @@ unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话�
     "ai_regime_recommend": "选哪个 version 及理由; 近5年权重约66%下入选格与倍率的数字依据; 未入选格=不交易的理由; 月切片补充观察; 样本不足处保留意见"
   }
 }
+- data_check 放最前: match=true 才允许出报告; false 时两份报告置 null 只报 mismatch;
 - regime_report 评的是【口径】(与策略赚不赚钱无关, 稳定亏也算规律), ranking 给版本排序;
 - strategy_report 是【策略可直接使用的配置】: gate 与系统 metadata.regime 格式逐字节兼容;
   没有可信规律时 cells 给 {} 并在 recommend 说明。
@@ -937,8 +957,9 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
     def _j(obj):
         return _json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)
 
-    # 分段(2026-08-09 Frank 定序): regime 版本逐段在前 → 交易平均分两段 → 指令+策略
-    # 身份压轴(~6KB 纯文字永不被截, 开始口令在此) — 网页版单条长度全程友好
+    # 分段(2026-08-09 Frank 终版, 配合 Gemini 附件上传): 固定三份 —
+    # ① regime 全部版本合一 ② 全量交易 ③ 指令+策略身份(压轴带开始口令)。
+    # slug 用于下载文件名 prompt-{id}-{n}-{slug}.txt(带策略id, 下载不重名)
     base = {"strategy": {"id": s["id"], "name": s["name"], "template": s["template"],
                          "params": s["params"], "symbol": s["symbol"],
                          "timeframe": s["timeframe"], "status": s["status"],
@@ -946,36 +967,37 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
                                      f" 已自动改用它的无门根 #{s['id']} 的全量回测分析"}
                             if s["id"] != requested_id else {})},
             "backtest_window": f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"}
-    half = (len(trades) + 1) // 2          # 交易平均分两半(按行数, 各≈50%)
-    trade_chunks = [c for c in (trades[:half], trades[half:]) if c]
-    n_parts = len(versions) + len(trade_chunks) + 1
-    NUM = "①②③④⑤⑥⑦⑧⑨⑩"
-
-    def _num(i):
-        return NUM[i] if i < len(NUM) else str(i + 1)
-
-    parts = []
-    for i, v in enumerate(versions):
-        head = ("以下是交易策略 regime 分析的原料数据, 共 %d 段: 先发 %d 个 regime 口径版本"
-                "(params=格子怎么算; timeline_runs=时间线压缩段[起始日YYMMDD,格], 只记换格日,"
-                " 某日的格=之前最近一段的格), 再发交易数据(平均分 %d 段), 最后一段为任务指令。"
-                "请先暂存, 收到最后一段的指令后再开始分析。\n\n"
-                % (n_parts, len(versions), len(trade_chunks))) if i == 0 else ""
-        parts.append({"label": f"{_num(i)} regime v{v['version']} ({i + 1}/{n_parts})",
-                      "text": head + f"regime 版本数据(第 {i + 1}/{n_parts} 段):\n" + _j(v)
-                      + f"\n\n【第 {i + 1}/{n_parts} 段完 — 指令在最后一段, 请继续等待】"})
+    # 对账单(防 AI 略读附件): 库侧全量合计, AI 必须逐行重算对上才许出报告(见 HEAD 第0步)
+    base["data_check_expected"] = {
+        "days": len(trades),
+        "trades": sum(r[1] for r in trades),
+        "wins": sum(r[2] for r in trades),
+        "gross_profit_pts": round(sum(r[3] for r in trades), 1),
+        "gross_loss_pts": round(sum(r[4] for r in trades), 1),
+        "first_date": trades[0][0] if trades else None,
+        "last_date": trades[-1][0] if trades else None,
+        "versions": {str(v["version"]): {
+            "runs": len(v["timeline_runs"]),
+            "first_run": v["timeline_runs"][0][0] if v["timeline_runs"] else None,
+            "last_run": v["timeline_runs"][-1][0] if v["timeline_runs"] else None,
+        } for v in versions}}
     cols = ["date_YYMMDD", "n_trades", "n_wins", "gross_profit_pts", "gross_loss_pts"]
-    for k, chunk in enumerate(trade_chunks):
-        idx = len(versions) + k
-        parts.append({"label": f"{_num(idx)} 交易数据 {k + 1}/{len(trade_chunks)}"
-                               f" ({idx + 1}/{n_parts})",
-                      "text": f"交易数据(日聚合, 第 {k + 1}/{len(trade_chunks)} 份,"
-                              f" 段 {idx + 1}/{n_parts}):\n"
-                      + _j({"trades_columns": cols, "trades": chunk})
-                      + f"\n\n【第 {idx + 1}/{n_parts} 段完 — 指令在最后一段, 请继续等待】"})
-    parts.append({"label": f"{_num(n_parts - 1)} 指令+策略身份 ({n_parts}/{n_parts})",
-                  "text": _REGIME_AI_PROMPT_HEAD + _j(base)
-                  + "\n\n【全部发完 — 以上即任务指令, 数据在前面各段, 请开始分析】"})
+    parts = [
+        {"label": "① regime 全部版本 (1/3)", "slug": "regimes",
+         "text": "以下是交易策略 regime 分析的原料数据, 共 3 段: ①全部 regime 口径版本"
+                 "(params=格子怎么算; timeline_runs=时间线压缩段[起始日YYMMDD,格], 只记换格日,"
+                 " 某日的格=之前最近一段的格) ②全量交易 ③任务指令。"
+                 "请先暂存, 收到第③段指令后再开始分析。\n\n"
+                 + _j({"regime_versions": versions})
+                 + "\n\n【第 1/3 段完 — 指令在第③段, 请继续等待】"},
+        {"label": "② 全量交易 (2/3)", "slug": "trades",
+         "text": "交易数据(日聚合, 第 2/3 段):\n"
+                 + _j({"trades_columns": cols, "trades": trades})
+                 + "\n\n【第 2/3 段完 — 指令在第③段, 请继续等待】"},
+        {"label": "③ 指令+策略身份 (3/3)", "slug": "instruction",
+         "text": _REGIME_AI_PROMPT_HEAD + _j(base)
+                 + "\n\n【全部发完 — 以上即任务指令, 数据在前两段, 请开始分析】"},
+    ]
     full = "\n\n".join(pt["text"] for pt in parts)
     return {"prompt": full, "parts": parts}
 
