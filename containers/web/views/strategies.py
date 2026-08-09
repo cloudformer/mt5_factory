@@ -580,10 +580,7 @@ def heal_points():
     return redirect(request.referrer or url_for("strategies.analysis"))
 
 
-@bp.get("/reconcile_stats")
-def reconcile_stats():
-    """对账统计已并入「全局回测概览」(2026-08-09 页面整编) — 老书签 302 跳新家"""
-    return redirect(url_for("dashboard.backtest_overview"))
+# 对账统计页已并入「全局回测概览」(2026-08-09 页面整编), 路由随站内引用清零一并拆除
 
 
 @bp.get("/reconcile/cards")
@@ -601,7 +598,7 @@ def save_recon_hours():
     """保存自动对账频率(config recon_hours, 仅 admin): 距上次满 N 小时就跑一遍, 0=关闭"""
     if session.get("dev_user_id") != 1:
         flash("此项仅管理员(admin)可改 — 其他用户只读", "error")
-        return redirect(url_for("strategies.reconcile_stats"))
+        return redirect(url_for("dashboard.backtest_overview"))
     try:
         h = int(request.form.get("recon_hours", 24))
         api.put("/config/recon_hours", {"value": h})
@@ -609,7 +606,7 @@ def save_recon_hours():
               " — 心跳主节点下一拍(30秒内)按新频率走", "ok")
     except (api.ApiError, ValueError) as e:
         flash(f"保存失败: {e}", "error")
-    return redirect(url_for("strategies.reconcile_stats"))
+    return redirect(url_for("dashboard.backtest_overview"))
 
 
 @bp.post("/<int:strategy_id>/reconcile")

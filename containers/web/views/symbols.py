@@ -306,10 +306,7 @@ def save_mt5_days():
     return redirect(url_for("symbols.backtest_params"))
 
 
-@bp.get("/ranking")
-def ranking():
-    """排名参数模板已并入「策略参数」页(2026-08-09 页面整编) — 老书签 302 跳新家"""
-    return redirect(url_for("symbols.backtest_params"))
+# 排名参数模板页已并入「策略参数」页(2026-08-09 页面整编), 路由随站内引用清零一并拆除
 
 
 @bp.post("/config/ranks")
