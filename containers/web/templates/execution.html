@@ -23,35 +23,24 @@
 {% endif %}
 
 <section>
+  {# 主机区只读(2026-08-09 Frank 定: 角色切换收敛到 Workers 页唯一入口, 本页去掉重复写入口) #}
   <h2>{{ cfg.title }}主机</h2>
   <table>
-    <tr><th>名称</th><th>地址</th><th>账户</th><th>状态</th><th>操作</th></tr>
+    <tr><th>名称</th><th>地址</th><th>账户</th><th>状态</th></tr>
     {% for h in assigned %}
     <tr>
       <td>{{ h.name }}</td>
       <td>{{ h.host }}:{{ h.port }}</td>
       <td>{{ h.account_type }}</td>
       <td>{{ m.worker_status(h) }} <span class="muted">{{ m.rel(h.last_heartbeat) }}</span></td>
-      <td>
-        <form method="post" action="{{ url_for('execution.unassign', mode=mode, host_id=h.id) }}" class="inline">
-          <button class="small">取消指派</button>
-        </form>
-      </td>
     </tr>
     {% else %}
-    {% call m.empty(5) %}还没有指派{{ cfg.title }}主机 — 用下方表单指派{% endcall %}
+    {% call m.empty(4) %}还没有 {{ cfg.title }} 主机 — 去 <a href="{{ url_for('workers.index') }}">Workers</a> 页指派{% endcall %}
     {% endfor %}
   </table>
-
-  <h3>指派主机</h3>
-  <form method="post" action="{{ url_for('execution.assign', mode=mode) }}" class="inline">
-    <select name="host_id">
-      {% for h in assignable %}<option value="{{ h.id }}">{{ h.name }} ({{ h.host }}, 当前: {{ m.worker_duty(h) }})</option>{% endfor %}
-    </select>
-    <button {% if not assignable %}disabled{% endif %}>指派为 {{ cfg.role }}</button>
-    {% if mode == 'live' %}<span class="badge warn">Live：确认该主机 MT5 登录的是真实账户</span>{% endif %}
-  </form>
-  <p class="muted">worker 上的 runner 每 60 秒检查一次自己的角色，指派后一分钟内自动切换。已有职能的主机必须先『取消指派』才能改投另一边。</p>
+  <p class="muted">角色指派/切换在 <a href="{{ url_for('workers.index') }}">Workers</a> 页(唯一入口) ·
+    runner 每 60 秒对齐角色, 切换后一分钟内自动生效{% if mode == 'live' %} ·
+    <span class="badge warn">Live: 指派前确认该主机 MT5 登录的是真实账户</span>{% endif %}</p>
 </section>
 
 <section>

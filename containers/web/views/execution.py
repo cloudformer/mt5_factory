@@ -5,7 +5,7 @@ web 只读 api, 不直接连 worker。数据最多滞后一个心跳周期(30s)�
 """
 from datetime import datetime, timezone
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, render_template, request
 
 import api_client as api
 
@@ -61,12 +61,10 @@ def _render(mode: str):
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     assigned = [h for h in hosts if h["runner"] == cfg["role"]]
-    # 只有"无职能"的主机可被指派; 已是 demo/live 的必须先取消指派 (api 侧也强制)
-    assignable = [h for h in hosts if not h["runner"] and h["enabled"]]
+    # 角色切换收敛到 Workers 页唯一入口(2026-08-09) — 本页主机区只读
     accounts, stats_by_magic, skipped_by_id, stale = _runner_report(assigned)
     return render_template("execution.html", mode=mode, cfg=cfg, assigned=assigned,
-                           worker=worker,
-                           assignable=assignable, strategies=strategies,
+                           worker=worker, strategies=strategies,
                            hosts_runner=[h for h in hosts
                                          if h.get("enabled") and h.get("runner")],
                            accounts=accounts, stats=stats_by_magic, skipped=skipped_by_id,
@@ -84,28 +82,5 @@ def live():
     return _render("live")
 
 
-@bp.post("/<mode>/assign")
-def assign(mode: str):
-    if mode not in MODES:
-        return redirect(url_for("dashboard.index"))
-    role = MODES[mode]["role"]
-    try:
-        host_id = int(request.form["host_id"])
-        result = api.post_patch(f"/hosts/{host_id}", {"runner": role})
-        flash(f"{result['name']} 已指派为 {role} 主机", "ok")
-    except (api.ApiError, ValueError, KeyError) as e:
-        flash(f"指派失败: {e}", "error")
-    return redirect(url_for(f"execution.{mode}"))
-
-
-@bp.post("/<mode>/unassign/<int:host_id>")
-def unassign(mode: str, host_id: int):
-    if mode not in MODES:
-        return redirect(url_for("dashboard.index"))
-    role = MODES[mode]["role"]
-    try:
-        result = api.post_patch(f"/hosts/{host_id}", {"runner": None})
-        flash(f"{result['name']} 已取消 {role} 职能", "ok")
-    except api.ApiError as e:
-        flash(f"取消失败: {e}", "error")
-    return redirect(url_for(f"execution.{mode}"))
+# 指派/取消指派路由已删(2026-08-09 Frank 定): 角色切换唯一入口 = Workers 页
+# (web/views/workers.py set_runner → PATCH /hosts/{id}), 本页主机区降级只读 — 一处逻辑
