@@ -868,15 +868,29 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
     pool = request.app.state.pool
     await identity.assert_strategy_visible(pool, request, strategy_id)
     s = await pool.fetchrow(
-        "SELECT id, name, template, symbol, timeframe, params, status"
+        "SELECT id, name, template, symbol, timeframe, params, status, parent_id, metadata"
         " FROM strategies WHERE id=$1", strategy_id)
     if s is None:
         raise HTTPException(status_code=404, detail="strategy not found")
+    # 自动上溯无门根(2026-08-09 Frank 定): 门变体的成交被门滤过 = 残卷, 评口径必须全量 —
+    # 输入门变体 ID 也自动用它的无门根分析(与克隆挂根同一血统逻辑); 产出的 gate 也该配根
+    requested_id, seen = s["id"], {s["id"]}
+    while isinstance(s["metadata"], dict) and (s["metadata"] or {}).get("regime") \
+            and s["parent_id"] and s["parent_id"] not in seen:
+        seen.add(s["parent_id"])
+        nxt = await pool.fetchrow(
+            "SELECT id, name, template, symbol, timeframe, params, status,"
+            "       parent_id, metadata FROM strategies WHERE id=$1", s["parent_id"])
+        if nxt is None:
+            break
+        s = nxt
     bt = await pool.fetchrow(
         "SELECT from_time, to_time, trades FROM backtests"
-        " WHERE strategy_id=$1 AND symbol=$2", strategy_id, s["symbol"])
+        " WHERE strategy_id=$1 AND symbol=$2", s["id"], s["symbol"])
     if bt is None:
-        raise HTTPException(status_code=400, detail="主品种没有回测行 — 先跑一发回测(建议20年)")
+        raise HTTPException(status_code=400, detail=(
+            f"无门根 #{s['id']} 的主品种没有回测行 — 先给它跑一发回测(建议20年)"
+            if s["id"] != requested_id else "主品种没有回测行 — 先跑一发回测(建议20年)"))
     # 日聚合(2026-08-09 Frank 确认: regime 原生分辨率=天, 同日笔贴同格 — 五元组可精确
     # 重算任意切片的 PF/净点/笔数/胜率, 零分析损失, 体积 -60%): [YYMMDD, 笔数, 赢, 毛利, 毛损]
     daily: dict = {}
@@ -928,7 +942,10 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
     n_parts = 1 + len(versions)
     base = {"strategy": {"id": s["id"], "name": s["name"], "template": s["template"],
                          "params": s["params"], "symbol": s["symbol"],
-                         "timeframe": s["timeframe"], "status": s["status"]},
+                         "timeframe": s["timeframe"], "status": s["status"],
+                         **({"note": f"你输入的 #{requested_id} 是门变体(成交被门滤过),"
+                                     f" 已自动改用它的无门根 #{s['id']} 的全量回测分析"}
+                            if s["id"] != requested_id else {})},
             "backtest_window": f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}",
             "trades_columns": ["date_YYMMDD", "n_trades", "n_wins",
                                "gross_profit_pts", "gross_loss_pts"],
