@@ -16,12 +16,12 @@
     {% endif %}
   </form>
   {% if sid and prompt %}
-  <p class="muted" style="margin:8px 0 4px">内容 = 策略身份/参数 + 主品种20年逐笔 + 全部 regime 版本(算法参数+压缩时间线+覆盖标注) + 两问指令与严格 JSON 输出协议。切片全部由 AI 完成(逐年为主/逐月为辅, 1笔也如实显示, <5笔标样本不足)。</p>
+  <p class="muted" style="margin:8px 0 4px">内容 = 策略身份/参数 + 主品种全量逐笔(实际区间随回测行, 可能超过20年) + 全部 regime 版本(算法参数+压缩时间线+覆盖标注) + 两问指令与严格 JSON 输出协议。切片全部由 AI 完成(逐年为主/逐月为辅, 1笔也如实显示, <5笔标样本不足)。</p>
   <textarea id="rg-prompt" readonly style="width:100%;height:420px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px">{{ prompt }}</textarea>
   {% elif sid %}
-  <p class="muted">没取到提示词 — 看上方报错(常见: 主品种还没回测行, 先去「回测」按 ID 跑一发 20 年)。</p>
+  <p class="muted">没取到提示词 — 看上方报错(常见: 主品种还没回测行, 先去「回测」按 ID 跑一发(建议窗口 20 年))。</p>
   {% else %}
-  <p class="muted">输入策略 ID 载入。前置条件: 该策略主品种有回测行(建议 20 年窗)。</p>
+  <p class="muted">输入策略 ID 载入。前置条件: 该策略主品种有回测行(窗口越长第一问越有说服力, 建议 20 年)。</p>
   {% endif %}
 </section>
 {% endblock %}

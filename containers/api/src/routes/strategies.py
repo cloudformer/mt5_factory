@@ -801,7 +801,7 @@ _REGIME_AI_PROMPT_HEAD = """\
 # 任务(两问, 服务两个对象): ① 对 Regime 口径的评价报告 ② 该策略可直接使用的门(gate)
 
 ## 第一问: Regime 报告 — 评的是【口径】不是策略
-用本策略 20 年回测当探针, 评价 N 个 regime 版本谁更有规律。判定算法(按此执行):
+用本策略全量回测当探针(实际区间见数据 backtest_window, 可能超过20年), 评价 N 个 regime 版本谁更有规律。判定算法(按此执行):
 - 第一维度 = 8 个格(象限); 对每个格: 拉出【逐年】切片的 PF 序列,
   看"格内跨年 PF 是否大致相同"(离散度小=稳定)。
 - 例: 某版本下 AAA 格各年 PF 都≈0.7, BBB 格各年都≈1.9 → 这就是最好的 regime —
@@ -818,7 +818,7 @@ _REGIME_AI_PROMPT_HEAD = """\
   数字不好的格【不写进 cells = 那种天气直接不交易】— 不存在负倍率或反着做。
 
 ## 原料(数据在最后, 我方零预处理 — 贴格/切片全部由你完成)
-1. strategy: 模板/参数/品种/周期(主货币对 20 年悲观口径回测)
+1. strategy: 模板/参数/品种/周期(主货币对全量悲观口径回测, 区间=backtest_window)
 2. trades: 紧凑列式 [入场日期, 净点(已按倍率加权), 倍率]
 3. regime_versions: 全部口径版本 — 每个版本给 params(算法参数: 长均线/短均线/ATR等,
    即"格子怎么算的")和 timeline_runs(压缩段: [起始日, 格], 只记换格日;
@@ -856,7 +856,7 @@ unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话�
 
 @router.get("/strategies/{strategy_id}/regime_prompt")
 async def regime_ai_prompt(strategy_id: int, request: Request):
-    """单策略AI调参·Regime 提示词(2026-08-09 与 Frank 定稿): 全部原料喂 AI 让它自己切 —
+    """单策略AI调参·Regime 提示词(2026-08-09 与 Frank 定稿): 全量原料喂 AI 让它自己切 —
     两问结构(①regime口径评价报告 ②可用gate)。服务器零预处理(先看AI切片效果);
     全部版本(参数+压缩时间线), 未覆盖回测区间的版本如实标注。"""
     pool = request.app.state.pool
