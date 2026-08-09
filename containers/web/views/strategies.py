@@ -681,6 +681,34 @@ def ai_page():
                            family=family, meta=meta, space=space, report_json=report_json)
 
 
+@bp.get("/ai_regime")
+def ai_regime_page():
+    """单策略AI调参·Regime(2026-08-09 与 Frank 定, 人桥版): 输入策略ID → 复制提示词
+    (两问: ①regime口径评价报告 ②可用gate JSON) → 粘给任意 AI → 结果人工使用
+    (gate 照勾进矩阵页克隆带门)。复制出的文本可随手改再粘, 模板固化在 api(git 可审)。"""
+    sid = request.args.get("strategy_id", type=int)
+    prompt = ""
+    if sid:
+        try:
+            prompt = api.get(f"/strategies/{sid}/regime_prompt", timeout=120)["prompt"]
+        except (api.ApiError, KeyError) as e:
+            flash(f"取提示词失败: {e}", "error")
+    return render_template("strategy_ai_regime.html", sid=sid, prompt=prompt)
+
+
+@bp.get("/ai_regime/prompt.txt")
+def ai_regime_prompt_txt():
+    """纯文本透传(自动化/curl 取这里); 缺参 400 正常拒绝"""
+    sid = request.args.get("strategy_id", type=int)
+    if not sid:
+        return "error: 缺 strategy_id", 400, {"Content-Type": "text/plain; charset=utf-8"}
+    try:
+        r = api.get(f"/strategies/{sid}/regime_prompt", timeout=120)
+        return r["prompt"], 200, {"Content-Type": "text/plain; charset=utf-8"}
+    except (api.ApiError, KeyError) as e:
+        return f"error: {e}", 502, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @bp.get("/ai/prompt.txt")
 def ai_prompt_txt():
     """纯文本提示词透传(api 单一来源; scripts/ai_tune.py 等自动化取这里)"""

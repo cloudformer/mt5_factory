@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('单策略AI调参·Regime', '人桥版两问分析: 载入策略 → 复制提示词粘给任意 AI → ① AI 出 regime 口径评价报告(哪个版本更有规律, 稳定亏也是规律) ② 出可直接使用的 gate JSON(数字不好的格不选=不交易) → 拿着 gate 去「单策略regime分析」页照勾克隆带门') }}
+
+<section>
+  <form method="get" class="inline">
+    <input type="number" name="strategy_id" value="{{ sid or '' }}" placeholder="策略 ID" required style="width:110px">
+    <button>载入</button>
+    {% if sid and prompt %}
+    <button type="button" class="small live"
+            onclick="navigator.clipboard.writeText(document.getElementById('rg-prompt').value);this.textContent='✓ 已复制';setTimeout(()=>this.textContent='复制提示词',1500)">复制提示词</button>
+    <a class="btn" href="{{ url_for('strategies.ai_regime_prompt_txt', strategy_id=sid) }}" target="_blank"
+       title="纯文本版(自动化/下载用), 与复制按钮同一内容">prompt.txt</a>
+    <span class="muted">≈ {{ (prompt | length / 1024) | round | int }} KB — 数据大, 建议用大上下文 AI; 复制出的文本可随手修改再粘</span>
+    {% endif %}
+  </form>
+  {% if sid and prompt %}
+  <p class="muted" style="margin:8px 0 4px">内容 = 策略身份/参数 + 主品种20年逐笔 + 全部 regime 版本(算法参数+压缩时间线+覆盖标注) + 两问指令与严格 JSON 输出协议。切片全部由 AI 完成(逐年为主/逐月为辅, 1笔也如实显示, <5笔标样本不足)。</p>
+  <textarea id="rg-prompt" readonly style="width:100%;height:420px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px">{{ prompt }}</textarea>
+  {% elif sid %}
+  <p class="muted">没取到提示词 — 看上方报错(常见: 主品种还没回测行, 先去「回测」按 ID 跑一发 20 年)。</p>
+  {% else %}
+  <p class="muted">输入策略 ID 载入。前置条件: 该策略主品种有回测行(建议 20 年窗)。</p>
+  {% endif %}
+</section>
+{% endblock %}
