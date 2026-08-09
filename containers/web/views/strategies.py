@@ -279,7 +279,20 @@ def regime_matrix():
         win_label = f"近{round(days / 365, 1):g}年"   # 5.0→近5年, 0.49→近0.5年, 10.0→近10年
         # 展示窗口档位: 只列严格小于回测区间的(等长=「全部」已覆盖)
         show_opts = [y for y in (1, 2, 3, 5, 10, 20) if y * 365 <= days - 30]
+    # 年×格时间轴(2026-08-09): 单品种模式下的下钻视图 — 逐年净点柱 + PF悬停 + 出现密度带
+    ychart = None
+    if data and sym_filter:
+        try:
+            ycell = (request.args.get("cell") or "").strip().upper() or None
+            yd = api.get("/backtest/regime_matrix/years", strategy_id=sid,
+                         symbol=sym_filter, timeout=60,
+                         **({"cell": ycell} if ycell else {}),
+                         **({"regime_version": regime_version} if regime_version else {}))
+            ychart = _year_chart(yd)
+        except api.ApiError as e:
+            flash(f"年×格视图不可用: {e}", "error")
     return render_template("regime_matrix.html", data=data, sid=sid, win_label=win_label,
+                           ychart=ychart,
                            show_years=show_years, show_opts=show_opts,
                            regime_version=regime_version,
                            rv_current=rv["current"], rv_versions=rv["versions"],
@@ -877,3 +890,34 @@ def dispatch(strategy_id: int):
             return {"error": str(e)}, 400
         flash(f"调度失败: {e}", "error")
     return redirect(request.referrer or url_for("strategies.index"))
+
+def _year_chart(yd: dict) -> dict:
+    """年×格序列 → SVG 几何(模板零计算): 柱坐标/零线/刻度/密度带。
+    绿上红下; <10笔淡显; 无柱年份标 ·无(天气没来)/·0笔(来了没触发)。"""
+    years = yd.get("years") or []
+    if not years:
+        return {**yd, "bars": [], "w": 300}
+    slot, bw, y0line = 48, 34, 170
+    left = 60
+    vmax = max((abs(y["net"]) for y in years if y.get("net") is not None), default=1) or 1
+    scale = 120.0 / vmax          # 最高柱 120px
+    bars = []
+    for i, y in enumerate(years):
+        x = left + 4 + i * slot
+        b = {"x": x, "cx": x + bw // 2, "year": y["year"], "n": y.get("n") or 0,
+             "pct": y.get("pct"), "gap": y.get("gap")}
+        if y.get("net") is None:
+            b["mark"] = "·无" if y.get("gap") == "absent" else "·0笔"
+        else:
+            hpx = max(round(abs(y["net"]) * scale), 2)
+            b.update(h=hpx, y=(y0line - hpx) if y["net"] >= 0 else y0line,
+                     cls=("bar-pos" if y["net"] >= 0 else "bar-neg")
+                         + (" bar-thin" if y["n"] < 10 else ""),
+                     title=f"{y['year']} · {y['net']:+,.0f}点 · PF "
+                           f"{'∞' if y['pf'] is None else y['pf']} · {y['n']}笔"
+                           + ("" if y["n"] >= 10 else " ⚠样本不足"))
+        bars.append(b)
+    nmax = max((y.get("n") or 0 for y in years), default=1) or 1
+    return {**yd, "bars": bars, "w": left + 8 + len(years) * slot, "nmax": nmax,
+            "zero": y0line, "vmax": round(vmax), "half_y": y0line - 60,
+            "vhalf": round(vmax / 2)}

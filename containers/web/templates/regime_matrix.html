@@ -103,6 +103,52 @@
     <span class="muted">倍率 0.5~1; 同门重复克隆返回现有 id; 最低挂载手数 = 0.01 ÷ 最小倍率</span>
   </form>
 
+  {# 年×格战绩时间轴(2026-08-09 Frank 定, 下钻视图): 单品种模式限定 — 该格逐年净点柱
+     (绿上红下, <10笔淡显) + PF/笔数悬停 + 双密度带(蓝=出现% 灰=笔数: 相关不等同,
+     深浅对照即"挑食度" — 出现多笔少=门槛严, 出现少笔多=一来就密集出手)。与矩阵同源现算。 #}
+{% if ychart and ychart.bars %}
+  <h2 style="margin-top:16px">年 × 格 战绩时间轴
+    <span class="muted" style="font-weight:400">· {{ ychart.symbol }} · 这个格的优势是贯穿20年还是某几年的运气</span></h2>
+  <p class="inline" style="margin:6px 0">
+    <span class="muted">格</span>
+    {% for c, n in ychart.counts.items() %}
+    <a href="{{ url_for('strategies.regime_matrix', strategy_id=sid, symbol=sym_filter, cell=c,
+                        regime_version=regime_version or None) }}"
+       class="{{ 'badge ok' if c == ychart.cell else 'muted' }} mono" title="{{ n }} 笔">{{ c }}</a>{{ ' · ' if not loop.last }}
+    {% endfor %}
+    <span class="op-sep">│</span>
+    <span class="muted">悬停柱看 年·净点·PF·笔数 · 淡柱=样本&lt;10笔 · ·无=天气没来 ·0笔=来了没触发</span>
+  </p>
+  <div style="overflow-x:auto">
+  <svg viewBox="0 0 {{ ychart.w }} 316" width="{{ ychart.w }}" height="316" class="ry-chart"
+       role="img" aria-label="{{ ychart.cell }} 格逐年净点柱状图">
+    <line class="grid" x1="56" y1="{{ ychart.half_y }}" x2="{{ ychart.w - 4 }}" y2="{{ ychart.half_y }}"/>
+    <line class="zero" x1="56" y1="{{ ychart.zero }}" x2="{{ ychart.w - 4 }}" y2="{{ ychart.zero }}"/>
+    <text x="6" y="{{ ychart.half_y + 4 }}">+{{ '{:,}'.format(ychart.vhalf) }}</text>
+    <text x="6" y="{{ ychart.zero + 4 }}">0</text>
+    {% for b in ychart.bars %}
+    {% if b.mark %}
+    <text class="gapmark" x="{{ b.x + 4 }}" y="{{ ychart.zero + 12 }}">{{ b.mark }}</text>
+    {% else %}
+    <rect class="{{ b.cls }}" x="{{ b.x }}" y="{{ b.y }}" width="34" height="{{ b.h }}"><title>{{ b.title }}</title></rect>
+    {% endif %}
+    {% if loop.index0 % 2 == 0 %}<text x="{{ b.x }}" y="260">{{ b.year }}</text>{% endif %}
+    {# 双密度带(2026-08-09 Frank 要"都显示"): 蓝=该格出现占比(天气频率), 灰=该年笔数(策略出手) #}
+    {% if b.pct is not none %}
+    <rect x="{{ b.x }}" y="272" width="34" height="7" fill="var(--accent)"
+          opacity="{{ [0.06, (b.pct * 3.2)] | max | round(2) }}"><title>{{ b.year }} · {{ ychart.cell }} 出现占比 {{ (b.pct * 100) | round(1) }}%</title></rect>
+    {% endif %}
+    <rect x="{{ b.x }}" y="282" width="34" height="7" fill="var(--text)"
+          opacity="{{ [0.05, (b.n / ychart.nmax)] | max | round(2) }}"><title>{{ b.year }} · {{ b.n }} 笔</title></rect>
+    {% endfor %}
+    <text x="6" y="279">出现%</text>
+    <text x="6" y="290">笔数</text>
+  </svg>
+  </div>
+  <p class="muted" style="font-size:12px">两条带深浅对照 = 挑食度: 蓝深灰浅(出现多·出手少)=门槛严;
+    蓝浅灰深(出现少·出手密)=一来就密集出手。悬停各带看具体数。</p>
+{% endif %}
+
   <h2>汇总八格(全部品种同格相加)
     {# 汇总行年数跟随展示窗(数字本来就是按它筛的), 没选展示窗才是全回测区间 #}
     <span class="muted">共 {{ data.total_trades }} 笔 · {{ data.symbols|length }} 品种{% if show_years %} · {% if show_years > 0 %}近{{ show_years }}年{% else %}{{ -show_years }}年以前{% endif %}{% elif win_label %} · {{ win_label }}{% endif %}{% if data.total_unlabeled %} · {{ data.total_unlabeled }} 笔无时间线标签未计入{% endif %}</span></h2>

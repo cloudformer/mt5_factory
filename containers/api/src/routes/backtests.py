@@ -1207,6 +1207,68 @@ def _merge_raw(dst: dict, src: dict) -> None:
 SWEEP_YEARS = (1, 2, 3, 5, 10, 15, 20)   # 展示窗口档位(提示词 sweep 同源)
 
 
+@router.get("/backtest/regime_matrix/years")
+async def regime_matrix_years(request: Request, strategy_id: int, symbol: str,
+                              cell: Optional[str] = None,
+                              regime_version: Optional[int] = None):
+    """年×格战绩时间轴(2026-08-09 与 Frank 定, 九币矩阵的下钻视图):
+    单品种、选一个格 → 逐年 {净点, PF, 笔数} + 该格逐年出现占比(天气频率, 与笔数相关不等同:
+    出现多笔少=策略挑食, 出现少笔多=一来就密集出手)。现算不落库, 与矩阵同源同口径。
+    cell 不传 = 默认笔数最多的格。回答: 这个格的优势是贯穿20年还是某几年的运气。"""
+    pool = request.app.state.pool
+    await identity.assert_strategy_visible(pool, request, strategy_id)
+    bt = await pool.fetchrow(
+        "SELECT from_time, to_time, trades FROM backtests"
+        " WHERE strategy_id=$1 AND symbol=$2", strategy_id, symbol)
+    if bt is None:
+        raise HTTPException(status_code=404, detail="该品种没有回测行")
+    try:
+        await regime.ensure_timeline(pool, symbol, regime_version)
+    except Exception as e:
+        logger.warning("regime ensure %s failed: %s", symbol, e)
+    tl = await regime.tl_map(pool, symbol, regime_version)
+    # 逐笔贴格 → (格, 年) 累加: n/毛利/毛损
+    agg: dict = {}
+    counts: dict = {}
+    for t in (bt["trades"] or []):
+        d = datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date()
+        c = tl.get(d)
+        if c is None:
+            continue
+        counts[c] = counts.get(c, 0) + 1
+        a = agg.setdefault((c, d.year), [0, 0.0, 0.0])
+        pts = float(t.get("points") or 0) * float(t.get("mult") or 1)
+        a[0] += 1
+        if pts >= 0:
+            a[1] += pts
+        else:
+            a[2] -= pts
+    if not counts:
+        return {"cell": cell, "counts": {}, "years": [], "note": "无标签笔(时间线缺失?)"}
+    if not cell or cell not in counts:
+        cell = max(counts, key=counts.get)   # 默认 = 笔数最多的格
+    # 该格逐年出现占比(时间线天数口径)
+    days_cell: dict = {}
+    days_all: dict = {}
+    for d, c in tl.items():
+        days_all[d.year] = days_all.get(d.year, 0) + 1
+        if c == cell:
+            days_cell[d.year] = days_cell.get(d.year, 0) + 1
+    y0, y1 = bt["from_time"].year, bt["to_time"].year
+    years = []
+    for y in range(y0, y1 + 1):
+        a = agg.get((cell, y))
+        pct = round(days_cell.get(y, 0) / days_all[y], 3) if days_all.get(y) else None
+        if a:
+            years.append({"year": y, "n": a[0], "net": round(a[1] - a[2], 1),
+                          "pf": round(a[1] / a[2], 2) if a[2] > 0 else None, "pct": pct})
+        else:   # 无柱两种成因如实分开: 天气没来 vs 来了没触发
+            years.append({"year": y, "n": 0, "net": None, "pf": None, "pct": pct,
+                          "gap": "absent" if not days_cell.get(y) else "no_trade"})
+    return {"cell": cell, "counts": dict(sorted(counts.items())), "years": years,
+            "symbol": symbol, "from_year": y0, "to_year": y1}
+
+
 @router.get("/backtest/regime_matrix")
 async def backtest_regime_matrix(request: Request, strategy_id: int,
                                  show_years: Optional[int] = None,

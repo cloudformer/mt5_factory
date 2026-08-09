@@ -473,3 +473,13 @@ td.pf-nil { color: var(--muted);  background: #f0f2f4; }
           padding: 10px 12px 12px; margin-top: 12px; }
 .o2-cfg .cfg-title { font-weight: 700; color: var(--text); margin-right: 10px; }
 .o2-cfg label { color: var(--text); font-weight: 600; }
+
+/* 年×格战绩时间轴(2026-08-09, 九币矩阵下钻): SVG 柱/零线/空档标记/双密度带 */
+.ry-chart text { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; fill: var(--muted); }
+.ry-chart .bar-pos { fill: var(--ok-fg); opacity: .85; }
+.ry-chart .bar-neg { fill: var(--err-fg); opacity: .85; }
+.ry-chart .bar-thin { opacity: .35; }     /* 样本不足(<10笔): 淡显别当真 */
+.ry-chart .zero { stroke: var(--text); stroke-width: 1; opacity: .5; }
+.ry-chart .grid { stroke: var(--border); stroke-width: 1; }
+.ry-chart .gapmark { fill: var(--muted); font-size: 9.5px; }
+.ry-chart rect:hover { opacity: 1; stroke: var(--accent); stroke-width: 1.5; }
