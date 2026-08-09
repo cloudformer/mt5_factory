@@ -819,10 +819,12 @@ _REGIME_AI_PROMPT_HEAD = """\
 
 ## 原料(数据在最后, 我方零预处理 — 贴格/切片全部由你完成)
 1. strategy: 模板/参数/品种/周期(主货币对全量悲观口径回测, 区间=backtest_window)
-2. trades: 紧凑列式 [入场日期, 净点(已按倍率加权), 倍率]
+2. trades: 【日聚合】紧凑列式 [日期YYMMDD, 笔数, 赢笔数, 毛利点, 毛损点] —
+   同日笔贴同一个格(regime 按天), 任意切片的 PF=Σ毛利/Σ毛损、净点=毛利-毛损、
+   胜率=Σ赢/Σ笔 都可精确重算, 无信息损失; 已按倍率加权
 3. regime_versions: 全部口径版本 — 每个版本给 params(算法参数: 长均线/短均线/ATR等,
-   即"格子怎么算的")和 timeline_runs(压缩段: [起始日, 格], 只记换格日;
-   某日的格 = 之前最近一段的格)
+   即"格子怎么算的")和 timeline_runs(压缩段: [起始日YYMMDD, 格], 只记换格日;
+   某日的格 = 之前最近一段的格 — 展开即得每一天的格, 零损失)
 4. coverage: 每版本时间线对回测区间的覆盖 — "全量"=覆盖整个回测区间
    (回测只有2年则时间线2年也算全量); 未全量的版本已标注, 其结论必须注明受限
 
@@ -871,9 +873,21 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
         " WHERE strategy_id=$1 AND symbol=$2", strategy_id, s["symbol"])
     if bt is None:
         raise HTTPException(status_code=400, detail="主品种没有回测行 — 先跑一发回测(建议20年)")
-    trades = [[datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).strftime("%Y-%m-%d"),
-               round(float(t.get("points") or 0) * float(t.get("mult") or 1), 1),
-               float(t.get("mult") or 1)] for t in (bt["trades"] or [])]
+    # 日聚合(2026-08-09 Frank 确认: regime 原生分辨率=天, 同日笔贴同格 — 五元组可精确
+    # 重算任意切片的 PF/净点/笔数/胜率, 零分析损失, 体积 -60%): [YYMMDD, 笔数, 赢, 毛利, 毛损]
+    daily: dict = {}
+    for t in (bt["trades"] or []):
+        d = datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).strftime("%y%m%d")
+        a = daily.setdefault(d, [0, 0, 0.0, 0.0])
+        pts = float(t.get("points") or 0) * float(t.get("mult") or 1)
+        a[0] += 1
+        if pts > 0:
+            a[1] += 1
+            a[2] += pts
+        else:
+            a[3] -= pts
+    trades = [[d, a[0], a[1], round(a[2], 1), round(a[3], 1)]
+              for d, a in sorted(daily.items())]
     cur_vid, _ = await regime.active_version(pool)
     versions = []
     for v in await pool.fetch("SELECT id, params FROM regime_versions ORDER BY id"):
@@ -888,7 +902,7 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
         runs, prev = [], None
         for r in tl_rows:
             if r["regime"] != prev:
-                runs.append([r["date"].isoformat(), r["regime"]])
+                runs.append([r["date"].strftime("%y%m%d"), r["regime"]])
                 prev = r["regime"]
         if not tl_rows:
             cov = "无时间线(未重建) — 该版本无法分析"
@@ -904,7 +918,8 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
                          "params": s["params"], "symbol": s["symbol"],
                          "timeframe": s["timeframe"], "status": s["status"]},
             "backtest_window": f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}",
-            "trades_columns": ["entry_date", "net_points_weighted", "mult"],
+            "trades_columns": ["date_YYMMDD", "n_trades", "n_wins",
+                               "gross_profit_pts", "gross_loss_pts"],
             "trades": trades,
             "regime_versions": versions}
     import json as _json
