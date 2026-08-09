@@ -826,10 +826,15 @@ trades/wins/gross_profit_pts/gross_loss_pts(容差: 点数 ±0.5)。加总不等
   实算完成】, 禁止心算、估算、按比例摊派; 输出 data_check.computed_by="code"。
 - 没有代码执行能力, 或没有把握逐日算对 → 【诚实回答】: match=false,
   computed_by="none", mismatch 写"无法可靠完成计算, 需要预聚合数据",
-  两份报告置 null。说"算不了"是完全合法的答案; 编造看似合理的数字是最严重违规。
-- 探针抽查: 指令数据里 probe_days 点名了若干交易日 — 在 data_check.probes 里回报
-  每个日子在【每个版本】下的格(必须来自你实际展开的时间线)。我方持有这些日子的
-  真实答案将逐一核对, 答错任何一个 = 整份报告作废。
+  computed/cell_totals 与两份报告置 null。说"算不了"是完全合法的答案;
+  编造看似合理的数字是最严重违规。
+- 【无论是否认输, 以下两项永远必答, 不许为 null】:
+  ① computed_by — 如实回 "code" 或 "none";
+  ② probes — probe_days 里每个日子在【每个版本】下的格。这是查找不是计算:
+    在该版本 timeline_runs 里找出起始日 ≤ 该日的最后一段, 其格即答案,
+    逐个翻找即可, 不需要代码执行 — 所以认输也必须答。
+  我方持有这些日子的真实答案将逐一核对, 答错任何一个 = 整份回复作废;
+  连 probes 都答不了 = 你没读数据, 不要回复任何数字。
 
 ## 第一问: Regime 报告 — 评的是【口径】不是策略
 用本策略全量回测当探针(实际区间见数据 backtest_window, 可能超过20年), 评价 N 个 regime 版本谁更有规律。判定算法(按此执行):
@@ -896,6 +901,7 @@ unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话�
 }
 - data_check 放最前: match=true 且 cell_totals 各版本加总=总账, 才允许出报告;
   否则两份报告置 null 只报 mismatch;
+- computed_by 与 probes 任何情况下必填(认输白卷也要填 — probes 是查找不是计算);
 - regime_report 评的是【口径】(与策略赚不赚钱无关, 稳定亏也算规律), ranking 给版本排序;
 - strategy_report 是【策略可直接使用的配置】: gate 与系统 metadata.regime 格式逐字节兼容;
   没有可信规律时 cells 给 {} 并在 recommend 说明。
