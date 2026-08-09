@@ -836,21 +836,25 @@ _REGIME_AI_PROMPT_HEAD = """\
 confidence: high(格内跨年稳定+格间拉开+笔数充足) / medium(部分证据) /
 unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话。
 
-## 输出(严格 JSON, 不要多余文字; gate 与系统 metadata.regime 格式逐字节兼容)
+## 输出(严格 JSON, 不要多余文字 — 两份报告分开, 各说各的)
 {
-  "strategy_id": <id>,
   "regime_report": {
-    "best_version": <版本号>,
+    "ranking": "v1 > v2",
     "versions": [
-      {"version": 1, "regularity": "强|中|弱", "evidence": "格内跨年PF稳定性与格间差异的数字依据"}
-    ],
-    "note": "基于本策略20年数据对各口径的一次评价; 未全量版本的受限说明"
+      {"version": 1, "regularity": "强|中|弱", "evidence": "格内跨年PF稳定性与格间差异的数字依据; 未全量版本注明受限"},
+      {"version": 2, "regularity": "强|中|弱", "evidence": "..."}
+    ]
   },
-  "gate": {"regime": {"cells": {"ABA": 1.0, "BBA": 0.7}, "version": <best_version>}},
-  "confidence": "high|medium|unverified",
-  "ai_regime_recommend": "选格依据(近5年权重66%): 入选格及倍率的数字理由, 未入选格=不交易的理由, 月切片补充观察, 样本不足处的保留意见"
+  "strategy_report": {
+    "strategy_id": <id>,
+    "gate": {"regime": {"cells": {"ABA": 1.0, "BBA": 0.7}, "version": <ranking第一名>}},
+    "confidence": "high|medium|unverified",
+    "ai_regime_recommend": "选哪个 version 及理由; 近5年权重约66%下入选格与倍率的数字依据; 未入选格=不交易的理由; 月切片补充观察; 样本不足处保留意见"
+  }
 }
-没有可信规律时 cells 给 {} 并在 recommend 说明。
+- regime_report 评的是【口径】(与策略赚不赚钱无关, 稳定亏也算规律), ranking 给版本排序;
+- strategy_report 是【策略可直接使用的配置】: gate 与系统 metadata.regime 格式逐字节兼容;
+  没有可信规律时 cells 给 {} 并在 recommend 说明。
 
 ## 数据
 """
@@ -914,17 +918,35 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
                 f"{bt['to_time']:%Y-%m-%d} — 覆盖外的笔无标签, 该版本结论受限")
         versions.append({"version": vid, "is_current_default": vid == cur_vid,
                          "params": v["params"], "coverage": cov, "timeline_runs": runs})
-    data = {"strategy": {"id": s["id"], "name": s["name"], "template": s["template"],
+    import json as _json
+
+    def _j(obj):
+        return _json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)
+
+    # 分段(2026-08-09 Frank 定: 网页版 AI 粘贴有长度限制, 每段一钮接力粘贴):
+    # ①指令+策略+全量交易(声明还有N段别急着分析) → ②..各 regime 版本一段 → 末段带开始口令
+    n_parts = 1 + len(versions)
+    base = {"strategy": {"id": s["id"], "name": s["name"], "template": s["template"],
                          "params": s["params"], "symbol": s["symbol"],
                          "timeframe": s["timeframe"], "status": s["status"]},
             "backtest_window": f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}",
             "trades_columns": ["date_YYMMDD", "n_trades", "n_wins",
                                "gross_profit_pts", "gross_loss_pts"],
-            "trades": trades,
-            "regime_versions": versions}
-    import json as _json
-    return {"prompt": _REGIME_AI_PROMPT_HEAD
-            + _json.dumps(data, ensure_ascii=False, separators=(",", ":"), default=str)}
+            "trades": trades}
+    parts = [{"label": f"① 指令+策略+全量交易 (1/{n_parts})",
+              "text": _REGIME_AI_PROMPT_HEAD + _j(base)
+              + f"\n\n【数据共 {n_parts} 段, 这是第 1 段。接下来我会逐段发送"
+                f" {len(versions)} 个 regime 版本 — 先别开始分析, 收到"
+                f"『全部发完』口令后再按上面的任务与输出协议执行】"}]
+    for i, v in enumerate(versions):
+        tail = ("\n\n【全部发完 — 请按第 1 段的任务与输出协议开始分析】"
+                if i == len(versions) - 1 else
+                f"\n\n【第 {i + 2}/{n_parts} 段完, 还有 {len(versions) - 1 - i} 段, 继续等待】")
+        parts.append({"label": f"{'②③④⑤⑥⑦⑧⑨'[i] if i < 8 else i + 2} regime v{v['version']}"
+                               f" ({i + 2}/{n_parts})",
+                      "text": f"regime 版本数据(第 {i + 2}/{n_parts} 段):\n" + _j(v) + tail})
+    full = "\n\n".join(pt["text"] for pt in parts)
+    return {"prompt": full, "parts": parts}
 
 
 @router.get("/strategies/{strategy_id}/report")
