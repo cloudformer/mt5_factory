@@ -685,6 +685,8 @@ def ai_page():
 def ai_prompt_txt():
     """纯文本提示词透传(api 单一来源; scripts/ai_tune.py 等自动化取这里)"""
     sid = request.args.get("strategy_id", type=int)
+    if not sid:   # 缺参 = 400 正常拒绝, 不是 502 服务故障(2026-08-09 自动冒烟首跑抓出)
+        return "error: 缺 strategy_id", 400, {"Content-Type": "text/plain; charset=utf-8"}
     count = request.args.get("count", 10, type=int)
     try:
         r = api.get(f"/strategies/{sid}/ai_prompt", count=count)
