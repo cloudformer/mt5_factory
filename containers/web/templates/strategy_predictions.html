@@ -8,7 +8,13 @@
   <form method="get" class="inline" data-ajax="section" style="margin-bottom:8px">
     <label>每批 <input type="number" name="batch" value="{{ batch }}" min="5" max="500" step="5"
                        style="width:70px" title="每批几笔算一个 PF(纯页面参数, 不落库)"> 笔</label>
-    <label>范围 <select name="scope" data-autosubmit>
+    {# 建议值(2026-08-10 Frank 定): 批大小要跟胜率配 — 每批期望胜单≥7个才站得稳 #}
+    <button type="button" class="small" title="判稳定: 低胜率(~23%)策略 30 笔≈7 个期望胜单, 亏批/短板可信"
+            onclick="this.form.batch.value=30;this.form.requestSubmit()">30·判稳定</button>
+    <button type="button" class="small" title="看时代: 100 笔一批 ≈ 一两年一段, 看策略跨市场时代的成色"
+            onclick="this.form.batch.value=100;this.form.requestSubmit()">100·看时代</button>
+    <span class="muted" title="一批5笔全亏概率≈27%(胜率23%时), 0.0满天飞是骰子声不是规律">别低于 30(低胜率策略每批≥7个期望胜单, 再细全是噪音)</span>
+    <label style="margin-left:12px">范围 <select name="scope" data-autosubmit>
       <option value="gated" {% if scope != 'all' %}selected{% endif %}>带门(regime)</option>
       <option value="all" {% if scope == 'all' %}selected{% endif %}>全部(有回测行)</option>
     </select></label>
@@ -37,10 +43,12 @@
       <td class="mono muted" style="white-space:nowrap">{{ r.window or '无回测行' }}</td>
       <td class="mono muted" style="white-space:nowrap">{{ r.frozen_at[:10] }}</td>
       {% if r.before %}
-      <td style="white-space:normal;line-height:1.9" title="每批 {{ r.before.batch }} 笔 × {{ r.before.n_batches }} 批(共 {{ r.before.n_trades }} 笔) · 最低批 {{ r.before.min if r.before.min is not none else '∞' }} · 亏损批 {{ r.before.below1 }}/{{ r.before.n_batches }}">
+      <td style="white-space:normal" title="每批 {{ r.before.batch }} 笔 × {{ r.before.n_batches }} 批(共 {{ r.before.n_trades }} 笔) · 最低批 {{ r.before.min if r.before.min is not none else '∞' }} · 亏损批 {{ r.before.below1 }}/{{ r.before.n_batches }}">
+        <div class="pf-chips">
         {%- for f in r.before.pfs -%}
-        <span class="mono {{ 'neg' if f is not none and f < 1 }}" style="margin-right:7px">{{ f if f is not none else '∞' }}</span>
+        <span class="pf-chip {{ 'neg' if f is not none and f < 1 else ('hi' if f is none or f >= 1.5 else '') }}">{{ f if f is not none else '∞' }}</span>
         {%- endfor -%}
+        </div>
       </td>
       {% else %}
       <td class="muted">—(不足一个整批)</td>

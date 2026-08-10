@@ -263,6 +263,15 @@ a.btn:hover { background: #d9ecf9; }
 /* 轴标签: 12px 但用正文色(2026-08-06 Frank: 小字用灰太浅不好分辨) */
 .regime-axis { font-size: 12px; font-weight: 600; color: var(--text);
                text-align: center; align-self: end; padding: 0 4px; }
+/* 批次PF格子(2026-08-10 Frank: 光排数字太乱要格子): 小方格网格三色 —
+   红=亏批(<1) / 绿=强批(≥1.5或∞) / 灰=平批, 一眼扫出连败区与爆发区 */
+.pf-chips { display: flex; flex-wrap: wrap; gap: 3px; max-width: 620px; }
+.pf-chip { font-size: 11px; line-height: 1; padding: 3px 4px; border-radius: 4px;
+           min-width: 32px; text-align: center; font-variant-numeric: tabular-nums;
+           background: #eef2f5; color: var(--text); border: 1px solid var(--border); }
+.pf-chip.neg { background: var(--err-bg); color: var(--err-fg); border-color: var(--err-bd); }
+.pf-chip.hi  { background: var(--ok-bg);  color: var(--ok-fg);  border-color: var(--ok-bd); }
+
 /* 八格底色三级制(2026-08-06 Frank 定, 防歧义 — 一格只可能落一级):
      ①有战绩 → 净点方向: 绿赚/红亏(9% 淡色,  调用方传 fills=绿/红)
      ②纯 regime 占比 → 蓝色深浅表示时间占比(8 档由高到低, 传 fills + heat)
