@@ -683,12 +683,16 @@ def ai_page():
 def predictions_page():
     """策略预测(2026-08-10 Frank 定): 带门策略以创建时间为锚 — 过去(样本内) vs
     之后(真未来)的 PF 与批次稳定性(每N笔一批, 批间PF差不多才稳, 不许一笔大单拉均值)。"""
+    batch = min(500, max(5, request.args.get("batch", 30, type=int)))
+    scope = request.args.get("scope", "gated")
     rows = []
     try:
-        rows = api.get("/prediction/board", timeout=120).get("rows") or []
+        rows = api.get("/prediction/board", batch=batch, scope=scope,
+                       timeout=120).get("rows") or []
     except api.ApiError as e:
         flash(f"取预测看板失败: {e}", "error")
-    return render_template("strategy_predictions.html", rows=rows)
+    return render_template("strategy_predictions.html", rows=rows,
+                           batch=batch, scope=scope)
 
 
 @bp.get("/ai_regime")

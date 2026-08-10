@@ -1,61 +1,60 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('策略预测', '带门策略以【创建时间】为锚(快照冻结, 永不篡改): 过去=样本内战绩(选门用过的历史), 之后=真·未来数据 — 保持率(之后PF/过去PF)与批次稳定性(每N笔一批各算PF, 批间差不多才稳, 不许一笔大单拉开均值) · 成熟度不足=未证实') }}
+{{ m.page_header('策略预测', '以【创建时间】为锚: 之前的数据策略筛选时见过(样本内), 之后才是真·未来 — 过去 = 整个回测窗按每N笔一批的 PF 序列(批间差不多才稳, 不许一笔大单拉开均值), 之后 = 创建日起合并一个 PF(笔数攒多了再分批)') }}
 
 <section>
-  {{ m.table_toolbar('pred-board', hint='本页即时过滤(名称/格/结论…) · 点表头排序') }}
-  <table id="pred-board" class="dense">
+  {# 控件(2026-08-10 Frank 定): 批大小是页面参数不落库, 改完看效果; 范围默认=带门 #}
+  <form method="get" class="inline" data-ajax="section" style="margin-bottom:8px">
+    <label>每批 <input type="number" name="batch" value="{{ batch }}" min="5" max="500" step="5"
+                       style="width:70px" title="每批几笔算一个 PF(纯页面参数, 不落库)"> 笔</label>
+    <label>范围 <select name="scope" data-autosubmit>
+      <option value="gated" {% if scope != 'all' %}selected{% endif %}>带门(regime)</option>
+      <option value="all" {% if scope == 'all' %}selected{% endif %}>全部(有回测行)</option>
+    </select></label>
+    <button class="small">应用</button>
+  </form>
+
+  {{ m.table_toolbar('pred-board', hint='本页即时过滤 · 点表头排序') }}
+  <table id="pred-board">
     <tr>
       <th>ID</th><th>名称</th><th>状态</th>
-      <th title="门: 钉死的版本+格×倍率">门</th>
-      <th title="锚点 = 创建时间(冻结日): 之前的数据它筛选时见过, 之后的才是真未来">冻结日</th>
-      <th class="num" title="过去(样本内): 冻结日前 expected 窗的门内战绩(快照冻结值)">过去 笔·PF</th>
-      <th class="num" title="之后(真未来): 冻结日 → 数据末端, 读时现拼">之后 笔·PF</th>
-      <th class="num" title="已验证天数(按数据末端算)">天</th>
-      <th class="num" title="保持率 = 之后PF / 过去PF — 优势衰减了多少">保持率</th>
-      <th title="有效(>1且保持率达标) / 衰减 / 失效(≤1) / 未证实(笔数或天数不足)">结论</th>
-      <th title="过去段批次稳定性: 每批N笔各算PF — 显示 最低批PF · 亏损批/总批(悬停逐批)">稳定·过去</th>
-      <th title="之后段批次稳定性(同口径); — = 不足2个整批">稳定·之后</th>
+      <th title="门: 钉死的版本+格×倍率; 全部范围下无门显示 —">门</th>
+      <th title="回测窗口(多少年无所谓, 如实显示)">回测窗</th>
+      <th title="锚点 = 创建时间: 之后的数据才是真未来">冻结日</th>
+      <th title="过去 = 回测窗内到冻结日, 每批N笔各算 PF, 按时间顺序排 — 红=该批亏损, ∞=该批无亏损">过去·逐批 PF</th>
+      <th class="num" title="创建之后到数据末端, 合并算一个 PF(笔数少先看总量)">之后 PF</th>
     </tr>
     {% if not rows %}
-    <tr><td colspan="12" class="empty muted">还没有带门策略 — 去「单策略AI调参·1-Regime」选门并克隆, 克隆那一刻就是它的预言日</td></tr>
+    <tr><td colspan="8" class="empty muted">范围内没有策略 — 带门策略去「单策略AI调参·1-Regime」选门克隆, 克隆那一刻就是预言日</td></tr>
     {% endif %}
     {% for r in rows %}
-    {% set pv = r.prediction %}
     <tr>
       <td class="mono">{{ r.id }}</td>
       <td class="clip" title="{{ r.name }}">{{ r.name }}</td>
       <td>{{ m.strategy_status(r.status) }}</td>
-      <td class="mono" title="{% for c, mu in r.gate_cells.items() | sort %}{{ c }}×{{ mu }} {% endfor %}">v{{ r.gate_version }}: {% for c, mu in r.gate_cells.items() | sort %}{{ c }}{{ '' if mu == 1 else '×' ~ mu }}{{ ' ' if not loop.last }}{% endfor %}</td>
-      <td class="mono muted">{{ r.frozen_at[:10] }}</td>
-      {% if pv %}
-      <td class="num mono">{{ pv.expected.n }} · {{ '%.2f' % pv.expected.pf if pv.expected.pf is not none else '∞' }}</td>
-      <td class="num mono">{{ pv.actual.n }} · {{ ('%.2f' % pv.actual.pf) if pv.actual.pf is not none else ('∞' if pv.actual.n else '—') }}</td>
-      <td class="num mono muted">{{ pv.days_validated }}</td>
-      <td class="num mono {{ 'pos' if pv.retention and pv.retention >= 1 else ('neg' if pv.retention and pv.retention < 0.8 else '') }}">{{ pv.retention if pv.retention is not none else '—' }}</td>
-      <td>
-        {% if pv.verdict == 'valid' %}<span class="badge ok" title="{{ pv.reason }}">有效</span>
-        {% elif pv.verdict == 'decayed' %}<span class="badge warn" title="{{ pv.reason }}">衰减</span>
-        {% elif pv.verdict == 'broken' %}<span class="badge err" title="{{ pv.reason }}">失效</span>
-        {% else %}<span class="badge" title="{{ pv.reason }}">未证实</span>{% endif %}
+      <td class="mono">{% if r.gate_version %}v{{ r.gate_version }}: {% for c, mu in r.gate_cells.items() | sort %}{{ c }}{{ '' if mu == 1 else '×' ~ mu }}{{ ' ' if not loop.last }}{% endfor %}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="mono muted" style="white-space:nowrap">{{ r.window or '无回测行' }}</td>
+      <td class="mono muted" style="white-space:nowrap">{{ r.frozen_at[:10] }}</td>
+      {% if r.before %}
+      <td style="white-space:normal;line-height:1.9" title="每批 {{ r.before.batch }} 笔 × {{ r.before.n_batches }} 批(共 {{ r.before.n_trades }} 笔) · 最低批 {{ r.before.min if r.before.min is not none else '∞' }} · 亏损批 {{ r.before.below1 }}/{{ r.before.n_batches }}">
+        {%- for f in r.before.pfs -%}
+        <span class="mono {{ 'neg' if f is not none and f < 1 }}" style="margin-right:7px">{{ f if f is not none else '∞' }}</span>
+        {%- endfor -%}
       </td>
       {% else %}
-      <td class="num muted" colspan="4">— 主品种还没回测行(先跑一发回测, 快照下次自动冻结)</td>
-      <td></td>
+      <td class="muted">—(不足一个整批)</td>
       {% endif %}
-      {% for st in [r.stability_before, r.stability_after] %}
-      {% if st %}
-      <td class="mono {{ 'neg' if st.below1 else '' }}"
-          title="每批 {{ st.batch }} 笔 × {{ st.n_batches }} 批, 逐批PF: {% for f in st.pfs %}{{ f if f is not none else '∞' }}{{ ', ' if not loop.last }}{% endfor %}">
-        {{ st.min if st.min is not none else '∞' }} <span class="muted">· 亏{{ st.below1 }}/{{ st.n_batches }}批</span></td>
+      {% if r.after and r.after.n %}
+      <td class="num mono {{ 'pos' if r.after.pf is none or r.after.pf > 1 else 'neg' }}"
+          title="创建之后 {{ r.after.n }} 笔 · 净点 {{ r.after.net }}">
+        {{ ('%.2f' % r.after.pf) if r.after.pf is not none else '∞' }} <span class="muted">({{ r.after.n }}笔)</span></td>
       {% else %}
-      <td class="muted" title="不足 2 个整批 — 样本不足, 未证实">—</td>
+      <td class="num muted" title="创建之后还没有成交 — 数据会自己长">—</td>
       {% endif %}
-      {% endfor %}
     </tr>
     {% endfor %}
   </table>
-  <p class="muted">读法: <b>保持率</b>接近/超过 1 = 门的优势在未来延续; <b>稳定列</b>看短板 — "最低批PF · 亏损批数/总批", 批间 PF 差不多才是真规律, 均值靠一批大单撑的会露馅(亏批多而均值好看) · 批大小在 config.prediction.stability_batch(默认 30) · 一切结论以笔数/天数够格为前提, 不足=未证实。</p>
+  <p class="muted">读法: 过去逐批 PF 一眼扫"批间是否差不多" — 序列平整 = 真规律, 红批多而均值好看 = 一笔大单撑的 · 之后列是真未来的答卷, 笔数攒够一批后自动也能切批(调大范围看) · 悬停批次列看 最低批/亏损批数。</p>
 </section>
 {% endblock %}

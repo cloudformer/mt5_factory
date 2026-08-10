@@ -29,54 +29,54 @@ def cfg_params(cfg: dict) -> dict:
             "stability_batch": int(cfg.get("stability_batch") or 30)}
 
 
-def batch_stability(trades: list, t0: float, t1: float, batch: int) -> dict | None:
-    """批次稳定性(2026-08-10 Frank 定): [t0,t1) 窗内逐笔按时间切成每 batch 笔一批,
+def batch_pfs(trades: list, t0: float, t1: float, batch: int) -> dict | None:
+    """批次 PF 序列(2026-08-10 Frank 定): [t0,t1) 窗内逐笔按时间切成每 batch 笔一批,
     各批用引擎 _metrics 算 PF(尺子同一把) — 批间 PF 差不多才稳, 不许一笔大单拉开均值。
-    末尾不足一批的丢弃; <2 个整批 = 样本不足返回 None。
+    末尾不足一批的丢弃; 一个整批都不够 = 返回 None(样本不足)。
     读数: pfs 逐批(None=该批无亏损=∞), min=数字批最低(短板), below1=亏损批数。"""
     win = sorted((t for t in trades if t0 <= t["entry_time"] < t1),
                  key=lambda t: t["entry_time"])
     chunks = [win[i:i + batch] for i in range(0, len(win) - batch + 1, batch)]
-    if len(chunks) < 2:
+    if not chunks:
         return None
     pfs = [backtest._metrics(c).get("profit_factor") for c in chunks]
     num = [p for p in pfs if p is not None]
-    return {"batch": batch, "n_batches": len(chunks),
+    return {"batch": batch, "n_batches": len(chunks), "n_trades": len(win),
             "pfs": [None if p is None else round(p, 2) for p in pfs],
             "min": round(min(num), 2) if num else None,    # None=全部批无亏损(∞)
             "below1": sum(1 for p in num if p <= 1)}
 
 
-async def board(pool) -> list:
-    """策略预测看板(2026-08-10 Frank 定, 读时现拼零落库): 全部带门策略,
-    锚 = 创建时间(快照冻结同一套) — 过去(样本内) vs 之后(真未来)的 PF + 批次稳定性。"""
+async def board(pool, batch: int = 30, gated_only: bool = True) -> list:
+    """策略预测看板(2026-08-10 Frank 定, 读时现拼零落库): 锚 = 创建时间 —
+    过去 = 整个回测窗(多少年无所谓, 如实显示)按每 batch 笔一批的 PF 序列;
+    之后 = 创建日 → 数据末端合并一个 PF(现在笔数少, 攒多了再分批)。
+    batch 是页面控件传参(不落库); gated_only=False 时无门策略也进(锚语义相同)。"""
+    where = "metadata->'regime'->>'version' IS NOT NULL" if gated_only \
+        else "EXISTS (SELECT 1 FROM backtests b WHERE b.strategy_id = strategies.id)"
     rows = await pool.fetch(
-        "SELECT id, name, symbol, timeframe, status, metadata, parent_id, created_at"
-        "  FROM strategies WHERE metadata->'regime'->>'version' IS NOT NULL"
-        " ORDER BY created_at DESC")
-    p = cfg_params(await pool.fetchval(
-        "SELECT value FROM config WHERE key='prediction'") or {})
+        f"SELECT id, name, symbol, timeframe, status, metadata, created_at"
+        f"  FROM strategies WHERE {where} ORDER BY created_at DESC")
     now_ts = datetime.now(timezone.utc).timestamp()
     out = []
     for s in rows:
-        v = await validate(pool, dict(s))    # 冻结快照+保持率/增益/成熟度(尺子同一套)
         bt = await pool.fetchrow(
-            "SELECT from_time, trades FROM backtests WHERE strategy_id=$1 AND symbol=$2",
-            s["id"], s["symbol"])
+            "SELECT from_time, to_time, trades FROM backtests"
+            " WHERE strategy_id=$1 AND symbol=$2", s["id"], s["symbol"])
         trades = (bt["trades"] if bt else None) or []
         frozen_ts = s["created_at"].timestamp()
         g = (s["metadata"] or {}).get("regime") or {}
+        after = slice_metrics(trades, frozen_ts, now_ts) if bt else None
         out.append({
             "id": s["id"], "name": s["name"], "symbol": s["symbol"],
             "timeframe": s["timeframe"], "status": s["status"],
             "gate_version": g.get("version"), "gate_cells": g.get("cells") or {},
             "frozen_at": s["created_at"].isoformat(),
-            "prediction": v,                 # None = 主品种还没回测行(无快照可冻)
-            "stability_before": (batch_stability(
-                trades, bt["from_time"].timestamp(), frozen_ts, p["stability_batch"])
-                if bt else None),
-            "stability_after": (batch_stability(
-                trades, frozen_ts, now_ts, p["stability_batch"]) if bt else None),
+            "window": (f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"
+                       if bt else None),     # 回测窗如实显示, 多少年无所谓
+            "before": (batch_pfs(trades, bt["from_time"].timestamp(), frozen_ts, batch)
+                       if bt else None),
+            "after": after,                  # {n, pf, net...} 合并一个数
         })
     return out
 

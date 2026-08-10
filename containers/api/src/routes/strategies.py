@@ -332,11 +332,13 @@ async def clone_gate(strategy_id: int, req: CloneGateRequest, request: Request):
 
 
 @router.get("/prediction/board")
-async def prediction_board(request: Request):
-    """策略预测看板(2026-08-10 Frank 定): 全部带门策略, 锚=创建时间 —
-    过去(样本内) vs 之后(真未来)的 PF + 批次稳定性(每N笔一批)。读时现拼零落库。"""
+async def prediction_board(request: Request, batch: int = 30, scope: str = "gated"):
+    """策略预测看板(2026-08-10 Frank 定): 锚=创建时间 — 过去=整个回测窗按每 batch 笔
+    一批的 PF 序列, 之后=创建日起合并一个 PF。batch 是页面控件传参(不落库, 钳 5~500);
+    scope=gated(默认, regime 带门) / all(有回测行的全部)。读时现拼零落库。"""
     pool = request.app.state.pool
-    return {"rows": await prediction.board(pool)}
+    return {"rows": await prediction.board(pool, batch=max(5, min(500, batch)),
+                                           gated_only=(scope != "all"))}
 
 
 # ---------- MQ5 转化流水线 ----------
