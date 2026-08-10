@@ -31,6 +31,8 @@
               onclick="dlPart(this)">⬇</button>
     </span>
     {% endfor %}
+    <button type="button" class="small live" onclick="dlAll()"
+            title="三份拼成一个 prompt-{{ sid }}-all.txt — 附件上传用它: 多附件会被平台静默丢段(实测②③只到一段), 单文件不可能丢">⬇ 三份合一(附件推荐)</button>
   </p>
   <p class="muted">按序发给 AI(粘贴或上传附件均可): ①regime 全部版本 → ②全量交易 → ③任务指令(自带「请开始分析」口令)。复制/下载出的文本可随手修改。</p>
   {# 验收速查(2026-08-09 Frank 定): 明细悬浮显示 — 三查全过才看报告 #}
@@ -76,13 +78,20 @@
   <script>
     const PARTS = {{ parts | tojson }};
     const SID = {{ sid }};
-    function dlPart(btn) {
-      const i = +btn.dataset.part, p = PARTS[i];
+    function dl(text, name) {
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([p.text], {type: "text/plain;charset=utf-8"}));
-      a.download = `prompt-${SID}-${i + 1}-${p.slug}.txt`;   // 带策略id+段名, 多策略下载不重名
+      a.href = URL.createObjectURL(new Blob([text], {type: "text/plain;charset=utf-8"}));
+      a.download = name;
       a.click();
       URL.revokeObjectURL(a.href);
+    }
+    function dlPart(btn) {
+      const i = +btn.dataset.part;   // 带策略id+段名, 多策略下载不重名
+      dl(PARTS[i].text, `prompt-${SID}-${i + 1}-${PARTS[i].slug}.txt`);
+    }
+    // 三份合一(2026-08-09): 多附件上传会被平台静默丢段(实测只收到第③段) — 单文件根治
+    function dlAll() {
+      dl(PARTS.map((p) => p.text).join("\n\n"), `prompt-${SID}-all.txt`);
     }
     function copyPart(btn) {
       const i = +btn.dataset.part;
