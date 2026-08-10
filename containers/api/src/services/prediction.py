@@ -24,7 +24,61 @@ def cfg_params(cfg: dict) -> dict:
     return {"expected_window_years": float(cfg.get("expected_window_years") or 3),
             "min_trades": int(cfg.get("min_trades") or 20),
             "min_days": int(cfg.get("min_days") or 90),
-            "retention_ok": float(cfg.get("retention_ok") or 0.8)}
+            "retention_ok": float(cfg.get("retention_ok") or 0.8),
+            # 稳定性批大小(2026-08-10 Frank 定): 每 N 笔一批各算 PF, 批间差不多才叫稳
+            "stability_batch": int(cfg.get("stability_batch") or 30)}
+
+
+def batch_stability(trades: list, t0: float, t1: float, batch: int) -> dict | None:
+    """批次稳定性(2026-08-10 Frank 定): [t0,t1) 窗内逐笔按时间切成每 batch 笔一批,
+    各批用引擎 _metrics 算 PF(尺子同一把) — 批间 PF 差不多才稳, 不许一笔大单拉开均值。
+    末尾不足一批的丢弃; <2 个整批 = 样本不足返回 None。
+    读数: pfs 逐批(None=该批无亏损=∞), min=数字批最低(短板), below1=亏损批数。"""
+    win = sorted((t for t in trades if t0 <= t["entry_time"] < t1),
+                 key=lambda t: t["entry_time"])
+    chunks = [win[i:i + batch] for i in range(0, len(win) - batch + 1, batch)]
+    if len(chunks) < 2:
+        return None
+    pfs = [backtest._metrics(c).get("profit_factor") for c in chunks]
+    num = [p for p in pfs if p is not None]
+    return {"batch": batch, "n_batches": len(chunks),
+            "pfs": [None if p is None else round(p, 2) for p in pfs],
+            "min": round(min(num), 2) if num else None,    # None=全部批无亏损(∞)
+            "below1": sum(1 for p in num if p <= 1)}
+
+
+async def board(pool) -> list:
+    """策略预测看板(2026-08-10 Frank 定, 读时现拼零落库): 全部带门策略,
+    锚 = 创建时间(快照冻结同一套) — 过去(样本内) vs 之后(真未来)的 PF + 批次稳定性。"""
+    rows = await pool.fetch(
+        "SELECT id, name, symbol, timeframe, status, metadata, parent_id, created_at"
+        "  FROM strategies WHERE metadata->'regime'->>'version' IS NOT NULL"
+        " ORDER BY created_at DESC")
+    p = cfg_params(await pool.fetchval(
+        "SELECT value FROM config WHERE key='prediction'") or {})
+    now_ts = datetime.now(timezone.utc).timestamp()
+    out = []
+    for s in rows:
+        v = await validate(pool, dict(s))    # 冻结快照+保持率/增益/成熟度(尺子同一套)
+        bt = await pool.fetchrow(
+            "SELECT from_time, trades FROM backtests WHERE strategy_id=$1 AND symbol=$2",
+            s["id"], s["symbol"])
+        trades = (bt["trades"] if bt else None) or []
+        frozen_ts = s["created_at"].timestamp()
+        g = (s["metadata"] or {}).get("regime") or {}
+        out.append({
+            "id": s["id"], "name": s["name"], "symbol": s["symbol"],
+            "timeframe": s["timeframe"], "status": s["status"],
+            "gate_version": g.get("version"), "gate_cells": g.get("cells") or {},
+            "frozen_at": s["created_at"].isoformat(),
+            "prediction": v,                 # None = 主品种还没回测行(无快照可冻)
+            "stability_before": (batch_stability(
+                trades, bt["from_time"].timestamp(), frozen_ts, p["stability_batch"])
+                if bt else None),
+            "stability_after": (batch_stability(
+                trades, frozen_ts, now_ts, p["stability_batch"]) if bt else None),
+        })
+    return out
 
 
 def _pf_num(m: dict):

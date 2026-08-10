@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('策略预测', '带门策略以【创建时间】为锚(快照冻结, 永不篡改): 过去=样本内战绩(选门用过的历史), 之后=真·未来数据 — 保持率(之后PF/过去PF)与批次稳定性(每N笔一批各算PF, 批间差不多才稳, 不许一笔大单拉开均值) · 成熟度不足=未证实') }}
+
+<section>
+  {{ m.table_toolbar('pred-board', hint='本页即时过滤(名称/格/结论…) · 点表头排序') }}
+  <table id="pred-board" class="dense">
+    <tr>
+      <th>ID</th><th>名称</th><th>状态</th>
+      <th title="门: 钉死的版本+格×倍率">门</th>
+      <th title="锚点 = 创建时间(冻结日): 之前的数据它筛选时见过, 之后的才是真未来">冻结日</th>
+      <th class="num" title="过去(样本内): 冻结日前 expected 窗的门内战绩(快照冻结值)">过去 笔·PF</th>
+      <th class="num" title="之后(真未来): 冻结日 → 数据末端, 读时现拼">之后 笔·PF</th>
+      <th class="num" title="已验证天数(按数据末端算)">天</th>
+      <th class="num" title="保持率 = 之后PF / 过去PF — 优势衰减了多少">保持率</th>
+      <th title="有效(>1且保持率达标) / 衰减 / 失效(≤1) / 未证实(笔数或天数不足)">结论</th>
+      <th title="过去段批次稳定性: 每批N笔各算PF — 显示 最低批PF · 亏损批/总批(悬停逐批)">稳定·过去</th>
+      <th title="之后段批次稳定性(同口径); — = 不足2个整批">稳定·之后</th>
+    </tr>
+    {% if not rows %}
+    <tr><td colspan="12" class="empty muted">还没有带门策略 — 去「单策略AI调参·1-Regime」选门并克隆, 克隆那一刻就是它的预言日</td></tr>
+    {% endif %}
+    {% for r in rows %}
+    {% set pv = r.prediction %}
+    <tr>
+      <td class="mono">{{ r.id }}</td>
+      <td class="clip" title="{{ r.name }}">{{ r.name }}</td>
+      <td>{{ m.strategy_status(r.status) }}</td>
+      <td class="mono" title="{% for c, mu in r.gate_cells.items() | sort %}{{ c }}×{{ mu }} {% endfor %}">v{{ r.gate_version }}: {% for c, mu in r.gate_cells.items() | sort %}{{ c }}{{ '' if mu == 1 else '×' ~ mu }}{{ ' ' if not loop.last }}{% endfor %}</td>
+      <td class="mono muted">{{ r.frozen_at[:10] }}</td>
+      {% if pv %}
+      <td class="num mono">{{ pv.expected.n }} · {{ '%.2f' % pv.expected.pf if pv.expected.pf is not none else '∞' }}</td>
+      <td class="num mono">{{ pv.actual.n }} · {{ ('%.2f' % pv.actual.pf) if pv.actual.pf is not none else ('∞' if pv.actual.n else '—') }}</td>
+      <td class="num mono muted">{{ pv.days_validated }}</td>
+      <td class="num mono {{ 'pos' if pv.retention and pv.retention >= 1 else ('neg' if pv.retention and pv.retention < 0.8 else '') }}">{{ pv.retention if pv.retention is not none else '—' }}</td>
+      <td>
+        {% if pv.verdict == 'valid' %}<span class="badge ok" title="{{ pv.reason }}">有效</span>
+        {% elif pv.verdict == 'decayed' %}<span class="badge warn" title="{{ pv.reason }}">衰减</span>
+        {% elif pv.verdict == 'broken' %}<span class="badge err" title="{{ pv.reason }}">失效</span>
+        {% else %}<span class="badge" title="{{ pv.reason }}">未证实</span>{% endif %}
+      </td>
+      {% else %}
+      <td class="num muted" colspan="4">— 主品种还没回测行(先跑一发回测, 快照下次自动冻结)</td>
+      <td></td>
+      {% endif %}
+      {% for st in [r.stability_before, r.stability_after] %}
+      {% if st %}
+      <td class="mono {{ 'neg' if st.below1 else '' }}"
+          title="每批 {{ st.batch }} 笔 × {{ st.n_batches }} 批, 逐批PF: {% for f in st.pfs %}{{ f if f is not none else '∞' }}{{ ', ' if not loop.last }}{% endfor %}">
+        {{ st.min if st.min is not none else '∞' }} <span class="muted">· 亏{{ st.below1 }}/{{ st.n_batches }}批</span></td>
+      {% else %}
+      <td class="muted" title="不足 2 个整批 — 样本不足, 未证实">—</td>
+      {% endif %}
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">读法: <b>保持率</b>接近/超过 1 = 门的优势在未来延续; <b>稳定列</b>看短板 — "最低批PF · 亏损批数/总批", 批间 PF 差不多才是真规律, 均值靠一批大单撑的会露馅(亏批多而均值好看) · 批大小在 config.prediction.stability_batch(默认 30) · 一切结论以笔数/天数够格为前提, 不足=未证实。</p>
+</section>
+{% endblock %}

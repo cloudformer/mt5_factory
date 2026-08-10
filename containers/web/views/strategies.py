@@ -679,6 +679,18 @@ def ai_page():
                            family=family, meta=meta, space=space, probes=probes)
 
 
+@bp.get("/predictions")
+def predictions_page():
+    """策略预测(2026-08-10 Frank 定): 带门策略以创建时间为锚 — 过去(样本内) vs
+    之后(真未来)的 PF 与批次稳定性(每N笔一批, 批间PF差不多才稳, 不许一笔大单拉均值)。"""
+    rows = []
+    try:
+        rows = api.get("/prediction/board", timeout=120).get("rows") or []
+    except api.ApiError as e:
+        flash(f"取预测看板失败: {e}", "error")
+    return render_template("strategy_predictions.html", rows=rows)
+
+
 @bp.get("/ai_regime")
 def ai_regime_page():
     """单策略AI调参·1-Regime(2026-08-09 与 Frank 定, 人桥版, 调参闭环第①步选门):

@@ -17,7 +17,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from src.services import backtest, identity, instances, regime, usage, verify
+from src.services import (backtest, identity, instances, prediction,
+                          regime, usage, verify)
 from strategy_core import TEMPLATES, TF_SECONDS, grid_combos, random_combo
 
 logger = logging.getLogger("strategies")
@@ -328,6 +329,14 @@ async def clone_gate(strategy_id: int, req: CloneGateRequest, request: Request):
     out = r["results"][0]
     out["created"] = "id" in out
     return out
+
+
+@router.get("/prediction/board")
+async def prediction_board(request: Request):
+    """策略预测看板(2026-08-10 Frank 定): 全部带门策略, 锚=创建时间 —
+    过去(样本内) vs 之后(真未来)的 PF + 批次稳定性(每N笔一批)。读时现拼零落库。"""
+    pool = request.app.state.pool
+    return {"rows": await prediction.board(pool)}
 
 
 # ---------- MQ5 转化流水线 ----------

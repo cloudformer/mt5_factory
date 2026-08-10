@@ -252,14 +252,12 @@ a.btn:hover { background: #d9ecf9; }
 /* 八格面板(2026-08-06 Frank 定"要有设计, 专业, 统一"): 整张图坐在一层极浅底板上 —
    与页面/section 的纯白分层, 格子才立得出来; 全站五处八格共用这一份, 改样式只改这里 */
 .regime-quad { display: grid; grid-template-columns: auto 1fr 1fr; gap: 8px; align-items: stretch;
-               background: #f7f9fa; border: 1px solid var(--border); border-radius: var(--radius);
-               padding: 12px 14px; }
+               background: var(--th-bg); border: 1px solid var(--border); border-radius: var(--radius);
+               padding: 12px 14px; }   /* 2026-08-10 Frank: 整张表底=表头色, 白格子从底上浮出来 */
 /* 表头带(2026-08-10 Frank 定): 八格首两行(角标+轴标签)一条完整底带 — subgrid 列轨
    与正文格子严格对齐(左右零内边距保证轨距不漂), 底色与全站表头 th 同源 */
 .regime-head { display: grid; grid-template-columns: subgrid; grid-column: 1 / 7;
-               row-gap: 2px; align-items: end;
-               background: var(--th-bg); border: 1px solid var(--border);
-               border-radius: 8px; padding: 8px 0; }
+               row-gap: 2px; align-items: end; }  /* 底色已由整张表承担, 带子不再单独描 */
 .regime-corner { font-size: 12.5px; font-weight: 500; color: var(--text);
                  line-height: 1.5; align-self: end; padding: 0 10px 0 12px; }
 /* 轴标签: 12px 但用正文色(2026-08-06 Frank: 小字用灰太浅不好分辨) */
