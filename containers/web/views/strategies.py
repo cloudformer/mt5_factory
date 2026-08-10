@@ -685,7 +685,7 @@ def ai_page():
 
 @bp.get("/ai_regime")
 def ai_regime_page():
-    """单策略AI调参·1Regime(2026-08-09 与 Frank 定, 人桥版, 调参闭环第①步选门):
+    """单策略AI调参·1-Regime(2026-08-09 与 Frank 定, 人桥版, 调参闭环第①步选门):
     输入策略ID → 复制提示词(两问: ①regime口径评价报告 ②可用gate JSON) → 粘给任意 AI
     → 结果人工使用(gate 照勾进矩阵页克隆带门)。模板固化在 api(git 可审)。"""
     sid = request.args.get("strategy_id", type=int)

@@ -912,7 +912,7 @@ unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话�
 
 @router.get("/strategies/{strategy_id}/regime_prompt")
 async def regime_ai_prompt(strategy_id: int, request: Request):
-    """单策略AI调参·1Regime 提示词(2026-08-09 与 Frank 定稿, 调参闭环第①步选门): 全量原料喂 AI 让它自己切 —
+    """单策略AI调参·1-Regime 提示词(2026-08-09 与 Frank 定稿, 调参闭环第①步选门): 全量原料喂 AI 让它自己切 —
     两问结构(①regime口径评价报告 ②可用gate)。服务器零预处理(先看AI切片效果);
     全部版本(参数+压缩时间线), 未覆盖回测区间的版本如实标注。"""
     pool = request.app.state.pool

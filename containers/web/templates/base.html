@@ -60,8 +60,8 @@
     <div class="navmenu-items">
       <a href="{{ url_for('strategies.analysis') }}" {% if ep == 'strategies.analysis' %}class="active"{% endif %}>单策略回测分析</a>
       <a href="{{ url_for('strategies.regime_matrix') }}" {% if ep == 'strategies.regime_matrix' %}class="active"{% endif %}>单策略regime分析</a>
-      <a href="{{ url_for('strategies.ai_regime_page') }}" {% if ep == 'strategies.ai_regime_page' %}class="active"{% endif %}>单策略AI调参·1Regime</a>
-      <a href="{{ url_for('strategies.ai_page') }}" {% if ep == 'strategies.ai_page' %}class="active"{% endif %}>单策略AI调参·2时间</a>
+      <a href="{{ url_for('strategies.ai_regime_page') }}" {% if ep == 'strategies.ai_regime_page' %}class="active"{% endif %}>单策略AI调参·1-Regime</a>
+      <a href="{{ url_for('strategies.ai_page') }}" {% if ep == 'strategies.ai_page' %}class="active"{% endif %}>单策略AI调参·2-时间</a>
     </div>
   </div>
   {# 实盘组: 真实下单的两个环境(实盘 = demo 模拟 + live 真金, 纯 UI 汇总概念) #}
