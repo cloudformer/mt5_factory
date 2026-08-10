@@ -655,14 +655,11 @@ def ai_report(strategy_id: int):
 
 def _ai_context(sid: int, count: int):
     """AI 页公共上下文。数据源全部复用, 无本页私货:
-    成绩单 = /strategies/{id}/report(与「策略分析」页 AI成绩单JSON 同一个, 那边改这里自动跟)
-    提示词 = api /strategies/{id}/ai_prompt(单一来源, prompt.txt 也取它)"""
-    import json as _json
-    report = api.get(f"/strategies/{sid}/report")
-    report_json = _json.dumps(report, ensure_ascii=False, indent=1, default=str)
+    提示词 = api /strategies/{id}/ai_prompt(单一来源, 内含完整成绩单, prompt.txt 也取它)
+    出口收敛(2026-08-09 Frank 定): 页面以提示词为唯一出口, 不再单独拉 /report"""
     info = api.get(f"/strategies/{sid}/ai_prompt", count=count)
     family = api.get(f"/strategies/{sid}/family")["family"]
-    return (info["prompt"], family, info["strategy"], info["space"], report_json,
+    return (info["prompt"], family, info["strategy"], info["space"],
             info.get("probe_answers") or {})
 
 
@@ -672,15 +669,14 @@ def ai_page():
     ③手动按ID回测 ④家族对比→用最优继续。准备工作(下载/重跑回测)先手动做好。"""
     sid = request.args.get("strategy_id", type=int)
     count = request.args.get("count", 10, type=int)
-    prompt, family, meta, space, report_json, probes = "", [], None, {}, "", {}
+    prompt, family, meta, space, probes = "", [], None, {}, {}
     if sid:
         try:
-            prompt, family, meta, space, report_json, probes = _ai_context(sid, count)
+            prompt, family, meta, space, probes = _ai_context(sid, count)
         except (api.ApiError, KeyError) as e:
-            flash(f"取成绩单失败: {e}", "error")
+            flash(f"取提示词失败: {e}", "error")
     return render_template("strategy_ai.html", sid=sid, count=count, prompt=prompt,
-                           family=family, meta=meta, space=space,
-                           report_json=report_json, probes=probes)
+                           family=family, meta=meta, space=space, probes=probes)
 
 
 @bp.get("/ai_regime")
@@ -770,13 +766,13 @@ def ai_submit():
         flash("粘贴内容不是合法 JSON — 确认 AI 只输出了 JSON 本体", "error")
     except (api.ApiError, KeyError, TypeError) as e:
         flash(f"提交失败: {e}", "error")
-    prompt, family, meta, space, report_json, probes = "", [], None, {}, "", {}
+    prompt, family, meta, space, probes = "", [], None, {}, {}
     try:
-        prompt, family, meta, space, report_json, probes = _ai_context(sid, count)
+        prompt, family, meta, space, probes = _ai_context(sid, count)
     except (api.ApiError, KeyError):
         pass
     return render_template("strategy_ai.html", sid=sid, count=count, prompt=prompt,
-                           family=family, meta=meta, space=space, report_json=report_json,
+                           family=family, meta=meta, space=space,
                            probes=probes, step2=step2, ids_csv=ids_csv)
 
 

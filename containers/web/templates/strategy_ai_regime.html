@@ -8,10 +8,9 @@
     <input type="number" name="strategy_id" value="{{ sid or '' }}" placeholder="策略 ID" required style="width:110px">
     <button>载入</button>
     {% if sid and parts %}
-    <a class="btn" href="{{ url_for('strategies.ai_regime_prompt_txt', strategy_id=sid) }}"
-       download="prompt-{{ sid }}-full.txt"
-       title="整段纯文本(大上下文AI/自动化用), 与分段内容一致">prompt.txt(整段)</a>
-    <span class="muted">整段 ≈ {{ (total_kb) }} KB · 网页版 AI 按下面三份复制或下载(下载可当附件上传)</span>
+    {# 出口收敛(2026-08-09 Frank 定, 与·2-时间统一): 只留每份 复制+⬇下载;
+       整段链接/复制整段按钮撤掉(重复出口), prompt.txt 路由保留给自动化 #}
+    <span class="muted">共 ≈ {{ (total_kb) }} KB · 按下面三份复制或下载(下载可当附件上传)</span>
     {% endif %}
   </form>
 
@@ -32,8 +31,6 @@
               onclick="dlPart(this)">⬇</button>
     </span>
     {% endfor %}
-    <button type="button" class="small live"
-            onclick="navigator.clipboard.writeText(PARTS.map(p=>p.text).join('\n\n'));this.textContent='✓ 已复制整段';setTimeout(()=>this.textContent='复制整段(大上下文AI)',1500)">复制整段(大上下文AI)</button>
   </p>
   <p class="muted">按序发给 AI(粘贴或上传附件均可): ①regime 全部版本 → ②全量交易 → ③任务指令(自带「请开始分析」口令)。复制/下载出的文本可随手修改。</p>
   {# 验收速查(2026-08-09 Frank 定): 明细悬浮显示 — 三查全过才看报告 #}
