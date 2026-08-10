@@ -685,18 +685,20 @@ def ai_regime_page():
     输入策略ID → 复制提示词(两问: ①regime口径评价报告 ②可用gate JSON) → 粘给任意 AI
     → 结果人工使用(gate 照勾进矩阵页克隆带门)。模板固化在 api(git 可审)。"""
     sid = request.args.get("strategy_id", type=int)
-    parts, total_kb, probes, warning = [], 0, {}, None
+    parts, total_kb, probes, expected, warning = [], 0, {}, {}, None
     if sid:
         try:
             r = api.get(f"/strategies/{sid}/regime_prompt", timeout=120)
             parts = r.get("parts") or []
             probes = r.get("probe_answers") or {}
+            expected = r.get("expected") or {}
             warning = r.get("warning")
             total_kb = round(len(r.get("prompt") or "") / 1024)
         except (api.ApiError, KeyError) as e:
             flash(f"取提示词失败: {e}", "error")
     return render_template("strategy_ai_regime.html", sid=sid, parts=parts,
-                           total_kb=total_kb, probes=probes, warning=warning)
+                           total_kb=total_kb, probes=probes, expected=expected,
+                           warning=warning)
 
 
 @bp.get("/ai_regime/prompt.txt")

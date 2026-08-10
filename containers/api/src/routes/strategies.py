@@ -1053,6 +1053,7 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
     ]
     full = "\n\n".join(pt["text"] for pt in parts)
     return {"prompt": full, "parts": parts, "probe_answers": probe_answers,
+            "expected": base["data_check_expected"],   # 库侧对账单 → 页面机器验收 AI 回复
             **({"warning": warning} if warning else {})}
 
 

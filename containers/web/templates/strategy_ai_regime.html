@@ -46,6 +46,33 @@
   {% endif %}
   <textarea id="rg-preview" readonly style="width:100%;height:380px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px"
             title="预览 = 当前选中段(点上面按钮切换)"></textarea>
+
+  {# AI 回复验收→确认克隆(2026-08-09 Frank 定): 机器过四道闸(code/总账/格账/探针)全绿
+     才预填克隆面板(与矩阵页同构同入口) — AI 只出建议, 勾格/倍率你可改, 确认才落地 #}
+  <h2 style="margin-top:16px">AI 回复验收 → 确认克隆带门</h2>
+  <p class="muted">粘贴 AI 返回的 JSON → 自动过四道闸(computed_by=code · 总账=库侧 · 格账加总=总账 · 探针全对) → 全绿预填下方门面板; 去格/改倍率随你, 点「克隆带门」才落地(挂无门根, 同门重复返回现有 id)。</p>
+  <textarea id="rg-reply" rows="5" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:11.5px"
+    placeholder='粘 AI 返回的最终 JSON(含 data_check / regime_report / strategy_report), 前后混着废话没关系'></textarea>
+  <p style="margin:6px 0"><button type="button" class="small" id="rg-verify">自动验收</button>
+    <span id="rg-verdict" class="muted">粘贴后点验收</span></p>
+  <div id="rg-gate" hidden>
+    <form method="post" action="{{ url_for('strategies.clone_gate', strategy_id=sid) }}" class="inline"
+          onsubmit="return confirm('按当前勾选克隆带门新实例?\n\n克隆自动挂到无门根下; 勾选格按倍率交易, 未勾格不开新仓; 父实例不受影响。')">
+      <div style="display:inline-grid;grid-template-columns:repeat(4, auto);gap:3px 12px;vertical-align:middle">
+        {% for cell in ['AAA', 'AAB', 'ABA', 'ABB', 'BAA', 'BAB', 'BBA', 'BBB'] %}
+        <label style="display:flex;align-items:center;gap:2px;font-size:12.5px;margin:0">
+          <input type="checkbox" name="g_{{ cell }}" value="1"> <span class="mono">{{ cell }}</span>
+          ×<select name="m_{{ cell }}" style="font-size:12px" title="手数倍率(×挂载点手数); 门只减仓不加仓">
+            {% for v in ['1', '0.9', '0.8', '0.7', '0.6', '0.5'] %}<option value="{{ v }}">{{ v }}</option>{% endfor %}
+          </select></label>
+        {% endfor %}
+      </div>
+      <label>版本 <select name="version" id="rg-gate-ver" title="AI ranking 第一名版本(钉死不随全局默认漂移)"></select></label>
+      <button>克隆带门</button>
+      <span class="muted">AI 建议已预填 — 你拍板; 倍率 0.5~1</span>
+    </form>
+    <p class="muted" id="rg-reco" style="white-space:pre-wrap"></p>
+  </div>
   <script>
     const PARTS = {{ parts | tojson }};
     const SID = {{ sid }};
@@ -66,6 +93,102 @@
       setTimeout(() => btn.textContent = t, 1500);
     }
     if (PARTS.length) document.getElementById("rg-preview").value = PARTS[0].text;
+
+    // ---- AI 回复自动验收(2026-08-09): 四道闸机器判, 全绿才预填克隆面板 ----
+    const PROBES_ANS = {{ (probes or {}) | tojson }};   // {日期: {版本: 格}}
+    const EXPECTED = {{ (expected or {}) | tojson }};   // 库侧对账单(总账+各版本段数)
+    document.getElementById("rg-verify").addEventListener("click", () => {
+      const out = document.getElementById("rg-verdict");
+      const gateBox = document.getElementById("rg-gate");
+      gateBox.hidden = true;
+      const raw = document.getElementById("rg-reply").value;
+      // 提取+截断自愈(与·2-时间同款): 首{到末}不行就从后往前捞含 data_check 的对象
+      function tp(txt, d) {
+        try { return { obj: JSON.parse(txt) }; }
+        catch (e) {
+          if (d >= 3) return { err: e };
+          const m = /position (\d+)/.exec(e.message);
+          if (!m) return { err: e };
+          for (const ins of ["]", "}"]) {
+            const r = tp(txt.slice(0, +m[1]) + ins + txt.slice(+m[1]), d + 1);
+            if (r.obj) return r;
+          }
+          return { err: e };
+        }
+      }
+      const s0 = raw.indexOf("{"), eL = raw.lastIndexOf("}");
+      let pr = s0 >= 0 && eL > s0 ? tp(raw.slice(s0, eL + 1), 0) : { err: 1 };
+      if (!(pr.obj && pr.obj.data_check)) {
+        let tries = 0, found = null;
+        for (let e = eL; e > s0 && tries < 150 && !found; e = raw.lastIndexOf("}", e - 1))
+          for (let st = raw.lastIndexOf("{", e); st >= 0 && tries < 150; st = raw.lastIndexOf("{", st - 1)) {
+            tries++;
+            const c = tp(raw.slice(st, e + 1), 0);
+            if (c.obj && c.obj.data_check) { found = c; break; }
+          }
+        if (found) pr = found;
+      }
+      if (!pr.obj || !pr.obj.data_check) {
+        out.innerHTML = '<span class="neg">解析失败: 没找到含 data_check 的 JSON</span>';
+        return;
+      }
+      const rep = pr.obj, dc = rep.data_check || {};
+      const eq = (a, b, tol) => Math.abs((+a) - (+b)) <= (tol || 0);
+      const checks = [["computed_by=code", dc.computed_by === "code"],
+                      ["match=true", dc.match === true]];
+      const c = dc.computed || {};
+      checks.push(["总账=库侧", !!EXPECTED.trades && eq(c.days, EXPECTED.days)
+        && eq(c.trades, EXPECTED.trades) && eq(c.wins, EXPECTED.wins)
+        && eq(c.gross_profit_pts, EXPECTED.gross_profit_pts, 0.5)
+        && eq(c.gross_loss_pts, EXPECTED.gross_loss_pts, 0.5)
+        && String(c.first_date) === String(EXPECTED.first_date)
+        && String(c.last_date) === String(EXPECTED.last_date)]);
+      let okCells = true;   // 每版本 8格+unlabeled 四列加总 = 总账(点数±0.5)
+      for (const v of Object.keys(EXPECTED.versions || {})) {
+        const cells = (dc.cell_totals || {})[v];
+        if (!cells) { okCells = false; break; }
+        let n = 0, w = 0, gp = 0, gl = 0;
+        for (const k of Object.keys(cells)) {
+          const a = cells[k] || [];
+          n += +a[0] || 0; w += +a[1] || 0; gp += +a[2] || 0; gl += +a[3] || 0;
+        }
+        if (!(eq(n, EXPECTED.trades) && eq(w, EXPECTED.wins)
+              && eq(gp, EXPECTED.gross_profit_pts, 0.5)
+              && eq(gl, EXPECTED.gross_loss_pts, 0.5))) { okCells = false; break; }
+      }
+      checks.push(["格账加总=总账", okCells]);
+      let okPr = true;      // 探针: 每日×每版本的格逐一相同
+      for (const d of Object.keys(PROBES_ANS))
+        for (const v of Object.keys(PROBES_ANS[d]))
+          if (String(((dc.probes || {})[d] || {})[v]) !== String(PROBES_ANS[d][v])) okPr = false;
+      checks.push(["探针全对", okPr]);
+      const allOk = checks.every((x) => x[1]);
+      out.innerHTML = checks.map((x) => '<span class="' + (x[1] ? "pos" : "neg") + '">'
+          + x[0] + (x[1] ? " ✓" : " ✗") + "</span>").join(" · ")
+        + (allOk ? ' — <b class="pos">可信, 门面板已按 AI 建议预填, 改完点克隆</b>'
+           : (dc.computed_by === "none" ? ' — AI 诚实认输(没算), 换带代码执行的模型再试'
+                                        : ' — <b class="neg">不可信, 直接扔</b>'));
+      if (!allOk) return;
+      const g = ((rep.strategy_report || {}).gate || {}).regime || {};
+      const cells = g.cells || {};
+      document.querySelectorAll("#rg-gate input[type=checkbox]").forEach((cb) => {
+        const cell = cb.name.slice(2);
+        const sel = document.querySelector('#rg-gate select[name="m_' + cell + '"]');
+        cb.checked = cells[cell] !== undefined;
+        let best = "1", bd = 1e9;   // AI 倍率吸附到面板档位(1/0.9/…/0.5)
+        if (cells[cell] !== undefined)
+          for (const o of sel.options)
+            if (Math.abs(+o.value - +cells[cell]) < bd) { bd = Math.abs(+o.value - +cells[cell]); best = o.value; }
+        sel.value = best;
+      });
+      document.getElementById("rg-gate-ver").innerHTML =
+        '<option value="' + (+g.version || 0) + '">v' + (+g.version || "?") + " (AI ranking 第一)</option>";
+      document.getElementById("rg-reco").textContent = "AI 建议(confidence="
+        + ((rep.strategy_report || {}).confidence || "—") + "): "
+        + ((rep.strategy_report || {}).ai_regime_recommend || "")
+        + (Object.keys(cells).length ? "" : "\n(cells 为空 = AI 认为没有可信规律 — 面板全未勾, 别硬克隆)");
+      gateBox.hidden = false;
+    });
   </script>
   {% elif sid %}
   <p class="muted">没取到提示词 — 看上方报错(常见: 主品种还没回测行, 先去「回测」按 ID 跑一发, 建议窗口 20 年)。</p>
