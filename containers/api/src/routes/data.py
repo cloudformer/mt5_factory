@@ -226,10 +226,12 @@ def _validate_regime_params(value) -> dict:
     return value
 
 
-async def _version_save(pool, params: dict, owner: int = 1) -> dict:
+async def _version_save(pool, params: dict, owner: int = 1,
+                        set_default: bool = False) -> dict:
     """一套参数=一个版本(params UNIQUE 判重执法): 新参数→新版本; 撞上→匹配现有版本。
-    保存即设为当前默认(config regime_version, 一处)。新版本记归属(schema/059,
-    现在只记不筛 — 操作收 admin 由页面门禁执法)。"""
+    保存≠启用(2026-08-10 Frank 定, 一按钮一职): 默认只记 set_default=True 的调用
+    (恢复默认口径那类语义本身就是"切"); 普通保存不再碰 config regime_version —
+    之前"保存即设为默认"曾把默认静默漂到刚存的实验版本。新版本记归属(schema/059)。"""
     # 先查后插: ON CONFLICT 会"先取号再撞墙"(序列非事务), 重复保存白烧版本号导致跳号 —
     # 先 SELECT 命中就直接返回, 序列一号不动; 真新参数才 INSERT(并发撞车兜底再查一次)
     vid = await pool.fetchval("SELECT id FROM regime_versions WHERE params=$1", params)
@@ -243,9 +245,10 @@ async def _version_save(pool, params: dict, owner: int = 1) -> dict:
         else:   # 极小概率并发撞车: 另一个请求刚插完 → 拿它的
             vid = await pool.fetchval(
                 "SELECT id FROM regime_versions WHERE params=$1", params)
-    await pool.execute(
-        "INSERT INTO config (key, value) VALUES ('regime_version', $1)"
-        " ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()", vid)
+    if set_default:
+        await pool.execute(
+            "INSERT INTO config (key, value) VALUES ('regime_version', $1)"
+            " ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()", vid)
     return {"id": vid, "created": created, "params": params}
 
 
@@ -350,7 +353,8 @@ async def regime_params_reset(request: Request):
     """口径恢复默认(SMA200/SMA20/ATR14/252/0.5) — 唯一权威 = services/regime.DEFAULT_PARAMS。
     版本化后语义 = 匹配/创建默认参数的版本并设为当前(通常就是 v1)。"""
     r = await _version_save(request.app.state.pool, dict(regime.DEFAULT_PARAMS),
-                            owner=getattr(request.state, "user_id", None) or 1)
+                            owner=getattr(request.state, "user_id", None) or 1,
+                            set_default=True)   # "恢复默认口径"语义本身=切默认
     return {"params": regime.DEFAULT_PARAMS, "id": r["id"], "created": r["created"]}
 
 

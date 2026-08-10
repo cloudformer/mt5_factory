@@ -197,10 +197,10 @@ def save_regime_params():
             "vol_q": float(request.form.get("vol_q", 0.5)),
         }})
         if r["created"]:
-            flash(f"已生成新版本 v{r['id']} 并设为当前 — 去「数据 → 市场状态 Regime」"
-                  f"页对它点重建生成时间线", "ok")
+            flash(f"已生成新版本 v{r['id']}(未切默认) — 心跳几分钟内自动建时间线;"
+                  f" 要启用为全局默认, 去版本下拉选它", "ok")
         else:
-            flash(f"这套参数已是 v{r['id']} — 已切换为当前版本(时间线沿用, 无需重建)", "ok")
+            flash(f"这套参数已是 v{r['id']}(未切默认) — 要启用为全局默认, 去版本下拉选它", "ok")
     except (api.ApiError, ValueError) as e:
         flash(f"保存失败: {e}", "error")
     return redirect(url_for("symbols.backtest_params"))
