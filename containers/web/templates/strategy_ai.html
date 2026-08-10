@@ -43,7 +43,7 @@
      提示词只点行号, 真实答案注入本页 — 解析预览自动逐个核对, 答错=没读成绩单=禁止创建 #}
   <p class="muted">🔍 探针(解析时自动核对): AI 返回顶层须带 data_check{computed_by, probes} —
     {% for k, v in probes.items() %}<code>{{ k }}→[{{ v[0] }}, {{ v[1] }}]</code>{{ ' · ' if not loop.last }}{% endfor %}
-    — 答错或缺失 = 没读成绩单, 「创建策略」不点亮</p>
+    — 探针答错/缺失 或 computed_by≠"code"(未用代码核算), 「创建策略」都不点亮</p>
   {% endif %}
   <textarea id="combos-input" rows="6" style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:12px"
     placeholder='示例格式(灰字仅提示, 粘贴真实内容覆盖): {"template": "{{ meta.template if meta else "…" }}", "model": "…", "data_check": {"computed_by": "code|none", "probes": {"<entry_time>": [points, reason]}}, "combos": [{"params": {…}, "basis": "依据…"}, …]}'></textarea>
@@ -90,23 +90,48 @@
     let raw = document.getElementById("combos-input").value;
     const s = raw.indexOf("{"), e2 = raw.lastIndexOf("}");
     if (s >= 0 && e2 > s) raw = raw.slice(s, e2 + 1);
-    let payload;
-    try { payload = JSON.parse(raw); }
-    catch (e) {
-      box.innerHTML = '<p class="neg">不是合法 JSON: ' + e.message
-        + '</p><p class="muted">已尝试自动剥离围栏/前后文字仍失败 — 确认粘贴的是 AI 返回的 JSON 本体(以 { 开头 } 结尾)</p>';
+    // 末尾截断自愈(2026-08-09): AI 常丢收尾括号 — 按报错位置试插 ]/}(最多3个,
+    // 只补结构不动正文), 修好继续并黄字提醒; 修不好才报错(附出错位置前后文)
+    function tryParse(txt, depth) {
+      try { return { obj: JSON.parse(txt), fixes: depth }; }
+      catch (e) {
+        if (depth >= 3) return { err: e };
+        const m = /position (\d+)/.exec(e.message);
+        if (!m) return { err: e };
+        const pos = +m[1];
+        for (const ins of ["]", "}"]) {
+          const r = tryParse(txt.slice(0, pos) + ins + txt.slice(pos), depth + 1);
+          if (r.obj) return r;
+        }
+        return { err: e };
+      }
+    }
+    const pr = tryParse(raw, 0);
+    if (!pr.obj) {
+      const m = /position (\d+)/.exec(pr.err.message);
+      const pos = m ? +m[1] : -1;
+      box.innerHTML = '<p class="neg">不是合法 JSON: ' + pr.err.message + '</p>'
+        + (pos >= 0 ? '<p class="muted mono">出错位置前后: …'
+            + raw.slice(Math.max(0, pos - 60), pos + 40)
+                 .replace(/&/g, "&amp;").replace(/</g, "&lt;") + '…</p>' : '')
+        + '<p class="muted">已尝试剥离围栏/自动补括号仍失败 — 确认粘贴的是 AI 返回的 JSON 本体(以 { 开头 } 结尾)</p>';
       return;
     }
+    const payload = pr.obj;
+    const repairNote = pr.fixes
+      ? ' · <span class="badge warn">⚠ AI输出尾部截断, 已自动补 ' + pr.fixes
+        + ' 个括号 — 核对组数与最后一组</span>' : "";
     const combos = Array.isArray(payload) ? payload : (payload.combos || []);
     if (!combos.length) { box.innerHTML = '<p class="neg">没有找到 combos 数组</p>'; return; }
     // 协议头核对: AI 必须原样带回 template(第2步提示词约定的返回格式; 不含 id)
     const wantTpl = "{{ meta.template if meta else '' }}";
     const okTpl = payload.template === wantTpl;
-    // 探针核对(诚实条款): data_check.probes 与服务端答案逐个比 — 答错=没读成绩单=硬拦截
-    let okProbes = true, probeMsg = "";
+    // 验收(2026-08-09 Frank 收紧): computed_by 必须="code" 且 探针全对, 缺一不可 — 硬拦截
+    let okProbes = true, okCode = true, probeMsg = "";
     const pKeys = Object.keys(PROBES);
     if (pKeys.length) {
       const dc = payload.data_check || {};
+      okCode = dc.computed_by === "code";
       const got = dc.probes;
       const bad = !got ? pKeys : pKeys.filter((k) => {
         const v = got[k];   // [points, reason] — 点数容差0.05, reason 严格相等
@@ -116,24 +141,28 @@
       okProbes = !bad.length;
       probeMsg = ' · 探针 ' + (okProbes
         ? '<span class="pos">' + pKeys.length + '/' + pKeys.length + ' ✓</span>'
-          + ' <span class="muted">(computed_by=' + (dc.computed_by || '未报') + ')</span>'
         : '<span class="neg">✗ ' + (got ? '答错 ' + bad.join(",") : '缺 data_check.probes')
-          + ' — 没读成绩单, 禁止创建</span>');
+          + ' — 没读成绩单</span>')
+        + ' · computed_by=' + (okCode ? '<span class="pos">code ✓</span>'
+        : '<span class="neg">' + (payload.data_check && payload.data_check.computed_by || '未报')
+          + ' ✗ 未用代码核算, 禁止创建</span>');
     }
-    if (okTpl && okProbes) {
+    if (okTpl && okProbes && okCode) {
       lastCombos = combos;
       lastModel = payload.model || null;
       cbtn.disabled = false; cbtn.title = "";
       cbtn.textContent = "创建策略(" + combos.length + " 组)";
       cbtn.classList.add("live");
-    } else cbtn.title = okTpl ? "探针不符(AI没读成绩单), 禁止创建" : "模板不符, 禁止创建";
+    } else cbtn.title = !okTpl ? "模板不符, 禁止创建"
+      : (!okProbes ? "探针不符(AI没读成绩单), 禁止创建"
+                   : "computed_by≠code(未用代码核算), 禁止创建");
     let head = '<h3>解析结果</h3><p>'
       + '声明模板 ' + (payload.template
           ? (payload.template + (okTpl ? ' <span class="pos">✓</span>'
                                        : ' <span class="neg">✗ 应为 ' + wantTpl + '</span>'))
           : '<span class="neg">缺 template</span>')
       + ' · 模型 ' + (payload.model || '<span class="muted">未自报(备注只记方法)</span>')
-      + ' · 共 ' + combos.length + ' 组' + probeMsg + '</p>';
+      + ' · 共 ' + combos.length + ' 组' + probeMsg + repairNote + '</p>';
     let html = head
       + '<table><tr><th style="width:40px">#</th><th>参数</th><th>依据(basis)</th><th style="width:200px">格式检查(仅提示)</th></tr>';
     combos.forEach((c, i) => {

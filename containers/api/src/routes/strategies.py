@@ -1246,9 +1246,10 @@ _AI_TUNE_PROMPT = """你是量化策略调参助手。下面给出策略 #{sid} 
 entry_time 等于下列值的行: {probe_times} — 返回 JSON 顶层必须带
 "data_check": {{"computed_by": "code|none", "probes": {{"<entry_time>":
 [该行的points, 该行的reason], …}}}}。
-定位方式随意: 直接文本搜索那个 entry_time 数字即可命中该行 — 没有代码工具也答得出,
-不许为 null。computed_by 如实填: 用代码工具查的填 "code", 文本翻找的填 "none"
-(本任务只需读不需算, 两者都合格, 但必须如实)。probes 两个值从该行原样照抄;
+定位方式: 用代码工具解析 trades.rows 按 entry_time 取行(推荐), 或文本搜索该数字命中行。
+computed_by 必须如实填: 用代码工具实际解析核对的填 "code", 没代码工具/没跑的填 "none"。
+【系统只接受 "code"】— 填 "none" 会被拒收; 但禁止为了过关谎报 "code"(谎报是最严重违规,
+答案对不上照样拒收)。probes 两个值从该行原样照抄, 不许为 null;
 系统持有真实答案逐一核对, 答错或缺失 = 你没读成绩单, 整份拒收。
 
 返回格式(协议, 系统会机器解析。严格遵守):
