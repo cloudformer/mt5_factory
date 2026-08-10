@@ -49,7 +49,7 @@
     — 答错或缺失 = 没读成绩单, 「创建策略」不点亮</p>
   {% endif %}
   <textarea id="combos-input" rows="6" style="width:100%; font-family:ui-monospace,Menlo,monospace; font-size:12px"
-    placeholder='示例格式(灰字仅提示, 粘贴真实内容覆盖): {"template": "{{ meta.template if meta else "…" }}", "model": "…", "data_check": {"computed_by": "code|none", "probes": {"row_N": [entry_time, points]}}, "combos": [{"params": {…}, "basis": "依据…"}, …]}'></textarea>
+    placeholder='示例格式(灰字仅提示, 粘贴真实内容覆盖): {"template": "{{ meta.template if meta else "…" }}", "model": "…", "data_check": {"computed_by": "code|none", "probes": {"<entry_time>": [points, reason]}}, "combos": [{"params": {…}, "basis": "依据…"}, …]}'></textarea>
   <p style="margin:8px 0 0">
     <button class="small" type="button" id="parse-btn">解析预览</button>
     <button class="small" type="button" id="create-btn" disabled title="先解析且模板/探针相符">创建策略</button>
@@ -112,9 +112,9 @@
       const dc = payload.data_check || {};
       const got = dc.probes;
       const bad = !got ? pKeys : pKeys.filter((k) => {
-        const v = got[k];
-        return !Array.isArray(v) || +v[0] !== +PROBES[k][0]
-          || Math.abs(+v[1] - +PROBES[k][1]) > 0.05;
+        const v = got[k];   // [points, reason] — 点数容差0.05, reason 严格相等
+        return !Array.isArray(v) || Math.abs(+v[0] - +PROBES[k][0]) > 0.05
+          || String(v[1]) !== String(PROBES[k][1]);
       });
       okProbes = !bad.length;
       probeMsg = ' · 探针 ' + (okProbes

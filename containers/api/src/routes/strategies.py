@@ -1219,13 +1219,14 @@ _AI_TUNE_PROMPT = """你是量化策略调参助手。下面给出策略 #{sid} 
 3. 避开 failed_neighbors 里已死亡的参数区域
 4. 共 {count} 组, 宁少勿滥; 变化方向要聚焦(围绕最有证据的1~2个假设), 不要均匀撒网
 
-数据完整性探针(防略读, 答错任何一个 = 整份作废): 系统抽查主品种回测 trades.rows
-(逐笔数组, 下标从 0 起)的这些行: {probe_rows} — 返回 JSON 顶层必须带
-"data_check": {{"computed_by": "code|none", "probes": {{"row_<行号>":
-[该行的entry_time, 该行的points], …}}}}。
-computed_by 如实填: 用代码工具查的填 "code", 人工翻找的填 "none"(本任务只需读不需算,
-两者都合格, 但必须如实); probes 两个值从该行原样照抄(查找不是计算, 没有代码工具
-也必须答, 不许为 null)。系统持有真实答案逐一核对, 答错或缺失 = 你没读成绩单, 整份拒收。
+数据完整性探针(防略读, 答错任何一个 = 整份作废): 在主品种回测 trades.rows 里找到
+entry_time 等于下列值的行: {probe_times} — 返回 JSON 顶层必须带
+"data_check": {{"computed_by": "code|none", "probes": {{"<entry_time>":
+[该行的points, 该行的reason], …}}}}。
+定位方式随意: 直接文本搜索那个 entry_time 数字即可命中该行 — 没有代码工具也答得出,
+不许为 null。computed_by 如实填: 用代码工具查的填 "code", 文本翻找的填 "none"
+(本任务只需读不需算, 两者都合格, 但必须如实)。probes 两个值从该行原样照抄;
+系统持有真实答案逐一核对, 答错或缺失 = 你没读成绩单, 整份拒收。
 
 返回格式(协议, 系统会机器解析。严格遵守):
 - 只输出一个 JSON 对象: 第一个字符必须是 {{, 最后一个字符必须是 }}
@@ -1235,7 +1236,7 @@ computed_by 如实填: 用代码工具查的填 "code", 人工翻找的填 "none
   入库记在每个实例的生因备注里); 除 template/model/data_check/combos 外不要其他顶层字段
 - 标准 JSON: 双引号、无尾逗号、无注释
 
-结构(params 各键取值范围): {{"template": "{template}", "model": "<你的模型名>", "data_check": {{"computed_by": "code|none", "probes": {{"row_N": [entry_time, points]}}}}, "combos": [{{"params": {params_schema}, "basis": "一句依据"}}]}}
+结构(params 各键取值范围): {{"template": "{template}", "model": "<你的模型名>", "data_check": {{"computed_by": "code|none", "probes": {{"<entry_time>": [points, reason]}}}}, "combos": [{{"params": {params_schema}, "basis": "一句依据"}}]}}
 已填好的单组示例(仅示范格式, 数值别照抄): {{"template": "{template}", "model": "claude-opus-4-8", "combos": [{{"params": {params_example}, "basis": "sl出场148笔合计-201874, 收窄止损换结构改善"}}]}}
 
 成绩单:
@@ -1258,13 +1259,15 @@ async def ai_tune_prompt(strategy_id: int, request: Request, count: int = 10):
     params_schema = "{" + ", ".join(
         (f'"{k}": <{v[0]}~{v[1]}, 步长{v[2]}>' if isinstance(v, tuple) else f'"{k}": <候选 {v}>')
         for k, v in space.items()) + "}"
-    # 探针抽查(2026-08-09 诚实条款, 与 AI·Regime 页同机制): 点名5行主品种逐笔, AI 必须
-    # 回报该行 entry_time/points(查找不是计算); 答案单独返回, 页面解析预览自动核对拦截
+    # 探针抽查(2026-08-09 诚实条款, 与 AI·Regime 页同机制): 点名5笔的 entry_time(全局唯一,
+    # 粘贴/附件场景都能文本搜索定位, 不逼 AI 数行号), AI 回报该行 points/reason;
+    # 答案单独返回, 页面解析预览自动核对拦截
     main_rows = next((b["trades"]["rows"] for b in report["backtests"]
                       if b.get("is_main") and b.get("trades")), [])
     probe_idx = sorted({len(main_rows) * k // 10 for k in (1, 3, 5, 7, 9)}) \
         if main_rows else []
-    probe_answers = {f"row_{i}": [main_rows[i][0], main_rows[i][5]] for i in probe_idx}
+    probe_answers = {str(main_rows[i][0]): [main_rows[i][5], main_rows[i][6]]
+                     for i in probe_idx}
     prompt = _AI_TUNE_PROMPT.format(
         sid=strategy_id, template=meta["template"],
         space=_json.dumps(space, ensure_ascii=False),
@@ -1273,7 +1276,7 @@ async def ai_tune_prompt(strategy_id: int, request: Request, count: int = 10):
         params_example=_json.dumps(meta["params"], ensure_ascii=False),
         param_keys=_json.dumps(sorted(space), ensure_ascii=False),
         count=count,
-        probe_rows=_json.dumps(probe_idx),
+        probe_times=_json.dumps([main_rows[i][0] for i in probe_idx]),
         report=_json.dumps(report, ensure_ascii=False, default=str))
     return {"prompt": prompt, "space": space, "strategy": meta,
             "probe_answers": probe_answers}
