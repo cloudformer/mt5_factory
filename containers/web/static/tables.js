@@ -320,10 +320,11 @@ document.addEventListener("DOMContentLoaded", () => {
    表变宽超出容器时靠 section 的 overflow-x 横向滚动。所有 table 自动生效, 无需标记。
    列宽记忆: 拖完存 localStorage(按 页面路径+表id/序号), 下次进页自动还原;
    列数变了(改版)自动失效; 双击拖柄 = 清记忆恢复默认 */
-document.addEventListener("DOMContentLoaded", () => {
-  document.querySelectorAll("table").forEach((table, ti) => {
+function initColResize(table, ti = 0) {
+    if (table.dataset.resizeInit) return;   // 幂等: data-ajax 换块重装不重复挂柄
     const ths = [...table.querySelectorAll("tr:first-child th")];
     if (ths.length < 2) return;
+    table.dataset.resizeInit = "1";
     const memKey = `colw:${location.pathname}:${table.id || "t" + ti}`;
     const freeze = (widths, total) => {   // 固定为像素宽(拖拽和还原共用)
       ths.forEach((h, i) => { h.style.width = widths[i] + "px"; });
@@ -375,8 +376,10 @@ document.addEventListener("DOMContentLoaded", () => {
         document.addEventListener("mouseup", up);
       });
     });
-  });
-});
+}
+window.initColResize = initColResize;
+document.addEventListener("DOMContentLoaded", () =>
+  document.querySelectorAll("table").forEach((t, i) => initColResize(t, i)));
 
 /* ===== 列定制(标准组件): <table id data-colpick> 的工具条出现「列 ▾」下拉 =====
    勾选显隐列; 选择存 localStorage(键 cols:<表id>), 刷新/翻页/排序都保持。
@@ -505,6 +508,7 @@ async function ajaxSwap(url, sel) {
     history.replaceState(null, "", url);
     // 换进来的表格重新装上排序/列宽/分页/时间本地化(新 DOM 没有事件与初始化痕迹)
     box.querySelectorAll("table").forEach((t) => { delete t.dataset.sortInit; initTableSort(t); });
+    box.querySelectorAll("table").forEach((t) => initColResize(t));  // 列宽拖柄(换块后曾丢失)
     box.querySelectorAll("table[data-colpick]").forEach(initColPick);
     box.querySelectorAll("table[id]").forEach((t) => {
       if (t.querySelector("td.rownum")

@@ -70,9 +70,11 @@
           title="回测数据窗口(从现在往回数): 只在按ID点名时可选; 批量走配置页的默认窗口(180天)。同一批同窗口, 成绩单里存 from/to 可追溯; 不同窗口的成绩不要互比(对比三铁律)">
         <option value="180" {% if last_window == 180 %}selected{% endif %}>180 天(批量同款)</option>
         <option value="365" {% if last_window == 365 %}selected{% endif %}>1 年</option>
-        <option value="1825" {% if not last_window or last_window == 1825 %}selected{% endif %}>5 年</option>
+        <option value="1825" {% if last_window is none or last_window == 1825 %}selected{% endif %}>5 年</option>
         <option value="3650" {% if last_window == 3650 %}selected{% endif %}>10 年</option>
         <option value="7300" {% if last_window == 7300 %}selected{% endif %}>20 年</option>
+        <option value="0" {% if last_window == 0 %}selected{% endif %}
+                title="有多少吃多少: 每品种从 M1 数据起点跑到现在, from/to 存真实区间">全部(数据起点起)</option>
       </select></label>
     </div>
     <div class="row">

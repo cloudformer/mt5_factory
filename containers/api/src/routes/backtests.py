@@ -157,12 +157,20 @@ async def run(req: BacktestRequest, request: Request):
     }
     # 展开成 每策略×品种 一个 job: 主品种必测(排名要它); 跨品种再并上全 download 品种
     # (反过拟合空间维度)。时间窗冻结在投递时刻; 品种是否存在等校验留给执行时(错误落在 job 行)
-    if req.window_days is not None and not 30 <= req.window_days <= 7400:
-        raise HTTPException(status_code=400, detail="window_days 须为 30~7400 的整数(天)")
-    win = req.window_days or int(await pool.fetchval(
-        "SELECT value FROM config WHERE key='backtest_window_days'") or 180)
+    if req.window_days is not None and req.window_days != 0 \
+            and not 30 <= req.window_days <= 7400:
+        raise HTTPException(
+            status_code=400,
+            detail="window_days 须为 30~7400 的整数(天), 或 0=全部(自数据起点)")
     t_to = req.to_time or datetime.now(timezone.utc)
-    t_from = req.from_time or t_to - timedelta(days=win)
+    if req.window_days == 0 and req.from_time is None:
+        # 全部(2026-08-10 Frank 要): 逐品种解析 M1 数据起点, 有多少吃多少 —
+        # from_time 存真实起点, 覆盖判断/对比窗口显示才不被"空窗年份"带歪
+        t_from = None
+    else:
+        win = req.window_days or int(await pool.fetchval(
+            "SELECT value FROM config WHERE key='backtest_window_days'") or 180)
+        t_from = req.from_time or t_to - timedelta(days=win)
     universe = (set(r["symbol"] for r in
                     await pool.fetch("SELECT symbol FROM symbols WHERE download"))
                 if req.cross_symbol else set())
@@ -185,8 +193,21 @@ async def run(req: BacktestRequest, request: Request):
             extra["reuse_days"] = int(single) if single is not None else int(
                 await pool.fetchval(
                     "SELECT value FROM config WHERE key='backtest_reuse_days'") or 0)
+    data_start: dict = {}    # 全部窗口: 每品种 M1 首根时间(缓存, 每品种只查一次)
+
+    async def _from_iso(sym: str) -> str:
+        if t_from is not None:
+            return t_from.isoformat()
+        if sym not in data_start:
+            data_start[sym] = await pool.fetchval(
+                "SELECT min(time) FROM historical_bars"
+                " WHERE symbol=$1 AND timeframe='M1'", sym) \
+                or t_to - timedelta(days=7400)  # 无数据: 落回上限窗, 执行时照常报缺数据
+        return data_start[sym].isoformat()
+
     items = [{"strategy_id": s["id"], "name": s["name"], "symbol": sym,
-              "from": t_from.isoformat(), "to": t_to.isoformat(), "costs": costs, **extra}
+              "from": await _from_iso(sym), "to": t_to.isoformat(),
+              "costs": costs, **extra}
              for s in rows
              for sym in ({s["symbol"]} | universe
                          if (qualified is None or s["id"] in qualified) else {s["symbol"]})]
