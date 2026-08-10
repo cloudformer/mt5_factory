@@ -1,7 +1,20 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('Regime 概览', '全部下载品种的【当日格】落位 — 每个口径版本一张八格图(读时现拼零落库) · worker 余额在「全局Worker余额」') }}
+{{ m.page_header('Regime 概览', '') }}
+
+{% if data and data.versions %}
+{# 版本订阅表(2026-08-10 Frank 要): 每版本被多少非归档策略的门钉着 — 删版本前看谁还在用 #}
+<table class="dense" style="width:auto;min-width:300px;margin:0 0 12px">
+  <tr><th>当前regime</th><th title="非归档策略中 metadata.regime.version 钉在该版本的数量">策略订阅数量</th></tr>
+  {% for ver in data.versions %}
+  <tr>
+    <td class="mono">v{{ ver.id }} · {{ ver.label }}{% if ver.id == data.current %} <span class="badge" title="全局默认版本(读数归因视角), 与各策略门钉的版本无关">默认</span>{% endif %}</td>
+    <td class="mono {{ 'muted' if not ver.subs }}">{{ ver.subs or 0 }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
 
 {% if data and data.versions %}
 {# 全版本对比(2026-08-03 Frank 定): 每个版本一张八格落位图, 上下排开 —

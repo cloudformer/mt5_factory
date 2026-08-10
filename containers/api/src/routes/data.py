@@ -144,6 +144,12 @@ async def market_overview(request: Request):
     pool = request.app.state.pool
     syms = [r["symbol"] for r in await pool.fetch(
         "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
+    # 版本订阅数(2026-08-10 Frank 要): 非归档策略中门钉在该版本的数量 — 删版本前看谁还在用
+    subs = {r["vid"]: r["n"] for r in await pool.fetch(
+        "SELECT (metadata->'regime'->>'version')::int AS vid, count(*)::int AS n"
+        "  FROM strategies WHERE metadata->'regime'->>'version' IS NOT NULL"
+        "   AND status <> 'ARCHIVED' GROUP BY 1")}
+    cur_vid, _ = await regime.active_version(pool)
     # 全版本对比(2026-08-03 Frank 定): 每个版本一张八格落位图, 动态取表 —
     # 新建版本自动多一张, 删除自动少一张。时间线保鲜由心跳班车负责(_regime_refresh_tick),
     # 这里纯读; 极端落后由页面"截至日期"如实暴露
@@ -173,6 +179,7 @@ async def market_overview(request: Request):
         versions.append({
             "id": v["id"],
             "label": regime.label(v["params"]),
+            "subs": subs.get(v["id"], 0),
             "date": max_date.isoformat() if max_date else None,
             "cells": cells, "no_timeline": no_timeline})
     # worker 余额卡(2026-08-03 Frank 定归属口径): 行情格 = 公共资产全员可见;
@@ -199,7 +206,7 @@ async def market_overview(request: Request):
             "initial": init,
             "pnl_pct": round(rz / init * 100, 2) if (init and rz is not None) else None,
             "heartbeat": h["last_heartbeat"].isoformat() if h["last_heartbeat"] else None})
-    return {"versions": versions, "workers": workers}
+    return {"versions": versions, "workers": workers, "current": cur_vid}
 
 
 def _validate_regime_params(value) -> dict:
