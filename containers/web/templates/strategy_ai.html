@@ -86,12 +86,11 @@
   btn.addEventListener("click", () => {
     const box = document.getElementById("combos-preview");
     resetPipeline();
-    // 容错提取: AI 可能包 ```围栏 或加前后废话 — 截取首个 { 到末个 } 之间再解析
-    let raw = document.getElementById("combos-input").value;
-    const s = raw.indexOf("{"), e2 = raw.lastIndexOf("}");
-    if (s >= 0 && e2 > s) raw = raw.slice(s, e2 + 1);
-    // 末尾截断自愈(2026-08-09): AI 常丢收尾括号 — 按报错位置试插 ]/}(最多3个,
-    // 只补结构不动正文), 修好继续并黄字提醒; 修不好才报错(附出错位置前后文)
+    // 容错提取(2026-08-09): AI 回复常混杂代码块/说明文字 — 先按老规矩取首{到末};
+    // 不行就从后往前扫, 捞"最后一个含 combos 的完整 JSON 对象"(AI 惯把最终 JSON 放末尾)
+    const raw = document.getElementById("combos-input").value;
+    // 末尾截断自愈: AI 常丢收尾括号 — 按报错位置试插 ]/}(最多3个, 只补结构不动正文),
+    // 修好继续并黄字提醒; 修不好才报错(附出错位置前后文)
     function tryParse(txt, depth) {
       try { return { obj: JSON.parse(txt), fixes: depth }; }
       catch (e) {
@@ -106,15 +105,28 @@
         return { err: e };
       }
     }
-    const pr = tryParse(raw, 0);
+    const s0 = raw.indexOf("{"), eL = raw.lastIndexOf("}");
+    const firstTxt = s0 >= 0 && eL > s0 ? raw.slice(s0, eL + 1) : raw;
+    let pr = tryParse(firstTxt, 0);
+    if (!(pr.obj && (pr.obj.combos || Array.isArray(pr.obj)))) {
+      let tries = 0, found = null;
+      for (let e = eL; e > s0 && tries < 150 && !found; e = raw.lastIndexOf("}", e - 1)) {
+        for (let st = raw.lastIndexOf("{", e); st >= 0 && tries < 150; st = raw.lastIndexOf("{", st - 1)) {
+          tries++;
+          const cand = tryParse(raw.slice(st, e + 1), 0);
+          if (cand.obj && cand.obj.combos) { found = cand; break; }
+        }
+      }
+      if (found) pr = found;
+    }
     if (!pr.obj) {
       const m = /position (\d+)/.exec(pr.err.message);
       const pos = m ? +m[1] : -1;
       box.innerHTML = '<p class="neg">不是合法 JSON: ' + pr.err.message + '</p>'
         + (pos >= 0 ? '<p class="muted mono">出错位置前后: …'
-            + raw.slice(Math.max(0, pos - 60), pos + 40)
+            + firstTxt.slice(Math.max(0, pos - 60), pos + 40)
                  .replace(/&/g, "&amp;").replace(/</g, "&lt;") + '…</p>' : '')
-        + '<p class="muted">已尝试剥离围栏/自动补括号仍失败 — 确认粘贴的是 AI 返回的 JSON 本体(以 { 开头 } 结尾)</p>';
+        + '<p class="muted">已尝试剥离围栏/捞取末尾JSON/自动补括号仍失败 — 粘 AI 返回里"最终那个 JSON 对象"(含 combos)即可, 前后有废话没关系</p>';
       return;
     }
     const payload = pr.obj;
