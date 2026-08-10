@@ -39,7 +39,7 @@
      探针全对(防缺段/略读) + 两份报告齐全; computed_by 如实即可(查表不要求代码) #}
   <p class="muted">🧾 AI 回复验收: 探针全对 + 两份报告齐全 = 可信(下方自动判)
     <span style="cursor:help;border-bottom:1px dotted"
-          title='精简模式: 所有数字由我方数据库预聚合, AI 不做计算 — 不再需要总账/格账对账。&#10;✅ 可用: probes 与下行探针答案逐一相同 + regime_report/strategy_report 非 null&#10;❌ 缺数据: mismatch 写明缺什么 + 报告 null — 检查是否用「合并一份」附件重发&#10;⛔ 探针答错 = 没读数据, 直接扔&#10;&#10;probes 返回格式: "probes": {"v1|2008|BAB": [笔数, 毛利点, 毛损点], ...共5行}'>(悬停看合格格式)</span></p>
+          title='精简模式: 原始数字由我方数据库预聚合, 但 AI 的汇总(全量PF/近5年PF)仍是它算的 — 只认代码算。&#10;✅ 可用: computed_by="code" + probes 与下行探针答案逐一相同 + 两份报告非 null&#10;❌ none: 答案格式正确但汇总数字是心算 — 不可信, 换带代码执行的模型重跑&#10;❌ 缺数据: mismatch 写明缺什么 + 报告 null — 用「合并一份」附件重发&#10;⛔ 探针答错 = 没读数据, 直接扔&#10;&#10;probes 返回格式: "probes": {"v1|2008|BAB": [笔数, 毛利点, 毛损点], ...共5行}'>(悬停看合格格式)</span></p>
   {% if probes %}
   {# 探针答案自留(2026-08-09): 提示词只点名 "v版本|年|格", 真实行值只显示在这里 #}
   <p class="muted">🔍 探针答案(自留对答案, <b>别发给 AI</b>):
@@ -154,11 +154,15 @@
                             && (rep.strategy_report.gate || {}).regime);
       const allOk = okPr && hasReports;
       // 结论用人类语言+分行(2026-08-09 Frank 定): JSON 是机器语言, 这几行是给人看的
+      // 验收铁则(2026-08-09 Frank 定: 协议合格≠结论可信): 探针只验"读", 验不了"加" —
+      // evidence 里的汇总数字(全量PF/近5年PF)是 AI 算的, 只认 code; none=格式正确但不可信
+      const isCode = dc.computed_by === "code";
+      const pass = allOk && isCode;
       out.innerHTML = "<b>data_check 验收</b>"
-        + '<div>1. computed_by: ' + (dc.computed_by === "code"
-            ? '<span class="pos">code(代码查表) — 可信 ✅</span>'
+        + '<div>1. computed_by: ' + (isCode
+            ? '<span class="pos">code(代码查表+汇总) — 数字可信 ✅</span>'
             : dc.computed_by === "none"
-              ? '<span class="muted">none(人工查表) — 本任务合格 📖</span>'
+              ? '<span class="neg">none(人工查表) — 答案格式正确, 但汇总数字未经代码核算, 不可信 ❌</span>'
               : '<span class="neg">未报 — 不合格 ❌</span>') + "</div>"
         + '<div>2. probes: ' + (okPr
             ? '<span class="pos">已验证 ' + pKeys.length + "/" + pKeys.length + ' ✅</span>'
@@ -167,13 +171,15 @@
         + '<div>3. 报告: ' + (hasReports
             ? '<span class="pos">regime_report / strategy_report 齐全 ✅</span>'
             : '<span class="neg">缺失 ❌</span>') + "</div>"
-        + "<div style='margin-top:2px'>" + (allOk
+        + "<div style='margin-top:2px'>" + (pass
             ? '<b class="pos">✅ 结论: 可信 — 门面板已按 AI 建议预填, 改完点「克隆带门」</b>'
             : (dc.mismatch
                ? '<b>⚠️ 结论: AI 报缺数据</b> — ' + dc.mismatch
                  + '(用「⬇ 合并一份」下载后当附件重发)'
-               : '<b class="neg">❌ 结论: 不可信, 直接扔</b>')) + "</div>";
-      if (!allOk) return;
+               : (allOk && !isCode
+                  ? '<b class="neg">❌ 结论: 不可信 — 换带代码执行的模型重跑(数字必须代码算)</b>'
+                  : '<b class="neg">❌ 结论: 不可信, 直接扔</b>'))) + "</div>";
+      if (!pass) return;
       const g = ((rep.strategy_report || {}).gate || {}).regime || {};
       const cells = g.cells || {};
       document.querySelectorAll("#rg-gate input[type=checkbox]").forEach((cb) => {
