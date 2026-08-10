@@ -24,7 +24,7 @@
       <option value="">默认(v{{ rv_current }})</option>
       {% for v in rv_versions %}
       <option value="{{ v.id }}" {% if regime_version == v.id %}selected{% endif %}>
-        v{{ v.id }} · {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}</option>
+        v{{ v.id }} · {{ v.label }}</option>
       {% endfor %}
     </select></label>
   {% endif %}

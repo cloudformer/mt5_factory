@@ -170,10 +170,9 @@ async def market_overview(request: Request):
                 max_date = rows[0]["date"]
             cells.setdefault(rows[0]["regime"], []).append(
                 {"symbol": s, "date": rows[0]["date"].isoformat(), "run_days": run})
-        p = v["params"] or {}
         versions.append({
             "id": v["id"],
-            "label": f"{p.get('long_ma', '?')}/{p.get('short_ma', '?')}/ATR{p.get('atr_n', '?')}",
+            "label": regime.label(v["params"]),
             "date": max_date.isoformat() if max_date else None,
             "cells": cells, "no_timeline": no_timeline})
     # worker 余额卡(2026-08-03 Frank 定归属口径): 行情格 = 公共资产全员可见;
@@ -260,6 +259,7 @@ async def regime_versions_list(request: Request):
         "SELECT id, params, created_at FROM regime_versions ORDER BY id")
     return {"current": vid,
             "versions": [{"id": r["id"], "params": r["params"],
+                          "label": regime.label(r["params"]),
                           "created_at": r["created_at"].isoformat()} for r in rows]}
 
 

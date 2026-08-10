@@ -32,13 +32,13 @@
         <select name="version_id" onchange="this.form.submit()"
                 title="切换=改全局默认版本(与配置页同一开关, 全站生效); 切到还没时间线的版本后点「重建」生成">
           {% for v in rv_versions %}
-          <option value="{{ v.id }}" {% if v.id == rv_current %}selected{% endif %}>v{{ v.id }} · {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}/{{ v.params.vol_win }}日/{{ '%g' % v.params.vol_q }}</option>
+          <option value="{{ v.id }}" {% if v.id == rv_current %}selected{% endif %}>v{{ v.id }} · {{ v.label }}</option>
           {% endfor %}
         </select></label>
     </form>
     {% else %}
     <span class="muted" title="全局默认版本, 管理员在配置页/本页切换">口径版本
-      {% for v in rv_versions %}{% if v.id == rv_current %}<b class="mono">v{{ v.id }}</b> · {{ v.params.long_ma }}/{{ v.params.short_ma }}/ATR{{ v.params.atr_n }}/{{ v.params.vol_win }}日/{{ '%g' % v.params.vol_q }}{% endif %}{% endfor %}
+      {% for v in rv_versions %}{% if v.id == rv_current %}<b class="mono">v{{ v.id }}</b> · {{ v.label }}{% endif %}{% endfor %}
       (只读)</span>
     {% endif %}
     {% if data and data.rows %}

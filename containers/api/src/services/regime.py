@@ -21,6 +21,16 @@ logger = logging.getLogger("regime")
 DEFAULT_PARAMS = {"long_ma": "sma200", "short_ma": "sma20",
                   "atr_n": 14, "vol_win": 252, "vol_q": 0.5}
 CELLS = ("AAA", "AAB", "ABA", "ABB", "BAA", "BAB", "BBA", "BBB")
+
+
+def label(p: dict) -> str:
+    """版本标签唯一来源(2026-08-10 Frank 定"改一个地方全出来"): 五参数全显 —
+    只显示 长/短/ATR 曾让 v2 与 v4(仅分位不同)在页面上撞名"""
+    p = p or {}
+    return (f"{p.get('long_ma', '?')}/{p.get('short_ma', '?')}/ATR{p.get('atr_n', '?')}"
+            f"/{p.get('vol_win', '?')}日/q{p.get('vol_q', '?'):g}"
+            if isinstance(p.get('vol_q'), (int, float)) else
+            f"{p.get('long_ma', '?')}/{p.get('short_ma', '?')}/ATR{p.get('atr_n', '?')}")
 _MA_RE = re.compile(r"^(sma|ema)(\d{1,3})$")
 
 
