@@ -55,8 +55,8 @@
   <p class="muted">粘贴 AI 返回的 JSON → 自动验收(探针全对 + 两份报告齐全) → 全绿预填下方门面板; 去格/改倍率随你, 点「克隆带门」才落地(挂无门根, 同门重复返回现有 id)。</p>
   <textarea id="rg-reply" rows="5" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:11.5px"
     placeholder='粘 AI 返回的最终 JSON(含 data_check / regime_report / strategy_report), 前后混着废话没关系'></textarea>
-  <p style="margin:6px 0"><button type="button" class="small" id="rg-verify">自动验收</button>
-    <span id="rg-verdict" class="muted">粘贴后点验收</span></p>
+  <p style="margin:6px 0"><button type="button" class="small" id="rg-verify">自动验收</button></p>
+  <div id="rg-verdict" class="muted" style="margin:4px 0 8px">粘贴后点「自动验收」</div>
   <div id="rg-gate" hidden>
     <form method="post" action="{{ url_for('strategies.clone_gate', strategy_id=sid) }}" class="inline"
           onsubmit="return confirm('按当前勾选克隆带门新实例?\n\n克隆自动挂到无门根下; 勾选格按倍率交易, 未勾格不开新仓; 父实例不受影响。')">
@@ -142,22 +142,37 @@
       }
       const rep = pr.obj, dc = pr.obj.data_check || {};
       const eq = (a, b, tol) => Math.abs((+a) - (+b)) <= (tol || 0);
-      let okPr = true;      // 探针: 每行 [笔数, 毛利, 毛损] 逐一相同(点数±0.05)
-      for (const k of Object.keys(PROBES_ANS)) {
+      const pKeys = Object.keys(PROBES_ANS);
+      let nBad = 0;         // 探针: 每行 [笔数, 毛利, 毛损] 逐一相同(点数±0.05)
+      for (const k of pKeys) {
         const v = (dc.probes || {})[k];
         if (!Array.isArray(v) || !eq(v[0], PROBES_ANS[k][0])
-            || !eq(v[1], PROBES_ANS[k][1], 0.05) || !eq(v[2], PROBES_ANS[k][2], 0.05)) okPr = false;
+            || !eq(v[1], PROBES_ANS[k][1], 0.05) || !eq(v[2], PROBES_ANS[k][2], 0.05)) nBad++;
       }
+      const okPr = !nBad;
       const hasReports = !!(rep.regime_report && rep.strategy_report
                             && (rep.strategy_report.gate || {}).regime);
-      const checks = [["探针全对", okPr], ["两份报告齐全", hasReports]];
-      const allOk = checks.every((x) => x[1]);
-      out.innerHTML = checks.map((x) => '<span class="' + (x[1] ? "pos" : "neg") + '">'
-          + x[0] + (x[1] ? " ✓" : " ✗") + "</span>").join(" · ")
-        + ' <span class="muted">(computed_by=' + (dc.computed_by || "未报") + ')</span>'
-        + (allOk ? ' — <b class="pos">可信, 门面板已按 AI 建议预填, 改完点克隆</b>'
-           : (dc.mismatch ? ' — AI 报缺数据: ' + dc.mismatch + '(用「合并一份」附件重发)'
-                          : ' — <b class="neg">不可信, 直接扔</b>'));
+      const allOk = okPr && hasReports;
+      // 结论用人类语言+分行(2026-08-09 Frank 定): JSON 是机器语言, 这几行是给人看的
+      out.innerHTML = "<b>data_check 验收</b>"
+        + '<div>1. computed_by: ' + (dc.computed_by === "code"
+            ? '<span class="pos">code(代码查表) — 可信 ✅</span>'
+            : dc.computed_by === "none"
+              ? '<span class="muted">none(人工查表) — 本任务合格 📖</span>'
+              : '<span class="neg">未报 — 不合格 ❌</span>') + "</div>"
+        + '<div>2. probes: ' + (okPr
+            ? '<span class="pos">已验证 ' + pKeys.length + "/" + pKeys.length + ' ✅</span>'
+            : '<span class="neg">' + nBad + "/" + pKeys.length
+              + ' 行与库侧答案不符 — 没读到数据 ❌</span>') + "</div>"
+        + '<div>3. 报告: ' + (hasReports
+            ? '<span class="pos">regime_report / strategy_report 齐全 ✅</span>'
+            : '<span class="neg">缺失 ❌</span>') + "</div>"
+        + "<div style='margin-top:2px'>" + (allOk
+            ? '<b class="pos">✅ 结论: 可信 — 门面板已按 AI 建议预填, 改完点「克隆带门」</b>'
+            : (dc.mismatch
+               ? '<b>⚠️ 结论: AI 报缺数据</b> — ' + dc.mismatch
+                 + '(用「⬇ 合并一份」下载后当附件重发)'
+               : '<b class="neg">❌ 结论: 不可信, 直接扔</b>')) + "</div>";
       if (!allOk) return;
       const g = ((rep.strategy_report || {}).gate || {}).regime || {};
       const cells = g.cells || {};
