@@ -567,9 +567,11 @@ async def set_config(key: str, req: ConfigUpdate, request: Request):
                 or not all(isinstance(v, (int, float)) and 0 < v <= 100 for v in req.value)):
             raise HTTPException(status_code=400,
                                 detail="volume_presets must be a non-empty list of numbers in (0, 100]")
-    if key == "backtest_oos_split":  # OOS 训练段占比: (0,1) 开区间
-        if not isinstance(req.value, (int, float)) or not 0 < req.value < 1:
-            raise HTTPException(status_code=400, detail="backtest_oos_split must be between 0 and 1")
+    if key == "backtest_oos_split":  # OOS 训练段占比: (0,1], 1=10:0 不切留出
+        # (2026-08-09 Frank 定: 六段筛已替位, 引擎 7:3 退休 — 填 1 即全量无留出段)
+        if not isinstance(req.value, (int, float)) or not 0 < req.value <= 1:
+            raise HTTPException(status_code=400,
+                                detail="backtest_oos_split must be in (0, 1]; 1 = 不切留出段")
     if key == "cross_symbol_gate":  # 交叉测试门槛: 各项数值或 null(=不检查)
         allowed = {"min_trades", "min_win_rate", "min_net_points", "min_pf", "max_dd_points"}
         if not isinstance(req.value, dict) or set(req.value) - allowed:
