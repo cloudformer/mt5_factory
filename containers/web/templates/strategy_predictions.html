@@ -46,7 +46,8 @@
       <td style="white-space:normal" title="每批 {{ r.before.batch }} 笔 × {{ r.before.n_batches }} 批(共 {{ r.before.n_trades }} 笔) · 最低批 {{ r.before.min if r.before.min is not none else '∞' }} · 亏损批 {{ r.before.below1 }}/{{ r.before.n_batches }}">
         <div class="pf-chips">
         {%- for f in r.before.pfs -%}
-        <span class="pf-chip {{ 'neg' if f is not none and f < 1 else ('hi' if f is none or f >= 1.5 else '') }}">{{ f if f is not none else '∞' }}</span>
+        {#- 涨绿亏红(2026-08-10 Frank 定): <1红; ≥1绿按 1.5/2/3/5 分档加深, ∞=最深 -#}
+        <span class="pf-chip {{ 'g5' if f is none else ('neg' if f < 1 else ('g1' if f < 1.5 else ('g2' if f < 2 else ('g3' if f < 3 else ('g4' if f < 5 else 'g5'))))) }}">{{ f if f is not none else '∞' }}</span>
         {%- endfor -%}
         </div>
       </td>

@@ -263,14 +263,18 @@ a.btn:hover { background: #d9ecf9; }
 /* 轴标签: 12px 但用正文色(2026-08-06 Frank: 小字用灰太浅不好分辨) */
 .regime-axis { font-size: 12px; font-weight: 600; color: var(--text);
                text-align: center; align-self: end; padding: 0 4px; }
-/* 批次PF格子(2026-08-10 Frank: 光排数字太乱要格子): 小方格网格三色 —
-   红=亏批(<1) / 绿=强批(≥1.5或∞) / 灰=平批, 一眼扫出连败区与爆发区 */
+/* 批次PF格子(2026-08-10 Frank 定色): 涨绿亏红 — <1 红; ≥1 绿按档加深
+   (1~1.5 / 1.5~2 / 2~3 / 3~5 / ≥5或∞), 越赚越深, 连败连爆一眼扫出 */
 .pf-chips { display: flex; flex-wrap: wrap; gap: 3px; max-width: 620px; }
 .pf-chip { font-size: 11px; line-height: 1; padding: 3px 4px; border-radius: 4px;
            min-width: 32px; text-align: center; font-variant-numeric: tabular-nums;
-           background: #eef2f5; color: var(--text); border: 1px solid var(--border); }
+           border: 1px solid transparent; }
 .pf-chip.neg { background: var(--err-bg); color: var(--err-fg); border-color: var(--err-bd); }
-.pf-chip.hi  { background: var(--ok-bg);  color: var(--ok-fg);  border-color: var(--ok-bd); }
+.pf-chip.g1 { background: #eafaf1; color: #1e8e53; border-color: #cdeeda; }  /* 1~1.5 */
+.pf-chip.g2 { background: #cdf0dd; color: #187a46; border-color: #b2e4c8; }  /* 1.5~2 */
+.pf-chip.g3 { background: #a4e4c2; color: #11603a; border-color: #8bd6ae; }  /* 2~3 */
+.pf-chip.g4 { background: #5fcb95; color: #ffffff; border-color: #4bbd85; }  /* 3~5 */
+.pf-chip.g5 { background: #27ae60; color: #ffffff; border-color: #1f9b53; }  /* ≥5 / ∞ */
 
 /* 八格底色三级制(2026-08-06 Frank 定, 防歧义 — 一格只可能落一级):
      ①有战绩 → 净点方向: 绿赚/红亏(9% 淡色,  调用方传 fills=绿/红)
