@@ -800,50 +800,30 @@ async def strategy_profile(strategy_id: int, request: Request):
 _REGIME_AI_PROMPT_HEAD = """\
 # 任务(两问, 服务两个对象): ① 对 Regime 口径的评价报告 ② 该策略可直接使用的门(gate)
 
-## 第0步(必做, 先于一切分析): 数据完整性对账 — 防附件截断/略读
-下方 data_check_expected 是我方在数据库侧算好的全量合计。请先用你收到的原始数据
-【逐行重算】并逐项对比:
-- trades: 交易日行数 / 总笔数 / 总胜数 / 总毛利点 / 总毛损点 / 首末日期
-- 每个 regime 版本: timeline_runs 段数 / 首段与末段的起始日
-全部一致 → 输出 data_check.match=true, 继续分析;
-任何一项不一致 = 你没有收到或没有读全数据 → 停止分析: match=false, mismatch 里写明
-哪项对不上(expected vs 你算的), regime_report/strategy_report 置 null,
-confidence="unverified"。
-【禁止跳过重算直接抄 expected】— computed 必须来自你对原始行的实际累加。
+## 数据形态(精简模式 — 系统已在数据库侧完成贴格与聚合, 你【不需要也不得】重算)
+1. strategy: 模板/参数/品种/周期(主货币对全量悲观口径回测, 区间=backtest_window)
+2. regime_versions[]: 每个口径版本给
+   - params: 格子怎么算(长均线/短均线/ATR 等算法参数, 无未来函数)
+   - coverage: 时间线对回测区间的覆盖("全量"=覆盖整个回测区间; 未全量的版本结论必须注明受限)
+   - year_cells: 年×格战绩表, 行=[年, 格, 笔数, 赢笔数, 毛利点, 毛损点] — 第一分析对象
+   - month_cells: 月×格战绩表, 行=[YYMM, 格, 笔数, 赢, 毛利, 毛损] — 辅助证据
+   任意切片: PF=Σ毛利/Σ毛损, 净点=毛利-毛损, 胜率=Σ赢/Σ笔; 格="unlabeled"=当日无标签(不评格)。
+   所有数字由系统数据库精确算出 — 你的工作是【读表和判断】; 引用的每个数字必须原样取自
+   表格或由表格行直接加总, 禁止估算/杜撰。
 
-## 第0.5步(必做): 格账对总账 — 贴格结果本身要交出来受审
-对【每个】regime 版本, 把全部交易日贴格后按格累加, 在输出 data_check.cell_totals 里
-交出每格四元组 [笔数, 赢, 毛利点, 毛损点], 外加 unlabeled(时间线覆盖外无标签的日子)。
-硬约束: 每个版本 8 格 + unlabeled 的四列分别加总, 必须等于上面 computed 的
-trades/wins/gross_profit_pts/gross_loss_pts(容差: 点数 ±0.5)。加总不等 = 你的贴格
-是错的, 不许出报告(处理同第0步不一致)。
-后文所有 evidence / recommend 引用的格级数字必须直接取自 cell_totals 及其年切片
-重算, 与 cell_totals 矛盾的数字 = 无效。
-【本次分析必须从零重算 — 禁止复用你先前任何回答里的数字, 哪怕看起来是同一个策略】
-
-## 计算纪律(诚实条款 — 违者整份报告作废)
-- 第0步/第0.5步的重算、贴格与一切切片统计【必须用你的代码执行工具(Python)对附件
-  实算完成】, 禁止心算、估算、按比例摊派; 输出 data_check.computed_by="code"。
-- 没有代码执行能力, 或没有把握逐日算对 → 【诚实回答】: match=false,
-  computed_by="none", mismatch 写"无法可靠完成计算, 需要预聚合数据",
-  computed/cell_totals 与两份报告置 null。说"算不了"是完全合法的答案;
-  编造看似合理的数字是最严重违规。
-- 【无论是否认输, 以下两项永远必答, 不许为 null】:
-  ① computed_by — 如实回 "code" 或 "none";
-  ② probes — probe_days 里每个日子在【每个版本】下的格。这是查找不是计算:
-    在该版本 timeline_runs 里找出起始日 ≤ 该日的最后一段, 其格即答案,
-    逐个翻找即可, 不需要代码执行 — 所以认输也必须答。
-  我方持有这些日子的真实答案将逐一核对, 答错任何一个 = 整份回复作废;
-  连 probes 都答不了 = 你没读数据, 不要回复任何数字。
+## 第0步(必做, 任何情况必答): 完整性探针 — 防数据缺段/略读
+下方 probe_keys 点名了若干 "v版本|年|格" — 在对应版本的 year_cells 里找到那一行,
+在输出 data_check.probes 里原样照抄该行的 [笔数, 毛利点, 毛损点]。
+这是查表不是计算, 不许为 null; 我方持有真实答案逐一核对, 答错 = 你没收到/没读全数据,
+整份作废。确实没收到第①段数据 → probes 尽力回答, mismatch 写明缺什么, 两份报告置 null。
 
 ## 第一问: Regime 报告 — 评的是【口径】不是策略
-用本策略全量回测当探针(实际区间见数据 backtest_window, 可能超过20年), 评价 N 个 regime 版本谁更有规律。判定算法(按此执行):
-- 第一维度 = 8 个格(象限); 对每个格: 拉出【逐年】切片的 PF 序列,
-  看"格内跨年 PF 是否大致相同"(离散度小=稳定)。
+用本策略全量回测当探针(区间见 backtest_window), 评价 N 个 regime 版本谁更有规律。判定算法:
+- 对每个格: 从 year_cells 拉出该格【逐年】PF 序列, 看"格内跨年 PF 是否大致相同"(离散度小=稳定)。
 - 例: 某版本下 AAA 格各年 PF 都≈0.7, BBB 格各年都≈1.9 → 这就是最好的 regime —
   格内跨时间稳定 + 格间拉得开。【稳定亏也是规律】(那格不选就是了, 见第二问)。
 - 测量值用策略 PF, 但评的是口径的稳定性, 与策略赚不赚钱无关。
-- 年切片为主; 月切片保留为辅助证据(年都没规律月更不行; 格×月常<5笔, 样本太薄只作参考)。
+- 年切片为主; month_cells 保留为辅助证据(年都没规律月更不行; 格×月常<5笔, 样本薄只作参考)。
 - 客观全量呈现: 全部格全部切片如实摆数字, 1 笔也正常显示, 不预设立场不隐藏;
   唯一标注 = 切片 <5 笔标"样本不足"。
 
@@ -852,17 +832,6 @@ trades/wins/gross_profit_pts/gross_loss_pts(容差: 点数 ±0.5)。加总不等
 - 门机制(必须按此理解): 无 gate = 全量交易(每个信号都下单);
   有 gate = 入场日的格在 cells 里才交易, 倍率 0.5~1 缩放仓位;
   数字不好的格【不写进 cells = 那种天气直接不交易】— 不存在负倍率或反着做。
-
-## 原料(数据在最后, 我方零预处理 — 贴格/切片全部由你完成)
-1. strategy: 模板/参数/品种/周期(主货币对全量悲观口径回测, 区间=backtest_window)
-2. trades: 【日聚合】紧凑列式 [日期YYMMDD, 笔数, 赢笔数, 毛利点, 毛损点] —
-   同日笔贴同一个格(regime 按天), 任意切片的 PF=Σ毛利/Σ毛损、净点=毛利-毛损、
-   胜率=Σ赢/Σ笔 都可精确重算, 无信息损失; 已按倍率加权
-3. regime_versions: 全部口径版本 — 每个版本给 params(算法参数: 长均线/短均线/ATR等,
-   即"格子怎么算的")和 timeline_runs(压缩段: [起始日YYMMDD, 格], 只记换格日;
-   某日的格 = 之前最近一段的格 — 展开即得每一天的格, 零损失)
-4. coverage: 每版本时间线对回测区间的覆盖 — "全量"=覆盖整个回测区间
-   (回测只有2年则时间线2年也算全量); 未全量的版本已标注, 其结论必须注明受限
 
 ## Regime 原理(铁律: 只描述当天性格, 绝不预测未来)
 每交易日由三个二值维度拼成三字母格(8格 AAA..BBB):
@@ -875,14 +844,8 @@ unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话�
 ## 输出(严格 JSON, 不要多余文字 — 两份报告分开, 各说各的)
 {
   "data_check": {
-    "match": true,
-    "computed_by": "code",
-    "probes": {"YYMMDD": {"1": "AAA", "2": "BBA"}},
-    "computed": {"days": 0, "trades": 0, "wins": 0, "gross_profit_pts": 0.0,
-                 "gross_loss_pts": 0.0, "first_date": "YYMMDD", "last_date": "YYMMDD",
-                 "versions": {"1": {"runs": 0}, "2": {"runs": 0}}},
-    "cell_totals": {"1": {"AAA": [0, 0, 0.0, 0.0], "...其余7格": [], "unlabeled": []},
-                    "2": {}},
+    "computed_by": "code|none",
+    "probes": {"v1|2008|BAB": [12, 3456.7, 2345.6]},
     "mismatch": null
   },
   "regime_report": {
@@ -899,9 +862,8 @@ unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话�
     "ai_regime_recommend": "选哪个 version 及理由; 近5年权重约66%下入选格与倍率的数字依据; 未入选格=不交易的理由; 月切片补充观察; 样本不足处保留意见"
   }
 }
-- data_check 放最前: match=true 且 cell_totals 各版本加总=总账, 才允许出报告;
-  否则两份报告置 null 只报 mismatch;
-- computed_by 与 probes 任何情况下必填(认输白卷也要填 — probes 是查找不是计算);
+- computed_by 如实填(用代码查表="code", 文本查表="none" — 本任务只需查表, 两者都合格);
+- probes 任何情况必填; 只有确实缺数据时才在 mismatch 说明并把两份报告置 null;
 - regime_report 评的是【口径】(与策略赚不赚钱无关, 稳定亏也算规律), ranking 给版本排序;
 - strategy_report 是【策略可直接使用的配置】: gate 与系统 metadata.regime 格式逐字节兼容;
   没有可信规律时 cells 给 {} 并在 recommend 说明。
@@ -949,11 +911,12 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
         raise HTTPException(status_code=400, detail=(
             f"无门根 #{s['id']} 的主品种没有回测行 — 先给它跑一发回测(建议20年)"
             if s["id"] != requested_id else "主品种没有回测行 — 先跑一发回测(建议20年)"))
-    # 日聚合(2026-08-09 Frank 确认: regime 原生分辨率=天, 同日笔贴同格 — 五元组可精确
-    # 重算任意切片的 PF/净点/笔数/胜率, 零分析损失, 体积 -60%): [YYMMDD, 笔数, 赢, 毛利, 毛损]
+    # 精简模式(2026-08-09 Frank 定, AI 原话"需要预聚合数据"): 贴格+聚合全部由数据库侧
+    # 完成, AI 零计算只读表判断 — "不肯跑代码"类失败整类消失, 数字全部出自库(比 AI 算的可信)。
+    # 先日聚合(regime 原生分辨率=天, 同日笔贴同格), 再按版本贴格出 年×格 / 月×格 两张表
     daily: dict = {}
     for t in (bt["trades"] or []):
-        d = datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).strftime("%y%m%d")
+        d = datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date()
         a = daily.setdefault(d, [0, 0, 0.0, 0.0])
         pts = float(t.get("points") or 0) * float(t.get("mult") or 1)
         a[0] += 1
@@ -962,8 +925,6 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
             a[2] += pts
         else:
             a[3] -= pts
-    trades = [[d, a[0], a[1], round(a[2], 1), round(a[3], 1)]
-              for d, a in sorted(daily.items())]
     cur_vid, _ = await regime.active_version(pool)
     versions = []
     for v in await pool.fetch("SELECT id, params FROM regime_versions ORDER BY id"):
@@ -975,29 +936,39 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
         tl_rows = await pool.fetch(
             "SELECT date, regime FROM regime_timeline"
             " WHERE version_id=$1 AND symbol=$2 ORDER BY date", vid, s["symbol"])
-        runs, prev = [], None
-        for r in tl_rows:
-            if r["regime"] != prev:
-                runs.append([r["date"].strftime("%y%m%d"), r["regime"]])
-                prev = r["regime"]
+        tl = {r["date"]: r["regime"] for r in tl_rows}
+        ycells: dict = {}   # (年, 格) → [笔, 赢, 毛利, 毛损]
+        mcells: dict = {}   # (YYMM, 格) → 同上
+        for d, a in daily.items():
+            cell = tl.get(d, "unlabeled")
+            for acc in (ycells.setdefault((d.year, cell), [0, 0, 0.0, 0.0]),
+                        mcells.setdefault((d.strftime("%y%m"), cell), [0, 0, 0.0, 0.0])):
+                acc[0] += a[0]
+                acc[1] += a[1]
+                acc[2] += a[2]
+                acc[3] += a[3]
         if not tl_rows:
             cov = "无时间线(未重建) — 该版本无法分析"
         else:
             t0, t1 = tl_rows[0]["date"], tl_rows[-1]["date"]
-            full = t0 <= bt["from_time"].date() and t1 >= bt["to_time"].date()
-            cov = "全量(覆盖整个回测区间)" if full else (
+            full_cov = t0 <= bt["from_time"].date() and t1 >= bt["to_time"].date()
+            cov = "全量(覆盖整个回测区间)" if full_cov else (
                 f"未全量: 时间线 {t0}~{t1}, 回测 {bt['from_time']:%Y-%m-%d}~"
-                f"{bt['to_time']:%Y-%m-%d} — 覆盖外的笔无标签, 该版本结论受限")
-        versions.append({"version": vid, "is_current_default": vid == cur_vid,
-                         "params": v["params"], "coverage": cov, "timeline_runs": runs})
+                f"{bt['to_time']:%Y-%m-%d} — 覆盖外的笔计入 unlabeled, 该版本结论受限")
+        versions.append({
+            "version": vid, "is_current_default": vid == cur_vid,
+            "params": v["params"], "coverage": cov,
+            "columns": ["切片", "格", "笔数", "赢笔数", "毛利点", "毛损点"],
+            "year_cells": [[y, c, a[0], a[1], round(a[2], 1), round(a[3], 1)]
+                           for (y, c), a in sorted(ycells.items())],
+            "month_cells": [[m, c, a[0], a[1], round(a[2], 1), round(a[3], 1)]
+                            for (m, c), a in sorted(mcells.items())],
+        })
     import json as _json
 
     def _j(obj):
         return _json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)
 
-    # 分段(2026-08-09 Frank 终版, 配合 Gemini 附件上传): 固定三份 —
-    # ① regime 全部版本合一 ② 全量交易 ③ 指令+策略身份(压轴带开始口令)。
-    # slug 用于下载文件名 prompt-{id}-{n}-{slug}.txt(带策略id, 下载不重名)
     base = {"strategy": {"id": s["id"], "name": s["name"], "template": s["template"],
                          "params": s["params"], "symbol": s["symbol"],
                          "timeframe": s["timeframe"], "status": s["status"],
@@ -1005,55 +976,29 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
                                      f" 已自动改用它的无门根 #{s['id']} 的全量回测分析"}
                             if s["id"] != requested_id else {})},
             "backtest_window": f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"}
-    # 对账单(防 AI 略读附件): 库侧全量合计, AI 必须逐行重算对上才许出报告(见 HEAD 第0步)
-    base["data_check_expected"] = {
-        "days": len(trades),
-        "trades": sum(r[1] for r in trades),
-        "wins": sum(r[2] for r in trades),
-        "gross_profit_pts": round(sum(r[3] for r in trades), 1),
-        "gross_loss_pts": round(sum(r[4] for r in trades), 1),
-        "first_date": trades[0][0] if trades else None,
-        "last_date": trades[-1][0] if trades else None,
-        "versions": {str(v["version"]): {
-            "runs": len(v["timeline_runs"]),
-            "first_run": v["timeline_runs"][0][0] if v["timeline_runs"] else None,
-            "last_run": v["timeline_runs"][-1][0] if v["timeline_runs"] else None,
-        } for v in versions}}
-    # 探针抽查(2026-08-09 Frank 定"必须真算"): 点名5个分散的交易日让 AI 回报各版本的格;
-    # 真实答案【不进提示词】, 单独返回给页面自留对答案 — 摊派/编造过不了 8^-5 概率
-    from bisect import bisect_right
-    probe_days = [trades[i][0]
-                  for i in sorted({len(trades) * k // 10 for k in (1, 3, 5, 7, 9)})] \
-        if trades else []
-    probe_answers = {}
-    for d in probe_days:
-        ans = {}
-        for v in versions:
-            runs = v["timeline_runs"]
-            i = bisect_right([r[0] for r in runs], d)
-            ans[str(v["version"])] = runs[i - 1][1] if i else "unlabeled"
-        probe_answers[d] = ans
-    base["probe_days"] = probe_days
-    cols = ["date_YYMMDD", "n_trades", "n_wins", "gross_profit_pts", "gross_loss_pts"]
+    # 探针(防缺段/略读): 点名5行 年×格, AI 照抄该行 [笔数, 毛利点, 毛损点];
+    # 真实答案不进提示词, 单独返回给页面自动验收
+    flat = [(v["version"], r) for v in versions
+            for r in v["year_cells"] if r[1] != "unlabeled"]
+    p_idx = sorted({len(flat) * k // 10 for k in (1, 3, 5, 7, 9)}) if flat else []
+    probe_answers = {f"v{flat[i][0]}|{flat[i][1][0]}|{flat[i][1][1]}":
+                     [flat[i][1][2], flat[i][1][4], flat[i][1][5]] for i in p_idx}
+    base["probe_keys"] = list(probe_answers)
+    # 两段式(2026-08-09 精简模式): ①预聚合数据(全部版本) ②指令+策略身份(压轴带开始口令);
+    # slug 用于下载文件名 prompt-{id}-{n}-{slug}.txt(带策略id, 下载不重名)
     parts = [
-        {"label": "① regime 全部版本 (1/3)", "slug": "regimes",
-         "text": "以下是交易策略 regime 分析的原料数据, 共 3 段: ①全部 regime 口径版本"
-                 "(params=格子怎么算; timeline_runs=时间线压缩段[起始日YYMMDD,格], 只记换格日,"
-                 " 某日的格=之前最近一段的格) ②全量交易 ③任务指令。"
-                 "请先暂存, 收到第③段指令后再开始分析。\n\n"
+        {"label": "① 预聚合数据·全部版本 (1/2)", "slug": "data",
+         "text": "以下是交易策略 regime 分析的数据, 共 2 段: ①全部 regime 口径版本的预聚合"
+                 "战绩(系统已在数据库侧完成贴格与聚合 — 每版本 年×格 / 月×格 两张表) ②任务指令。"
+                 "请先暂存, 收到第②段指令后再开始分析。\n\n"
                  + _j({"regime_versions": versions})
-                 + "\n\n【第 1/3 段完 — 指令在第③段, 请继续等待】"},
-        {"label": "② 全量交易 (2/3)", "slug": "trades",
-         "text": "交易数据(日聚合, 第 2/3 段):\n"
-                 + _j({"trades_columns": cols, "trades": trades})
-                 + "\n\n【第 2/3 段完 — 指令在第③段, 请继续等待】"},
-        {"label": "③ 指令+策略身份 (3/3)", "slug": "instruction",
+                 + "\n\n【第 1/2 段完 — 指令在第②段, 请继续等待】"},
+        {"label": "② 指令+策略身份 (2/2)", "slug": "instruction",
          "text": _REGIME_AI_PROMPT_HEAD + _j(base)
-                 + "\n\n【全部发完 — 以上即任务指令, 数据在前两段, 请开始分析】"},
+                 + "\n\n【全部发完 — 以上即任务指令, 数据在第①段, 请开始分析】"},
     ]
     full = "\n\n".join(pt["text"] for pt in parts)
     return {"prompt": full, "parts": parts, "probe_answers": probe_answers,
-            "expected": base["data_check_expected"],   # 库侧对账单 → 页面机器验收 AI 回复
             **({"warning": warning} if warning else {})}
 
 
