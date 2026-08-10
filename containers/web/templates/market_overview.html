@@ -4,13 +4,20 @@
 {{ m.page_header('Regime 概览', '') }}
 
 {% if data and data.versions %}
-{# 版本订阅表(2026-08-10 Frank 要): 每版本被多少非归档策略的门钉着 — 删版本前看谁还在用 #}
-<table class="dense" style="width:auto;min-width:300px;margin:0 0 12px">
-  <tr><th>当前regime</th><th title="非归档策略中 metadata.regime.version 钉在该版本的数量">策略订阅数量</th></tr>
+{# 版本订阅表按状态分列(2026-08-10 Frank 定): 删版本前看谁还在用, 实盘列是红线 #}
+<table class="dense" style="width:auto;min-width:420px;margin:0 0 12px">
+  <tr><th>当前regime</th>
+      <th title="metadata.regime.version 钉在该版本的策略总数(含归档)">策略订阅数量</th>
+      <th title="DEMO+LIVE = 已上 worker 真实下单中 — 有数字的版本绝不能删">实盘</th>
+      <th title="CANDIDATE 候选池">空闲</th>
+      <th title="ARCHIVED 尸体(留着防重复生成)">归档</th></tr>
   {% for ver in data.versions %}
   <tr>
     <td class="mono">v{{ ver.id }} · {{ ver.label }}{% if ver.id == data.current %} <span class="badge" title="全局默认版本(读数归因视角), 与各策略门钉的版本无关">默认</span>{% endif %}</td>
-    <td class="mono {{ 'muted' if not ver.subs }}">{{ ver.subs or 0 }}</td>
+    <td class="mono {{ 'muted' if not ver.subs.total }}">{{ ver.subs.total }}</td>
+    <td class="mono {{ 'pos' if ver.subs.live else 'muted' }}">{{ ver.subs.live }}</td>
+    <td class="mono {{ 'muted' if not ver.subs.idle }}">{{ ver.subs.idle }}</td>
+    <td class="mono muted">{{ ver.subs.archived }}</td>
   </tr>
   {% endfor %}
 </table>
