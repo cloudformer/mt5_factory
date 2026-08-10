@@ -254,8 +254,11 @@ a.btn:hover { background: #d9ecf9; }
                background: #f7f9fa; border: 1px solid var(--border); border-radius: var(--radius);
                padding: 12px 14px; }
 /* 轴标签: 12px 但用正文色(2026-08-06 Frank: 小字用灰太浅不好分辨) */
-.regime-axis { font-size: 12px; color: var(--text); text-align: center;
-               align-self: end; padding: 0 4px; }
+/* 轴标签(2026-08-10 Frank: 首行与背景同色看不清 → 加重): 提字重+微章底色,
+   像正经表头一样从灰底上浮出来; 全站八格(概览/矩阵/regime页)统一生效 */
+.regime-axis { font-size: 12.5px; font-weight: 600; letter-spacing: .02em;
+               color: var(--text); text-align: center; align-self: end;
+               padding: 3px 8px; background: #e2e7ee; border-radius: 6px; }
 /* 八格底色三级制(2026-08-06 Frank 定, 防歧义 — 一格只可能落一级):
      ①有战绩 → 净点方向: 绿赚/红亏(9% 淡色,  调用方传 fills=绿/红)
      ②纯 regime 占比 → 蓝色深浅表示时间占比(8 档由高到低, 传 fills + heat)
