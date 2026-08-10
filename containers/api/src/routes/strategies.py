@@ -912,7 +912,7 @@ unverified(样本不足或规律不稳) — 不确定就降级, 用数字说话�
 
 @router.get("/strategies/{strategy_id}/regime_prompt")
 async def regime_ai_prompt(strategy_id: int, request: Request):
-    """单策略AI调参·Regime 提示词(2026-08-09 与 Frank 定稿): 全量原料喂 AI 让它自己切 —
+    """单策略AI调参·1Regime 提示词(2026-08-09 与 Frank 定稿, 调参闭环第①步选门): 全量原料喂 AI 让它自己切 —
     两问结构(①regime口径评价报告 ②可用gate)。服务器零预处理(先看AI切片效果);
     全部版本(参数+压缩时间线), 未覆盖回测区间的版本如实标注。"""
     pool = request.app.state.pool
@@ -924,7 +924,7 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
         raise HTTPException(status_code=404, detail="strategy not found")
     # 自动上溯无门根(2026-08-09 Frank 定): 门变体的成交被门滤过 = 残卷, 评口径必须全量 —
     # 输入门变体 ID 也自动用它的无门根分析(与克隆挂根同一血统逻辑); 产出的 gate 也该配根
-    requested_id, seen = s["id"], {s["id"]}
+    requested_id, req_params, seen = s["id"], s["params"], {s["id"]}
     while isinstance(s["metadata"], dict) and (s["metadata"] or {}).get("regime") \
             and s["parent_id"] and s["parent_id"] not in seen:
         seen.add(s["parent_id"])
@@ -934,6 +934,14 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
         if nxt is None:
             break
         s = nxt
+    # 复检门警告(2026-08-09 Frank 定, 门上调参工作流第⑤步防呆): 调参子代 = 新参数+带门,
+    # 上溯到的根是【旧参数】的全量 — 用它复检该子代的门是拿旧地图走新路, 必须先造无门同参实例
+    warning = None
+    if s["id"] != requested_id and s["params"] != req_params:
+        warning = (f"#{requested_id} 是调参子代(参数与无门根 #{s['id']} 不同)!"
+                   f" 本提示词分析的是根 #{s['id']}【旧参数】的全量交易, 不能用来复检"
+                   f" #{requested_id} 的门 — 请先用 #{requested_id} 的参数在生成页建一个"
+                   f"无门实例并回测, 再载入那个新 ID")
     bt = await pool.fetchrow(
         "SELECT from_time, to_time, trades FROM backtests"
         " WHERE strategy_id=$1 AND symbol=$2", s["id"], s["symbol"])
@@ -1044,7 +1052,8 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
                  + "\n\n【全部发完 — 以上即任务指令, 数据在前两段, 请开始分析】"},
     ]
     full = "\n\n".join(pt["text"] for pt in parts)
-    return {"prompt": full, "parts": parts, "probe_answers": probe_answers}
+    return {"prompt": full, "parts": parts, "probe_answers": probe_answers,
+            **({"warning": warning} if warning else {})}
 
 
 @router.get("/strategies/{strategy_id}/report")
@@ -1057,7 +1066,7 @@ async def ai_report(strategy_id: int, request: Request):
     await usage.bump_by_owner(pool, "ai_reports", [strategy_id])  # 用量: 只记录不拦截
     s = await pool.fetchrow(
         "SELECT id, name, template, params, symbol, timeframe, status, magic_number,"
-        "       archive_reason FROM strategies WHERE id=$1", strategy_id)
+        "       archive_reason, metadata FROM strategies WHERE id=$1", strategy_id)
     if s is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     bts = await pool.fetch(
@@ -1159,7 +1168,8 @@ async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Req
     created 的做"回读核验": 从库里读回 params 与请求逐字段比对, verified=true 才算数。"""
     pool = request.app.state.pool
     parent = await pool.fetchrow(
-        "SELECT id, template, symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
+        "SELECT id, template, symbol, timeframe, metadata FROM strategies WHERE id=$1",
+        strategy_id)
     if parent is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     # 与生成入口同一守门: 品种必须仍在登记中(父创建后可能被除名, 不给孤儿品种生子代)
@@ -1172,12 +1182,22 @@ async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Req
     combos = [{**c, "basis": f"{c['basis']} {tag}" if c.get("basis") else tag}
               if isinstance(c, dict) and "params" in c else {"params": c, "basis": tag}
               for c in req.combos]
+    # 子代继承门(2026-08-09 Frank 定, 门上调参工作流): 父带门 → 子代同门+同款名字后缀
+    # (与克隆带门一致), 家族对比三铁律天然满足; 无门父 = metadata None, 行为不变
+    g = (parent["metadata"] or {}).get("regime") \
+        if isinstance(parent["metadata"], dict) else None
+    md, suffix = None, ""
+    if g:
+        md = {"regime": g}
+        suffix = f"-gate-v{g['version']}-" + "-".join(
+            f"{k}{float(g['cells'][k]):g}" for k in sorted(g["cells"]))
     # 与生成页同一条收货管道(services.instances), 只多带 parent_id 谱系
     r = await instances.create_instances(
         pool, parent["template"], parent["symbol"], parent["timeframe"],
-        combos, parent_id=strategy_id)
+        combos, parent_id=strategy_id, metadata=md, name_suffix=suffix)
     return {**r, "template": parent["template"], "symbol": parent["symbol"],
-            "timeframe": parent["timeframe"]}
+            "timeframe": parent["timeframe"],
+            **({"inherited_gate": g} if g else {})}
 
 
 @router.get("/strategies/{strategy_id}/family")
@@ -1212,6 +1232,9 @@ _AI_TUNE_PROMPT = """你是量化策略调参助手。下面给出策略 #{sid} 
 
 模板 {template} 的参数空间(每个参数: [最小, 最大, 步长]):
 {space}
+
+注意: 若 strategy.metadata.regime 存在 = 本策略带 regime 门, 成绩单里的交易已按门过滤
+(入场日的格在 cells 内才交易) — 你优化的就是门内表现, 新参数实例将继承同一个门。
 
 任务: 基于成绩单证据, 提出 {count} 组新参数做下一轮回测。纪律:
 1. 每组相对当前参数({params})最多改 2 个维度, 且必须落在参数空间范围内、按步长对齐
@@ -1268,6 +1291,14 @@ async def ai_tune_prompt(strategy_id: int, request: Request, count: int = 10):
         if main_rows else []
     probe_answers = {str(main_rows[i][0]): [main_rows[i][5], main_rows[i][6]]
                      for i in probe_idx}
+    # 提示词瘦身(2026-08-09 Frank 定, 只瘦提示词不动 /report 原始档案):
+    # 逐笔不可聚合(MAE/MFE/出场原因是调参主证据), 砍列 — 去 exit_time/entry/exit
+    # 三列价格(点数已在 points, 调参用不上), 9列→6列约省 35%; JSON 再用紧凑分隔符
+    for b in report["backtests"]:
+        t = b.get("trades")
+        if t:
+            t["cols"] = ["entry_time", "dir", "points", "reason", "mae", "mfe"]
+            t["rows"] = [[r[0], r[2], r[5], r[6], r[7], r[8]] for r in t["rows"]]
     prompt = _AI_TUNE_PROMPT.format(
         sid=strategy_id, template=meta["template"],
         space=_json.dumps(space, ensure_ascii=False),
@@ -1277,7 +1308,8 @@ async def ai_tune_prompt(strategy_id: int, request: Request, count: int = 10):
         param_keys=_json.dumps(sorted(space), ensure_ascii=False),
         count=count,
         probe_times=_json.dumps([main_rows[i][0] for i in probe_idx]),
-        report=_json.dumps(report, ensure_ascii=False, default=str))
+        report=_json.dumps(report, ensure_ascii=False, default=str,
+                           separators=(",", ":")))
     return {"prompt": prompt, "space": space, "strategy": meta,
             "probe_answers": probe_answers}
 

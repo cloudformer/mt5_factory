@@ -685,21 +685,22 @@ def ai_page():
 
 @bp.get("/ai_regime")
 def ai_regime_page():
-    """单策略AI调参·Regime(2026-08-09 与 Frank 定, 人桥版): 输入策略ID → 复制提示词
-    (两问: ①regime口径评价报告 ②可用gate JSON) → 粘给任意 AI → 结果人工使用
-    (gate 照勾进矩阵页克隆带门)。复制出的文本可随手改再粘, 模板固化在 api(git 可审)。"""
+    """单策略AI调参·1Regime(2026-08-09 与 Frank 定, 人桥版, 调参闭环第①步选门):
+    输入策略ID → 复制提示词(两问: ①regime口径评价报告 ②可用gate JSON) → 粘给任意 AI
+    → 结果人工使用(gate 照勾进矩阵页克隆带门)。模板固化在 api(git 可审)。"""
     sid = request.args.get("strategy_id", type=int)
-    parts, total_kb, probes = [], 0, {}
+    parts, total_kb, probes, warning = [], 0, {}, None
     if sid:
         try:
             r = api.get(f"/strategies/{sid}/regime_prompt", timeout=120)
             parts = r.get("parts") or []
             probes = r.get("probe_answers") or {}
+            warning = r.get("warning")
             total_kb = round(len(r.get("prompt") or "") / 1024)
         except (api.ApiError, KeyError) as e:
             flash(f"取提示词失败: {e}", "error")
     return render_template("strategy_ai_regime.html", sid=sid, parts=parts,
-                           total_kb=total_kb, probes=probes)
+                           total_kb=total_kb, probes=probes, warning=warning)
 
 
 @bp.get("/ai_regime/prompt.txt")

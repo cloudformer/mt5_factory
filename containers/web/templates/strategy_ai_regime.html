@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('单策略AI调参·Regime', '人桥版两问分析: 载入策略 → 复制提示词粘给任意 AI → ① AI 出 regime 口径评价报告(哪个版本更有规律, 稳定亏也是规律) ② 出可直接使用的 gate JSON(数字不好的格不选=不交易) → 拿着 gate 去「单策略regime分析」页照勾克隆带门') }}
+{{ m.page_header('单策略AI调参·1Regime', '调参闭环第①步·选门(人桥版两问): 载入策略(无门根) → 提示词喂 AI → ① regime 口径评价报告(哪个版本更有规律, 稳定亏也是规律) ② 可直接使用的 gate JSON(数字不好的格不选=不交易) → 拿着 gate 去「单策略regime分析」页照勾克隆带门 → 到「·2时间」在门实例上调参数') }}
 
 <section>
   <form method="get" class="inline">
@@ -15,6 +15,11 @@
     {% endif %}
   </form>
 
+  {% if warning %}
+  {# 复检门防呆(2026-08-09): 调参子代上溯到的根是旧参数 — 提示词仍生成(分析根本身合法),
+     但复检该子代的门必须先造无门同参实例 #}
+  <p class="neg">⚠ {{ warning }}</p>
+  {% endif %}
   {% if sid and parts %}
   {# 三份固定分段(2026-08-09 Frank 定): ①regime全部版本 ②全量交易 ③指令压轴带开始口令;
      每份 复制+下载 各一钮, 下载文件名带策略id和段名不重名 #}

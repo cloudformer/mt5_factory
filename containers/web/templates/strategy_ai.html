@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('单策略AI调参·时间', '单策略调参迭代(v2.2 人桥版): 成绩单 → AI 提议 8~12 组参数 → 生成回测 → 父子对比 → 再迭代。准备工作(下载数据/重跑回测)先手动做好') }}
+{{ m.page_header('单策略AI调参·2时间', '调参闭环第②步·调参数(人桥版): 推荐载入【带门实例】(门外噪音已滤, 数据小, 子代自动继承同门); 无门实例=全量调参。成绩单 → AI 提议参数 → 生成回测 → 家族对比留出段裁判 → 胜出参数克隆无门实例回「·1Regime」复检门') }}
 
 <section>
   <h2>第 1 步 · 输入策略ID → 获取成绩单(report)</h2>
@@ -9,7 +9,10 @@
     <label>策略ID <input name="strategy_id" value="{{ sid or '' }}" size="8" required></label>
     <label>提议组数 <input name="count" value="{{ count }}" size="3" title="第2步提示词里要求 AI 给几组; 建议 8~12"></label>
     <button class="small">载入</button>
-    {% if meta %}<span class="muted">{{ meta.name }} · {{ m.strategy_status(meta.status) }}</span>{% endif %}
+    {% if meta %}<span class="muted">{{ meta.name }} · {{ m.strategy_status(meta.status) }}</span>
+    {% if meta.metadata and meta.metadata.regime %}
+    <span class="badge" title="本页基于门实例调参: 成绩单交易已按门过滤(门外噪音无), AI 子代自动继承同一个门(同门名字后缀), 家族对比三铁律天然满足">基于门 v{{ meta.metadata.regime.version }}: {% for c, mu in meta.metadata.regime.cells.items() | sort %}{{ c }}×{{ mu }}{{ ' · ' if not loop.last }}{% endfor %}</span>
+    {% endif %}{% endif %}
   </form>
   {% if report_json %}
   <p class="muted" style="margin:8px 0 4px">成绩单与「策略分析」页的 AI成绩单 JSON 是<b>同一个接口</b>(/strategies/{{ sid }}/report)——
