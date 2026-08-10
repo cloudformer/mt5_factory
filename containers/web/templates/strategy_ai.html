@@ -139,26 +139,19 @@
     const wantTpl = "{{ meta.template if meta else '' }}";
     const okTpl = payload.template === wantTpl;
     // 验收(2026-08-09 Frank 收紧): computed_by 必须="code" 且 探针全对, 缺一不可 — 硬拦截
-    let okProbes = true, okCode = true, probeMsg = "";
+    const dc = payload.data_check || {};
     const pKeys = Object.keys(PROBES);
+    let okProbes = true, badN = 0;
     if (pKeys.length) {
-      const dc = payload.data_check || {};
-      okCode = dc.computed_by === "code";
       const got = dc.probes;
-      const bad = !got ? pKeys : pKeys.filter((k) => {
+      badN = (!got ? pKeys : pKeys.filter((k) => {
         const v = got[k];   // [points, reason] — 点数容差0.05, reason 严格相等
         return !Array.isArray(v) || Math.abs(+v[0] - +PROBES[k][0]) > 0.05
           || String(v[1]) !== String(PROBES[k][1]);
-      });
-      okProbes = !bad.length;
-      probeMsg = ' · 探针 ' + (okProbes
-        ? '<span class="pos">' + pKeys.length + '/' + pKeys.length + ' ✓</span>'
-        : '<span class="neg">✗ ' + (got ? '答错 ' + bad.join(",") : '缺 data_check.probes')
-          + ' — 没读成绩单</span>')
-        + ' · computed_by=' + (okCode ? '<span class="pos">code ✓</span>'
-        : '<span class="neg">' + (payload.data_check && payload.data_check.computed_by || '未报')
-          + ' ✗ 未用代码核算, 禁止创建</span>');
+      })).length;
+      okProbes = !badN;
     }
+    const okCode = !pKeys.length || dc.computed_by === "code";
     if (okTpl && okProbes && okCode) {
       lastCombos = combos;
       lastModel = payload.model || null;
@@ -168,13 +161,26 @@
     } else cbtn.title = !okTpl ? "模板不符, 禁止创建"
       : (!okProbes ? "探针不符(AI没读成绩单), 禁止创建"
                    : "computed_by≠code(未用代码核算), 禁止创建");
-    let head = '<h3>解析结果</h3><p>'
-      + '声明模板 ' + (payload.template
-          ? (payload.template + (okTpl ? ' <span class="pos">✓</span>'
-                                       : ' <span class="neg">✗ 应为 ' + wantTpl + '</span>'))
-          : '<span class="neg">缺 template</span>')
-      + ' · 模型 ' + (payload.model || '<span class="muted">未自报(备注只记方法)</span>')
-      + ' · 共 ' + combos.length + ' 组' + probeMsg + repairNote + '</p>';
+    // 验收结论分行人话(2026-08-09 Frank 定, 与1-Regime页同款): JSON 归机器, 这几行归人
+    let head = '<h3>解析结果</h3><div class="muted" style="margin:0 0 6px"><b>data_check 验收</b>'
+      + '<div>1. template: ' + (payload.template
+          ? payload.template + (okTpl ? ' — 与当前策略一致 <span class="pos">✅</span>'
+                                      : ' — <span class="neg">应为 ' + wantTpl + ' ❌</span>')
+          : '<span class="neg">缺失 ❌</span>') + '</div>'
+      + '<div>2. computed_by: ' + (dc.computed_by === "code"
+          ? '<span class="pos">code(代码核对) — 可信 ✅</span>'
+          : '<span class="neg">' + (dc.computed_by || "未报")
+            + ' — 未用代码核算, 不合格 ❌</span>') + '</div>'
+      + '<div>3. probes: ' + (okProbes
+          ? '<span class="pos">已验证 ' + pKeys.length + '/' + pKeys.length + ' ✅</span>'
+          : '<span class="neg">' + badN + '/' + pKeys.length
+            + ' 行与库侧答案不符 — 没读成绩单 ❌</span>') + '</div>'
+      + '<div>4. 参数组: 共 ' + combos.length + ' 组 · 模型 '
+      + (payload.model || '未自报(备注只记方法)') + repairNote + '</div>'
+      + '<div style="margin-top:2px">' + (okTpl && okProbes && okCode
+          ? '<b class="pos">✅ 结论: 可信 — 「创建策略」已点亮</b>'
+          : '<b class="neg">❌ 结论: ' + (!okTpl ? "模板不符" : (!okProbes ? "探针不符" : "未用代码核算"))
+            + ', 禁止创建</b>') + '</div></div>';
     let html = head
       + '<table><tr><th style="width:40px">#</th><th>参数</th><th>依据(basis)</th><th style="width:200px">格式检查(仅提示)</th></tr>';
     combos.forEach((c, i) => {
