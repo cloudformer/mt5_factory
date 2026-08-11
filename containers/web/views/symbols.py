@@ -33,7 +33,7 @@ def backtest_params():
     download_timeframes = []  # 唯一源=config表(schema/049种子); api不可用即空
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空(铁律欠账4)
     volume_default = None
-    reuse_days, reuse_days_single, oos_v2_params = None, None, None  # 复用两档 + oos_v2判据
+    reuse_days, reuse_days_single = None, None  # 复用两档
     rank_templates = []
     try:
         cfg = api.get("/config")["config"]
@@ -61,13 +61,12 @@ def backtest_params():
         regime_current = rv["current"]
         regime_params = next((v["params"] for v in regime_versions
                               if v["id"] == regime_current), {})
-        oos_v2_params = api.get("/oos_v2/params")
         rank_templates = cfg.get("ranking_templates", [])   # 排名模板并入本页(2026-08-09)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("config_backtest.html", costs=costs, batch_limit=batch_limit,
                            window_days=window_days, reuse_days=reuse_days,
-                           reuse_days_single=reuse_days_single, oos_v2_params=oos_v2_params,
+                           reuse_days_single=reuse_days_single,
                            rank_templates=rank_templates,
                            generate_limit=generate_limit, volume_presets=volume_presets,
                            volume_default=volume_default,

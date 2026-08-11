@@ -6,8 +6,8 @@ import io
 import json
 from datetime import datetime, timezone
 
-from flask import (Blueprint, Response, flash, jsonify, redirect, render_template, request,
-                   url_for)
+from flask import (Blueprint, Response, flash, jsonify, redirect, render_template,
+                   request, session, url_for)
 
 import api_client as api
 
@@ -40,6 +40,7 @@ def index():
         flash(f"api 不可用: {e}", "error")
         data = {"params": None, "reports": [], "report": None}
     return render_template("oos_v2.html", page=page, per=per, verdict=verdict,
+                           is_admin=session.get("dev_user_id") == 1,
                            sort=sort, sdir=sdir, **data)
 
 
@@ -109,8 +110,8 @@ def save_params():
         if is_ajax:
             return jsonify({"error": str(e)}), 400
         flash(f"保存失败: {e}", "error")
-    # 表单在「配置→策略参数」(2026-08-08 搬家), 非 ajax 兜底跳回那里
-    return redirect(url_for("symbols.backtest_params"))
+    # 编辑器在本页(2026-08-10 搬回), 非 ajax 兜底跳回本页
+    return redirect(url_for("oos_v2.index"))
 
 
 @bp.post("/oos-v2/run")

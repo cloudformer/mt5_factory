@@ -30,7 +30,6 @@ def cfg_params(cfg: dict) -> dict:
             "boundaries_years": sorted(cfg.get("boundaries_years") or [1, 2, 3, 4]),
             "min_cell_trades": int(cfg.get("min_cell_trades") or 5),
             "min_pass_cells": int(cfg.get("min_pass_cells") or 1),
-            "min_net_points": float(cfg.get("min_net_points") or 0),
             "min_pf": float(cfg.get("min_pf") if cfg.get("min_pf") is not None else 1.0)}
 
 
@@ -68,10 +67,12 @@ async def judge_symbol(pool, tls: dict, bt: dict, vid: int, p: dict) -> dict:
             continue
         tagged.append((t["entry_time"], cell,
                        float(t.get("points") or 0) * float(t.get("mult") or 1)))
-    floor, min_net, min_pf = p["min_cell_trades"], p["min_net_points"], p["min_pf"]
+    floor, min_pf = p["min_cell_trades"], p["min_pf"]
 
     def _seg_ok(n, gp, gl):
-        if n < floor or gp - gl <= min_net:
+        # 净点只显示不判定(2026-08-10 Frank 定): 单一按 PF 判 — 净点>0 与 PF>1 数学
+        # 等价, 双条件会把 PF 阈值调到 1 以下时架空(容错带 0.9 生效不了)
+        if n < floor:
             return False
         return (gp / gl > min_pf) if gl > 0 else gp > 0   # 无亏损段 PF=∞
 

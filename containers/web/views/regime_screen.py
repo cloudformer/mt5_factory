@@ -137,11 +137,10 @@ def save_params():
             "boundaries_years": bs,
             "min_cell_trades": int(request.form.get("min_cell_trades", 5)),
             "min_pass_cells": int(request.form.get("min_pass_cells", 1)),
-            "min_net_points": float(request.form.get("min_net_points", 0)),
             "min_pf": float(request.form.get("min_pf", 1))})
         flash(f"判据已保存: 总计 {r['window_years']:g} 年 · 切分 近{r['boundaries_years']}年vs剩余"
               f" · 地板 {r['min_cell_trades']} 笔 · ≥{r['min_pass_cells']} 格"
-              f" · 净点>{r['min_net_points']:g} · PF>{r['min_pf']:g}", "success")
+              f" · PF>{r['min_pf']:g}(净点仅显示不判定)", "success")
     except ValueError:
         flash("判据各项需为数字(切分点逗号分隔, 可小数)", "error")
     except api.ApiError as e:

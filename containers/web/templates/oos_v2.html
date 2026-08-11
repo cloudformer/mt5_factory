@@ -152,8 +152,53 @@
   })();
   </script>
 
-  {# 判据配置已搬「配置→策略参数」(2026-08-08 Frank 定, 归 admin); 本页只读摘要在上方判据行 #}
-  <p class="muted" style="margin-top:8px">判据在 <a href="{{ url_for('symbols.backtest_params') }}">配置 → 策略参数</a> · 快照随报告, 改判据不篡改历史</p>
+
+</section>
+
+<section>
+  <h2>筛选·OOS 判据{% if not is_admin %} <span class="muted" style="font-weight:400">(admin 可改, 当前只读)</span>{% endif %}</h2>
+  {# 2026-08-10 Frank 定: 判据编辑器搬回本页(就地改就地跑); 唯一源 = config.oos_v2,
+     每次运行把判据快照进报告 → 改判据不篡改历史。加第四期改库里数组(仍是配置不是代码)。 #}
+  {% if params %}
+  <form method="post" action="{{ url_for('oos_v2.save_params') }}" class="inline" data-post-ajax>
+    <input type="hidden" name="seg_count" value="{{ params.segments | length }}">
+    <table class="dense" data-nosort style="max-width:880px">
+      <thead><tr>
+        <th>期</th>
+        <th title="距锚点年数(0=当天, 可小数): 起 必须大于 止">训练段(起→止, 年前)</th>
+        <th>测试段(起→止, 年前)</th>
+        <th title="该期 PF 门槛; 空 = 用默认 PF(未来可长0.8/中1.0/短1.2 分开收紧)">该期PF&gt;</th>
+        <th>本次实际日期(锚点 {{ params.anchor }})</th>
+      </tr></thead>
+      <tbody>
+      {% for s in params.segments %}
+      <tr>
+        <td>{{ s.label }} <span class="muted mono">{{ s.name }}</span>
+          <input type="hidden" name="seg{{ loop.index0 }}_name" value="{{ s.name }}">
+          <input type="hidden" name="seg{{ loop.index0 }}_label" value="{{ s.label }}"></td>
+        <td><input class="mono" name="seg{{ loop.index0 }}_train_from" size="4" value="{{ '%g' % s.train[0] }}" {% if not is_admin %}disabled{% endif %}>
+          → <input class="mono" name="seg{{ loop.index0 }}_train_to" size="4" value="{{ '%g' % s.train[1] }}" {% if not is_admin %}disabled{% endif %}></td>
+        <td><input class="mono" name="seg{{ loop.index0 }}_test_from" size="4" value="{{ '%g' % s.test[0] }}" {% if not is_admin %}disabled{% endif %}>
+          → <input class="mono" name="seg{{ loop.index0 }}_test_to" size="4" value="{{ '%g' % s.test[1] }}" {% if not is_admin %}disabled{% endif %}></td>
+        <td><input class="mono" name="seg{{ loop.index0 }}_min_pf" size="4" placeholder="默认"
+                   value="{{ '%g' % s.min_pf if s.min_pf is not none else '' }}" {% if not is_admin %}disabled{% endif %}></td>
+        <td class="mono muted">{{ s.train_dates[0] }} → {{ s.train_dates[1] }}　｜　{{ s.test_dates[0] }} → {{ s.test_dates[1] }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <label title="各期 min_pf 为空时用这个门槛(严格大于)">默认PF&gt;
+      <input class="mono" name="default_pf" size="4" value="{{ '%g' % params.default_pf }}" {% if not is_admin %}disabled{% endif %}></label>
+    <label title="段内笔数低于此值挂｢！样本不足｣徽标 — 只提示人工留意, 不参与判定">样本不足提示(笔)
+      <input name="min_seg_trades" type="number" min="1" style="width:56px" value="{{ params.min_seg_trades }}" {% if not is_admin %}disabled{% endif %}></label>
+    <label title="oos_v2 运行框｢单次上限｣的默认值">单次上限默认
+      <input name="batch_limit" type="number" min="1" style="width:64px" value="{{ params.batch_limit }}" {% if not is_admin %}disabled{% endif %}></label>
+    {% if is_admin %}<button>保存判据</button>{% endif %}
+    <span class="muted">config: oos_v2 — 段内 0 笔 → 灰 —(无数据不追责=算过) · 快照进报告不篡改历史</span>
+  </form>
+  {% else %}
+  <p class="muted">api 不可用 — oos_v2 判据读不到</p>
+  {% endif %}
 </section>
 
 {% if report %}

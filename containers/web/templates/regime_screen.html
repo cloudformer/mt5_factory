@@ -47,7 +47,7 @@
       <span class="muted">总计 {{ params.get('window_years', 5) }} 年
         · 切分 = 近 {{ params.boundaries_years | join('/') if params and params.boundaries_years else '1/2/3/4' }} 年 vs 剩余
         · 格内地板 {{ params.get('min_cell_trades', 5) }} 笔
-        · 通过 = ≥{{ params.get('min_pass_cells', 1) }} 个格子在每种切分前后两段都(净点&gt;{{ params.get('min_net_points', 0) }} 且 PF&gt;{{ params.get('min_pf', 1) }})
+        · 通过 = ≥{{ params.get('min_pass_cells', 1) }} 个格子在每种切分前后两段都 PF&gt;{{ params.get('min_pf', 1) }}(净点仅显示不判定)
         · 现跑回测判定(结果回流库) · M1 覆盖不足总计年 = 跳过不判</span>
     </div>
     <div class="row">
@@ -162,9 +162,7 @@
     <label title="至少几个格子在全部切分前后段都达标才算通过">至少合格格
       <input name="min_pass_cells" type="number" min="1" max="8" style="width:48px"
              value="{{ params.get('min_pass_cells', 1) if params else 1 }}"></label>
-    <label title="段内净点须严格大于此值(默认 0 = 净点为正)">净点&gt;
-      <input name="min_net_points" size="4" value="{{ params.get('min_net_points', 0) if params else 0 }}"></label>
-    <label title="段内 PF 须严格大于此值(默认 1, 与净点>0 等价; 调高即收紧, 无亏损段 PF=∞ 恒过)">PF&gt;
+    <label title="段内 PF 须严格大于此值 — 唯一判定阈值: 调低即容错(如0.9), 调高即收紧; 无亏损段 PF=∞ 恒过; 净点在报告里仅显示不判定">PF&gt;
       <input name="min_pf" size="3" value="{{ params.get('min_pf', 1) if params else 1 }}"></label>
     <button class="small">保存</button>
     <span class="muted">稳定后挪配置页</span>
@@ -186,7 +184,7 @@
     · {{ '主货币' if report.scope.symbols == 'main' else '全货币' }}
     · 判据 总计{{ report.params.get('window_years', 5) }}年 · 切近{{ report.params.boundaries_years | join('/') }}年vs剩余
     · 地板{{ report.params.min_cell_trades }}笔 · ≥{{ report.params.get('min_pass_cells', 1) }}格
-    · 净点&gt;{{ report.params.get('min_net_points', 0) }} · PF&gt;{{ report.params.get('min_pf', 1) }}
+    {% if report.params.get('min_net_points') is not none %}· 净点&gt;{{ report.params.min_net_points }}(旧判据快照){% endif %} · PF&gt;{{ report.params.get('min_pf', 1) }}
     ｜ 共 {{ report.summary.total }} / 通过 <span class="pos">{{ report.summary.passed }}</span>
     / 未过 <span class="neg">{{ report.summary.failed }}</span>{% if report.mode == 'execute' %}(归档 {{ report.summary.archived }}){% endif %}
     / 跳过 {{ report.summary.skipped }}{% if report.summary.not_run %} / 未跑 {{ report.summary.not_run }}(超单次上限{{ report.scope.limit }}, 下次再跑){% endif %}</p>
@@ -257,7 +255,7 @@
       <td>{% if r.scope.task %}「{{ r.scope.task }}」· {% endif %}{% if r.scope.ids %}ID×{{ r.scope.ids | length }}{% elif r.scope.label %}标签「{{ r.scope.label }}」{% else %}全部未筛过{% endif %} · {{ '主货币' if r.scope.symbols == 'main' else '全货币' }}</td>
       <td class="mono" title="总计年 · 切分点 · 格内地板 · 至少合格格 · 净点/PF 阈值">
       {{ r.params.get('window_years', 5) }}y · 切{{ r.params.boundaries_years | join('/') }} · 板{{ r.params.min_cell_trades }}
-      · ≥{{ r.params.get('min_pass_cells', 1) }}格{% if r.params.get('min_net_points', 0) or r.params.get('min_pf', 1) != 1 %} · 净&gt;{{ r.params.get('min_net_points', 0) }}/PF&gt;{{ r.params.get('min_pf', 1) }}{% endif %}</td>
+      · ≥{{ r.params.get('min_pass_cells', 1) }}格 · PF&gt;{{ r.params.get('min_pf', 1) }}{% if r.params.get('min_net_points') %} · 净&gt;{{ r.params.min_net_points }}(旧快照){% endif %}</td>
       <td>共{{ r.summary.total }} <span class="pos">过{{ r.summary.passed }}</span>
           <span class="neg">未过{{ r.summary.failed }}</span>{% if r.mode == 'execute' %}(归档{{ r.summary.archived }}){% endif %}
           跳过{{ r.summary.skipped }}</td>
