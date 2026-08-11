@@ -813,8 +813,19 @@ async def strategy_profile(strategy_id: int, request: Request):
     return prof
 
 
+# 两轮制(2026-08-11 Frank 定): 第一轮只评口径(全版本年×格) → 人确认版本 →
+# 第二轮只在该版本里选格(单版本年×格+月×格)。好处: 版本选错的代价被人截住(实证:
+# 6413/6422 用了非最优版本, 门后 PF 反低于无门父), 且每轮体积降到 1/4 不易被略读。
+Q1 = "".join([
+    "# 任务(第一轮 / 共两轮): 只评【Regime 口径哪个版本更有规律】, 本轮不要选格不要出 gate\n",
+    "下面给全部版本的 年×格 战绩表。产出只有 regime_report(含 baseline 与各版本 metrics)。\n",
+    "人看完你的排名会拍定一个版本, 再把那个版本的完整数据发给你做第二轮选格。\n"])
+Q2 = "".join([
+    "# 任务(第二轮 / 共两轮): 版本已由人拍定 = v{ver}, 只在这个版本里选格并给倍率建议\n",
+    "下面只给 v{ver} 的 年×格 + 月×格。产出只有 strategy_report。\n",
+    "【不要再评版本优劣、不要建议换版本】— 版本是人的决定, 你的任务是把这个坐标系用到最好。\n"])
+
 _REGIME_AI_PROMPT_HEAD = """\
-# 任务(两问, 服务两个对象): ① 对 Regime 口径的评价报告 ② 该策略可直接使用的门(gate)
 
 ## 数据形态(精简模式 — 系统已在数据库侧完成贴格与聚合, 你【不需要也不得】重算)
 1. strategy: 模板/参数/品种/周期(主货币对全量悲观口径回测, 区间=backtest_window)
@@ -950,7 +961,9 @@ confidence: high / medium / unverified — 不确定就降级, 用数字说话�
 - 入选格里有"弱证据"格(样本薄/单段爆发) → 最高只能 medium;
 - 只有"最硬"级证据支撑的格 + 三道检验都过 → 才可 high。
 
-## 输出(严格 JSON, 不要多余文字 — 两份报告分开, 各说各的)
+## 输出(严格 JSON, 不要多余文字)
+【按轮次只填该轮的报告】第一轮: data_check + regime_report(strategy_report 置 null);
+第二轮: data_check + strategy_report(regime_report 置 null)。下面是两轮合并的完整字典。
 {
   "model": "<你自己的准确模型名, 如 gemini-2.5-pro / claude-opus-4-8 — 会随门入库备注>",
   "data_check": {
@@ -992,10 +1005,13 @@ confidence: high / medium / unverified — 不确定就降级, 用数字说话�
 
 
 @router.get("/strategies/{strategy_id}/regime_prompt")
-async def regime_ai_prompt(strategy_id: int, request: Request):
-    """单策略AI调参·1-Regime 提示词(2026-08-09 与 Frank 定稿, 调参闭环第①步选门): 全量原料喂 AI 让它自己切 —
-    两问结构(①regime口径评价报告 ②可用gate)。服务器零预处理(先看AI切片效果);
-    全部版本(参数+压缩时间线), 未覆盖回测区间的版本如实标注。"""
+async def regime_ai_prompt(strategy_id: int, request: Request,
+                           round: int = 1, version: Optional[int] = None):
+    """单策略AI调参·1-Regime 提示词(两轮制, 2026-08-11 Frank 定):
+    round=1: 全部版本的 年×格 → 只评口径(regime_report), 人看排名拍定版本;
+    round=2 + version=N: 只给 v{N} 的 年×格+月×格 → 只选格给倍率建议(strategy_report)。
+    体积: 每轮约为旧单轮的 1/4(第一轮省月表, 第二轮省其他版本), 不易被 AI 略读。
+    数据全在库侧预聚合(精简模式), AI 零计算只读表。"""
     pool = request.app.state.pool
     await identity.assert_strategy_visible(pool, request, strategy_id)
     s = await pool.fetchrow(
@@ -1103,21 +1119,38 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
     probe_answers = {f"v{flat[i][0]}|{flat[i][1][0]}|{flat[i][1][1]}":
                      [flat[i][1][2], flat[i][1][4], flat[i][1][5]] for i in p_idx}
     base["probe_keys"] = list(probe_answers)
-    # 两段式(2026-08-09 精简模式): ①预聚合数据(全部版本) ②指令+策略身份(压轴带开始口令);
-    # slug 用于下载文件名 prompt-{id}-{n}-{slug}.txt(带策略id, 下载不重名)
+    base["round"] = round
+    # 两轮制数据裁剪(2026-08-11): 一轮只需年表评口径(月表本来"仅作参考"), 二轮只需选定版本
+    if round == 2:
+        picked = [v for v in versions if v["version"] == version]
+        if not picked:
+            raise HTTPException(status_code=400,
+                                detail=f"第二轮需要有效的 version(现有: "
+                                       f"{[v['version'] for v in versions]})")
+        data_obj = {"regime_versions": picked}
+        task, dlabel = Q2.format(ver=version), f"v{version} 数据(年×格+月×格)"
+        base["picked_version"] = version
+    else:
+        data_obj = {"regime_versions": [{k: v[k] for k in v if k != "month_cells"}
+                                        for v in versions]}
+        task, dlabel = Q1, "全部版本数据(年×格)"
+    # 两段式: ①预聚合数据 ②任务指令+策略身份(压轴带开始口令);
+    # slug 用于下载文件名 prompt-{id}-r{round}-{n}-{slug}.txt(带轮次, 两轮不混)
     parts = [
-        {"label": "① 预聚合数据·全部版本 (1/2)", "slug": "data",
-         "text": "以下是交易策略 regime 分析的数据, 共 2 段: ①全部 regime 口径版本的预聚合"
-                 "战绩(系统已在数据库侧完成贴格与聚合 — 每版本 年×格 / 月×格 两张表) ②任务指令。"
+        {"label": f"① {dlabel} (1/2)", "slug": f"r{round}-data",
+         "text": f"以下是交易策略 regime 分析的数据(第 {round} 轮), 共 2 段: ①{dlabel}"
+                 "(系统已在数据库侧完成贴格与聚合) ②任务指令。"
                  "请先暂存, 收到第②段指令后再开始分析。\n\n"
-                 + _j({"regime_versions": versions})
+                 + _j(data_obj)
                  + "\n\n【第 1/2 段完 — 指令在第②段, 请继续等待】"},
-        {"label": "② 指令+策略身份 (2/2)", "slug": "instruction",
-         "text": _REGIME_AI_PROMPT_HEAD + _j(base)
+        {"label": "② 任务指令+策略身份 (2/2)", "slug": f"r{round}-instruction",
+         "text": task + "\n" + _REGIME_AI_PROMPT_HEAD + _j(base)
                  + "\n\n【全部发完 — 以上即任务指令, 数据在第①段, 请开始分析】"},
     ]
     full = "\n\n".join(pt["text"] for pt in parts)
     return {"prompt": full, "parts": parts, "probe_answers": probe_answers,
+            "round": round, "picked_version": version if round == 2 else None,
+            "versions": [v["version"] for v in versions],
             **({"warning": warning} if warning else {})}
 
 
