@@ -70,8 +70,10 @@
         {% endfor %}
       </div>
       <label>版本 <select name="version" id="rg-gate-ver" title="AI ranking 第一名版本(钉死不随全局默认漂移)"></select></label>
+      {# 来源备注(2026-08-10 Frank 要): 验收时自动填 AI模型名+信心+排名, 随克隆进 basis #}
+      <input type="hidden" name="note" id="rg-note">
       <button>克隆带门</button>
-      <span class="muted">AI 建议已预填 — 你拍板; 倍率 0.5~1</span>
+      <span class="muted" id="rg-note-show">AI 建议已预填 — 你拍板; 倍率 0.5~1</span>
     </form>
     <p class="muted" id="rg-reco" style="white-space:pre-wrap"></p>
   </div>
@@ -194,6 +196,14 @@
       });
       document.getElementById("rg-gate-ver").innerHTML =
         '<option value="' + (+g.version || 0) + '">v' + (+g.version || "?") + " (AI ranking 第一)</option>";
+      // 来源备注: AI模型名 · 信心 · 版本排名 — 随克隆写进 basis(事后知道谁给的建议)
+      const note = ["AI选门"
+        + (rep.model ? " · " + String(rep.model).slice(0, 40) : "")
+        + " · 信心" + ((rep.strategy_report || {}).confidence || "?")
+        + ((rep.regime_report || {}).ranking ? " · " + rep.regime_report.ranking : "")].join("");
+      document.getElementById("rg-note").value = note;
+      document.getElementById("rg-note-show").textContent =
+        "来源备注(随克隆入库): " + note + " — 你拍板改格/倍率";
       document.getElementById("rg-reco").textContent = "AI 建议(confidence="
         + ((rep.strategy_report || {}).confidence || "—") + "): "
         + ((rep.strategy_report || {}).ai_regime_recommend || "")

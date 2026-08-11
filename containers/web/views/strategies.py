@@ -428,8 +428,11 @@ def clone_gate(strategy_id: int):
     cells = {c: float(request.form.get(f"m_{c}") or 1)
              for c in _CELLS8 if request.form.get(f"g_{c}")}
     try:
-        r = api.post(f"/strategies/{strategy_id}/clone_gate",
-                     {"version": int(request.form.get("version") or 0), "cells": cells})
+        payload = {"version": int(request.form.get("version") or 0), "cells": cells}
+        note = (request.form.get("note") or "").strip()   # 1-Regime 页验收后自动带上
+        if note:
+            payload["note"] = note
+        r = api.post(f"/strategies/{strategy_id}/clone_gate", payload)
         if r.get("created"):
             flash(f"克隆成功: #{r['id']}(parent=#{strategy_id}, 带门) — "
                   f"上方输入 {r['id']} 载入并跑回测, 引擎将带门真跑", "ok")

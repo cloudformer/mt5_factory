@@ -287,6 +287,9 @@ async def strategy_tree(request: Request, template: Optional[str] = None,
 class CloneGateRequest(BaseModel):
     version: int   # regime 版本 id, 必须钉死(null/default 拒收 — 校验在 gate_error)
     cells: dict    # {格: 倍率 0.5~1}, 未列格=不开新仓
+    # 门的来源备注(2026-08-10 Frank 要, 与 AI 调参尾标同款): AI 自报模型名+信心+排名
+    # → 追加进 basis, 事后一眼知道这个门谁给的建议; 人手勾的不传 = 行为不变
+    note: Optional[str] = None
 
 
 @router.post("/strategies/{strategy_id}/clone_gate")
@@ -323,7 +326,9 @@ async def clone_gate(strategy_id: int, req: CloneGateRequest, request: Request):
         f"{k}{float(req.cells[k]):g}" for k in sorted(req.cells))
     r = await instances.create_instances(
         pool, parent["template"], parent["symbol"], parent["timeframe"],
-        [{"params": parent["params"], "basis": f"克隆带门 parent=#{root_id}{suffix}"}],
+        [{"params": parent["params"],
+          "basis": f"克隆带门 parent=#{root_id}{suffix}"
+                   + (f" 〔{req.note.strip()[:120]}〕" if (req.note or "").strip() else "")}],
         parent_id=root_id, metadata={"regime": gate}, name_suffix=suffix,
         trust_params=True)   # 父参数来自库内现有行, 参数空间演化不应挡克隆
     out = r["results"][0]
@@ -883,6 +888,7 @@ confidence: high / medium / unverified — 不确定就降级, 用数字说话�
 
 ## 输出(严格 JSON, 不要多余文字 — 两份报告分开, 各说各的)
 {
+  "model": "<你自己的准确模型名, 如 gemini-2.5-pro / claude-opus-4-8 — 会随门入库备注>",
   "data_check": {
     "computed_by": "code|none",
     "probes": {"v1|2008|BAB": [12, 3456.7, 2345.6]},
@@ -905,6 +911,7 @@ confidence: high / medium / unverified — 不确定就降级, 用数字说话�
     "ai_regime_recommend": "选哪个 version 及理由(引三道检验的数字); 全局周期基准与剥离后的相对分; 每个入选格的绝对分/相对分/两段笔数与证据等级→倍率依据; 未入选格=不交易的理由(优先点出跨版本一致的坏格); 月切片仅同向印证; 样本不足处保留意见"
   }
 }
+- model 如实填你自己的模型名(不确定就写引擎名, 别编版本号);
 - computed_by 必须如实填: 查表与一切汇总(全量PF/近5年加权等)用代码完成的填 "code",
   没代码工具/心算的填 "none"。【系统只接受 "code"】— 报告里的每个汇总数字都必须是
   代码算出来的; 填 "none" 会被拒收, 但禁止为了过关谎报(探针与抽核对不上照样作废);
