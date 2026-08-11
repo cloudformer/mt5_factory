@@ -28,6 +28,42 @@
   — 实例 {{ data.instances | length }} 个{% if data.gate_count %} · 含门变体 {{ data.gate_count }} 个{% endif %}{% if data.archived %} · 已排除归档 {{ data.archived }} 个{% endif %}</p>
 
 {% if data.instances %}
+{# 家族ID串(2026-08-11 Frank 要, 与报告页/家族对比同款 idbox): 父+全部门变体 —
+   复制出来直接贴「回测·按ID」框, 一把把整族同窗重跑(对比三铁律要求同窗才可比) #}
+<div class="flex-between" style="margin:10px 0 4px">
+  <h3 style="margin:0">家族 ID 串(父 + 门变体)
+    <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0"
+          title="ID 取自数据库查询(不是页面表格), 不受翻页/过滤/列定制影响。范围口径: ①谱系一律排除归档(尸体不入串){% if data.archived %}, 本次已排除 {{ data.archived }} 个{% endif %} ②策略ID直查 = 完整家族(自动上溯无门根); 模板+品种浏览 = 只含当前筛选内的实例">
+      — 来自库查询 · 不含归档{% if not sid %} · 受上方筛选范围限制{% endif %}</span></h3>
+  <span><button type="button" class="small" id="tree-copy-all"
+                title="复制本页全部实例(父+门变体)的 ID, 逗号分隔">复制全部ID</button></span>
+</div>
+{% for n in data.instances %}
+{% set fam = [n.id] + (n.gates | map(attribute='id') | list) %}
+<div class="inline" style="margin-bottom:4px">
+  <button type="button" class="small tree-copy-fam" data-ids="{{ fam | join(',') }}"
+          title="复制 #{{ n.id }} 家族: 父 + {{ n.gates | length }} 个门变体">复制 #{{ n.id }} 家族({{ fam | length }})</button>
+  <span class="idbox tree-fam-ids" style="display:inline-block;min-width:220px">{{ fam | join(',') }}</span>
+  {% set unrun = fam | length - (([n] + n.gates) | selectattr('trades', 'ne', none) | list | length) %}
+  {% if unrun %}<span class="muted">未回测 {{ unrun }} 个 — 贴到「回测·按ID」用同一窗口跑齐才能互比</span>{% endif %}
+</div>
+{% endfor %}
+<script>
+(function () {
+  function copy(text, btn, label) {
+    navigator.clipboard.writeText(text).catch(() => {});
+    const t = btn.textContent;
+    btn.textContent = "✓ 已复制 " + text.split(",").length + " 个";
+    setTimeout(() => (btn.textContent = t), 1500);
+  }
+  document.querySelectorAll(".tree-copy-fam").forEach((b) =>
+    b.addEventListener("click", () => copy(b.dataset.ids, b)));
+  const all = document.getElementById("tree-copy-all");
+  if (all) all.addEventListener("click", () => copy(
+    [...document.querySelectorAll(".tree-copy-fam")].map((b) => b.dataset.ids).join(","), all));
+})();
+</script>
+
 {{ m.table_toolbar('tree-table', hint='本页即时过滤(整行模糊)') }}
 {# data-detail-sort: 排序时详情行按 toggle id 粘回主行之后(全站标准机制) #}
 <table id="tree-table" class="dense" data-colpick data-detail-sort>
