@@ -387,12 +387,16 @@
   const dp = document.getElementById("dl-prompt");
   if (!dp) return;
   dp.addEventListener("click", () => {
+    // 同 1-Regime 页: 入 DOM 再点 + 延迟吊销(立刻 revoke 会让下载失败)
+    const url = URL.createObjectURL(new Blob([document.getElementById("ai-prompt").value],
+                                             { type: "text/plain;charset=utf-8" }));
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([document.getElementById("ai-prompt").value],
-                                          { type: "text/plain;charset=utf-8" }));
+    a.href = url;
     a.download = "tune-{{ sid }}-prompt.txt";
+    a.style.display = "none";
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
   });
 })();
 

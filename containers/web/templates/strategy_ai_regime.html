@@ -88,12 +88,17 @@
   <script>
     const PARTS = {{ parts | tojson }};
     const SID = {{ sid }};
+    // 下载(2026-08-11 修): 原来 click() 后立刻 revokeObjectURL — 下载是异步的,
+    // blob 还没被读就被吊销 → 按钮"点了没反应"。改为入 DOM 再点 + 延迟吊销。
     function dl(text, name) {
+      const url = URL.createObjectURL(new Blob([text], {type: "text/plain;charset=utf-8"}));
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([text], {type: "text/plain;charset=utf-8"}));
+      a.href = url;
       a.download = name;
+      a.style.display = "none";
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
     }
     function dlPart(btn) {
       const i = +btn.dataset.part;   // 带策略id+段名, 多策略下载不重名
@@ -250,7 +255,7 @@
             ? '<span class="pos">regime_report / strategy_report 齐全 ✅</span>'
             : '<span class="neg">缺失 ❌</span>') + "</div>"
         + "<div style='margin-top:2px'>" + (pass
-            ? '<b class="pos">✅ 结论: 可信 — 下面 ①版本评价 ②八象限配置 已摊开, ③面板已预填</b>' '
+            ? '<b class="pos">✅ 结论: 可信 — 下面 ①版本评价 ②八象限配置 已摊开, ③面板已预填</b>'
             : (dc.mismatch
                ? '<b>⚠️ 结论: AI 报缺数据</b> — ' + dc.mismatch
                  + '(用「⬇ 合并一份」下载后当附件重发)'
