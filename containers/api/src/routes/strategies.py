@@ -857,9 +857,20 @@ _REGIME_AI_PROMPT_HEAD = """\
    ratio = separation / dispersion。ratio 越大 = 该口径越有用。
    → 若 dispersion 是 separation 的数倍(区分力弱于噪音), confidence 最高只能给 medium。
 
-3) **半样本一致性**: 把回测区间对半切, 两半各算八格 PF 并排序, 报两半排序的
-   Spearman 相关 half_rho。rho 明显为正 = 格的好坏跨时代可复现;
-   rho ≈0 或为负 = 该版本格排序不可复现 → 无论单看某格多漂亮都不得给 high。
+3) **半样本一致性**: 两半各算八格 PF 并排序, 报两半排序的 Spearman 相关 half_rho。
+   rho 明显为正 = 格的好坏跨时代可复现; rho ≈0 或为负 = 该版本格排序不可复现
+   → 无论单看某格多漂亮都不得给 high。
+   【切法钉死(不许自选切点)】按**累计笔数中位数**把交易对半 —— 不是按年份中点,
+   交易在时间上分布不均(早年稀近年密), 按年切会让两半笔数悬殊。
+   【稳健性复检(必做)】再把区间等分成 4 个等长块, 各算八格 PF, 报 6 对块间排序相关
+   的均值 rho_blocks。若 half_rho 与 rho_blocks 差异明显(一个明显为正另一个≈0 或为负),
+   说明 rho 是单一切点的巧合 → 该版本【不得靠 half_rho 排到前面】, 以 rho_blocks 为准。
+
+## 版本排序不稳时的兜底(常见情形, 别硬排名次)
+若各版本的 ratio 与 rho 都挤在一起(彼此差距小于自身量级的一半), 如实写明
+"版本排序不稳定, 名次对切点/口径敏感", 然后改按【坏格识别的一致性】定第一名 ——
+哪个版本能把跨版本公认的坏格分得最清楚(相对分最低、两段同向、样本最厚), 选哪个。
+理由: 排除坏格是本方法最可复现的产出, 好格排名与版本名次都是弱信号。
 
 ## 证据强度分级(决定选不选、给多少倍率、信心几档)
 - 最硬: 跨版本一致(同一个格在多个口径版本里都好/都坏) + 两段绝对分与相对分同向 + 笔数充足
@@ -899,7 +910,7 @@ confidence: high / medium / unverified — 不确定就降级, 用数字说话�
     "ranking": "v1 > v2",
     "versions": [
       {"version": 1, "regularity": "强|中|弱",
-       "metrics": {"separation": 0.21, "dispersion": 0.73, "ratio": 0.30, "half_rho": 0.5},
+       "metrics": {"separation": 0.21, "dispersion": 0.73, "ratio": 0.30, "half_rho": 0.5, "rho_blocks": 0.05},
        "evidence": "三道检验的数字依据(周期剥离后仍成立的格 / 分离与离散 / 半样本排序); 未全量版本注明受限"},
       {"version": 2, "regularity": "强|中|弱", "metrics": {}, "evidence": "..."}
     ]
