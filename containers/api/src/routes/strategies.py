@@ -813,19 +813,12 @@ async def strategy_profile(strategy_id: int, request: Request):
     return prof
 
 
-# 两轮制(2026-08-11 Frank 定): 第一轮只评口径(全版本年×格) → 人确认版本 →
-# 第二轮只在该版本里选格(单版本年×格+月×格)。好处: 版本选错的代价被人截住(实证:
-# 6413/6422 用了非最优版本, 门后 PF 反低于无门父), 且每轮体积降到 1/4 不易被略读。
-Q1 = "".join([
-    "# 任务(第一轮 / 共两轮): 只评【Regime 口径哪个版本更有规律】, 本轮不要选格不要出 gate\n",
-    "下面给全部版本的 年×格 战绩表。产出只有 regime_report(含 baseline 与各版本 metrics)。\n",
-    "人看完你的排名会拍定一个版本, 再把那个版本的完整数据发给你做第二轮选格。\n"])
-Q2 = "".join([
-    "# 任务(第二轮 / 共两轮): 版本已由人拍定 = v{ver}, 只在这个版本里选格并给倍率建议\n",
-    "下面只给 v{ver} 的 年×格 + 月×格。产出只有 strategy_report。\n",
-    "【不要再评版本优劣、不要建议换版本】— 版本是人的决定, 你的任务是把这个坐标系用到最好。\n"])
-
 _REGIME_AI_PROMPT_HEAD = """\
+# 任务(两问一次做完, 报告分三块按序写): ⓪验收自证 ①Regime 口径评价+建议版本 ②八象限配置
+数据是全部 regime 版本的预聚合战绩。请**严格按 ⓪→①→② 的顺序**组织报告:
+  ⓪ data_check: 是否用代码核算(computed_by) + 5 个探针答案 + (跑了置换则给 p 值);
+  ① regime_report: 先讲清楚哪个版本更有规律、为什么, 给 ranking 与【建议版本】;
+  ② strategy_report: 在建议版本下, 把**八个象限逐格**给出建议手数倍率与理由(含不选的格)。
 
 ## 数据形态(精简模式 — 系统已在数据库侧完成贴格与聚合, 你【不需要也不得】重算)
 1. strategy: 模板/参数/品种/周期(主货币对全量悲观口径回测, 区间=backtest_window)
@@ -986,12 +979,22 @@ confidence: high / medium / unverified — 不确定就降级, 用数字说话�
   },
   "strategy_report": {
     "strategy_id": <id>,
+    "recommended_version": <建议版本号, 与 gate.version 一致>,
+    "cells_all": [
+      {"cell": "AAA", "mult": 0, "n": 452, "pf": 1.15, "rel_early": 0.97, "rel_recent": 1.06,
+       "path": [14, 5, 0.41], "grade": "弱|中等|最硬", "path_grade": "稳|不平|爆发型",
+       "why": "一句人话: 为什么给这个倍率 / 为什么不选"},
+      {"cell": "AAB", "mult": 1.0, "...": "...八个象限一个不漏, 不选的给 mult=0"}
+    ],
     "gate": {"regime": {"cells": {"ABA": 1.0, "BBA": 0.7}, "version": <ranking第一名>}},
     "confidence": "high|medium|unverified",
     "ai_regime_recommend": "选哪个 version 及理由(引三道检验的数字与 p 值); 全局周期基准与剥离后的相对分; 每个入选格的绝对分/相对分/两段笔数/路径三数(年份数·亏损年数·最低年PF)与证据等级×路径档→倍率依据; 未入选格=不交易的理由(优先点出跨版本一致的坏格); 月切片仅同向印证; 样本不足处保留意见"
   }
 }
 - model 如实填你自己的模型名(不确定就写引擎名, 别编版本号);
+- cells_all 必须**八个象限全给**(AAA/AAB/ABA/ABB/BAA/BAB/BBA/BBB), 不选的写 mult=0
+  并在 why 里说清哪个数字不合格; path=[有交易年份数, 其中PF<1的年数, 最低年PF];
+  gate.cells 只含 mult>0 的格(与系统 metadata 格式逐字节兼容, 系统据此预填面板);
 - computed_by 必须如实填: 查表与一切汇总(全量PF/近5年加权等)用代码完成的填 "code",
   没代码工具/心算的填 "none"。【系统只接受 "code"】— 报告里的每个汇总数字都必须是
   代码算出来的; 填 "none" 会被拒收, 但禁止为了过关谎报(探针与抽核对不上照样作废);
@@ -1005,13 +1008,9 @@ confidence: high / medium / unverified — 不确定就降级, 用数字说话�
 
 
 @router.get("/strategies/{strategy_id}/regime_prompt")
-async def regime_ai_prompt(strategy_id: int, request: Request,
-                           round: int = 1, version: Optional[int] = None):
-    """单策略AI调参·1-Regime 提示词(两轮制, 2026-08-11 Frank 定):
-    round=1: 全部版本的 年×格 → 只评口径(regime_report), 人看排名拍定版本;
-    round=2 + version=N: 只给 v{N} 的 年×格+月×格 → 只选格给倍率建议(strategy_report)。
-    体积: 每轮约为旧单轮的 1/4(第一轮省月表, 第二轮省其他版本), 不易被 AI 略读。
-    数据全在库侧预聚合(精简模式), AI 零计算只读表。"""
+async def regime_ai_prompt(strategy_id: int, request: Request):
+    """单策略AI调参·1-Regime 提示词(单轮, 报告分三块: ⓪验收 ①版本评价 ②八象限配置)。
+    数据全在库侧预聚合(精简模式, 全部版本的 年×格+月×格), AI 零计算只读表。"""
     pool = request.app.state.pool
     await identity.assert_strategy_visible(pool, request, strategy_id)
     s = await pool.fetchrow(
@@ -1119,38 +1118,23 @@ async def regime_ai_prompt(strategy_id: int, request: Request,
     probe_answers = {f"v{flat[i][0]}|{flat[i][1][0]}|{flat[i][1][1]}":
                      [flat[i][1][2], flat[i][1][4], flat[i][1][5]] for i in p_idx}
     base["probe_keys"] = list(probe_answers)
-    base["round"] = round
-    # 两轮制数据裁剪(2026-08-11): 一轮只需年表评口径(月表本来"仅作参考"), 二轮只需选定版本
-    if round == 2:
-        picked = [v for v in versions if v["version"] == version]
-        if not picked:
-            raise HTTPException(status_code=400,
-                                detail=f"第二轮需要有效的 version(现有: "
-                                       f"{[v['version'] for v in versions]})")
-        data_obj = {"regime_versions": picked}
-        task, dlabel = Q2.format(ver=version), f"v{version} 数据(年×格+月×格)"
-        base["picked_version"] = version
-    else:
-        data_obj = {"regime_versions": [{k: v[k] for k in v if k != "month_cells"}
-                                        for v in versions]}
-        task, dlabel = Q1, "全部版本数据(年×格)"
-    # 两段式: ①预聚合数据 ②任务指令+策略身份(压轴带开始口令);
-    # slug 用于下载文件名 prompt-{id}-r{round}-{n}-{slug}.txt(带轮次, 两轮不混)
+    # 两段式(精简模式): ①预聚合数据(全部版本) ②任务指令+策略身份(压轴带开始口令);
+    # slug 用于下载文件名 prompt-{id}-{n}-{slug}.txt(带策略id, 下载不重名)
     parts = [
-        {"label": f"① {dlabel} (1/2)", "slug": f"r{round}-data",
-         "text": f"以下是交易策略 regime 分析的数据(第 {round} 轮), 共 2 段: ①{dlabel}"
-                 "(系统已在数据库侧完成贴格与聚合) ②任务指令。"
+        {"label": "① 预聚合数据·全部版本 (1/2)", "slug": "data",
+         "text": "以下是交易策略 regime 分析的数据, 共 2 段: ①全部 regime 口径版本的预聚合"
+                 "战绩(系统已在数据库侧完成贴格与聚合 — 每版本 年×格 / 月×格 两张表) ②任务指令。"
                  "请先暂存, 收到第②段指令后再开始分析。\n\n"
-                 + _j(data_obj)
+                 + _j({"regime_versions": versions})
                  + "\n\n【第 1/2 段完 — 指令在第②段, 请继续等待】"},
-        {"label": "② 任务指令+策略身份 (2/2)", "slug": f"r{round}-instruction",
-         "text": task + "\n" + _REGIME_AI_PROMPT_HEAD + _j(base)
+        {"label": "② 任务指令+策略身份 (2/2)", "slug": "instruction",
+         "text": _REGIME_AI_PROMPT_HEAD + _j(base)
                  + "\n\n【全部发完 — 以上即任务指令, 数据在第①段, 请开始分析】"},
     ]
     full = "\n\n".join(pt["text"] for pt in parts)
     return {"prompt": full, "parts": parts, "probe_answers": probe_answers,
-            "round": round, "picked_version": version if round == 2 else None,
-            "versions": [v["version"] for v in versions],
+            "versions": [{"id": v["version"], "label": regime.label(v["params"]),
+                          "coverage": v["coverage"]} for v in versions],
             **({"warning": warning} if warning else {})}
 
 

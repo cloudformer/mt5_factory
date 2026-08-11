@@ -6,17 +6,6 @@
 <section>
   <form method="get" class="inline">
     <input type="number" name="strategy_id" value="{{ sid or '' }}" placeholder="策略 ID" required style="width:110px">
-    {# 两轮制(2026-08-11 Frank 定): 一轮评口径→人拍版本→二轮只在该版本选格 #}
-    <label>轮次 <select name="round" data-autosubmit
-             title="第一轮: 全部版本的年×格 → 只评哪个口径有规律(不出 gate); 第二轮: 只给你拍定的版本 → 只选格给倍率建议">
-      <option value="1" {% if rnd != 2 %}selected{% endif %}>① 评口径(全版本)</option>
-      <option value="2" {% if rnd == 2 %}selected{% endif %}>② 选格(单版本)</option>
-    </select></label>
-    {% if rnd == 2 %}
-    <label>版本 <select name="version" data-autosubmit title="第一轮拍定的版本 — 第二轮只分析它">
-      {% for v in versions %}<option value="{{ v }}" {% if v == ver %}selected{% endif %}>v{{ v }}</option>{% endfor %}
-    </select></label>
-    {% endif %}
     <button>载入</button>
     {% if sid and parts %}
     {# 出口收敛(2026-08-09 Frank 定, 与·2-时间统一): 只留每份 复制+⬇下载;
@@ -62,18 +51,15 @@
 
   {# AI 回复验收→确认克隆(2026-08-09 Frank 定): 机器过四道闸(code/总账/格账/探针)全绿
      才预填克隆面板(与矩阵页同构同入口) — AI 只出建议, 勾格/倍率你可改, 确认才落地 #}
-  {% if rnd == 2 %}
-  <h2 style="margin-top:16px">AI 回复验收 → 确认克隆带门(第二轮)</h2>
-  <p class="muted">粘贴第二轮回复(含 strategy_report) → 自动验收(探针全对 + 报告齐全) → 全绿预填下方门面板; 去格/改倍率随你(AI 给的只是建议值), 点「克隆带门」才落地。</p>
-  {% else %}
-  <h2 style="margin-top:16px">AI 回复验收(第一轮 · 评口径)</h2>
-  <p class="muted">粘贴第一轮回复(含 regime_report) → 自动验收探针 → 看它的 ranking 与各版本 metrics/p值 →
-    <b>你拍定一个版本</b>, 然后把上方轮次切到「② 选格」并选中该版本, 生成第二轮提示词。第一轮不出 gate, 所以本轮不会预填门面板。</p>
-  {% endif %}
+  <h2 style="margin-top:16px">AI 回复验收 → 确认克隆带门</h2>
+  <p class="muted">粘贴 AI 返回的 JSON → 自动验收 → 分三块显示: ⓪验收(code/探针/信心) ①版本评价与建议版本 ②八象限逐格配置(建议手数+理由) → 面板按建议预填, 勾格/改倍率随你(AI 给的是建议值), 点「克隆带门」才落地。</p>
   <textarea id="rg-reply" rows="5" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:11.5px"
     placeholder='粘 AI 返回的最终 JSON(含 data_check / regime_report / strategy_report), 前后混着废话没关系'></textarea>
   <p style="margin:6px 0"><button type="button" class="small" id="rg-verify">自动验收</button></p>
   <div id="rg-verdict" class="muted" style="margin:4px 0 8px">粘贴后点「自动验收」</div>
+  <div id="rg-block1"></div>
+  <div id="rg-block2"></div>
+  <h3 id="rg-block3-title" hidden style="margin:14px 0 6px">③ 勾选创建(面板已按上表预填 — 勾/改倍率后点克隆即建实例)</h3>
   <div id="rg-gate" hidden>
     <form method="post" action="{{ url_for('strategies.clone_gate', strategy_id=sid) }}" class="inline"
           onsubmit="return confirm('按当前勾选克隆带门新实例?\n\n克隆自动挂到无门根下; 勾选格按倍率交易, 未勾格不开新仓; 父实例不受影响。')">
@@ -122,24 +108,74 @@
     }
     if (PARTS.length) document.getElementById("rg-preview").value = PARTS[0].text;
 
-    // 第一轮排名摘要(2026-08-11): 把 ranking 与各版本 regularity/p值 摊出来供人拍板
-    function rankLine(rep) {
+    // ---- ①版本评价 / ②八象限配置 渲染(2026-08-11 Frank 定的三块结构) ----
+    const VERS = {{ (versions or []) | tojson }};   // [{id,label,coverage}] 服务端注入口径名
+    const esc = (t) => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    const num = (x, d) => (x === undefined || x === null || x === "" ? "—" : (+x).toFixed(d));
+
+    function renderVersions(rep) {
       const r = rep.regime_report || {};
-      const vs = (r.versions || []).map((v) => {
-        const m = v.metrics || {};
-        const p = [m.rho_blocks_p, m.half_rho_p].filter((x) => x !== undefined && x !== null);
-        return '<span class="mono">v' + v.version + '</span> ' + (v.regularity || "?")
-          + (p.length ? ' <span class="muted">(p ' + p.map((x) => (+x).toFixed(3)).join("/") + ')</span>' : "")
-          + (m.null_method ? ' <span class="muted">[' + m.null_method + ']</span>' : "");
-      }).join(" · ");
-      return "<div style='margin-top:4px'><b>AI 排名</b>: " + (r.ranking || "—")
-        + (vs ? "<br>" + vs : "")
-        + (r.baseline && r.baseline.drift
-           ? "<br><span class='muted'>周期基准: " + String(r.baseline.drift).slice(0, 160) + "</span>" : "")
-        + "</div>";
+      const rec = (rep.strategy_report || {}).recommended_version
+               || ((rep.strategy_report || {}).gate || {}).regime?.version;
+      const rows = (r.versions || []).map((v) => {
+        const m = v.metrics || {}, lab = (VERS.find((x) => x.id === v.version) || {}).label || "";
+        const ps = [["rho_blocks", m.rho_blocks_p], ["half_rho", m.half_rho_p], ["ratio", m.ratio_p]]
+          .filter(([, x]) => x !== undefined && x !== null)
+          .map(([k, x]) => k + " " + (+x < 0.001 ? "<0.001" : (+x).toFixed(3))
+                + (+x < 0.05 ? " ✅" : "")).join(" · ");
+        return "<tr" + (v.version === rec ? ' class="row-marked"' : "") + ">"
+          + "<td class='mono'>v" + v.version + (v.version === rec ? " ⭐" : "") + "</td>"
+          + "<td class='mono muted'>" + esc(lab) + "</td>"
+          + "<td>" + esc(v.regularity || "—") + "</td>"
+          + "<td class='muted'>" + (ps || "—") + (m.null_method ? " <span class='muted'>["
+              + esc(m.null_method) + "]</span>" : "") + "</td>"
+          + "<td class='clip' title='" + esc(v.evidence).replace(/'/g, "&#39;") + "'>"
+          + esc((v.evidence || "").slice(0, 90)) + "</td></tr>";
+      }).join("");
+      const b = r.baseline || {};
+      return "<h3 style='margin:14px 0 6px'>① Regime 版本评价"
+        + (rec ? " · 建议版本 = <span class='mono'>v" + rec + "</span>" : "") + "</h3>"
+        + "<p class='muted' style='margin:0 0 6px'>AI 排名: <b>" + esc(r.ranking || "—") + "</b>"
+        + (b.drift ? "<br>周期基准: 早段 " + num(b.early_pf, 2) + " → 近5年 "
+            + num(b.recent5y_pf, 2) + " — " + esc(String(b.drift).slice(0, 140)) : "") + "</p>"
+        + "<table class='dense'><tr><th>版本</th><th>口径</th><th>规律性</th>"
+        + "<th title='越小越显著; ✅=p<0.05'>显著性(p)</th><th>依据摘要(悬停看全文)</th></tr>"
+        + rows + "</table>";
     }
 
-    // ---- AI 回复自动验收(2026-08-09 精简模式): 探针+报告齐全两道闸, 全绿才预填克隆面板 ----
+    function renderCells(rep) {
+      const sr = rep.strategy_report || {};
+      const g = (sr.gate || {}).regime || {}, picked = g.cells || {};
+      // cells_all 缺失时兜底: 用 gate.cells 生成, 未列格 mult=0
+      let all = sr.cells_all;
+      if (!Array.isArray(all) || !all.length)
+        all = ["AAA","AAB","ABA","ABB","BAA","BAB","BBA","BBB"].map((c) =>
+          ({cell: c, mult: picked[c] || 0, why: picked[c] ? "AI 未给逐格说明" : "未入选(AI 未说明原因)"}));
+      all = all.slice().sort((a, b) => (+b.mult || 0) - (+a.mult || 0));
+      const rows = all.map((c) => {
+        const on = +c.mult > 0, p = c.path || [];
+        return "<tr" + (on ? ' class="row-win"' : "") + ">"
+          + "<td class='mono'><b>" + esc(c.cell) + "</b></td>"
+          + "<td class='mono'>" + (on ? "×" + c.mult : "<span class='muted'>不选</span>") + "</td>"
+          + "<td class='mono muted'>" + (c.n ?? "—") + "</td>"
+          + "<td class='mono'>" + num(c.pf, 2) + "</td>"
+          + "<td class='mono muted'>" + num(c.rel_early, 2) + " / " + num(c.rel_recent, 2) + "</td>"
+          + "<td class='mono muted'>" + (p.length === 3
+              ? p[0] + "年 / 亏" + p[1] + " / 最低" + num(p[2], 2) : "—") + "</td>"
+          + "<td class='muted'>" + esc(c.grade || "") + (c.path_grade ? "·" + esc(c.path_grade) : "") + "</td>"
+          + "<td>" + esc(c.why || "") + "</td></tr>";
+      }).join("");
+      return "<h3 style='margin:14px 0 6px'>② 八象限配置"
+        + (g.version ? " (v" + g.version + " · 建议手数)" : "") + "</h3>"
+        + "<table class='dense'><tr><th>象限</th><th>建议</th><th>笔数</th><th>全量PF</th>"
+        + "<th title='扣掉大环境红利后的相对分'>相对分(早/近)</th>"
+        + "<th title='有交易年份数 / 其中PF<1的年数 / 最低年PF'>路径</th><th>证据·路径</th>"
+        + "<th>一句话理由</th></tr>" + rows + "</table>"
+        + (sr.ai_regime_recommend ? "<p class='muted' style='white-space:pre-wrap;margin:6px 0 0'>"
+            + esc(sr.ai_regime_recommend) + "</p>" : "");
+    }
+
+    // ---- AI 回复自动验收    // ---- AI 回复自动验收(2026-08-09 精简模式): 探针+报告齐全两道闸, 全绿才预填克隆面板 ----
     const PROBES_ANS = {{ (probes or {}) | tojson }};   // {"v1|2008|BAB": [笔, 毛利, 毛损]}
     document.getElementById("rg-verify").addEventListener("click", () => {
       const out = document.getElementById("rg-verdict");
@@ -186,11 +222,8 @@
             || !eq(v[1], PROBES_ANS[k][1], 0.05) || !eq(v[2], PROBES_ANS[k][2], 0.05)) nBad++;
       }
       const okPr = !nBad;
-      // 两轮制(2026-08-11): 第一轮只验 regime_report(不预填面板), 第二轮验 strategy_report
-      const RND = {{ rnd }};
-      const hasReports = RND === 2
-        ? !!(rep.strategy_report && (rep.strategy_report.gate || {}).regime)
-        : !!(rep.regime_report && (rep.regime_report.versions || []).length);
+      const hasReports = !!(rep.regime_report && rep.strategy_report
+                            && (rep.strategy_report.gate || {}).regime);
       const allOk = okPr && hasReports;
       // 结论用人类语言+分行(2026-08-09 Frank 定): JSON 是机器语言, 这几行是给人看的
       // 验收铁则(2026-08-09 Frank 定: 协议合格≠结论可信): 探针只验"读", 验不了"加" —
@@ -208,22 +241,20 @@
             : '<span class="neg">' + nBad + "/" + pKeys.length
               + ' 行与库侧答案不符 — 没读到数据 ❌</span>') + "</div>"
         + '<div>3. 报告: ' + (hasReports
-            ? '<span class="pos">' + (RND === 2 ? "strategy_report(gate) 齐全"
-                                                : "regime_report(各版本 metrics) 齐全") + ' ✅</span>'
-            : '<span class="neg">缺 ' + (RND === 2 ? "strategy_report.gate" : "regime_report.versions")
-              + ' ❌</span>') + "</div>"
-        + (RND === 1 && pass ? rankLine(rep) : "")
+            ? '<span class="pos">regime_report / strategy_report 齐全 ✅</span>'
+            : '<span class="neg">缺失 ❌</span>') + "</div>"
         + "<div style='margin-top:2px'>" + (pass
-            ? (RND === 2
-               ? '<b class="pos">✅ 结论: 可信 — 门面板已按 AI 建议预填, 改完点「克隆带门」</b>'
-               : '<b class="pos">✅ 第一轮可信 — 按上面的排名拍定一个版本, 然后把「轮次」切到「② 选格」并选中该版本</b>')'
+            ? '<b class="pos">✅ 结论: 可信 — 下面 ①版本评价 ②八象限配置 已摊开, ③面板已预填</b>' '
             : (dc.mismatch
                ? '<b>⚠️ 结论: AI 报缺数据</b> — ' + dc.mismatch
                  + '(用「⬇ 合并一份」下载后当附件重发)'
                : (allOk && !isCode
                   ? '<b class="neg">❌ 结论: 不可信 — 换带代码执行的模型重跑(数字必须代码算)</b>'
                   : '<b class="neg">❌ 结论: 不可信, 直接扔</b>'))) + "</div>";
-      if (!pass || RND === 1) return;    // 第一轮到此为止: 不出 gate, 不预填面板
+      document.getElementById("rg-block1").innerHTML = pass ? renderVersions(rep) : "";
+      document.getElementById("rg-block2").innerHTML = pass ? renderCells(rep) : "";
+      document.getElementById("rg-block3-title").hidden = !pass;
+      if (!pass) return;
       const g = ((rep.strategy_report || {}).gate || {}).regime || {};
       const cells = g.cells || {};
       document.querySelectorAll("#rg-gate input[type=checkbox]").forEach((cb) => {
