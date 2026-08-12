@@ -967,6 +967,8 @@ confidence: high / medium / unverified — 不确定就降级, 用数字说话�
   "regime_report": {
     "baseline": {"early_pf": 0.98, "recent5y_pf": 1.31, "drift": "整体近5年变好, 选格须用相对分"},
     "ranking": "v1 > v2",
+    "pick_reason": "significance|bad_cell_fallback",
+    "pick_note": "一句人话: 为什么第一名是它 — 若最高显著性的版本没当第一, 必须在这里说清为什么",
     "versions": [
       {"version": 1, "regularity": "强|中|弱",
        "metrics": {"separation": 0.21, "dispersion": 0.73, "ratio": 0.30, "half_rho": 0.5,
@@ -992,6 +994,13 @@ confidence: high / medium / unverified — 不确定就降级, 用数字说话�
   }
 }
 - model 如实填你自己的模型名(不确定就写引擎名, 别编版本号);
+- **pick_reason 必填**: 靠显著性定名 = "significance"; 走坏格识别兜底 = "bad_cell_fallback"。
+  【只有过 Bonferroni 校正的项才算"硬显著"】—— 若某版本有 p<0.05 但未过校正, 它**不足以**
+  单独定名次, 此时应走兜底并在 pick_note 里明写"vN 的 pX 未过校正, 名次不是靠显著性定的";
+- **rho_blocks 与 half_rho 打架时以 rho_blocks 为准**(它是 6 对块的均值, 比单切点稳健) —
+  不要反过来把 rho_blocks 说成"切点巧合";
+- **路径三数自检**: 最低年 PF 若八个格算出来全都一样(尤其全是 0), 说明你算错了(多半把 0 笔
+  年份或无亏损年当成 0) — 重算或在 why 里注明"路径不可用", 别报出明显失真的数;
 - cells_all 必须**八个象限全给**(AAA/AAB/ABA/ABB/BAA/BAB/BBA/BBB), 不选的写 mult=0
   并在 why 里说清哪个数字不合格; path=[有交易年份数, 其中PF<1的年数, 最低年PF];
   gate.cells 只含 mult>0 的格(与系统 metadata 格式逐字节兼容, 系统据此预填面板);
