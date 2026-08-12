@@ -29,6 +29,15 @@
     </div>
     <div class="row">
       <span class="tag">范围</span>
+      {# 批次(2026-08-12): 与回测页同名同义 = 策略生成时的标签(strategies.basis)。
+         一次实验一个批次 → 才能分开读 M15/H4/H1 三组的关联差异, 混池会把差异抹平 #}
+      <label title="策略生成时填的批次标签。一次实验圈一批 —— M15/H4/H1 必须分开跑, 混在一起算正好把要看的差异抹平">批次
+        <select name="basis">
+          <option value="">全部批次</option>
+          {% for b in data.batches %}
+          <option value="{{ b.basis }}">{{ b.basis }} · {{ b.timeframes }} · {{ b.n }}个{% if b.tested %} (已测{{ b.tested }}){% endif %}</option>
+          {% endfor %}
+        </select></label>
       <label>模板 <input name="template" size="12" placeholder="全部"></label>
       <label>品种 <input name="symbol" size="9" placeholder="全部"></label>
       <label>状态 <select name="status">
@@ -37,7 +46,7 @@
         <option value="LIVE">LIVE</option></select></label>
       <label>或 按ID <input name="ids" size="18" placeholder="逗号分隔"></label>
       <label>单次上限 <input name="limit" value="200" size="5"></label>
-      <label>批次备注 <input name="task" size="14" placeholder="选填"></label>
+      <label title="给这份分析报告起的备注, 与上面的「批次」是两回事(那个是策略的生成批次)">报告备注 <input name="task" size="14" placeholder="选填"></label>
       <button class="go">开始</button>
     </div>
     <div class="row">
@@ -146,7 +155,9 @@
       <td class="mono">{{ r.id }}</td>
       <td class="muted">{{ r.created_at[:19] | replace('T', ' ') }}</td>
       <td class="muted clip">{{ r.scope.task or '' }}
-        {% if r.scope.ids %}ID×{{ r.scope.ids | length }}{% else %}{{ r.scope.template or '全模板' }} / {{ r.scope.symbol or '全品种' }}{% endif %}
+        {% if r.scope.ids %}ID×{{ r.scope.ids | length }}
+        {% elif r.scope.basis %}<b>{{ r.scope.basis }}</b>
+        {% else %}{{ r.scope.template or '全模板' }} / {{ r.scope.symbol or '全品种' }}{% endif %}
         · {{ r.scope.count }} 个</td>
       <td class="muted mono">{{ '出场原因' if r.params.tier_mode == 'reason' else 'R倍数' }} · {{ r.params.permutations }}次 · p{{ r.params.sig_p }}</td>
       <td><span class="pos">信号 {{ r.summary.signal }}</span> · 弱 {{ r.summary.weak }}

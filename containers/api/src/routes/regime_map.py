@@ -32,6 +32,9 @@ class RunRequest(BaseModel):
     # 范围
 
     ids: Optional[list[int]] = None       # 点名; 空 = 按筛选条件全池
+    # 批次(2026-08-12 Frank 要, 与回测页同名同义): 策略生成时填的标签, 存 strategies.basis。
+    # 一次实验一个批次 → 分开读 M15/H4/H1 三组的关联差异; 混池会把要看的差异抹平
+    basis: Optional[str] = None
     template: Optional[str] = None
     symbol: Optional[str] = None
     status: Optional[str] = None
@@ -57,7 +60,7 @@ async def run(req: RunRequest, request: Request):
         conds.append(f"s.id = ANY(${len(args)})")
     else:
         for col, val in (("template", req.template), ("symbol", req.symbol),
-                         ("status", req.status)):
+                         ("status", req.status), ("basis", req.basis)):
             if val:
                 args.append(val)
                 conds.append(f"s.{col} = ${len(args)}")
@@ -78,6 +81,7 @@ async def run(req: RunRequest, request: Request):
         raise HTTPException(status_code=400, detail="没有 regime 版本")
     await pool.execute("DELETE FROM jobs WHERE kind=$1", jobs.MAP_KIND)
     scope = {"task": (req.task or "").strip() or None, "ids": req.ids,
+             "basis": req.basis,
              "template": req.template, "symbol": req.symbol, "status": req.status,
              "limit": limit, "count": len(ids)}
     items = [{"ids": ids[i:i + CHUNK], "versions": versions, "params": p, "scope": scope}

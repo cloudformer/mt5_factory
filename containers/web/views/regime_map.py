@@ -20,8 +20,9 @@ def index():
     verdict = request.args.get("verdict") or None
     page = max(request.args.get("page", 1, type=int), 1)
     per = min(max(request.args.get("per", 50, type=int), 10), 200)
-    data = {"reports": [], "report": None}
+    data = {"reports": [], "report": None, "batches": []}
     try:
+        data["batches"] = api.get("/strategy_batches")["batches"]
         data["reports"] = api.get("/regime_map/reports")["reports"]
         if rid is None and data["reports"]:
             rid = data["reports"][0]["id"]
@@ -50,7 +51,7 @@ def run():
         "limit": num("limit", 200, int),
         "task": (request.form.get("task") or "").strip() or None,
     }
-    for k in ("template", "symbol", "status"):
+    for k in ("template", "symbol", "status", "basis"):
         v = (request.form.get(k) or "").strip()
         if v:
             payload[k] = v
