@@ -98,16 +98,19 @@
         例: p=0.009 表示"若这个口径其实等于随便乱分格, 能碰巧算出这么好结果的概率只有 0.9%"。</p>
       <table class="dense" style="max-width:640px;margin:0 0 8px">
         <tr><th>p 值</th><th>大白话</th><th>页面标记</th><th>能干嘛</th></tr>
-        <tr><td class="mono">&lt; 0.004</td><td>碰巧概率不到 0.4%, 测 12 次也撞不上</td>
+        <tr><td class="mono">&lt; 0.0125</td><td>碰巧概率不到 1.25%(4 个版本各测一次主判据的门槛)</td>
             <td><span class="pos">✅硬</span></td><td><b>可当依据定名次</b></td></tr>
-        <tr><td class="mono">0.004 ~ 0.05</td><td>碰巧概率 0.4%~5%, 单看不错但架不住测得多</td>
+        <tr><td class="mono">0.0125 ~ 0.05</td><td>碰巧概率 1.25%~5%, 单看不错但没过多版本比较的门槛</td>
             <td><span style="color:#b45309">⚠边缘</span></td><td>参考, <b>不能单独定名次</b></td></tr>
         <tr><td class="mono">≥ 0.05</td><td>碰巧概率超过 5%</td>
             <td><span class="muted">(随机水平)</span></td><td><b>等于没分类</b>, 不携带信息</td></tr>
       </table>
-      <p style="margin:0 0 8px">为什么 0.05 还不够: 一次测了 4 版本 × 3 项 = <b>12 次</b>,
-        就像买 12 张彩票总有一张看着像中了 — 所以门槛除以 12(0.05÷12≈0.004),
-        这叫 Bonferroni 校正。p=0.009 单看漂亮, 但 12 次里撞上一个 0.009 的机会约 10%, 故只算边缘。</p>
+      <p style="margin:0 0 8px">为什么 0.05 还不够: 同时比 <b>4 个版本</b>, 就像买 4 张彩票总有一张
+        看着像中了 — 所以门槛除以版本数(0.05÷4=0.0125), 这叫 Bonferroni 校正。
+        <b>只对主判据 rho_blocks 校正</b>(它是 6 对块的均值, 最稳健); half_rho 是单切点、ratio
+        已知不携带信息, 两者只作诊断不参与定名次。<br>
+        <b>统计够格 ≠ 可以放心用</b>: 某版本主判据过了门槛, 但若 half_rho 明显为负(前后半段排序反向)
+        或某些格样本过稀, 仍要压低信心 — 那是数据结构的问题, 不是运气问题。</p>
       <ul style="margin:0 0 10px;padding-left:20px">
         <li><b>rho 本身</b>(不是 p)要 &gt;0 才有意义; &lt;0 = 前后时代的格排序反向 = 该口径不可复现</li>
         <li><b>ratio 不用看</b> — 置换检验已证明它的随机水平就有 0.2~0.23, 数字高不代表好, 只作诊断</li>
@@ -179,21 +182,34 @@
         const ps = [["rho_blocks", m.rho_blocks_p], ["half_rho", m.half_rho_p], ["ratio", m.ratio_p]]
           .filter(([, x]) => x !== undefined && x !== null)
           .map(([k, x]) => {
-            const sig = +x < 0.05, hard = bp.indexOf(k) >= 0;
-            // 只有过 Bonferroni 才算硬显著; p<0.05 但未过校正 = 边缘, 不足以定名次
+            // 档位就地标出(2026-08-11 Frank: 每个数后面直接给范围, 不用去查图例)
+            const hard = bp.indexOf(k) >= 0 || +x < 0.0125;
+            const tag = hard ? '<span class="pos">优秀</span>'
+                     : +x < 0.05 ? '<span style="color:#b45309">边缘</span>'
+                                 : '<span class="neg">无效</span>';
             return "<span class='mono'>" + k + " p=" + (+x < 0.001 ? "<0.001" : (+x).toFixed(3))
-              + "</span>" + (hard ? ' <span class="pos">✅硬</span>'
-                      : sig ? ' <span style="color:#b45309">⚠边缘</span>'
-                            : ' <span class="muted">(随机水平)</span>');
+              + "</span> " + tag;
           }).join(" · ");
+        // 就地判读(2026-08-11 Frank: 需要判断的地方直接写出来, 我要能读出来)
+        const mainP = m.rho_blocks_p, hr = m.half_rho;
+        const note = [];
+        if (mainP === undefined || mainP === null) note.push("主判据缺失, 无法判显著性");
+        else if (bp.indexOf("rho_blocks") >= 0 || +mainP < 0.0125)
+          note.push("<span class='pos'>主判据够硬(p&lt;0.0125)</span> — 可当第一名依据");
+        else if (+mainP < 0.05) note.push("<span style='color:#b45309'>只到边缘</span> — 参考, 定不了名次");
+        else note.push("<span class='muted'>与随机无异</span> — 这个口径没能把交易分出层次");
+        if (hr !== undefined && hr !== null && +hr < 0)
+          note.push("<b>half_rho 为负</b>: 前后半段格排序反向, 别只看主判据");
+        if (v.version === rec) note.push("<b>← 建议用它</b>");
         return "<tr" + (v.version === rec ? ' class="row-marked"' : "") + ">"
           + "<td class='mono'>v" + v.version + (v.version === rec ? " ⭐" : "") + "</td>"
           + "<td class='mono muted'>" + esc(lab) + "</td>"
           + "<td>" + esc(v.regularity || "—") + "</td>"
           + "<td class='muted'>" + (ps || "—") + (m.null_method ? " <span class='muted'>["
               + esc(m.null_method) + "]</span>" : "") + "</td>"
+          + "<td>" + note.join(" · ") + "</td>"
           + "<td class='clip' title='" + esc(v.evidence).replace(/'/g, "&#39;") + "'>"
-          + esc((v.evidence || "").slice(0, 90)) + "</td></tr>";
+          + esc((v.evidence || "").slice(0, 70)) + "</td></tr>";
       }).join("");
       const b = r.baseline || {};
       // 定名依据: 显著性 or 坏格识别兜底 — 没有它时页面自己判断并提示"为什么不是那个有✅的"
@@ -218,9 +234,34 @@
         + (b.drift ? "<br>周期基准: 早段 " + num(b.early_pf, 2) + " → 近5年 "
             + num(b.recent5y_pf, 2) + " — " + esc(String(b.drift).slice(0, 140)) : "") + "</p>"
         + "<table class='dense'><tr><th>版本</th><th>口径</th><th>规律性</th>"
-        + "<th title='p 越小 = 越不可能是随机巧合'>显著性(p)</th><th>依据摘要(悬停看全文)</th></tr>"
+        + "<th title='p = 这个结果纯属碰巧的概率'>显著性(p)"
+        + "<br><span class='muted' style='font-weight:400;font-size:11px;text-transform:none;letter-spacing:0'>"
+        + "&lt;0.0125 优秀(可定名次) · 0.0125~0.05 边缘(仅参考) · ≥0.05 无效(等于没分类)</span></th>"
+        + "<th title='页面直接读出结论, 不用自己推'>怎么看 / 注意什么</th>"
+        + "<th>AI 依据摘要(悬停看全文)</th></tr>"
         + rows + "</table>"
         + rows_legend_hint;
+    }
+
+    // 逐格就地判读: 相对分两段 / 路径三档 / 样本厚薄 — 直接说结论
+    function cellNote(c) {
+      const n = [], re = +c.rel_early, rr = +c.rel_recent, p = c.path || [];
+      if (!isNaN(re) && !isNaN(rr)) {
+        if (re > 1 && rr > 1) n.push("<span class='pos'>两段都跑赢环境</span>");
+        else if (re < 1 && rr < 1) n.push("<span class='neg'>两段都跑输</span>=稳定坏格, 排除它最值钱");
+        else n.push("<span style='color:#b45309'>只有一段跑赢</span> — 时代红利或正在衰减, 别当好格");
+      }
+      if (p.length === 3 && p[0]) {
+        const bad = +p[1] / +p[0], lo = +p[2];
+        if (bad > 1 / 3 || (lo && lo < 0.5)) n.push("<span class='neg'>路径爆发型</span>(亏损年多/最差年太深) — 该不选, 不是打折");
+        else if (bad > 1 / 4 || (lo && lo < 0.8)) n.push("路径不平 — 期望真但曲线难看, 建议打折 0.6~0.8");
+        else n.push("<span class='pos'>路径稳</span> — 可给满仓");
+        if (!lo) n.push("<span class='muted'>最低年为 0/缺失, 路径数可能不可信</span>");
+      }
+      if (c.n !== undefined && +c.n < 20) n.push("<span class='neg'>笔数&lt;20</span> 样本不足 → 不选(非打折)");
+      if (+c.mult > 0 && n.some((x) => x.indexOf("不选") >= 0))
+        n.push("<b>⚠ AI 却选了它, 你可去掉</b>");
+      return n.length ? n : ["—"];
     }
 
     function renderCells(rep) {
@@ -237,20 +278,37 @@
         return "<tr" + (on ? ' class="row-win"' : "") + ">"
           + "<td class='mono'><b>" + esc(c.cell) + "</b></td>"
           + "<td class='mono'>" + (on ? "×" + c.mult : "<span class='muted'>不选</span>") + "</td>"
-          + "<td class='mono muted'>" + (c.n ?? "—") + "</td>"
+          + "<td class='mono'>" + (c.n ?? "—")
+              + (c.n !== undefined && +c.n < 20 ? ' <span class="neg">&lt;20 不足</span>' : "") + "</td>"
           + "<td class='mono'>" + num(c.pf, 2) + "</td>"
-          + "<td class='mono muted'>" + num(c.rel_early, 2) + " / " + num(c.rel_recent, 2) + "</td>"
-          + "<td class='mono muted'>" + (p.length === 3
-              ? p[0] + "年 / 亏" + p[1] + " / 最低" + num(p[2], 2) : "—") + "</td>"
+          + "<td class='mono'>" + num(c.rel_early, 2) + " / " + num(c.rel_recent, 2) + " "
+              + (isNaN(+c.rel_early) || isNaN(+c.rel_recent) ? ""
+                 : (+c.rel_early > 1 && +c.rel_recent > 1) ? '<span class="pos">都&gt;1 好</span>'
+                 : (+c.rel_early < 1 && +c.rel_recent < 1) ? '<span class="neg">都&lt;1 坏</span>'
+                 : '<span style="color:#b45309">只一段&gt;1</span>') + "</td>"
+          + "<td class='mono'>" + (p.length === 3
+              ? p[0] + "年/亏" + p[1] + " " + (p[0] ? '<span class="' +
+                  (+p[1] / +p[0] > 1 / 3 ? "neg" : +p[1] / +p[0] > 1 / 4 ? "" : "pos") + '">'
+                  + Math.round(+p[1] / +p[0] * 100) + "%</span>" : "")
+                + " 最低" + num(p[2], 2) : "—") + "</td>"
           + "<td class='muted'>" + esc(c.grade || "") + (c.path_grade ? "·" + esc(c.path_grade) : "") + "</td>"
+          + "<td>" + cellNote(c).join(" · ") + "</td>"
           + "<td>" + esc(c.why || "") + "</td></tr>";
       }).join("");
       return "<h3 style='margin:14px 0 6px'>② 八象限配置"
         + (g.version ? " (v" + g.version + " · 建议手数)" : "") + "</h3>"
-        + "<table class='dense'><tr><th>象限</th><th>建议</th><th>笔数</th><th>全量PF</th>"
-        + "<th title='扣掉大环境红利后的相对分'>相对分(早/近)</th>"
-        + "<th title='有交易年份数 / 其中PF<1的年数 / 最低年PF'>路径</th><th>证据·路径</th>"
-        + "<th>一句话理由</th></tr>" + rows + "</table>"
+        + "<table class='dense'><tr><th>象限</th><th>建议</th>"
+        + "<th title='样本量'>笔数<br><span class='muted' style='font-weight:400;font-size:11px;text-transform:none;letter-spacing:0'>&lt;20=样本不足不选</span></th>"
+        + "<th title='总盈点÷总亏点'>全量PF<br><span class='muted' style='font-weight:400;font-size:11px;text-transform:none;letter-spacing:0'>&gt;1赚, 但高不等于好, 配路径看</span></th>"
+        + "<th title='格PF ÷ 同期全局PF — 扣掉大环境红利后还剩多少'>相对分(早/近)"
+        + "<br><span class='muted' style='font-weight:400;font-size:11px;text-transform:none;letter-spacing:0'>"
+        + "两段都&gt;1=真好格 · 都&lt;1=稳定坏格(排除最值钱) · 只一段&gt;1=时代红利/正衰减</span></th>"
+        + "<th title='有交易年份数 / 其中PF<1的年数 / 最低年PF'>路径(年/亏年)"
+        + "<br><span class='muted' style='font-weight:400;font-size:11px;text-transform:none;letter-spacing:0'>"
+        + "亏≤25%且最低≥0.8=稳(满仓) · ≤33%=不平(打折) · &gt;33% 或最低&lt;0.5=爆发型(不选)</span></th>"
+        + "<th>证据·路径</th>"
+        + "<th title='页面直接读出结论'>怎么看 / 注意什么</th>"
+        + "<th>AI 一句话理由</th></tr>" + rows + "</table>"
         + rows_legend_hint
         + (sr.ai_regime_recommend ? "<p class='muted' style='white-space:pre-wrap;margin:6px 0 0'>"
             + esc(sr.ai_regime_recommend) + "</p>" : "");
