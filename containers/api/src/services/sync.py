@@ -379,6 +379,11 @@ async def heartbeat_loop(pool: asyncpg.Pool):
                         await oos_v2.finalize(pool)
                     except Exception as e:
                         logger.warning("oos_v2 finalize error: %s", e)
+                    try:   # 映射规律收尾(2026-08-11: 纯计算块跑完 → 合并 → 报告 → 清队列)
+                        from src.routes import regime_map as rmap_routes
+                        await rmap_routes.finalize(pool)
+                    except Exception as e:
+                        logger.warning("regime_map finalize error: %s", e)
                     try:   # 自动对账(满 recon_hours 就逐个重算, 每拍一个)
                         await _recon_tick(pool)
                     except Exception as e:

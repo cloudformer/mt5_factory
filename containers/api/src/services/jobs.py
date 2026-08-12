@@ -29,8 +29,9 @@ SCREEN_KIND = "regime_screen"
 OOS_KIND = "oos_v2"
 OOS_JUDGE_KIND = "oos_v2_judge"        # oos_v2 判定任务(判定下放 worker, 按块并行)
 SCREEN_JUDGE_KIND = "regime_screen_judge"   # v1 判定任务(2026-08-08 Frank 定: 所有回测统一下放)
+MAP_KIND = "regime_map"      # 策略×regime 映射规律(2026-08-11): 纯计算不跑引擎, 复用回测行
 ENGINE_KINDS = (KIND, OOS_KIND, SCREEN_KIND)   # "跑一次回测"的工种, 同一执行路径(_run_one)
-CLAIM_KINDS = ENGINE_KINDS + (OOS_JUDGE_KIND, SCREEN_JUDGE_KIND)  # 抢单认的全部工种
+CLAIM_KINDS = ENGINE_KINDS + (OOS_JUDGE_KIND, SCREEN_JUDGE_KIND, MAP_KIND)  # 抢单认的全部工种
 POLL_SECONDS = 3             # 队列空时的轮询间隔
 LEASE_MINUTES = 30           # RUNNING 超时视为消费者死单, 扫回重试(单个回测秒级, 30分钟很宽)
 MAX_ATTEMPTS = 2             # 含首跑; 超过则 FAILED(错误留在行里可查)
@@ -190,6 +191,49 @@ async def _run_judge(pool: asyncpg.Pool, job_id: int, payload: dict):
     await pool.execute("UPDATE jobs SET result=$2 WHERE id=$1", job_id, details)
 
 
+async def _run_map(pool, job_id: int, payload: dict) -> None:
+    """策略×regime 映射规律(2026-08-11): 一块 = 一批策略, 每策略对每个版本【独立】算。
+    纯读库(backtests.trades 复用 + regime_timeline)+ 内存计算, 不跑引擎。
+    结果写 jobs.result, 由 finalize 合并成报告。"""
+    from src.services import regime_map as rmap
+    p = payload["params"]
+    out = []
+    for sid in payload["ids"]:
+        s = await pool.fetchrow(
+            "SELECT s.id, s.name, s.template, s.symbol, s.timeframe, s.status,"
+            "       sy.point FROM strategies s LEFT JOIN symbols sy ON sy.symbol = s.symbol"
+            " WHERE s.id=$1", sid)
+        if s is None:
+            continue
+        bt = await pool.fetchrow(
+            "SELECT from_time, to_time, trades FROM backtests"
+            " WHERE strategy_id=$1 AND symbol=$2", sid, s["symbol"])
+        base = {"id": sid, "name": s["name"], "template": s["template"],
+                "symbol": s["symbol"], "timeframe": s["timeframe"], "status": s["status"]}
+        if bt is None or not (bt["trades"] or []):
+            out.append({**base, "verdict": "skip", "reason": "缺回测行(先跑一发回测)"})
+            continue
+        rows, counts = rmap.classify(bt["trades"], p, float(s["point"] or 0.01))
+        n = len(rows)
+        base["window"] = f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"
+        base["n"] = n
+        base["tiers"] = counts        # 不分格的四类画像(策略自身长相)
+        base["tier_pct"] = {k: round(v / n * 100, 1) for k, v in counts.items()} if n else {}
+        vers = {}
+        for v in payload["versions"]:
+            tl = {r["date"]: r["regime"] for r in await pool.fetch(
+                "SELECT date, regime FROM regime_timeline WHERE version_id=$1 AND symbol=$2",
+                v, s["symbol"])}
+            # 独立评估: seed 用 策略id*100+版本, 结果可复现且各版本互不影响
+            vers[str(v)] = rmap.analyze_version(rows, tl, p, seed=sid * 100 + v)
+        base["versions"] = vers
+        base["verdict"] = ("signal" if any(x.get("verdict") == "signal" for x in vers.values())
+                           else "weak" if any(x.get("verdict") == "weak" for x in vers.values())
+                           else "none")
+        out.append(base)
+    await pool.execute("UPDATE jobs SET result=$2 WHERE id=$1", job_id, out)
+
+
 async def _run_screen_judge(pool: asyncpg.Pool, job_id: int, payload: dict):
     """执行一个 v1(regime_screen) 判定任务(2026-08-08 统一下放): 一块 ≤judge_chunk 个策略 —
     取回测行 → 逐笔贴时间线切片判定(共用 services/screen 唯一判定) → [明细, 动作] 写回 result。
@@ -266,6 +310,8 @@ async def consumer_loop(pool: asyncpg.Pool):
                     await _run_judge(pool, job["id"], job["payload"])
                 elif job["kind"] == SCREEN_JUDGE_KIND:
                     await _run_screen_judge(pool, job["id"], job["payload"])
+                elif job["kind"] == MAP_KIND:       # 映射规律: 纯计算(复用回测行, 不跑引擎)
+                    await _run_map(pool, job["id"], job["payload"])
                 else:
                     await _run_one(pool, job["payload"], cache)
                 await pool.execute(

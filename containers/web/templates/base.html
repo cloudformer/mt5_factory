@@ -43,7 +43,7 @@
   {# 策略组: 造和跑(生成/回测/排名) #}
   <div class="navmenu">
     <a href="{{ url_for('strategies.index') }}"
-       {% if ep in ('strategies.index', 'strategies.generate_page', 'strategies.strategy_tree') or ep.startswith('backtests.') or ep.startswith('regime_screen.') or ep.startswith('oos_v2.') %}class="active"{% endif %}>策略 ▾</a>
+       {% if ep in ('strategies.index', 'strategies.generate_page', 'strategies.strategy_tree') or ep.startswith('backtests.') or ep.startswith('regime_screen.') or ep.startswith('oos_v2.') or ep.startswith('regime_map.') %}class="active"{% endif %}>策略 ▾</a>
     <div class="navmenu-items">
       <a href="{{ url_for('strategies.generate_page') }}" {% if ep == 'strategies.generate_page' %}class="active"{% endif %}>生成</a>
       <a href="{{ url_for('backtests.index') }}" {% if ep.startswith('backtests.') %}class="active"{% endif %}>回测</a>
@@ -51,6 +51,7 @@
       <a href="{{ url_for('strategies.strategy_tree') }}" {% if ep == 'strategies.strategy_tree' %}class="active"{% endif %}>谱系</a>
       <a href="{{ url_for('regime_screen.index') }}" {% if ep == 'regime_screen.index' %}class="active"{% endif %}>筛选·Regime</a>
       <a href="{{ url_for('oos_v2.index') }}" {% if ep == 'oos_v2.index' %}class="active"{% endif %}>筛选·OOS</a>
+      <a href="{{ url_for('regime_map.index') }}" {% if ep == 'regime_map.index' %}class="active"{% endif %}>筛选·策略×regime 映射规律</a>
     </div>
   </div>
   {# 分析组: 看深度(单策略归因 / 回测体系质量) #}
@@ -60,7 +61,7 @@
     <div class="navmenu-items">
       <a href="{{ url_for('strategies.analysis') }}" {% if ep == 'strategies.analysis' %}class="active"{% endif %}>单策略回测分析</a>
       <a href="{{ url_for('strategies.regime_matrix') }}" {% if ep == 'strategies.regime_matrix' %}class="active"{% endif %}>单策略regime分析</a>
-      <a href="{{ url_for('strategies.ai_regime_page') }}" {% if ep == 'strategies.ai_regime_page' %}class="active"{% endif %}>单策略AI调参·1-Regime</a>
+      <a href="{{ url_for('strategies.ai_regime_page') }}" {% if ep == 'strategies.ai_regime_page' %}class="active"{% endif %}>单策略AI调参·1-Regime(维护中)</a>
       <a href="{{ url_for('strategies.ai_page') }}" {% if ep == 'strategies.ai_page' %}class="active"{% endif %}>单策略AI调参·2-时间</a>
       <a href="{{ url_for('strategies.predictions_page') }}" {% if ep == 'strategies.predictions_page' %}class="active"{% endif %}>策略预测</a>
     </div>

@@ -1,0 +1,164 @@
+"""筛选·策略×regime 映射规律(2026-08-11 与 Frank 定稿) — 批量筛子。
+
+问一件事: 这个策略的盈亏能不能被某个 regime 口径的八个格分出层次?
+交易按 R 倍数分四类(大赢/小赢/小亏/大亏) → 每版本【独立】做 4×8 列联表 → 置换检验。
+
+铁律: 各版本独立评估, 【绝不跨版本比较/排名】—— 不同版本的同名格是不同的分类维度。
+纯计算不跑引擎(复用 backtests.trades), 走 jobs 队列并行; 一块 = 一批策略。
+插件式可移除: 删本文件 + app.py 两行 + web 三件套 + DROP TABLE regime_map_screens。
+"""
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
+
+from src.services import identity, jobs, regime_map
+
+logger = logging.getLogger("regime_map_api")
+router = APIRouter()
+LOCK_KEY = 70111811          # advisory lock: 收尾串行(与 oos_v2/screen 各用各的)
+CHUNK = 50                   # 一块几个策略(纯计算, 块可以大)
+
+
+class RunRequest(BaseModel):
+    # 判据(2026-08-11 Frank 定: 走页面表单不落 config, 每次现填, 随报告存快照)
+    big_win_r: float = 2.0        # 大赢门槛: 净点 > N×R(R = 该笔止损距离)
+    big_loss_r: float = 1.0       # 大亏门槛: 亏损 > N×R(止损被跳空/滑点打穿)
+    permutations: int = 1000      # 置换次数(探索期 1000 够快)
+    sig_p: float = 0.05           # 显著性门槛
+    min_enrich: float = 1.5       # 富集倍数门槛
+    min_cell_trades: int = 30     # 富集格的最小笔数(防小样本假信号)
+    # 范围
+
+    ids: Optional[list[int]] = None       # 点名; 空 = 按筛选条件全池
+    template: Optional[str] = None
+    symbol: Optional[str] = None
+    status: Optional[str] = None
+    limit: Optional[int] = None
+    task: Optional[str] = None
+
+
+@router.post("/regime_map/run")
+async def run(req: RunRequest, request: Request):
+    """投递批量任务: 按范围圈策略 → 切块投 jobs(kind=regime_map) → worker 并行算。
+    只读 backtests.trades(7天内的回测直接复用, 不重跑引擎)。"""
+    pool = request.app.state.pool
+    if not 0 < req.sig_p < 1:
+        raise HTTPException(status_code=400, detail="sig_p 须在 (0,1)")
+    if not 100 <= req.permutations <= 20000:
+        raise HTTPException(status_code=400, detail="置换次数须 100~20000")
+    p = regime_map.cfg_params(req.model_dump())     # 判据规范化(带默认), 随报告存快照
+    uid = identity.scope_uid(request)
+    conds, args = ["EXISTS (SELECT 1 FROM backtests b WHERE b.strategy_id = s.id"
+                   "         AND b.symbol = s.symbol)"], []
+    if req.ids:
+        args.append(req.ids)
+        conds.append(f"s.id = ANY(${len(args)})")
+    else:
+        for col, val in (("template", req.template), ("symbol", req.symbol),
+                         ("status", req.status)):
+            if val:
+                args.append(val)
+                conds.append(f"s.{col} = ${len(args)}")
+        conds.append("s.status <> 'ARCHIVED'")
+    if uid:
+        args.append(uid)
+        conds.append(f"s.owner_id = ${len(args)}")
+    limit = min(int(req.limit or 200), 5000)
+    rows = await pool.fetch(
+        f"SELECT s.id FROM strategies s WHERE {' AND '.join(conds)}"
+        f" ORDER BY s.id LIMIT {limit}", *args)
+    ids = [r["id"] for r in rows]
+    if not ids:
+        raise HTTPException(status_code=400, detail="范围内没有【已有回测行】的策略")
+    versions = [r["id"] for r in await pool.fetch(
+        "SELECT id FROM regime_versions ORDER BY id")]
+    if not versions:
+        raise HTTPException(status_code=400, detail="没有 regime 版本")
+    await pool.execute("DELETE FROM jobs WHERE kind=$1", jobs.MAP_KIND)
+    scope = {"task": (req.task or "").strip() or None, "ids": req.ids,
+             "template": req.template, "symbol": req.symbol, "status": req.status,
+             "limit": limit, "count": len(ids)}
+    items = [{"ids": ids[i:i + CHUNK], "versions": versions, "params": p, "scope": scope}
+             for i in range(0, len(ids), CHUNK)]
+    await jobs.submit_batch(pool, items, kind=jobs.MAP_KIND)
+    logger.info("regime_map run: %d strategies × %d versions → %d chunks",
+                len(ids), len(versions), len(items))
+    return {"started": True, "strategies": len(ids), "versions": versions,
+            "chunks": len(items)}
+
+
+@router.get("/regime_map/progress")
+async def progress(request: Request):
+    row = await request.app.state.pool.fetchrow(
+        "SELECT count(*)::int AS total,"
+        "       count(*) FILTER (WHERE status IN ('DONE','FAILED'))::int AS done"
+        "  FROM jobs WHERE kind=$1", jobs.MAP_KIND)
+    return {"running": bool(row["total"] and row["done"] < row["total"]),
+            "total": row["total"], "done": row["done"]}
+
+
+async def finalize(pool) -> int | None:
+    """收尾: 全部块跑完 → 合并 result → 落报告 → 删队列(单事务, 失败整体回滚防复读)"""
+    rows = await pool.fetch(
+        "SELECT id, status, payload, result FROM jobs WHERE kind=$1 ORDER BY id",
+        jobs.MAP_KIND)
+    if not rows or any(r["status"] in ("PENDING", "RUNNING") for r in rows):
+        return None
+    async with pool.acquire() as conn:
+        if not await conn.fetchval("SELECT pg_try_advisory_lock($1)", LOCK_KEY):
+            return None
+        try:
+            if not await conn.fetchval("SELECT count(*) FROM jobs WHERE kind=$1",
+                                       jobs.MAP_KIND):
+                return None
+            details = []
+            for r in rows:
+                if r["status"] == "DONE" and r["result"]:
+                    details.extend(r["result"])
+                else:
+                    details.extend({"id": i, "verdict": "skip", "reason": "计算块失败"}
+                                   for i in (r["payload"] or {}).get("ids", []))
+            details.sort(key=lambda d: d.get("id", 0))
+            summary = {"total": len(details),
+                       "signal": sum(1 for d in details if d.get("verdict") == "signal"),
+                       "weak": sum(1 for d in details if d.get("verdict") == "weak"),
+                       "none": sum(1 for d in details if d.get("verdict") == "none"),
+                       "skipped": sum(1 for d in details if d.get("verdict") == "skip")}
+            p0 = rows[0]["payload"] or {}
+            async with conn.transaction():
+                rid = await conn.fetchval(
+                    "INSERT INTO regime_map_screens (scope, params, summary, details)"
+                    " VALUES ($1, $2, $3, $4) RETURNING id",
+                    p0.get("scope") or {}, p0.get("params") or {}, summary, details)
+                await conn.execute("DELETE FROM jobs WHERE kind=$1", jobs.MAP_KIND)
+            logger.info("regime_map#%s done: %s", rid, summary)
+            return rid
+        finally:
+            await conn.execute("SELECT pg_advisory_unlock($1)", LOCK_KEY)
+
+
+@router.get("/regime_map/reports")
+async def reports(request: Request, limit: int = 30):
+    rows = await request.app.state.pool.fetch(
+        "SELECT id, created_at, scope, params, summary FROM regime_map_screens"
+        " ORDER BY id DESC LIMIT $1", limit)
+    return {"reports": [dict(r) for r in rows]}
+
+
+@router.get("/regime_map/reports/{rid}")
+async def report(rid: int, request: Request, verdict: Optional[str] = None,
+                 page: int = 1, per: int = 50):
+    r = await request.app.state.pool.fetchrow(
+        "SELECT * FROM regime_map_screens WHERE id=$1", rid)
+    if r is None:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    d = dict(r)
+    items = d["details"]
+    if verdict:
+        items = [x for x in items if x.get("verdict") == verdict]
+    total = len(items)
+    d["details"] = items[(page - 1) * per: page * per]
+    d["page"], d["per"], d["filtered"] = page, per, total
+    return d

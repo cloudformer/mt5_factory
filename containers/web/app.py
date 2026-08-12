@@ -12,6 +12,7 @@ from views.dashboard import bp as dashboard_bp
 from views.datasync import bp as datasync_bp
 from views.execution import bp as execution_bp
 from views.mt5 import bp as mt5_bp
+from views.regime_map import bp as regime_map_bp
 from views.oos_v2 import bp as oos_v2_bp
 from views.regime_screen import bp as regime_screen_bp
 from views.strategies import bp as strategies_bp
@@ -71,6 +72,7 @@ app.register_blueprint(execution_bp)
 app.register_blueprint(mt5_bp)
 app.register_blueprint(regime_screen_bp)
 app.register_blueprint(oos_v2_bp)
+app.register_blueprint(regime_map_bp)
 app.register_blueprint(admin_bp)
 
 

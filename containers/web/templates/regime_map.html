@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('筛选·策略×regime 映射规律', '问一件事: 这个策略的盈亏能不能被某个 regime 口径的八个格分出层次 — 交易按 R 倍数(R=该笔止损距离)分四类(大赢/小赢/小亏/大亏), 每个版本【独立】做一张 4类×8格 列联表, 置换检验出 p。纯计算复用回测行(不重跑引擎)') }}
+
+{# 铁律(2026-08-11 Frank 定): 版本之间不可比 — 不同版本同名格是不同的分类维度 #}
+<p class="muted" style="margin:-16px 0 14px">
+  <span style="cursor:help;border-bottom:1px dotted"
+        title="v1 的 BBA 和 v4 的 BBA 不是同一个东西: 第三位「高波」在 v1 用 q0.5 定义(一半日子算高波), v4 用 q0.75(只有前25%) — 同名不同义, 交易集也不同。&#10;&#10;跨版本挑「最好的那个」= 在 4版×8格 = 32 个格子里翻石头, 分对了也是拟合(Frank: 按性别分 vs 按上衣颜色分)。&#10;&#10;所以本页各版本独立出结论, 不排名、不选最优、不做任何跨版本比较。">
+    ⚠ 铁律: 各版本【独立】评估, 本页不做任何跨版本比较/排名(悬停看为什么)</span></p>
+
+<section>
+  <h2>跑批</h2>
+  <form method="post" action="{{ url_for('regime_map.run') }}" class="runbar">
+    <div class="row">
+      <span class="tag">判据</span>
+      <label title="净点 > N×R 算大赢(R = 该笔止损距离)">大赢 &gt;<input name="big_win_r" value="2" size="3">R</label>
+      <label title="亏损 > N×R 算大亏 — 止损被跳空/滑点打穿, 本身就是执行风险信号">大亏 &gt;<input name="big_loss_r" value="1" size="3">R</label>
+      <label title="置换次数: 保持每笔类别不变只打乱格标签, 得零分布 — 探索期 1000 够快">置换<input name="permutations" value="1000" size="5">次</label>
+      <label title="p 小于此值才算有信号">p&lt;<input name="sig_p" value="0.05" size="4"></label>
+      <label title="某类在某格的富集倍数门槛(该类中此格占比 ÷ 此格整体占比)">富集≥<input name="min_enrich" value="1.5" size="4">x</label>
+      <label title="富集格的最小笔数 — 防小样本假信号(18笔的格算出 6.97x 是噪音)">该格≥<input name="min_cell_trades" value="30" size="4">笔</label>
+      <span class="muted">判据不落库, 随报告存快照</span>
+    </div>
+    <div class="row">
+      <span class="tag">范围</span>
+      <label>模板 <input name="template" size="12" placeholder="全部"></label>
+      <label>品种 <input name="symbol" size="9" placeholder="全部"></label>
+      <label>状态 <select name="status">
+        <option value="">全部(不含归档)</option>
+        <option value="CANDIDATE">空闲</option><option value="DEMO">DEMO</option>
+        <option value="LIVE">LIVE</option></select></label>
+      <label>或 按ID <input name="ids" size="18" placeholder="逗号分隔"></label>
+      <label>单次上限 <input name="limit" value="200" size="5"></label>
+      <label>批次备注 <input name="task" size="14" placeholder="选填"></label>
+      <button class="go">开始</button>
+    </div>
+    <div class="row">
+      <span class="tag">状态</span>
+      <span class="muted" id="rm-progress">只算【已有回测行】的策略(7天内的回测直接复用, 不重跑引擎)</span>
+    </div>
+  </form>
+</section>
+
+{% if data.report %}
+{% set rep = data.report %}
+<section>
+  <div class="flex-between">
+    <h2>报告 #{{ rep.id }} <span class="muted" style="font-weight:400">{{ rep.created_at[:19] | replace('T', ' ') }}
+      · 判据: 大赢&gt;{{ rep.params.big_win_r }}R 大亏&gt;{{ rep.params.big_loss_r }}R · 置换{{ rep.params.permutations }}次
+      · p&lt;{{ rep.params.sig_p }} · 富集≥{{ rep.params.min_enrich }}x 且该格≥{{ rep.params.min_cell_trades }}笔</span></h2>
+    <span><a class="btn" href="{{ url_for('regime_map.report_json', rid=rep.id) }}">整份 JSON</a></span>
+  </div>
+  <p class="muted">共 {{ rep.summary.total }}
+    · <a href="?report={{ rep.id }}&verdict=signal">有信号 <b class="pos">{{ rep.summary.signal }}</b></a>
+    · <a href="?report={{ rep.id }}&verdict=weak">弱 {{ rep.summary.weak }}</a>
+    · <a href="?report={{ rep.id }}&verdict=none">无信号 {{ rep.summary.none }}</a>
+    · <a href="?report={{ rep.id }}&verdict=skip">跳过 {{ rep.summary.skipped }}</a>
+    {% if verdict %} · <a href="?report={{ rep.id }}">清除过滤</a>{% endif %}
+    {% if rep.filtered > rep.per %} · 第 {{ page }} 页 / 共 {{ (rep.filtered / rep.per) | round(0, 'ceil') | int }} 页
+      {% if page > 1 %}<a href="?report={{ rep.id }}&verdict={{ verdict or '' }}&page={{ page-1 }}">‹上页</a>{% endif %}
+      {% if page * rep.per < rep.filtered %}<a href="?report={{ rep.id }}&verdict={{ verdict or '' }}&page={{ page+1 }}">下页›</a>{% endif %}
+    {% endif %}</p>
+
+  {% for d in rep.details %}
+  <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+    <div class="flex-between">
+      <div><b class="mono">#{{ d.id }}</b> <span class="clip" title="{{ d.name }}">{{ d.name or '' }}</span>
+        {% if d.symbol %}<span class="muted">· {{ d.symbol }} {{ d.timeframe }} · {{ d.window or '' }}</span>{% endif %}</div>
+      <span>{% if d.verdict == 'signal' %}<span class="badge ok">有信号</span>
+        {% elif d.verdict == 'weak' %}<span class="badge warn">弱</span>
+        {% elif d.verdict == 'none' %}<span class="badge">无信号</span>
+        {% else %}<span class="badge err" title="{{ d.reason }}">跳过</span>{% endif %}</span>
+    </div>
+    {% if d.tier_pct %}
+    {# ① 策略画像: 不分格的四类占比 #}
+    <p class="muted" style="margin:6px 0 8px">策略画像({{ d.n }} 笔, 不分格):
+      <span class="mono">大赢 {{ d.tier_pct.big_win }}%</span> ·
+      <span class="mono">小赢 {{ d.tier_pct.small_win }}%</span> ·
+      <span class="mono">小亏 {{ d.tier_pct.small_loss }}%</span> ·
+      <span class="mono neg">大亏 {{ d.tier_pct.big_loss }}%</span>
+      <span class="muted">（大亏 = 亏损超过 {{ rep.params.big_loss_r }}R，止损被跳空/滑点打穿）</span></p>
+    {% endif %}
+    {% if d.versions %}
+    {% for vid, v in d.versions.items() %}
+    {# ② 每版本独立一张 4×8 表 — 版本之间不比较 #}
+    <div style="margin:8px 0 4px">
+      <b class="mono">v{{ vid }}</b>
+      {% if v.verdict == 'signal' %}<span class="badge ok">有信号</span>
+      {% elif v.verdict == 'weak' %}<span class="badge warn">弱</span>
+      {% elif v.verdict == 'skip' %}<span class="badge err">跳过</span>
+      {% else %}<span class="badge">无信号</span>{% endif %}
+      <span class="muted">{{ v.reason }}</span>
+    </div>
+    {% if v.table %}
+    <table class="dense" style="margin:0 0 6px">
+      <tr><th>类别</th>
+        {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}<th class="num">{{ c }}</th>{% endfor %}
+        <th class="num">合计</th></tr>
+      {% for ti, cn in [('big_win','大赢'), ('small_win','小赢'), ('small_loss','小亏'), ('big_loss','大亏')] %}
+      <tr>
+        <td class="mono {{ 'neg' if ti == 'big_loss' }}">{{ cn }}
+          <span class="muted">{{ (v.tier_tot[ti] / v.n * 100) | round(1) if v.n else 0 }}%</span></td>
+        {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
+        {% set n = v.table[ti][c] %}
+        {% set e = (v.enrich.get(ti, {}) or {}).get(c) %}
+        <td class="num mono {{ 'pos' if e and e >= rep.params.min_enrich and v.cell_tot[c] >= rep.params.min_cell_trades else ('muted' if not n else '') }}"
+            title="{{ cn }}在 {{ c }}: {{ n }} 笔{% if e %} · 富集 {{ e }}x（该格共 {{ v.cell_tot[c] }} 笔）{% endif %}">
+          {{ n or '·' }}{% if e and e >= rep.params.min_enrich %}<br><span style="font-size:11px">{{ e }}x</span>{% endif %}</td>
+        {% endfor %}
+        <td class="num mono muted">{{ v.tier_tot[ti] }}</td>
+      </tr>
+      {% endfor %}
+      <tr><td class="muted">该格总笔数</td>
+        {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
+        <td class="num mono muted">{{ v.cell_tot[c] or '·' }}</td>{% endfor %}
+        <td class="num mono">{{ v.n }}</td></tr>
+    </table>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% if not rep.details %}<p class="muted">该过滤下没有记录</p>{% endif %}
+</section>
+{% endif %}
+
+{% if data.reports %}
+<section>
+  <h2>历史报告</h2>
+  <table class="dense">
+    <tr><th>#</th><th>时间</th><th>范围</th><th>判据</th><th>结果</th><th>查看</th></tr>
+    {% for r in data.reports %}
+    <tr {% if r.id == rid %}class="row-marked"{% endif %}>
+      <td class="mono">{{ r.id }}</td>
+      <td class="muted">{{ r.created_at[:19] | replace('T', ' ') }}</td>
+      <td class="muted clip">{{ r.scope.task or '' }}
+        {% if r.scope.ids %}ID×{{ r.scope.ids | length }}{% else %}{{ r.scope.template or '全模板' }} / {{ r.scope.symbol or '全品种' }}{% endif %}
+        · {{ r.scope.count }} 个</td>
+      <td class="muted mono">{{ r.params.big_win_r }}R/{{ r.params.big_loss_r }}R · {{ r.params.permutations }}次 · p{{ r.params.sig_p }}</td>
+      <td><span class="pos">信号 {{ r.summary.signal }}</span> · 弱 {{ r.summary.weak }}
+        · 无 {{ r.summary.none }} · 跳过 {{ r.summary.skipped }}</td>
+      <td><a href="?report={{ r.id }}">打开</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+<script>
+// 进度轮询(与其他筛选页同款): 跑完自动刷新看报告
+(function () {
+  const el = document.getElementById("rm-progress");
+  if (!el) return;
+  let wasRunning = false;
+  const tick = async () => {
+    try {
+      const s = await fetch("{{ url_for('regime_map.progress') }}").then((r) => r.json());
+      if (s.running) {
+        wasRunning = true;
+        el.innerHTML = '<b class="pos">计算中 ' + s.done + "/" + s.total + " 块</b>";
+      } else if (wasRunning) {
+        el.innerHTML = '<b class="pos">✅ 完成 — 正在载入报告…</b>';
+        setTimeout(() => location.assign("{{ url_for('regime_map.index') }}"), 1200);
+        return;
+      }
+    } catch (e) { /* 抖动忽略 */ }
+    setTimeout(tick, 2500);
+  };
+  tick();
+})();
+</script>
+{% endblock %}
