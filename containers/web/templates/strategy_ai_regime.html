@@ -130,10 +130,16 @@
                || ((rep.strategy_report || {}).gate || {}).regime?.version;
       const rows = (r.versions || []).map((v) => {
         const m = v.metrics || {}, lab = (VERS.find((x) => x.id === v.version) || {}).label || "";
+        const bp = m.bonferroni_pass || [];
         const ps = [["rho_blocks", m.rho_blocks_p], ["half_rho", m.half_rho_p], ["ratio", m.ratio_p]]
           .filter(([, x]) => x !== undefined && x !== null)
-          .map(([k, x]) => k + " " + (+x < 0.001 ? "<0.001" : (+x).toFixed(3))
-                + (+x < 0.05 ? " ✅" : "")).join(" · ");
+          .map(([k, x]) => {
+            const sig = +x < 0.05, hard = bp.indexOf(k) >= 0;
+            // 只有过 Bonferroni 才算硬显著; p<0.05 但未过校正 = 边缘, 不足以定名次
+            return k + " " + (+x < 0.001 ? "<0.001" : (+x).toFixed(3))
+              + (hard ? ' <span class="pos">✅硬</span>'
+                      : sig ? ' <span style="color:#b45309">⚠边缘(未过校正)</span>' : "");
+          }).join(" · ");
         return "<tr" + (v.version === rec ? ' class="row-marked"' : "") + ">"
           + "<td class='mono'>v" + v.version + (v.version === rec ? " ⭐" : "") + "</td>"
           + "<td class='mono muted'>" + esc(lab) + "</td>"
@@ -144,14 +150,37 @@
           + esc((v.evidence || "").slice(0, 90)) + "</td></tr>";
       }).join("");
       const b = r.baseline || {};
+      // 定名依据: 显著性 or 坏格识别兜底 — 没有它时页面自己判断并提示"为什么不是那个有✅的"
+      const sigTop = (r.versions || []).filter((v) => {
+        const m = v.metrics || {};
+        return [m.rho_blocks_p, m.half_rho_p, m.ratio_p].some((x) => x !== undefined && +x < 0.05);
+      }).map((v) => v.version);
+      const conflict = sigTop.length && rec && sigTop.indexOf(rec) < 0;
+      const why = r.pick_reason === "bad_cell_fallback"
+        ? "坏格识别兜底(没有版本过 Bonferroni 校正 → 名次不是靠显著性定的)"
+        : r.pick_reason === "significance" ? "显著性(过校正)" : (r.pick_note ? "" : "AI 未说明");
       return "<h3 style='margin:14px 0 6px'>① Regime 版本评价"
         + (rec ? " · 建议版本 = <span class='mono'>v" + rec + "</span>" : "") + "</h3>"
+        + "<p class='muted' style='margin:0 0 6px'><b>定名依据</b>: " + esc(why)
+        + (r.pick_note ? " — " + esc(r.pick_note) : "")
+        + (conflict ? "<br><span style='color:#b45309'>⚠ 注意: v" + sigTop.join("/v")
+            + " 有 p&lt;0.05 的项但没被选中" + (r.pick_reason === "bad_cell_fallback"
+              ? "(因未过 Bonferroni 校正, 不足以定名次)"
+              : "(AI 未说明原因 — 追问它或自己拍板)") + "</span>" : "")
+        + "</p>"
         + "<p class='muted' style='margin:0 0 6px'>AI 排名: <b>" + esc(r.ranking || "—") + "</b>"
         + (b.drift ? "<br>周期基准: 早段 " + num(b.early_pf, 2) + " → 近5年 "
             + num(b.recent5y_pf, 2) + " — " + esc(String(b.drift).slice(0, 140)) : "") + "</p>"
         + "<table class='dense'><tr><th>版本</th><th>口径</th><th>规律性</th>"
-        + "<th title='越小越显著; ✅=p<0.05'>显著性(p)</th><th>依据摘要(悬停看全文)</th></tr>"
-        + rows + "</table>";
+        + "<th title='p 越小 = 越不可能是随机巧合'>显著性(p)</th><th>依据摘要(悬停看全文)</th></tr>"
+        + rows + "</table>"
+        + "<p class='muted' style='margin:4px 0 0;font-size:12px'>📖 <b>怎么读</b>: "
+        + "<b>p 值越小越好</b> — <span class='pos'>✅硬</span>=过 Bonferroni 校正(可当依据) · "
+        + "<span style='color:#b45309'>⚠边缘</span>=p&lt;0.05 但没过校正(只能参考, 不足以定名次) · "
+        + "其余(p≥0.05)=与随机打乱标签无异, 这项不携带信息。"
+        + "<b>rho 本身</b>(不是 p)要 &gt;0 才有意义, &lt;0 = 前后时代排序反向 = 该口径不可复现。"
+        + "<b>ratio 不用看</b> — 置换检验已证明它的随机水平就有 0.2~0.23, 高不代表好, 只作诊断。"
+        + "<b>规律性</b>: 强=≥2项显著 · 中=1项显著 · 弱=一项都不显著(弱不等于不能用, 但 gate 只许放跨版本一致的格)。</p>";
     }
 
     function renderCells(rep) {
@@ -182,6 +211,14 @@
         + "<th title='扣掉大环境红利后的相对分'>相对分(早/近)</th>"
         + "<th title='有交易年份数 / 其中PF<1的年数 / 最低年PF'>路径</th><th>证据·路径</th>"
         + "<th>一句话理由</th></tr>" + rows + "</table>"
+        + "<p class='muted' style='margin:4px 0 0;font-size:12px'>📖 <b>怎么读</b>: "
+        + "<b>相对分</b> = 扣掉大环境红利后的成绩 — <b>两段都 &gt;1 才算真好格</b>"
+        + "(只有一段 &gt;1 = 时代红利或正在衰减; 两段都 &lt;1 = 稳定坏格, 排除它最值钱)。"
+        + "<b>路径「14年/亏5/最低0.62」</b>: 亏损年越少越好 — 亏 ≤1/4 且最低 ≥0.8 = 稳(可满仓) · "
+        + "亏 ≤1/3 且最低 ≥0.6 = 不平(打折 0.6~0.8) · <b>亏 &gt;1/3 或最低 &lt;0.5 = 爆发型, 不选</b>"
+        + "(降倍率只缩小亏损, 不改变期望虚假)。"
+        + "<b>全量PF 高不代表好</b> — 必须配路径看: PF 1.9 逐年稳 优于 PF 2.2 半数年份亏。"
+        + "<b>笔数</b> &lt;20 或年切片多数 &lt;5 笔 = 样本不足, 不选(不是打折)。</p>"
         + (sr.ai_regime_recommend ? "<p class='muted' style='white-space:pre-wrap;margin:6px 0 0'>"
             + esc(sr.ai_regime_recommend) + "</p>" : "");
     }
@@ -278,8 +315,12 @@
             if (Math.abs(+o.value - +cells[cell]) < bd) { bd = Math.abs(+o.value - +cells[cell]); best = o.value; }
         sel.value = best;
       });
+      // 一致性自检(2026-08-11 Frank 要): 建议版本 / gate.version / 面板下拉 必须同一个
+      const recV = (rep.strategy_report || {}).recommended_version;
+      const mismatch = recV && +recV !== +g.version;
       document.getElementById("rg-gate-ver").innerHTML =
-        '<option value="' + (+g.version || 0) + '">v' + (+g.version || "?") + " (AI ranking 第一)</option>";
+        '<option value="' + (+g.version || 0) + '">v' + (+g.version || "?")
+        + (mismatch ? " ⚠ 与建议版本 v" + recV + " 不一致!" : " (= ①建议版本)") + "</option>";
       // 来源备注: AI模型名 · 信心 · 版本排名 — 随克隆写进 basis(事后知道谁给的建议)
       const note = ["AI选门"
         + (rep.model ? " · " + String(rep.model).slice(0, 40) : "")
