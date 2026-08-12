@@ -5,9 +5,10 @@
 """
 import json as _json
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
+from flask import (Blueprint, Response, flash, jsonify, redirect, render_template,
+                   request, url_for)
 
-from . import api
+import api_client as api
 
 bp = Blueprint("regime_map", __name__)
 
@@ -89,7 +90,6 @@ def report_json(rid: int):
 
 
 def app_json(obj, filename: str):
-    from flask import Response
     return Response(_json.dumps(obj, ensure_ascii=False, indent=1, default=str),
                     mimetype="application/json",
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
