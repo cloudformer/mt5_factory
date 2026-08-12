@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
-{{ m.page_header('筛选·策略×regime 映射规律', '问一件事: 这个策略的盈亏能不能被某个 regime 口径的八个格分出层次 — 交易按 R 倍数(R=该笔止损距离)分四类(大赢/小赢/小亏/大亏), 每个版本【独立】做一张 4类×8格 列联表, 置换检验出 p。纯计算复用回测行(不重跑引擎)') }}
+{{ m.page_header('筛选·策略×regime 映射规律', '问一件事: 这个策略的盈亏能不能被某个 regime 口径的八个格分出层次 — 交易按【出场原因】分四类(止盈/锁利 · 正常止损 · 跳空有利 · 跳空不利), 每个版本【独立】做一张 4类×8格 列联表, 置换检验出 p。纯计算复用回测行(不重跑引擎)') }}
 
 {# 铁律(2026-08-11 Frank 定): 版本之间不可比 — 不同版本同名格是不同的分类维度 #}
 <p class="muted" style="margin:-16px 0 14px">
@@ -14,12 +14,12 @@
   <form method="post" action="{{ url_for('regime_map.run') }}" class="runbar">
     <div class="row">
       <span class="tag">判据</span>
-      <label title="净点 > N×R 算大赢(R = 该笔止损距离)">大赢 &gt;<input name="big_win_r" value="2" size="3">R</label>
-      <label title="亏损 > N×R 算大亏 — 止损被跳空/滑点打穿, 本身就是执行风险信号">大亏 &gt;<input name="big_loss_r" value="1" size="3">R</label>
+      <span class="muted" title="四类 = 出场原因(引擎 reason 字段): 止盈/锁利 · 正常止损 · 跳空有利 · 跳空不利。&#10;不用 R 倍数分: 固定 SL/TP 的策略下 rr=2.4 让所有止盈都 >2R, 佣金又把正常止损顶过 1R — 四类会塌成两类, 分类白做。">四类=出场原因</span>
       <label title="置换次数: 保持每笔类别不变只打乱格标签, 得零分布 — 探索期 1000 够快">置换<input name="permutations" value="1000" size="5">次</label>
       <label title="p 小于此值才算有信号">p&lt;<input name="sig_p" value="0.05" size="4"></label>
       <label title="某类在某格的富集倍数门槛(该类中此格占比 ÷ 此格整体占比)">富集≥<input name="min_enrich" value="1.5" size="4">x</label>
-      <label title="富集格的最小笔数 — 防小样本假信号(18笔的格算出 6.97x 是噪音)">该格≥<input name="min_cell_trades" value="30" size="4">笔</label>
+      <label title="该格的总笔数门槛 — 格本身不能是碎格">该格≥<input name="min_cell_trades" value="30" size="4">笔</label>
+      <label title="该类在该格的笔数门槛 — 3 笔算出的 3.77x 是噪音不是信号(2026-08-11 补的门)">该类在该格≥<input name="min_tier_cell" value="10" size="4">笔</label>
       <span class="muted">判据不落库, 随报告存快照</span>
     </div>
     <div class="row">
@@ -47,8 +47,9 @@
 <section>
   <div class="flex-between">
     <h2>报告 #{{ rep.id }} <span class="muted" style="font-weight:400">{{ rep.created_at[:19] | replace('T', ' ') }}
-      · 判据: 大赢&gt;{{ rep.params.big_win_r }}R 大亏&gt;{{ rep.params.big_loss_r }}R · 置换{{ rep.params.permutations }}次
-      · p&lt;{{ rep.params.sig_p }} · 富集≥{{ rep.params.min_enrich }}x 且该格≥{{ rep.params.min_cell_trades }}笔</span></h2>
+      · 四类=出场原因 · 置换{{ rep.params.permutations }}次
+      · p&lt;{{ rep.params.sig_p }} · 富集≥{{ rep.params.min_enrich }}x 且该格≥{{ rep.params.min_cell_trades }}笔
+      且该类在该格≥{{ rep.params.min_tier_cell or 1 }}笔</span></h2>
     <span><a class="btn" href="{{ url_for('regime_map.report_json', rid=rep.id) }}">整份 JSON</a></span>
   </div>
   <p class="muted">共 {{ rep.summary.total }}
@@ -75,11 +76,11 @@
     {% if d.tier_pct %}
     {# ① 策略画像: 不分格的四类占比 #}
     <p class="muted" style="margin:6px 0 8px">策略画像({{ d.n }} 笔, 不分格):
-      <span class="mono">大赢 {{ d.tier_pct.big_win }}%</span> ·
-      <span class="mono">小赢 {{ d.tier_pct.small_win }}%</span> ·
-      <span class="mono">小亏 {{ d.tier_pct.small_loss }}%</span> ·
-      <span class="mono neg">大亏 {{ d.tier_pct.big_loss }}%</span>
-      <span class="muted">（大亏 = 亏损超过 {{ rep.params.big_loss_r }}R，止损被跳空/滑点打穿）</span></p>
+      <span class="mono">止盈/锁利 {{ d.tier_pct.get('tp', d.tier_pct.big_win) }}%</span> ·
+      <span class="mono">正常止损 {{ d.tier_pct.get('sl', d.tier_pct.small_loss) }}%</span> ·
+      <span class="mono">跳空有利 {{ d.tier_pct.get('gap_win', 0) }}%</span> ·
+      <span class="mono neg">跳空不利 {{ d.tier_pct.get('gap_loss', 0) }}%</span>
+      <span class="muted">（跳空两类 = 止损/止盈被缺口或滑点越过成交，是执行风险不只是盈亏）</span></p>
     {% endif %}
     {% if d.versions %}
     {% for vid, v in d.versions.items() %}
@@ -97,21 +98,27 @@
       <tr><th>类别</th>
         {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}<th class="num">{{ c }}</th>{% endfor %}
         <th class="num">合计</th></tr>
-      {% for ti, cn in [('big_win','大赢'), ('small_win','小赢'), ('small_loss','小亏'), ('big_loss','大亏')] %}
+      {% for ti, cn in [('tp','止盈/锁利'), ('sl','正常止损'), ('gap_win','跳空有利'), ('gap_loss','跳空不利')] %}
+      {% if ti in v.table %}
       <tr>
-        <td class="mono {{ 'neg' if ti == 'big_loss' }}">{{ cn }}
-          <span class="muted">{{ (v.tier_tot[ti] / v.n * 100) | round(1) if v.n else 0 }}%</span></td>
+        <td class="mono {{ 'neg' if ti == 'gap_loss' }}">{{ cn }}</td>
         {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
         {% set n = v.table[ti][c] %}
         {% set e = (v.enrich.get(ti, {}) or {}).get(c) %}
-        <td class="num mono {{ 'pos' if e and e >= rep.params.min_enrich and v.cell_tot[c] >= rep.params.min_cell_trades else ('muted' if not n else '') }}"
-            title="{{ cn }}在 {{ c }}: {{ n }} 笔{% if e %} · 富集 {{ e }}x（该格共 {{ v.cell_tot[c] }} 笔）{% endif %}">
-          {{ n or '·' }}{% if e and e >= rep.params.min_enrich %}<br><span style="font-size:11px">{{ e }}x</span>{% endif %}</td>
+        {% set hit = e and e >= rep.params.min_enrich and v.cell_tot[c] >= rep.params.min_cell_trades
+                     and n >= (rep.params.min_tier_cell or 1) %}
+        {# 主显示 = 格内占比: 这才是能直接横向比的数(各格都是"这种天气下这么出场的比例"),
+           富集倍数放悬停 — 富集是"相对全类"的相对数, 看着刺激但小格子会炸 #}
+        <td class="num mono {{ 'pos' if hit else ('muted' if not n else '') }}"
+            title="{{ cn }}在 {{ c }}: {{ n }} 笔 / 该格共 {{ v.cell_tot[c] }} 笔{% if e %} · 富集 {{ e }}x（相对本类全局占比）{% endif %}{% if e and e >= rep.params.min_enrich and not hit %} — 富集够但笔数不够, 不算信号{% endif %}">
+          {{ n or '·' }}{% if n and v.cell_tot[c] %}<br><span style="font-size:11px" class="muted">{{ (n / v.cell_tot[c] * 100) | round(1) }}%</span>{% endif %}</td>
         {% endfor %}
-        <td class="num mono muted">{{ v.tier_tot[ti] }}</td>
+        <td class="num mono muted">{{ v.tier_tot[ti] }}
+          <br><span style="font-size:11px">{{ (v.tier_tot[ti] / v.n * 100) | round(1) if v.n else 0 }}%</span></td>
       </tr>
+      {% endif %}
       {% endfor %}
-      <tr><td class="muted">该格总笔数</td>
+      <tr><td class="muted" title="每格两行: 上=笔数, 下=该格内这么出场的占比。&#10;横向比这一行的百分比和最右列的全局占比 — 八个格的百分比都贴着全局值, 就是「这个 regime 口径对本策略没用」的直读证据(比 p 值直观)。">该格总笔数</td>
         {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
         <td class="num mono muted">{{ v.cell_tot[c] or '·' }}</td>{% endfor %}
         <td class="num mono">{{ v.n }}</td></tr>
@@ -137,7 +144,7 @@
       <td class="muted clip">{{ r.scope.task or '' }}
         {% if r.scope.ids %}ID×{{ r.scope.ids | length }}{% else %}{{ r.scope.template or '全模板' }} / {{ r.scope.symbol or '全品种' }}{% endif %}
         · {{ r.scope.count }} 个</td>
-      <td class="muted mono">{{ r.params.big_win_r }}R/{{ r.params.big_loss_r }}R · {{ r.params.permutations }}次 · p{{ r.params.sig_p }}</td>
+      <td class="muted mono">{{ '出场原因' if r.params.tier_mode == 'reason' else 'R倍数' }} · {{ r.params.permutations }}次 · p{{ r.params.sig_p }}</td>
       <td><span class="pos">信号 {{ r.summary.signal }}</span> · 弱 {{ r.summary.weak }}
         · 无 {{ r.summary.none }} · 跳过 {{ r.summary.skipped }}</td>
       <td><a href="?report={{ r.id }}">打开</a></td>

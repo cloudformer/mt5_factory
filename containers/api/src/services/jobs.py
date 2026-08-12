@@ -213,7 +213,10 @@ async def _run_map(pool, job_id: int, payload: dict) -> None:
         if bt is None or not (bt["trades"] or []):
             out.append({**base, "verdict": "skip", "reason": "缺回测行(先跑一发回测)"})
             continue
-        rows, counts = rmap.classify(bt["trades"], p, float(s["point"] or 0.01))
+        # CPU 密集(置换检验) → 扔线程池: api 进程内也消费任务, 同步跑会卡死事件循环
+        # (progress 都查不动); 每策略之间还让出一次控制权
+        rows, counts = await asyncio.to_thread(
+            rmap.classify, bt["trades"], p, float(s["point"] or 0.01))
         n = len(rows)
         base["window"] = f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"
         base["n"] = n
@@ -225,8 +228,10 @@ async def _run_map(pool, job_id: int, payload: dict) -> None:
                 "SELECT date, regime FROM regime_timeline WHERE version_id=$1 AND symbol=$2",
                 v, s["symbol"])}
             # 独立评估: seed 用 策略id*100+版本, 结果可复现且各版本互不影响
-            vers[str(v)] = rmap.analyze_version(rows, tl, p, seed=sid * 100 + v)
+            vers[str(v)] = await asyncio.to_thread(
+                rmap.analyze_version, rows, tl, p, sid * 100 + v)
         base["versions"] = vers
+        await asyncio.sleep(0)          # 让出控制权, api 能继续响应请求
         base["verdict"] = ("signal" if any(x.get("verdict") == "signal" for x in vers.values())
                            else "weak" if any(x.get("verdict") == "weak" for x in vers.values())
                            else "none")

@@ -4,14 +4,17 @@
 
 方法(每个版本【独立】做, 铁律: 绝不跨版本比较 —— 不同版本的同名格是不同的分类维度,
 "按性别分 vs 按上衣颜色分", 跨版本挑最好 = 数据挖掘, 分对了也是拟合):
-  1. 交易按 R 倍数分四类(R = 该笔的止损距离, 交易界标准, 跨策略可比):
-     大赢 >+2R · 小赢 0~+2R · 小亏 -1R~0 · 大亏 <-1R
-     (大亏 = 止损被跳空/滑点打穿 — 若某格专门富集大亏, 那是执行风险不只是盈亏问题)
+  1. 交易按【出场原因】分四类(2026-08-11 Frank 定, 取代原 R 倍数分类):
+     止盈/锁利 · 正常止损 · 跳空有利 · 跳空不利
+     (R 倍数在固定 SL/TP 策略上必然退化: rr=2.4 → 所有止盈都 >2R 全是"大赢",
+      佣金又把正常止损顶过 1R 全成"大亏" → 四类塌成两类, 分类白做;
+      出场方式才带真信息, gap 两类 = 执行风险, 直接回答"哪种天气容易被跳空打穿")
   2. 先看不分格的四类占比 = 策略画像(少数大单型 / 高频小赚型…)
   3. 每版本一张 4类×8格 列联表 → 富集倍数 = 该类中此格占比 ÷ 此格整体交易占比
   4. 置换检验(保持每笔类别不变, 只打乱格标签, 默认 1000 次)出 p —
      不用卡方查表: 格大小极不均(452笔 vs 18笔)时卡方近似不准
-  5. 结论三档: 有信号 = p<0.05 且某类在某格富集≥1.5 且该格≥30笔; 弱 = p<0.05 但只靠小格;
+  5. 结论三档: 有信号 = p<0.05 且某类在某格富集≥1.5、该格≥30笔、该类在该格≥10笔;
+     弱 = p<0.05 但富集全靠碎格;
      无信号 = p≥0.05
 
 数据: 复用 backtests.trades(不重跑引擎) + regime_timeline, 纯读库。
@@ -24,54 +27,48 @@ logger = logging.getLogger("regime_map")
 
 TAG = "regime_map"
 CELLS = ("AAA", "AAB", "ABA", "ABB", "BAA", "BAB", "BBA", "BBB")
-TIERS = ("big_win", "small_win", "small_loss", "big_loss")
-TIER_CN = {"big_win": "大赢", "small_win": "小赢",
-           "small_loss": "小亏", "big_loss": "大亏"}
+# 四类 = 出场原因(2026-08-11 Frank 选 A 方案): 固定 SL/TP 的策略下 R 倍数分类必然退化
+# (rr=2.4 → 所有止盈都是 >2R 的"大赢"; 佣金还把正常止损顶成"大亏"), 而出场方式在不同
+# 天气下的比例才是真有信息的 —— 尤其 gap 两类 = 执行风险(跳空/滑点), 直接回答
+# "哪种天气容易被跳空打穿"。引擎 reason: tp/sl/tp_gap/sl_gap/tsl/tsl_gap
+TIERS = ("tp", "sl", "gap_win", "gap_loss")
+TIER_CN = {"tp": "止盈/锁利", "sl": "正常止损",
+           "gap_win": "跳空有利", "gap_loss": "跳空不利"}
 
 
 def cfg_params(cfg: dict) -> dict:
-    """config.regime_map → 判据(带默认): run/页面/报告快照同一口径"""
+    """判据(带默认): 走页面表单每次现填, 只随报告存快照(不落 config)"""
     c = cfg or {}
-    return {"tier_mode": c.get("tier_mode") or "R",
-            "big_win_r": float(c.get("big_win_r") or 2.0),
-            "big_loss_r": float(c.get("big_loss_r") or 1.0),
+    return {"tier_mode": "reason",
             "permutations": int(c.get("permutations") or 1000),
             "sig_p": float(c.get("sig_p") or 0.05),
             "min_enrich": float(c.get("min_enrich") or 1.5),
             "min_cell_trades": int(c.get("min_cell_trades") or 30),
-            "batch_limit": int(c.get("batch_limit") or 200)}
+            # 该类在该格的最小笔数(2026-08-11 修): 原来只管"该格总笔数", 3 笔算出的
+            # 3.77x 被判成信号 — 假信号的根源
+            "min_tier_cell": int(c.get("min_tier_cell") or 10)}
 
 
-def tier_of(t: dict, p: dict, fallback_r: float) -> str:
-    """单笔 → 四类。R = 该笔止损距离(点); 缺 sl 时用全策略中位止损距离兜底。
-    大赢 >+2R / 小赢 0~+2R / 小亏 -1R~0 / 大亏 <-1R"""
+def tier_of(t: dict) -> str:
+    """单笔 → 四类(按出场原因; 未知 reason 按盈亏兜底)。
+    gap = 跳空/滑点越过价位成交(执行风险): 有利=意外之财, 不利=止损被打穿。"""
+    r = (t.get("reason") or "").lower()
     pts = float(t.get("points") or 0) * float(t.get("mult") or 1)
-    r = t.get("_r") or fallback_r
-    if not r or r <= 0:
-        r = fallback_r or 1.0
-    if pts > 0:
-        return "big_win" if pts >= p["big_win_r"] * r else "small_win"
-    return "big_loss" if -pts > p["big_loss_r"] * r else "small_loss"
-
-
-def _risk_points(t: dict, point: float) -> float | None:
-    """该笔的止损距离(点) = |入场价 - SL| / point; 无 SL 返回 None"""
-    sl, entry = t.get("sl"), t.get("entry")
-    if sl in (None, 0) or entry in (None, 0) or not point:
-        return None
-    d = abs(float(entry) - float(sl)) / point
-    return d if d > 0 else None
+    if "gap" in r:
+        return "gap_win" if pts > 0 else "gap_loss"
+    if r in ("tp", "tsl"):
+        return "tp"
+    if r == "sl":
+        return "sl"
+    return "tp" if pts > 0 else "sl"      # 手动/未知 reason: 按盈亏归入正常两类
 
 
 def classify(trades: list, p: dict, point: float) -> tuple[list, dict]:
-    """逐笔打上四类标签 → (带标签的行, 四类计数)。行 = {ts, tier, pts}"""
-    risks = [r for r in (_risk_points(t, point) for t in trades) if r]
-    fallback = sorted(risks)[len(risks) // 2] if risks else 0.0   # 中位止损距离兜底
+    """逐笔打四类标签 → (带标签的行, 四类计数)。行 = {ts, tier, pts}。
+    p/point 保留在签名里(调用方通用), 出场原因分类本身不需要它们。"""
     rows, counts = [], {k: 0 for k in TIERS}
     for t in trades:
-        t2 = dict(t)
-        t2["_r"] = _risk_points(t, point)
-        tier = tier_of(t2, p, fallback)
+        tier = tier_of(t)
         counts[tier] += 1
         rows.append({"ts": int(t["entry_time"]), "tier": tier,
                      "pts": float(t.get("points") or 0) * float(t.get("mult") or 1)})
@@ -159,7 +156,10 @@ def analyze_version(rows: list, tl: dict, p: dict, seed: int = 0) -> dict:
                 continue
             e = (table[ti][c] / tier_tot[ti]) / (cell_tot[c] / n)
             enrich.setdefault(ti, {})[c] = round(e, 2)
-            if e >= p["min_enrich"] and cell_tot[c] >= p["min_cell_trades"]:
+            # 两道笔数门槛都要过: 该格总笔数够(格本身不是碎格) + 该类在该格笔数够
+            # (2026-08-11 修: 原来只管前者, "小赢在ABA富集3.77x" 底下只有 3 笔 → 假信号)
+            if (e >= p["min_enrich"] and cell_tot[c] >= p["min_cell_trades"]
+                    and table[ti][c] >= p["min_tier_cell"]):
                 if best is None or e > best["enrich"]:
                     best = {"tier": ti, "cell": c, "enrich": round(e, 2),
                             "cell_n": cell_tot[c], "n": table[ti][c]}
@@ -172,7 +172,7 @@ def analyze_version(rows: list, tl: dict, p: dict, seed: int = 0) -> dict:
     else:
         verdict = "weak"
         reason = (f"弱: p={pv:.3f} 显著但富集全靠小格子"
-                  f"(无格同时满足 ≥{p['min_enrich']}x 且 ≥{p['min_cell_trades']}笔)")
+                  f"(无格同时满足 富集≥{p['min_enrich']}x、该格≥{p['min_cell_trades']}笔、该类在该格≥{p['min_tier_cell']}笔)")
     return {"n": n, "unlabeled": unl, "stat": round(obs, 2), "p": round(pv, 4),
             "table": table, "tier_tot": tier_tot, "cell_tot": cell_tot,
             "enrich": enrich, "best": best, "verdict": verdict, "reason": reason}

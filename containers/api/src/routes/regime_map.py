@@ -1,7 +1,7 @@
 """筛选·策略×regime 映射规律(2026-08-11 与 Frank 定稿) — 批量筛子。
 
 问一件事: 这个策略的盈亏能不能被某个 regime 口径的八个格分出层次?
-交易按 R 倍数分四类(大赢/小赢/小亏/大亏) → 每版本【独立】做 4×8 列联表 → 置换检验。
+交易按【出场原因】分四类(止盈/止损/跳空有利/跳空不利) → 每版本【独立】做 4×8 列联表 → 置换检验。
 
 铁律: 各版本独立评估, 【绝不跨版本比较/排名】—— 不同版本的同名格是不同的分类维度。
 纯计算不跑引擎(复用 backtests.trades), 走 jobs 队列并行; 一块 = 一批策略。
@@ -18,17 +18,17 @@ from src.services import identity, jobs, regime_map
 logger = logging.getLogger("regime_map_api")
 router = APIRouter()
 LOCK_KEY = 70111811          # advisory lock: 收尾串行(与 oos_v2/screen 各用各的)
-CHUNK = 50                   # 一块几个策略(纯计算, 块可以大)
+CHUNK = 10                   # 一块几个策略: 置换检验较慢, 块小=进度细+并行足
 
 
 class RunRequest(BaseModel):
     # 判据(2026-08-11 Frank 定: 走页面表单不落 config, 每次现填, 随报告存快照)
-    big_win_r: float = 2.0        # 大赢门槛: 净点 > N×R(R = 该笔止损距离)
-    big_loss_r: float = 1.0       # 大亏门槛: 亏损 > N×R(止损被跳空/滑点打穿)
+    # 四类 = 出场原因(止盈/锁利 · 正常止损 · 跳空有利 · 跳空不利), 无需口径参数
     permutations: int = 1000      # 置换次数(探索期 1000 够快)
     sig_p: float = 0.05           # 显著性门槛
     min_enrich: float = 1.5       # 富集倍数门槛
-    min_cell_trades: int = 30     # 富集格的最小笔数(防小样本假信号)
+    min_cell_trades: int = 30     # 该格总笔数门槛(格本身不能是碎格)
+    min_tier_cell: int = 10       # 该类在该格的笔数门槛(3 笔算出的 3.77x 是噪音不是信号)
     # 范围
 
     ids: Optional[list[int]] = None       # 点名; 空 = 按筛选条件全池

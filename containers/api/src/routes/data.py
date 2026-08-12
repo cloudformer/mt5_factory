@@ -124,12 +124,12 @@ async def overview_jobs(request: Request):
     崩了/缩容立刻反映, 零注册表零心跳; api 进程内还自带 1 路消费者, 所以在跑数可能 = 副本+1。
     在跑 = RUNNING 任务数(一路同时只跑一个任务); 待跑 = PENDING。"""
     pool = request.app.state.pool
-    # 工种无关(解耦): 只按状态汇总所有跑批工种 — 概览不认识"回测/筛选"是什么,
+    # 工种无关(解耦, 2026-08-11 修): 用 CLAIM_KINDS = 全部抢单工种 — 概览不认识具体工种,
     # 加/删工种(如可插拔的筛选功能)这里零改动
     row = await pool.fetchrow(
         "SELECT count(*) FILTER (WHERE status='RUNNING')::int AS running,"
         "       count(*) FILTER (WHERE status='PENDING')::int AS pending"
-        "  FROM jobs WHERE kind = ANY($1)", list(jobs.ENGINE_KINDS))
+        "  FROM jobs WHERE kind = ANY($1)", list(jobs.CLAIM_KINDS))
     replicas = await pool.fetchval(
         "SELECT count(DISTINCT application_name)::int FROM pg_stat_activity"
         " WHERE application_name LIKE 'worker:%'")

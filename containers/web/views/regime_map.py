@@ -42,12 +42,11 @@ def run():
         raw = (request.form.get(name) or "").strip()
         return cast(raw) if raw else default
     payload = {
-        "big_win_r": num("big_win_r", 2.0),
-        "big_loss_r": num("big_loss_r", 1.0),
         "permutations": num("permutations", 1000, int),
         "sig_p": num("sig_p", 0.05),
         "min_enrich": num("min_enrich", 1.5),
         "min_cell_trades": num("min_cell_trades", 30, int),
+        "min_tier_cell": num("min_tier_cell", 10, int),
         "limit": num("limit", 200, int),
         "task": (request.form.get("task") or "").strip() or None,
     }

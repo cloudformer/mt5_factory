@@ -50,4 +50,5 @@ def test_expected_inf_judged_by_actual():
 
 def test_config_defaults():
     assert P == {"expected_window_years": 3.0, "min_trades": 20,
-                 "min_days": 90, "retention_ok": 0.8}
+                 "min_days": 90, "retention_ok": 0.8,
+                 "stability_batch": 30}   # 批次序列版每批笔数(c563c21 加, 页面可调不落库)
