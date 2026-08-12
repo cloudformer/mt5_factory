@@ -94,11 +94,21 @@
     <summary class="muted">📖 怎么读这些数(p值 / rho / 相对分 / 路径 / 倍率档)</summary>
     <div class="muted" style="font-size:12.5px;line-height:1.8;padding:6px 0 0">
       <p style="margin:0 0 6px"><b>① 版本评价那张表</b></p>
+      <p style="margin:0 0 4px"><b>p 值 = "这个结果纯属碰巧的概率"</b>, 越小越好。
+        例: p=0.009 表示"若这个口径其实等于随便乱分格, 能碰巧算出这么好结果的概率只有 0.9%"。</p>
+      <table class="dense" style="max-width:640px;margin:0 0 8px">
+        <tr><th>p 值</th><th>大白话</th><th>页面标记</th><th>能干嘛</th></tr>
+        <tr><td class="mono">&lt; 0.004</td><td>碰巧概率不到 0.4%, 测 12 次也撞不上</td>
+            <td><span class="pos">✅硬</span></td><td><b>可当依据定名次</b></td></tr>
+        <tr><td class="mono">0.004 ~ 0.05</td><td>碰巧概率 0.4%~5%, 单看不错但架不住测得多</td>
+            <td><span style="color:#b45309">⚠边缘</span></td><td>参考, <b>不能单独定名次</b></td></tr>
+        <tr><td class="mono">≥ 0.05</td><td>碰巧概率超过 5%</td>
+            <td><span class="muted">(随机水平)</span></td><td><b>等于没分类</b>, 不携带信息</td></tr>
+      </table>
+      <p style="margin:0 0 8px">为什么 0.05 还不够: 一次测了 4 版本 × 3 项 = <b>12 次</b>,
+        就像买 12 张彩票总有一张看着像中了 — 所以门槛除以 12(0.05÷12≈0.004),
+        这叫 Bonferroni 校正。p=0.009 单看漂亮, 但 12 次里撞上一个 0.009 的机会约 10%, 故只算边缘。</p>
       <ul style="margin:0 0 10px;padding-left:20px">
-        <li><b>p 值越小越好</b>(p = 这个结果纯属随机巧合的概率):
-          <span class="pos">✅硬</span> = 过 Bonferroni 校正, 可以当依据 ·
-          <span style="color:#b45309">⚠边缘</span> = p&lt;0.05 但没过校正, 只能参考、<b>不足以定名次</b> ·
-          <span class="muted">(随机水平)</span> = p≥0.05, 这项不携带信息</li>
         <li><b>rho 本身</b>(不是 p)要 &gt;0 才有意义; &lt;0 = 前后时代的格排序反向 = 该口径不可复现</li>
         <li><b>ratio 不用看</b> — 置换检验已证明它的随机水平就有 0.2~0.23, 数字高不代表好, 只作诊断</li>
         <li><b>规律性</b>: 强 = ≥2 项显著 · 中 = 1 项显著 · 弱 = 一项都不显著
