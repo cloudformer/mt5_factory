@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
+{# 类别名表: 兼容两套口径 — 出场原因(2026-08-11 起) + R 倍数(旧报告) #}
+{% set TIER_CN = {'tp':'止盈/锁利','sl':'正常止损','gap_win':'跳空有利','gap_loss':'跳空不利',
+                  'big_win':'大赢','small_win':'小赢','small_loss':'小亏','big_loss':'大亏'} %}
+{% set TIER_ORDER = ['tp','sl','gap_win','gap_loss','big_win','small_win','small_loss','big_loss'] %}
+{% set TIER_NEG = ['gap_loss','big_loss'] %}
 {% block content %}
 {{ m.page_header('筛选·策略×regime 映射规律', '问一件事: 这个策略的盈亏能不能被某个 regime 口径的八个格分出层次 — 交易按【出场原因】分四类(止盈/锁利 · 正常止损 · 跳空有利 · 跳空不利), 每个版本【独立】做一张 4类×8格 列联表, 置换检验出 p。纯计算复用回测行(不重跑引擎)') }}
 
@@ -47,9 +52,9 @@
 <section>
   <div class="flex-between">
     <h2>报告 #{{ rep.id }} <span class="muted" style="font-weight:400">{{ rep.created_at[:19] | replace('T', ' ') }}
-      · 四类=出场原因 · 置换{{ rep.params.permutations }}次
+      · 四类={% if rep.params.tier_mode == 'reason' %}出场原因{% else %}<span title="旧口径: 大赢>{{ rep.params.big_win_r }}R / 大亏>{{ rep.params.big_loss_r }}R — 固定 SL/TP 策略上会塌成两类, 2026-08-11 已换成出场原因" style="cursor:help;border-bottom:1px dotted">R倍数(旧)</span>{% endif %} · 置换{{ rep.params.permutations }}次
       · p&lt;{{ rep.params.sig_p }} · 富集≥{{ rep.params.min_enrich }}x 且该格≥{{ rep.params.min_cell_trades }}笔
-      且该类在该格≥{{ rep.params.min_tier_cell or 1 }}笔</span></h2>
+{% if rep.params.min_tier_cell %} 且该类在该格≥{{ rep.params.min_tier_cell }}笔{% else %} <span class="neg" title="这份报告跑在补门之前: 富集只检查了该格总笔数(分母),没检查该类在该格笔数(分子) — 碎格算出的高富集会被误判成信号, 需重跑">(无「该类在该格」门, 信号可能是碎格假象)</span>{% endif %}</span></h2>
     <span><a class="btn" href="{{ url_for('regime_map.report_json', rid=rep.id) }}">整份 JSON</a></span>
   </div>
   <p class="muted">共 {{ rep.summary.total }}
@@ -76,11 +81,11 @@
     {% if d.tier_pct %}
     {# ① 策略画像: 不分格的四类占比 #}
     <p class="muted" style="margin:6px 0 8px">策略画像({{ d.n }} 笔, 不分格):
-      <span class="mono">止盈/锁利 {{ d.tier_pct.get('tp', d.tier_pct.big_win) }}%</span> ·
-      <span class="mono">正常止损 {{ d.tier_pct.get('sl', d.tier_pct.small_loss) }}%</span> ·
-      <span class="mono">跳空有利 {{ d.tier_pct.get('gap_win', 0) }}%</span> ·
-      <span class="mono neg">跳空不利 {{ d.tier_pct.get('gap_loss', 0) }}%</span>
-      <span class="muted">（跳空两类 = 止损/止盈被缺口或滑点越过成交，是执行风险不只是盈亏）</span></p>
+      {% for ti in TIER_ORDER if ti in d.tier_pct %}
+      <span class="mono {{ 'neg' if ti in TIER_NEG }}">{{ TIER_CN[ti] }} {{ d.tier_pct[ti] }}%</span>{{ ' · ' if not loop.last }}
+      {% endfor %}
+      {% if 'gap_loss' in d.tier_pct %}<span class="muted">（跳空两类 = 止损/止盈被缺口或滑点越过成交，是执行风险不只是盈亏）</span>
+      {% else %}<span class="muted">（旧口径: 按 R 倍数分类）</span>{% endif %}</p>
     {% endif %}
     {% if d.versions %}
     {% for vid, v in d.versions.items() %}
@@ -98,10 +103,10 @@
       <tr><th>类别</th>
         {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}<th class="num">{{ c }}</th>{% endfor %}
         <th class="num">合计</th></tr>
-      {% for ti, cn in [('tp','止盈/锁利'), ('sl','正常止损'), ('gap_win','跳空有利'), ('gap_loss','跳空不利')] %}
-      {% if ti in v.table %}
+      {% for ti in TIER_ORDER if ti in v.table %}
+      {% set cn = TIER_CN[ti] %}
       <tr>
-        <td class="mono {{ 'neg' if ti == 'gap_loss' }}">{{ cn }}</td>
+        <td class="mono {{ 'neg' if ti in TIER_NEG }}">{{ cn }}</td>
         {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
         {% set n = v.table[ti][c] %}
         {% set e = (v.enrich.get(ti, {}) or {}).get(c) %}
@@ -116,7 +121,6 @@
         <td class="num mono muted">{{ v.tier_tot[ti] }}
           <br><span style="font-size:11px">{{ (v.tier_tot[ti] / v.n * 100) | round(1) if v.n else 0 }}%</span></td>
       </tr>
-      {% endif %}
       {% endfor %}
       <tr><td class="muted" title="每格两行: 上=笔数, 下=该格内这么出场的占比。&#10;横向比这一行的百分比和最右列的全局占比 — 八个格的百分比都贴着全局值, 就是「这个 regime 口径对本策略没用」的直读证据(比 p 值直观)。">该格总笔数</td>
         {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
