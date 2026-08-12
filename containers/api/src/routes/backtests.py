@@ -81,6 +81,10 @@ class BacktestRequest(BaseModel):
     template: Optional[str] = None
     # 状态筛选(可选维度, 默认不限 — 回测本身与状态无关): 支持逗号多值, 如 "DEMO,LIVE"(热层每日刷新)
     status: Optional[str] = None
+    # 批次筛选(2026-08-12 Frank 要): 生成时填的批次标签, 存 strategies.basis。
+    # 一次实验 = 一个批次(如 grain-H4), 靠它把这批圈出来单独跑/单独读 —
+    # 比"模板+品种+周期"三个下拉拼半天靠谱, 也天然满足对比三铁律的"同批同口径"
+    basis: Optional[str] = None
     strategy_ids: Optional[list[int]] = None
     from_time: Optional[datetime] = None
     to_time: Optional[datetime] = None
@@ -136,6 +140,8 @@ async def run(req: BacktestRequest, request: Request):
             q += f" AND status = ANY(${len(args)})"
         else:  # 默认不测已淘汰(ARCHIVED)的尸体 — 要重测它们请显式选状态或按ID点名
             q += " AND status <> 'ARCHIVED'"
+        if req.basis:  # 批次: 生成时填的标签(grid/random 模式下 basis 就是标签原文)
+            args.append(req.basis); q += f" AND basis = ${len(args)}"
         if req.untested_only:  # 范围=未测试: 主品种还没有回测记录的才跑(补漏)
             q += (" AND NOT EXISTS (SELECT 1 FROM backtests b"
                   "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol)")

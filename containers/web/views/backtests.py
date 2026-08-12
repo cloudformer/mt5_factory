@@ -10,6 +10,7 @@ bp = Blueprint("backtests", __name__, url_prefix="/backtests")
 def index():
     """策略回测页(纯执行): 批量/单策略回测 + 进度 + 孤儿警告。结果排名在「策略列表排名」。"""
     bt, costs, brokers, symbols, orphans, templates = {}, {}, [], [], [], []
+    batches = []   # 批次下拉(2026-08-12): 一次实验一个批次, 比拼三个筛选靠谱
     window_days = None  # 唯一源=config(schema/051); api不可用即空
     reuse_single = None  # 单ID点名结果缓存TTL(schema/063; 缺键落回全局 062)
     # 表单记忆(刚点名跑过一批 → 回填, 防"预览1个提交后显示5个"的复位错觉)
@@ -30,11 +31,13 @@ def index():
         templates = sorted(api.get("/strategies/templates")["templates"].keys())
         # 孤儿策略(品种已删、跑不了): 亮出来供清理
         orphans = api.get("/strategies/orphans")["orphans"]
+        batches = api.get("/strategy_batches")["batches"]
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("backtests.html", bt=bt, costs=costs,
                            brokers=brokers, symbols=symbols, orphans=orphans,
                            templates=templates, window_days=window_days,
+                           batches=batches,
                            reuse_single=reuse_single, last_ids=last_ids,
                            last_window=last_window, reuse_prefill=reuse_prefill)
 
@@ -142,6 +145,8 @@ def run():
             payload["broker"] = request.form["broker"]
         if request.form.get("status"):  # 状态维度(可选): 如热层 DEMO,LIVE 每日刷新
             payload["status"] = request.form["status"]
+        if request.form.get("basis"):   # 批次: 圈出一次实验生成的那一批
+            payload["basis"] = request.form["basis"]
         if request.form.get("scope") == "untested":  # 范围: 全部(默认) / 仅未测试(补漏)
             payload["untested_only"] = True
     if request.form.get("cross_symbol"):  # 跨品种验证(乙)

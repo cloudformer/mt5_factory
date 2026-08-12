@@ -100,6 +100,25 @@ async def generate(req: GenerateRequest, request: Request):
             "template": req.template, "symbols": req.symbols}
 
 
+@router.get("/strategy_batches")
+async def strategy_batches(request: Request, limit: int = 60):
+    """批次清单(2026-08-12): 生成时填的标签 + 各自实例数/周期/回测进度 —
+    回测页与分析页的批次下拉都吃它。AI 调参的 basis 带〔方法·模型〕尾标, 只取标签主体。"""
+    uid = identity.scope_uid(request)
+    rows = await request.app.state.pool.fetch(
+        "SELECT basis, count(*)::int AS n,"
+        "       string_agg(DISTINCT timeframe, ',' ORDER BY timeframe) AS timeframes,"
+        "       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM backtests b"
+        "         WHERE b.strategy_id = s.id AND b.symbol = s.symbol))::int AS tested,"
+        "       max(created_at) AS last_at"
+        "  FROM strategies s"
+        " WHERE basis IS NOT NULL AND basis <> ''"
+        + (" AND owner_id = $2" if uid else "") +
+        " GROUP BY basis ORDER BY max(created_at) DESC LIMIT $1",
+        limit, *([uid] if uid else []))
+    return {"batches": [dict(r) for r in rows]}
+
+
 @router.get("/strategies/names")
 async def strategy_names(request: Request):
     """轻量名册: id/name/magic 全量(流水页 magic→策略名 归因用)。
