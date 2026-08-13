@@ -465,6 +465,13 @@ table.kv td:first-child { width: 130px; color: var(--muted); font-weight: 600; w
 
 /* ---------- v0.6 自动化筛选-oos_v2: 段PF着色 + 三期六段详情 block ---------- */
 /* 段PF三色(2026-08-07 定版): 绿=PF>门槛(∞恒过) 红=有笔且PF≤门槛 灰—=0笔不追责算过 */
+/* 表格里的 .pos/.neg 找回颜色(2026-08-12 修): td.mono 的 color:#475569 是"元素+类"
+   选择器(特异度 0,1,1), 压得住只有类的 .pos/.neg(0,1,0) — 于是全站 <td class="mono pos">
+   只剩加粗、颜色是死的(regime_map / market_overview / mt5 / strategy_predictions 四页都中招)。
+   这里用同特异度 td.类 且位置在后, 把颜色压回来; 与下面 td.pf-ok 是同一套路。 */
+td.pos { color: var(--ok-fg); }
+td.neg { color: var(--err-fg); }
+
 td.pf-ok  { color: var(--ok-fg);  background: var(--ok-bg);  font-weight: 600; }
 td.pf-bad { color: var(--err-fg); background: var(--err-bg); font-weight: 600; }
 td.pf-nil { color: var(--muted);  background: #f0f2f4; }

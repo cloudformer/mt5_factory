@@ -189,8 +189,11 @@
       {% endfor %}
       <tr><td class="muted" title="每格两行: 上=笔数, 下=该格内这么出场的占比。&#10;横向比这一行的百分比和最右列的全局占比 — 八个格的百分比都贴着全局值, 就是「这个 regime 口径对本策略没用」的直读证据(比 p 值直观)。">该格总笔数</td>
         {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
-        <td class="num mono muted">{{ v.cell_tot[c] or '·' }}</td>{% endfor %}
-        <td class="num mono">{{ v.n }}</td></tr>
+        {# 格占比 = 该格笔数 ÷ 总笔数(2026-08-12 Frank 要): 一眼看出这格撬不撬得动大局 —
+           某格止盈率再漂亮, 只占 3% 交易量也拉不动整体盈亏 #}
+        <td class="num mono muted">{{ v.cell_tot[c] or '·' }}
+          {% if v.cell_tot[c] and v.n %}<br><span style="font-size:11px">{{ (v.cell_tot[c] / v.n * 100) | round(1) }}%</span>{% endif %}</td>{% endfor %}
+        <td class="num mono">{{ v.n }}<br><span style="font-size:11px" class="muted">100%</span></td></tr>
     </table>
     {% endif %}
     {% endfor %}
