@@ -56,6 +56,44 @@
   </form>
 </section>
 
+{# 布局(2026-08-12 Frank 定): 跑批在上 → 历史报告在中 → 点开的报告在下。
+   列表与内容同在 #rm-box 里 → data-ajax 换一次两边同步, 换报告不用滚到底。 #}
+<div id="rm-box">
+
+{% if data.reports %}
+<section>
+  <div class="flex-between">
+    <h2>历史报告</h2>
+    {% set rl = data.rlist %}
+    {% if rl.pages and rl.pages > 1 %}
+    <span class="muted">第 {{ rl.page }} / {{ rl.pages }} 页 · 共 {{ rl.total }} 份
+      {% if rl.page > 1 %}<a data-ajax="#rm-box" href="?report={{ rid or '' }}&rpage={{ rl.page - 1 }}">‹上页</a>{% endif %}
+      {% if rl.page < rl.pages %}<a data-ajax="#rm-box" href="?report={{ rid or '' }}&rpage={{ rl.page + 1 }}">下页›</a>{% endif %}
+    </span>{% endif %}
+  </div>
+  <table class="dense">
+    <tr><th>#</th><th>时间</th><th>范围</th><th>判据</th><th>结果</th><th>查看</th></tr>
+    {% for r in data.reports %}
+    <tr {% if r.id == rid %}class="row-marked"{% endif %}>
+      <td class="mono">{{ r.id }}</td>
+      <td class="muted">{{ r.created_at[:19] | replace('T', ' ') }}</td>
+      <td class="muted clip">{{ r.scope.task or '' }}
+        {% if r.scope.ids %}ID×{{ r.scope.ids | length }}
+        {% elif r.scope.basis %}<b>{{ r.scope.basis }}</b>
+        {% else %}{{ r.scope.template or '全模板' }} / {{ r.scope.symbol or '全品种' }}{% endif %}
+        · {{ r.scope.count }} 个</td>
+      <td class="muted mono">{{ '出场原因' if r.params.tier_mode == 'reason' else 'R倍数' }} · {{ r.params.permutations }}次 · p{{ r.params.sig_p }}</td>
+      <td><span class="pos">信号 {{ r.summary.signal }}</span> · 弱 {{ r.summary.weak }}
+        · 无 {{ r.summary.none }} · 跳过 {{ r.summary.skipped }}</td>
+      {# 局部刷新: 列表与报告内容同在 #rm-box 里, 换一次两边都更新(选中高亮跟着走) #}
+      <td>{% if r.id == rid %}<span class="muted">当前</span>
+        {% else %}<a data-ajax="#rm-box" href="?report={{ r.id }}&rpage={{ data.rlist.page }}">打开</a>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
 {% if data.report %}
 {% set rep = data.report %}
 <section>
@@ -67,14 +105,14 @@
     <span><a class="btn" href="{{ url_for('regime_map.report_json', rid=rep.id) }}">整份 JSON</a></span>
   </div>
   <p class="muted">共 {{ rep.summary.total }}
-    · <a href="?report={{ rep.id }}&verdict=signal">有信号 <b class="pos">{{ rep.summary.signal }}</b></a>
-    · <a href="?report={{ rep.id }}&verdict=weak">弱 {{ rep.summary.weak }}</a>
-    · <a href="?report={{ rep.id }}&verdict=none">无信号 {{ rep.summary.none }}</a>
-    · <a href="?report={{ rep.id }}&verdict=skip">跳过 {{ rep.summary.skipped }}</a>
-    {% if verdict %} · <a href="?report={{ rep.id }}">清除过滤</a>{% endif %}
+    · <a data-ajax="#rm-box" href="?report={{ rep.id }}&rpage={{ rpage }}&verdict=signal">有信号 <b class="pos">{{ rep.summary.signal }}</b></a>
+    · <a data-ajax="#rm-box" href="?report={{ rep.id }}&rpage={{ rpage }}&verdict=weak">弱 {{ rep.summary.weak }}</a>
+    · <a data-ajax="#rm-box" href="?report={{ rep.id }}&rpage={{ rpage }}&verdict=none">无信号 {{ rep.summary.none }}</a>
+    · <a data-ajax="#rm-box" href="?report={{ rep.id }}&rpage={{ rpage }}&verdict=skip">跳过 {{ rep.summary.skipped }}</a>
+    {% if verdict %} · <a data-ajax="#rm-box" href="?report={{ rep.id }}&rpage={{ rpage }}">清除过滤</a>{% endif %}
     {% if rep.filtered > rep.per %} · 第 {{ page }} 页 / 共 {{ (rep.filtered / rep.per) | round(0, 'ceil') | int }} 页
-      {% if page > 1 %}<a href="?report={{ rep.id }}&verdict={{ verdict or '' }}&page={{ page-1 }}">‹上页</a>{% endif %}
-      {% if page * rep.per < rep.filtered %}<a href="?report={{ rep.id }}&verdict={{ verdict or '' }}&page={{ page+1 }}">下页›</a>{% endif %}
+      {% if page > 1 %}<a data-ajax="#rm-box" href="?report={{ rep.id }}&rpage={{ rpage }}&verdict={{ verdict or '' }}&page={{ page-1 }}">‹上页</a>{% endif %}
+      {% if page * rep.per < rep.filtered %}<a data-ajax="#rm-box" href="?report={{ rep.id }}&rpage={{ rpage }}&verdict={{ verdict or '' }}&page={{ page+1 }}">下页›</a>{% endif %}
     {% endif %}</p>
 
   {% for d in rep.details %}
@@ -145,29 +183,7 @@
 </section>
 {% endif %}
 
-{% if data.reports %}
-<section>
-  <h2>历史报告</h2>
-  <table class="dense">
-    <tr><th>#</th><th>时间</th><th>范围</th><th>判据</th><th>结果</th><th>查看</th></tr>
-    {% for r in data.reports %}
-    <tr {% if r.id == rid %}class="row-marked"{% endif %}>
-      <td class="mono">{{ r.id }}</td>
-      <td class="muted">{{ r.created_at[:19] | replace('T', ' ') }}</td>
-      <td class="muted clip">{{ r.scope.task or '' }}
-        {% if r.scope.ids %}ID×{{ r.scope.ids | length }}
-        {% elif r.scope.basis %}<b>{{ r.scope.basis }}</b>
-        {% else %}{{ r.scope.template or '全模板' }} / {{ r.scope.symbol or '全品种' }}{% endif %}
-        · {{ r.scope.count }} 个</td>
-      <td class="muted mono">{{ '出场原因' if r.params.tier_mode == 'reason' else 'R倍数' }} · {{ r.params.permutations }}次 · p{{ r.params.sig_p }}</td>
-      <td><span class="pos">信号 {{ r.summary.signal }}</span> · 弱 {{ r.summary.weak }}
-        · 无 {{ r.summary.none }} · 跳过 {{ r.summary.skipped }}</td>
-      <td><a href="?report={{ r.id }}">打开</a></td>
-    </tr>
-    {% endfor %}
-  </table>
-</section>
-{% endif %}
+</div>
 
 <script>
 // 进度轮询(与其他筛选页同款): 跑完自动刷新看报告

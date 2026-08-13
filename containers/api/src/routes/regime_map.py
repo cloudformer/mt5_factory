@@ -144,11 +144,18 @@ async def finalize(pool) -> int | None:
 
 
 @router.get("/regime_map/reports")
-async def reports(request: Request, limit: int = 30):
-    rows = await request.app.state.pool.fetch(
+async def reports(request: Request, page: int = 1, per: int = 30):
+    """报告列表(2026-08-12 加分页): 页面把列表摆在报告内容【上方】, 换报告不用滚到底"""
+    pool = request.app.state.pool
+    per = min(max(per, 1), 200)
+    page = max(page, 1)
+    total = await pool.fetchval("SELECT count(*)::int FROM regime_map_screens")
+    rows = await pool.fetch(
         "SELECT id, created_at, scope, params, summary FROM regime_map_screens"
-        " ORDER BY id DESC LIMIT $1", limit)
-    return {"reports": [dict(r) for r in rows]}
+        " ORDER BY id DESC LIMIT $1 OFFSET $2", per, (page - 1) * per)
+    return {"reports": [dict(r) for r in rows], "total": total,
+            "page": page, "per": per,
+            "pages": max((total + per - 1) // per, 1)}
 
 
 @router.get("/regime_map/reports/{rid}")

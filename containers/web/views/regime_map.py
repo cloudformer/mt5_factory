@@ -18,12 +18,14 @@ def index():
     """运行框(判据走表单不落库) + 报告回看 + 单策略下钻"""
     rid = request.args.get("report", type=int)
     verdict = request.args.get("verdict") or None
-    page = max(request.args.get("page", 1, type=int), 1)
+    page = max(request.args.get("page", 1, type=int), 1)          # 报告【内部】明细翻页
+    rpage = max(request.args.get("rpage", 1, type=int), 1)        # 报告【列表】翻页(独立)
     per = min(max(request.args.get("per", 50, type=int), 10), 200)
-    data = {"reports": [], "report": None, "batches": []}
+    data = {"reports": [], "report": None, "batches": [], "rlist": {}}
     try:
         data["batches"] = api.get("/strategy_batches")["batches"]
-        data["reports"] = api.get("/regime_map/reports")["reports"]
+        data["rlist"] = api.get("/regime_map/reports", page=rpage, per=30)
+        data["reports"] = data["rlist"]["reports"]
         if rid is None and data["reports"]:
             rid = data["reports"][0]["id"]
         if rid:
@@ -33,7 +35,7 @@ def index():
     except api.ApiError as e:
         flash(f"载入失败: {e}", "error")
     return render_template("regime_map.html", data=data, rid=rid, verdict=verdict,
-                           page=page, per=per)
+                           page=page, per=per, rpage=rpage)
 
 
 @bp.post("/regime-map/run")
