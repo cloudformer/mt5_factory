@@ -75,7 +75,9 @@
     </span>{% endif %}
   </div>
   <table class="dense">
-    <tr><th>#</th><th>时间</th><th>范围</th><th>判据</th><th>结果</th><th>查看</th></tr>
+    <tr><th>#</th><th>时间</th><th>范围</th><th>判据</th>
+      <th title="长短趋势背离 vs 一致 的止盈率差 — 本轮主判据">背离−一致</th>
+      <th>结果</th><th>查看</th></tr>
     {% for r in data.reports %}
     <tr {% if r.id == rid %}class="row-marked"{% endif %}>
       <td class="mono">{{ r.id }}</td>
@@ -86,6 +88,13 @@
         {% else %}{{ r.scope.template or '全模板' }} / {{ r.scope.symbol or '全品种' }}{% endif %}
         · {{ r.scope.count }} 个</td>
       <td class="muted mono">{{ '出场原因' if r.params.tier_mode == 'reason' else 'R倍数' }} · {{ r.params.permutations }}次 · p{{ r.params.sig_p }}</td>
+      {# 主判据一列(2026-08-13): 三行摞一起就是跨批对比, 不另开对比页。
+         四个版本全列出来, 不挑最好的那个 —— 挑=数据挖掘 #}
+      <td class="mono" title="长短趋势背离 vs 一致 的止盈率差(池化全批)。跨批比较前先核左边「判据」列是否一致 — 判据不同的两个数并排比无效(对比三铁律)">
+        {% for vid, kinds in (r.summary.pooled or {}) | dictsort %}
+        {% set t = ((kinds.get('all') or {}).get('全部') or {}).get('trend') %}
+        {% if t and t.diff is not none %}<span class="{{ 'pos' if t.diff >= 4 else '' }}">v{{ vid }} {{ '%+g' % t.diff }}</span>{{ ' · ' if not loop.last }}{% endif %}
+        {% endfor %}</td>
       <td><span class="pos">信号 {{ r.summary.signal }}</span> · 弱 {{ r.summary.weak }}
         · 无 {{ r.summary.none }} · 跳过 {{ r.summary.skipped }}</td>
       {# 局部刷新: 列表与报告内容同在 #rm-box 里, 换一次两边都更新(选中高亮跟着走) #}
@@ -107,6 +116,53 @@
 {% if rep.params.min_tier_cell %} 且该类在该格≥{{ rep.params.min_tier_cell }}笔{% else %} <span class="neg" title="这份报告跑在补门之前: 富集只检查了该格总笔数(分母),没检查该类在该格笔数(分子) — 碎格算出的高富集会被误判成信号, 需重跑">(无「该类在该格」门, 信号可能是碎格假象)</span>{% endif %}</span></h2>
     <span><a class="btn" href="{{ url_for('regime_map.report_json', rid=rep.id) }}">整份 JSON</a></span>
   </div>
+  {% if rep.summary.pooled %}
+  {# ① 池化读数(2026-08-13 Frank 定): 把 81 张读不动的表变成一个能下结论的数字。
+     主判据【事先定死只此一条】= 长短趋势背离 vs 一致 → 止盈率差几个百分点。
+     三个单维是照妖镜: 都该≈0, 否则所谓"背离效应"只是某个单维的影子。
+     各版本【独立】成块, 不合并不排名(同名格是不同分类维度)。 #}
+  {% set BUCKETS = [('all','全部'), ('tf','按周期'), ('slow','按 slow(持仓代理)'), ('sym','按品种')] %}
+  <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:10px 0">
+    <b>① 池化读数 · 主判据:长短趋势【背离】vs【一致】</b>
+    <p class="muted" style="margin:4px 0 8px">
+      把全批策略的交易堆在一起只问一句:趋势背离时开的仓,止盈率比趋势一致时高几个百分点?
+      <span style="cursor:help;border-bottom:1px dotted" title="为什么必须池化: H4 单策略只有 261 笔, 八格分下来每格 30 笔, 4 个百分点的差根本测不出;&#10;H1 单策略 3688 笔够, 但那是一个策略的运气 — 要问的是「这规律普遍成立吗」。&#10;&#10;为什么是这一条: 双均线在【交叉那一刻】入场。长短背离=方向刚转, 交叉信号新鲜;&#10;长短一致=趋势确立已久, 此时的交叉多半是回调噪音。&#10;&#10;判读: 稳定 +4~5pt 且跨周期/跨品种同向 = 规律成立; 掉到 0~1pt = 之前是小样本运气。&#10;别看 z: 同品种同模板的策略仓位高度重叠, 几十万笔远不是几十万个独立观察 — 只读效应量与一致性。">(为什么?)</span></p>
+    {% for vid, kinds in rep.summary.pooled | dictsort %}
+    <div style="margin:8px 0 2px"><b class="mono">v{{ vid }}</b>
+      {% set ctl = (kinds.get('all') or {}).get('全部') or {} %}
+      {% if ctl %}<span class="muted">　对照(应≈0):
+        {% for g, gcn in [('long','长趋势'), ('short','短趋势'), ('vol','波动')] %}
+        {% if ctl.get(g) and ctl[g].diff is not none %}{{ gcn }} {{ '%+g' % ctl[g].diff }}{{ ' · ' if not loop.last }}{% endif %}
+        {% endfor %}</span>{% endif %}
+    </div>
+    <table class="dense" style="margin:0 0 6px">
+      <tr><th>分桶</th><th class="num">背离 笔数</th><th class="num">背离 止盈率</th>
+        <th class="num">一致 笔数</th><th class="num">一致 止盈率</th><th class="num">差</th><th>直读</th></tr>
+      {% for kind, kcn in BUCKETS if kinds.get(kind) %}
+      {% for key, groups in kinds[kind] | dictsort %}
+      {% set t = groups.get('trend') %}
+      {% if t and t.diff is not none %}
+      <tr>
+        <td class="mono">{% if kind == 'all' %}<b>全部</b>{% else %}{{ kcn[1:] }} {{ key }}{% endif %}</td>
+        <td class="num mono muted">{{ t.diverge.n }}</td>
+        <td class="num mono">{{ t.diverge.win_pct }}%</td>
+        <td class="num mono muted">{{ t.align.n }}</td>
+        <td class="num mono">{{ t.align.win_pct }}%</td>
+        <td class="num mono {{ 'pos' if t.diff >= 2 else ('neg' if t.diff <= -2 else '') }}">{{ '%+g' % t.diff }}pt</td>
+        <td class="muted">{% if t.diverge.n < 2000 or t.align.n < 2000 %}笔数偏少, 参考
+          {% elif t.diff >= 4 %}<b class="pos">背离时明显更容易止盈</b>
+          {% elif t.diff >= 2 %}有一点, 不强
+          {% elif t.diff > -2 %}两边一样 — 没规律
+          {% else %}反向{% endif %}</td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+      {% endfor %}
+    </table>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <p class="muted">共 {{ rep.summary.total }}
     · <a data-ajax="#rm-box" href="?report={{ rep.id }}&rpage={{ rpage }}&verdict=signal">有信号 <b class="pos">{{ rep.summary.signal }}</b></a>
     · <a data-ajax="#rm-box" href="?report={{ rep.id }}&rpage={{ rpage }}&verdict=weak">弱 {{ rep.summary.weak }}</a>

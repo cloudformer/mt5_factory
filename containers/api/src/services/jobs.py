@@ -200,7 +200,7 @@ async def _run_map(pool, job_id: int, payload: dict) -> None:
     out = []
     for sid in payload["ids"]:
         s = await pool.fetchrow(
-            "SELECT s.id, s.name, s.template, s.symbol, s.timeframe, s.status,"
+            "SELECT s.id, s.name, s.template, s.symbol, s.timeframe, s.status, s.params,"
             "       sy.point FROM strategies s LEFT JOIN symbols sy ON sy.symbol = s.symbol"
             " WHERE s.id=$1", sid)
         if s is None:
@@ -209,7 +209,9 @@ async def _run_map(pool, job_id: int, payload: dict) -> None:
             "SELECT from_time, to_time, trades FROM backtests"
             " WHERE strategy_id=$1 AND symbol=$2", sid, s["symbol"])
         base = {"id": sid, "name": s["name"], "template": s["template"],
-                "symbol": s["symbol"], "timeframe": s["timeframe"], "status": s["status"]}
+                "symbol": s["symbol"], "timeframe": s["timeframe"], "status": s["status"],
+                # slow = 池化分档用(持仓长短的代理: 持仓 ≈ 0.8×slow 根)
+                "slow": (s["params"] or {}).get("slow")}
         if bt is None or not (bt["trades"] or []):
             out.append({**base, "verdict": "skip", "reason": "缺回测行(先跑一发回测)"})
             continue

@@ -84,6 +84,38 @@ def classify(trades: list, p: dict, point: float) -> tuple[list, dict]:
     return rows, counts
 
 
+# 池化读数的分组(2026-08-13 与 Frank 定): 只此一条主判据, 事先定死, 不事后挑。
+# 主判据 = 长短趋势【背离 vs 一致】—— 手算四份报告三份同向(+4.9/+2.5/+4.2), 待坐实。
+# 机制: 双均线在【交叉那一刻】入场; 长短背离 = 方向刚转, 交叉信号新鲜;
+#       长短一致 = 趋势确立已久, 此时的交叉多半是回调噪音。
+# 三个单维是【对照组】: 它们都该接近 0 —— 若某个单维自己就有东西, 说明所谓"背离效应"
+# 只是那一维的影子, 不是真交互。这是照妖镜, 不是凑数。
+SPLIT_CN = {"trend": "长短背离", "long": "长趋势", "short": "短趋势", "vol": "波动"}
+
+
+def splits(rows: list, tl: dict) -> dict:
+    """按四种分法统计 (笔数, 止盈笔数) —— 池化的原料, 只计数不判定。
+
+    分母含跳空两类(与表里显示的止盈率口径一致: 38.3% = 1412/3688), 不另开一套。
+    返回 {分法: {边: [笔数, 止盈笔数]}}; 边 = A/B, 或 diverge/align。
+    """
+    out = {k: {"A": [0, 0], "B": [0, 0]} for k in ("long", "short", "vol")}
+    out["trend"] = {"diverge": [0, 0], "align": [0, 0]}
+    for r in rows:
+        c = tl.get(datetime.fromtimestamp(r["ts"], tz=timezone.utc).date())
+        if c not in CELLS:
+            continue
+        win = 1 if r["tier"] == "tp" else 0
+        for i, k in enumerate(("long", "short", "vol")):
+            b = out[k][c[i]]
+            b[0] += 1
+            b[1] += win
+        b = out["trend"]["diverge" if c[0] != c[1] else "align"]
+        b[0] += 1
+        b[1] += win
+    return out
+
+
 def _stat(table: dict, tier_tot: dict, cell_tot: dict, n: int, tiers=TIERS) -> float:
     """列联表统计量: 卡方式的 Σ(观测-期望)²/期望 — 只作置换检验的统计量, 不查表。
     tiers = 参与判定的类(占比够的那几类); cell_tot/n 必须也是按这几类重算的, 否则期望值不对。"""
@@ -151,15 +183,16 @@ def permutation_p(rows: list, tl: dict, obs: float, n_perm: int, seed: int = 0,
 def analyze_version(rows: list, tl: dict, p: dict, seed: int = 0) -> dict:
     """单个版本的独立分析(不与其他版本发生任何关系)"""
     table, tier_tot, cell_tot, n, unl = contingency(rows, tl)
+    sp = splits(rows, tl)          # 池化原料: 与逐策略判定无关, 任何情况都给
     if n < 20:
-        return {"n": n, "unlabeled": unl, "verdict": "skip",
+        return {"n": n, "unlabeled": unl, "splits": sp, "verdict": "skip",
                 "reason": f"可贴格交易仅 {n} 笔(<20) — 时间线未覆盖或样本太少"}
     # 样本不足的类: 数字照给, 但不进统计量、不参与判定(与 oos_v2「！样本不足」同规矩)
     share = {ti: round(tier_tot[ti] / n * 100, 1) for ti in TIERS}
     judged = [ti for ti in TIERS if tier_tot[ti] and share[ti] >= p["min_tier_pct"]]
     small = [ti for ti in TIERS if tier_tot[ti] and share[ti] < p["min_tier_pct"]]
     if len(judged) < 2:
-        return {"n": n, "unlabeled": unl, "share": share, "judged": judged,
+        return {"n": n, "unlabeled": unl, "splits": sp, "share": share, "judged": judged,
                 "small": small, "table": table, "tier_tot": tier_tot,
                 "cell_tot": cell_tot, "enrich": {}, "best": None, "verdict": "skip",
                 "reason": f"参与判定的类不足 2 个(占比≥{p['min_tier_pct']:g}% 的只有"
@@ -206,7 +239,7 @@ def analyze_version(rows: list, tl: dict, p: dict, seed: int = 0) -> dict:
         reason = (f"弱: p={pv:.3f} 显著但富集全靠碎格(无格同时满足 富集≥"
                   f"{p['min_enrich']}x、该格≥{p['min_cell_trades']}笔、"
                   f"该类在该格≥{p['min_tier_cell']}笔)" + tail)
-    return {"n": n, "unlabeled": unl, "share": share, "judged": judged, "small": small,
-            "n_judged": n_j, "stat": round(obs, 2), "p": round(pv, 4),
+    return {"n": n, "unlabeled": unl, "splits": sp, "share": share, "judged": judged,
+            "small": small, "n_judged": n_j, "stat": round(obs, 2), "p": round(pv, 4),
             "table": table, "tier_tot": tier_tot, "cell_tot": cell_tot,
             "enrich": enrich, "best": best, "verdict": verdict, "reason": reason}

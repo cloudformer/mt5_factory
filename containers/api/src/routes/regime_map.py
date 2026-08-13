@@ -104,6 +104,48 @@ async def progress(request: Request):
             "total": row["total"], "done": row["done"]}
 
 
+def _pool(details: list) -> dict:
+    """跨策略池化(2026-08-13 与 Frank 定) —— 单策略读不出的东西, 池化才有。
+
+    为什么必须池化: H4 单策略只有 261 笔, 八格分下来每格 30 笔, 4 个百分点的差根本测不出;
+    H1 单策略 3688 笔够, 但那是【一个策略】的运气, 我们要问的是"这规律普遍成立吗"。
+    分桶: 全部 / 各周期 / 各 slow(持仓长短的代理) / 各品种 —— 换品种重现比任何 p 值都硬。
+    【按版本各池各的】: 铁律 = 版本之间不可比(同名格是不同分类维度), 绝不合并、绝不排名。
+    """
+    out = {}
+    for d in details:
+        for vid, v in (d.get("versions") or {}).items():
+            sp = v.get("splits")
+            if not sp:
+                continue
+            for kind, key in (("all", "全部"), ("tf", d.get("timeframe")),
+                              ("slow", d.get("slow")), ("sym", d.get("symbol"))):
+                if key is None:
+                    continue
+                box = out.setdefault(vid, {}).setdefault(kind, {}).setdefault(str(key), {})
+                for grp, sides in sp.items():
+                    for side, (n, tp) in sides.items():
+                        a = box.setdefault(grp, {}).setdefault(side, [0, 0])
+                        a[0] += n
+                        a[1] += tp
+    # 汇总成可读数: 每桶每分法给 两边的笔数/止盈率 + 差(百分点)
+    res = {}
+    for vid, kinds in out.items():
+        for kind, boxes in kinds.items():
+            for key, groups in boxes.items():
+                for grp, sides in groups.items():
+                    r = {}
+                    for side, (n, tp) in sides.items():
+                        r[side] = {"n": n, "win_pct": round(tp / n * 100, 1) if n else None}
+                    a, b = (("diverge", "align") if grp == "trend" else ("A", "B"))
+                    ra, rb = r.get(a), r.get(b)
+                    r["diff"] = (round(ra["win_pct"] - rb["win_pct"], 1)
+                                 if ra and rb and ra["win_pct"] is not None
+                                 and rb["win_pct"] is not None else None)
+                    res.setdefault(vid, {}).setdefault(kind, {}).setdefault(key, {})[grp] = r
+    return res
+
+
 async def finalize(pool) -> int | None:
     """收尾: 全部块跑完 → 合并 result → 落报告 → 删队列(单事务, 失败整体回滚防复读)"""
     rows = await pool.fetch(
@@ -126,7 +168,9 @@ async def finalize(pool) -> int | None:
                     details.extend({"id": i, "verdict": "skip", "reason": "计算块失败"}
                                    for i in (r["payload"] or {}).get("ids", []))
             details.sort(key=lambda d: d.get("id", 0))
-            summary = {"total": len(details),
+            # 池化读数(2026-08-13): 报告顶上那块 + 历史列表那一列都吃它
+            pooled = _pool(details)
+            summary = {"pooled": pooled, "total": len(details),
                        "signal": sum(1 for d in details if d.get("verdict") == "signal"),
                        "weak": sum(1 for d in details if d.get("verdict") == "weak"),
                        "none": sum(1 for d in details if d.get("verdict") == "none"),
