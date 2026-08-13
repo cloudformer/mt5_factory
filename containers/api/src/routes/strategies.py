@@ -101,20 +101,30 @@ async def generate(req: GenerateRequest, request: Request):
 
 
 @router.get("/strategy_batches")
-async def strategy_batches(request: Request, limit: int = 60):
+async def strategy_batches(request: Request, limit: int = 60, only_tested: int = 0):
     """批次清单(2026-08-12): 生成时填的标签 + 各自实例数/周期/回测进度 —
-    回测页与分析页的批次下拉都吃它。AI 调参的 basis 带〔方法·模型〕尾标, 只取标签主体。"""
+    回测页与分析页的批次下拉都吃它。
+
+    only_tested(2026-08-13 补): 只列【有回测行】的批次。
+    分析页(规律/筛选)本来就只能算有回测行的策略, 列出没法算的批次纯属挖坑 —
+    Frank 就是选中一个 1 个策略且没回测的 AI 克隆"批次", 收到 400 才发现。
+    回测页【不传】这个参数 —— 那边恰恰要的就是未测批次。
+
+    注: basis 这一列身兼两职 —— 生成批次标签(grid/random 填的) + AI 克隆的生因
+    (一整句话, 每克隆一个算一个"批次")。后者会把下拉刷屏, only_tested 顺带滤掉大半。
+    """
     uid = identity.scope_uid(request)
+    tested = ("count(*) FILTER (WHERE EXISTS (SELECT 1 FROM backtests b"
+              "   WHERE b.strategy_id = s.id AND b.symbol = s.symbol))")
     rows = await request.app.state.pool.fetch(
         "SELECT basis, count(*)::int AS n,"
         "       string_agg(DISTINCT timeframe, ',' ORDER BY timeframe) AS timeframes,"
-        "       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM backtests b"
-        "         WHERE b.strategy_id = s.id AND b.symbol = s.symbol))::int AS tested,"
-        "       max(created_at) AS last_at"
+        f"       {tested}::int AS tested, max(created_at) AS last_at"
         "  FROM strategies s"
         " WHERE basis IS NOT NULL AND basis <> ''"
         + (" AND owner_id = $2" if uid else "") +
-        " GROUP BY basis ORDER BY max(created_at) DESC LIMIT $1",
+        " GROUP BY basis" + (f" HAVING {tested} > 0" if only_tested else "") +
+        " ORDER BY max(created_at) DESC LIMIT $1",
         limit, *([uid] if uid else []))
     return {"batches": [dict(r) for r in rows]}
 

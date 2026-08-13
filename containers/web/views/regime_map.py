@@ -23,7 +23,8 @@ def index():
     per = min(max(request.args.get("per", 50, type=int), 10), 200)
     data = {"reports": [], "report": None, "batches": [], "rlist": {}}
     try:
-        data["batches"] = api.get("/strategy_batches")["batches"]
+        # 本页只能算有回测行的策略 → 下拉也只列这些, 免得选中没法算的批次收 400
+        data["batches"] = api.get("/strategy_batches", only_tested=1)["batches"]
         data["rlist"] = api.get("/regime_map/reports", page=rpage, per=30)
         data["reports"] = data["rlist"]["reports"]
         if rid is None and data["reports"]:

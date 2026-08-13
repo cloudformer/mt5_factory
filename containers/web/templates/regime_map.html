@@ -38,7 +38,7 @@
         <select name="basis">
           <option value="">全部批次</option>
           {% for b in data.batches %}
-          <option value="{{ b.basis }}">{{ b.basis }} · {{ b.timeframes }} · {{ b.n }}个{% if b.tested %} (已测{{ b.tested }}){% endif %}</option>
+          <option value="{{ b.basis }}" title="{{ b.basis }}">{{ b.basis | truncate(46, true, "…") }} · {{ b.timeframes }} · 已测 {{ b.tested }}/{{ b.n }}</option>
           {% endfor %}
         </select></label>
       <label>模板 <input name="template" size="12" placeholder="全部"></label>
