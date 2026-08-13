@@ -176,8 +176,10 @@
         {# 着色(2026-08-12 Frank 要): 格内占比 vs 本行合计占比。
            方向按【好坏】不按【大小】—— 止盈类高=好=绿, 止损/跳空不利类高=坏=红;
            若一律"高就绿", 62.3% 的止损率会显示成绿色, 扫一眼直接读反 #}
-        {% set good = (cpct > avg) if ti not in TIER_NEG_TIER else (cpct < avg) %}
-        <td class="num mono {{ 'pos' if hit else ('muted' if not n else ('pos' if cpct is not none and good else ('neg' if cpct is not none and cpct != avg else ''))) }}"
+        {# 空格子 cpct 为 None, 必须先挡住 —— None 与数字比大小会抛 TypeError 整页 500 #}
+        {% set good = none if cpct is none
+                      else ((cpct > avg) if ti not in TIER_NEG_TIER else (cpct < avg)) %}
+        <td class="num mono {{ 'pos' if hit else ('muted' if not n else ('pos' if good else ('neg' if good is sameas false else ''))) }}"
             title="{{ cn }}在 {{ c }}: {{ n }} 笔 / 该格共 {{ v.cell_tot[c] }} 笔{% if e %} · 富集 {{ e }}x（相对本类全局占比）{% endif %}{% if e and e >= rep.params.min_enrich and not hit %} — 富集够但笔数不够, 不算信号{% endif %}">
           {{ n or '·' }}{% if cpct is not none %}<br><span style="font-size:11px">{{ cpct | round(1) }}%</span>{% endif %}</td>
         {% endfor %}
