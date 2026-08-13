@@ -46,7 +46,16 @@ def cfg_params(cfg: dict) -> dict:
             "min_cell_trades": int(c.get("min_cell_trades") or 30),
             # 该类在该格的最小笔数(2026-08-11 修): 原来只管"该格总笔数", 3 笔算出的
             # 3.77x 被判成信号 — 假信号的根源
-            "min_tier_cell": int(c.get("min_tier_cell") or 10)}
+            "min_tier_cell": int(c.get("min_tier_cell") or 10),
+            # 样本不足提示线(2026-08-12 Frank 定, 与 oos_v2/矩阵页同款规矩):
+            # 合计占比低于此值的类挂「！样本不足」—— 数字照给, 但不进统计量、不参与判定。
+            # 为什么必须踢出统计量: Σ(观测-期望)²/期望 里期望越小单格贡献越炸 —
+            # 跳空不利在 AAA 期望 11.1 实际 25, 光这一格就贡献 17.4, 能把 p 一手拉到 0.001,
+            # 于是"盈亏在八格分层"和"跳空集中在某格"两件事混成一个 p, 谁都读不出来。
+            # 踢掉之后 p 只回答一个干净问题: 这八种天气下赢的比例有没有真差别。
+            # 0 = 关掉这道门(四类全参与判定); 用 is None 判空, 不能用 or —— 0 是有效值
+            "min_tier_pct": float(10 if c.get("min_tier_pct") is None
+                                  else c["min_tier_pct"])}
 
 
 def tier_of(t: dict) -> str:
@@ -75,10 +84,11 @@ def classify(trades: list, p: dict, point: float) -> tuple[list, dict]:
     return rows, counts
 
 
-def _stat(table: dict, tier_tot: dict, cell_tot: dict, n: int) -> float:
-    """列联表统计量: 卡方式的 Σ(观测-期望)²/期望 — 只作置换检验的统计量, 不查表"""
+def _stat(table: dict, tier_tot: dict, cell_tot: dict, n: int, tiers=TIERS) -> float:
+    """列联表统计量: 卡方式的 Σ(观测-期望)²/期望 — 只作置换检验的统计量, 不查表。
+    tiers = 参与判定的类(占比够的那几类); cell_tot/n 必须也是按这几类重算的, 否则期望值不对。"""
     s = 0.0
-    for ti in TIERS:
+    for ti in tiers:
         if not tier_tot[ti]:
             continue
         for c in CELLS:
@@ -109,31 +119,31 @@ def contingency(rows: list, tl: dict) -> tuple[dict, dict, dict, int, int]:
     return table, tier_tot, cell_tot, n, unl
 
 
-def permutation_p(rows: list, tl: dict, obs: float, n_perm: int, seed: int = 0) -> float:
+def permutation_p(rows: list, tl: dict, obs: float, n_perm: int, seed: int = 0,
+                  tiers=TIERS) -> float:
     """置换检验: 保持每笔的【类别】不变, 只把格标签在交易之间随机重排 —
     切断"类别↔格"的对应, 保留四类占比与各格交易量结构。返回 p = (≥obs 的次数+1)/(N+1)"""
-    cells = []
-    for r in rows:
-        d = datetime.fromtimestamp(r["ts"], tz=timezone.utc).date()
-        c = tl.get(d)
-        if c in CELLS:
-            cells.append(c)
-    tiers = [r["tier"] for r in rows
-             if tl.get(datetime.fromtimestamp(r["ts"], tz=timezone.utc).date()) in CELLS]
+    # 只拿参与判定的类进检验(小类既不进统计量, 也不该进零分布)
+    keep = set(tiers)
+    pairs = [(r["tier"], tl.get(datetime.fromtimestamp(r["ts"], tz=timezone.utc).date()))
+             for r in rows]
+    pairs = [(t, c) for t, c in pairs if c in CELLS and t in keep]
+    cells = [c for _t, c in pairs]
+    tlab = [t for t, _c in pairs]
     if len(cells) < 20:
         return 1.0
     rng = random.Random(seed)
     ge = 0
     for _ in range(n_perm):
         rng.shuffle(cells)
-        tb = {ti: {c: 0 for c in CELLS} for ti in TIERS}
-        tt = {ti: 0 for ti in TIERS}
+        tb = {ti: {c: 0 for c in CELLS} for ti in keep}
+        tt = {ti: 0 for ti in keep}
         ct = {c: 0 for c in CELLS}
-        for ti, c in zip(tiers, cells):
+        for ti, c in zip(tlab, cells):
             tb[ti][c] += 1
             tt[ti] += 1
             ct[c] += 1
-        if _stat(tb, tt, ct, len(cells)) >= obs:
+        if _stat(tb, tt, ct, len(cells), tiers) >= obs:
             ge += 1
     return (ge + 1) / (n_perm + 1)
 
@@ -144,9 +154,23 @@ def analyze_version(rows: list, tl: dict, p: dict, seed: int = 0) -> dict:
     if n < 20:
         return {"n": n, "unlabeled": unl, "verdict": "skip",
                 "reason": f"可贴格交易仅 {n} 笔(<20) — 时间线未覆盖或样本太少"}
-    obs = _stat(table, tier_tot, cell_tot, n)
-    pv = permutation_p(rows, tl, obs, p["permutations"], seed)
-    # 富集: 该类中此格占比 ÷ 此格整体交易占比; 只在"该格笔数够"时才算数
+    # 样本不足的类: 数字照给, 但不进统计量、不参与判定(与 oos_v2「！样本不足」同规矩)
+    share = {ti: round(tier_tot[ti] / n * 100, 1) for ti in TIERS}
+    judged = [ti for ti in TIERS if tier_tot[ti] and share[ti] >= p["min_tier_pct"]]
+    small = [ti for ti in TIERS if tier_tot[ti] and share[ti] < p["min_tier_pct"]]
+    if len(judged) < 2:
+        return {"n": n, "unlabeled": unl, "share": share, "judged": judged,
+                "small": small, "table": table, "tier_tot": tier_tot,
+                "cell_tot": cell_tot, "enrich": {}, "best": None, "verdict": "skip",
+                "reason": f"参与判定的类不足 2 个(占比≥{p['min_tier_pct']:g}% 的只有"
+                          f" {len(judged)} 类) — 无从比较"}
+    # 判定用的缩减表: 只有参与判定的那几类, 格总数与总笔数都按它们重算(否则期望值不对)
+    cell_j = {c: sum(table[ti][c] for ti in judged) for c in CELLS}
+    n_j = sum(tier_tot[ti] for ti in judged)
+    obs = _stat(table, tier_tot, cell_j, n_j, judged)
+    pv = permutation_p(rows, tl, obs, p["permutations"], seed, judged)
+    # 富集倍数对【全部】类都算(它只是个描述性倍数, 表里照常显示);
+    # 但只有参与判定的类能触发「有信号」
     enrich, best = {}, None
     for ti in TIERS:
         if not tier_tot[ti]:
@@ -156,23 +180,33 @@ def analyze_version(rows: list, tl: dict, p: dict, seed: int = 0) -> dict:
                 continue
             e = (table[ti][c] / tier_tot[ti]) / (cell_tot[c] / n)
             enrich.setdefault(ti, {})[c] = round(e, 2)
-            # 两道笔数门槛都要过: 该格总笔数够(格本身不是碎格) + 该类在该格笔数够
-            # (2026-08-11 修: 原来只管前者, "小赢在ABA富集3.77x" 底下只有 3 笔 → 假信号)
-            if (e >= p["min_enrich"] and cell_tot[c] >= p["min_cell_trades"]
+            # 三道门都要过: 富集够 + 该格不是碎格 + 该类在该格笔数够; 且该类得参与判定
+            if (ti in judged and e >= p["min_enrich"]
+                    and cell_tot[c] >= p["min_cell_trades"]
                     and table[ti][c] >= p["min_tier_cell"]):
                 if best is None or e > best["enrich"]:
                     best = {"tier": ti, "cell": c, "enrich": round(e, 2),
                             "cell_n": cell_tot[c], "n": table[ti][c]}
+    jn = "、".join(TIER_CN[t] for t in judged)
+    tail = ""
+    if small:
+        tail = ("　参与判定: " + jn + " · "
+                + "、".join(f"{TIER_CN[t]}({share[t]}%)" for t in small)
+                + f" 占比<{p['min_tier_pct']:g}% 挂！样本不足, 只提示不判定")
     if pv >= p["sig_p"]:
-        verdict, reason = "none", f"无信号: 置换 p={pv:.3f} ≥ {p['sig_p']:g} — 四类在八格的分布与随机贴标签无异"
+        verdict = "none"
+        reason = (f"无信号: 置换 p={pv:.3f} ≥ {p['sig_p']:g} —"
+                  f" 八个格之间的出场方式分布与随机贴标签无异" + tail)
     elif best:
         verdict = "signal"
         reason = (f"有信号: p={pv:.3f} · {TIER_CN[best['tier']]}在 {best['cell']} 富集"
-                  f" {best['enrich']}x({best['n']}/{best['cell_n']}笔)")
+                  f" {best['enrich']}x({best['n']}/{best['cell_n']}笔)" + tail)
     else:
         verdict = "weak"
-        reason = (f"弱: p={pv:.3f} 显著但富集全靠小格子"
-                  f"(无格同时满足 富集≥{p['min_enrich']}x、该格≥{p['min_cell_trades']}笔、该类在该格≥{p['min_tier_cell']}笔)")
-    return {"n": n, "unlabeled": unl, "stat": round(obs, 2), "p": round(pv, 4),
+        reason = (f"弱: p={pv:.3f} 显著但富集全靠碎格(无格同时满足 富集≥"
+                  f"{p['min_enrich']}x、该格≥{p['min_cell_trades']}笔、"
+                  f"该类在该格≥{p['min_tier_cell']}笔)" + tail)
+    return {"n": n, "unlabeled": unl, "share": share, "judged": judged, "small": small,
+            "n_judged": n_j, "stat": round(obs, 2), "p": round(pv, 4),
             "table": table, "tier_tot": tier_tot, "cell_tot": cell_tot,
             "enrich": enrich, "best": best, "verdict": verdict, "reason": reason}

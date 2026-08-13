@@ -5,6 +5,8 @@
                   'big_win':'大赢','small_win':'小赢','small_loss':'小亏','big_loss':'大亏'} %}
 {% set TIER_ORDER = ['tp','sl','gap_win','gap_loss','big_win','small_win','small_loss','big_loss'] %}
 {% set TIER_NEG = ['gap_loss','big_loss'] %}
+{# 着色方向要反的类(数值越高越糟): 止损与亏损类 #}
+{% set TIER_NEG_TIER = ['sl','gap_loss','small_loss','big_loss'] %}
 {% block content %}
 {{ m.page_header('筛选·策略×regime 映射规律', '问一件事: 这个策略的盈亏能不能被某个 regime 口径的八个格分出层次 — 交易按【出场原因】分四类(止盈/锁利 · 正常止损 · 跳空有利 · 跳空不利), 每个版本【独立】做一张 4类×8格 列联表, 置换检验出 p。纯计算复用回测行(不重跑引擎)') }}
 
@@ -25,6 +27,7 @@
       <label title="某类在某格的富集倍数门槛(该类中此格占比 ÷ 此格整体占比)">富集≥<input name="min_enrich" value="1.5" size="4">x</label>
       <label title="该格的总笔数门槛 — 格本身不能是碎格">该格≥<input name="min_cell_trades" value="30" size="4">笔</label>
       <label title="该类在该格的笔数门槛 — 3 笔算出的 3.77x 是噪音不是信号(2026-08-11 补的门)">该类在该格≥<input name="min_tier_cell" value="10" size="4">笔</label>
+      <label title="合计占比低于此值的类挂「！样本不足」: 数字照给, 但不进统计量、不参与判定(与 oos_v2/矩阵页同规矩)。&#10;为什么必须踢出统计量: Σ(观测-期望)²/期望 里期望越小单格贡献越炸 — 实测某份报告统计量 61.86 里有 43.3(七成)是占比 3.5% 的两个跳空类贡献的, 把「盈亏分层」和「跳空集中」混成一个 p。&#10;0 = 关掉这道门">样本不足提示(占比)<input name="min_tier_pct" value="10" size="4">%</label>
       <span class="muted">判据不落库, 随报告存快照</span>
     </div>
     <div class="row">
@@ -152,18 +155,31 @@
         <th class="num">合计</th></tr>
       {% for ti in TIER_ORDER if ti in v.table %}
       {% set cn = TIER_CN[ti] %}
+      {% set is_small = v.small and ti in v.small %}
+      {# 合计占比 = 本行的"平均线", 下面每格的格内占比就跟它比 #}
+      {% set avg = (v.tier_tot[ti] / v.n * 100) if v.n else 0 %}
       <tr>
-        <td class="mono {{ 'neg' if ti in TIER_NEG }}">{{ cn }}</td>
+        <td class="mono {{ 'neg' if ti in TIER_NEG }}">{{ cn }}
+          {% if is_small %}<span class="muted" title="该类合计仅占 {{ v.share[ti] }}% — 数字如实照给, 但不进统计量、不参与判定(与 oos_v2 同规矩)">！样本不足</span>{% endif %}</td>
         {% for c in ['AAA','AAB','ABA','ABB','BAA','BAB','BBA','BBB'] %}
         {% set n = v.table[ti][c] %}
         {% set e = (v.enrich.get(ti, {}) or {}).get(c) %}
+        {# hit = 触发「有信号」的格(亮高亮)。必须排除挂了！样本不足的类 ——
+           它们不参与判定, 再亮"信号绿"就与判定语自相矛盾, 而且会把
+           「跳空不利 5.2% 远高于平均」这种坏事画成绿色, 扫一眼读反 #}
         {% set hit = e and e >= rep.params.min_enrich and v.cell_tot[c] >= rep.params.min_cell_trades
-                     and n >= (rep.params.min_tier_cell or 1) %}
+                     and n >= (rep.params.min_tier_cell or 1)
+                     and not (v.small and ti in v.small) %}
         {# 主显示 = 格内占比: 这才是能直接横向比的数(各格都是"这种天气下这么出场的比例"),
            富集倍数放悬停 — 富集是"相对全类"的相对数, 看着刺激但小格子会炸 #}
-        <td class="num mono {{ 'pos' if hit else ('muted' if not n else '') }}"
+        {% set cpct = (n / v.cell_tot[c] * 100) if (n and v.cell_tot[c]) else None %}
+        {# 着色(2026-08-12 Frank 要): 格内占比 vs 本行合计占比。
+           方向按【好坏】不按【大小】—— 止盈类高=好=绿, 止损/跳空不利类高=坏=红;
+           若一律"高就绿", 62.3% 的止损率会显示成绿色, 扫一眼直接读反 #}
+        {% set good = (cpct > avg) if ti not in TIER_NEG_TIER else (cpct < avg) %}
+        <td class="num mono {{ 'pos' if hit else ('muted' if not n else ('pos' if cpct is not none and good else ('neg' if cpct is not none and cpct != avg else ''))) }}"
             title="{{ cn }}在 {{ c }}: {{ n }} 笔 / 该格共 {{ v.cell_tot[c] }} 笔{% if e %} · 富集 {{ e }}x（相对本类全局占比）{% endif %}{% if e and e >= rep.params.min_enrich and not hit %} — 富集够但笔数不够, 不算信号{% endif %}">
-          {{ n or '·' }}{% if n and v.cell_tot[c] %}<br><span style="font-size:11px" class="muted">{{ (n / v.cell_tot[c] * 100) | round(1) }}%</span>{% endif %}</td>
+          {{ n or '·' }}{% if cpct is not none %}<br><span style="font-size:11px">{{ cpct | round(1) }}%</span>{% endif %}</td>
         {% endfor %}
         <td class="num mono muted">{{ v.tier_tot[ti] }}
           <br><span style="font-size:11px">{{ (v.tier_tot[ti] / v.n * 100) | round(1) if v.n else 0 }}%</span></td>

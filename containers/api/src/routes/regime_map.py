@@ -29,6 +29,7 @@ class RunRequest(BaseModel):
     min_enrich: float = 1.5       # 富集倍数门槛
     min_cell_trades: int = 30     # 该格总笔数门槛(格本身不能是碎格)
     min_tier_cell: int = 10       # 该类在该格的笔数门槛(3 笔算出的 3.77x 是噪音不是信号)
+    min_tier_pct: float = 10.0    # 样本不足提示线(合计占比%): 低于此值的类只提示不判定; 0=关
     # 范围
 
     ids: Optional[list[int]] = None       # 点名; 空 = 按筛选条件全池

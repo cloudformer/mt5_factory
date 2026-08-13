@@ -50,6 +50,7 @@ def run():
         "min_enrich": num("min_enrich", 1.5),
         "min_cell_trades": num("min_cell_trades", 30, int),
         "min_tier_cell": num("min_tier_cell", 10, int),
+        "min_tier_pct": num("min_tier_pct", 10.0),
         "limit": num("limit", 200, int),
         "task": (request.form.get("task") or "").strip() or None,
     }
