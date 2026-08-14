@@ -80,6 +80,13 @@ async def run(req: RunRequest, request: Request):
         "SELECT id FROM regime_versions ORDER BY id")]
     if not versions:
         raise HTTPException(status_code=400, detail="没有 regime 版本")
+    # 在跑就拦(2026-08-13 补齐, 四页同款): 本页原先无条件 DELETE 旧批 —— 再点一次会把
+    # 上一批顶掉, 已算一半的块结果静默丢失(worker 算完 UPDATE 0 行), 进度条还归零重来。
+    # Frank 实测踩过: "31个跑了好几次都没有"。不排队是设计(jobs 表永远只有最新一批, 铁律3),
+    # 但"顶掉"必须是显式动作 → 想换批先点停止。
+    if await jobs.has_active(pool, jobs.MAP_KIND):
+        raise HTTPException(status_code=409,
+                            detail="已有一批分析在跑, 等它完成再点(或先点停止)")
     await pool.execute("DELETE FROM jobs WHERE kind=$1", jobs.MAP_KIND)
     scope = {"task": (req.task or "").strip() or None, "ids": req.ids,
              "basis": req.basis,
@@ -92,6 +99,17 @@ async def run(req: RunRequest, request: Request):
                 len(ids), len(versions), len(items))
     return {"started": True, "strategies": len(ids), "versions": versions,
             "chunks": len(items)}
+
+
+@router.post("/regime_map/stop")
+async def stop(request: Request):
+    """停止当前批次(2026-08-13 补齐, 四页同款): 删空队列 = 不出报告。
+    正在跑的块把手头算完, 写回时更新 0 行自然结束(纯计算零写入, 无副作用)。"""
+    n = await request.app.state.pool.execute(
+        "DELETE FROM jobs WHERE kind=$1", jobs.MAP_KIND)
+    deleted = int(n.split()[-1]) if n.split()[-1].isdigit() else 0
+    logger.info("regime_map stopped: %d jobs deleted", deleted)
+    return {"deleted": deleted}
 
 
 @router.get("/regime_map/progress")

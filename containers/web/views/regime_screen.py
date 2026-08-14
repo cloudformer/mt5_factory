@@ -48,6 +48,16 @@ def index():
                            sort=sort, sdir=sdir, **data)
 
 
+@bp.post("/regime-screen/stop")
+def stop():
+    """停止当前批次(四页同款): 删空队列 = 不出报告"""
+    try:
+        r = api.post("/regime_screen/stop", {})
+        return jsonify({"message": f"已停止, 删除 {r['deleted']} 个任务(不出报告)"})
+    except api.ApiError as e:
+        return jsonify({"error": str(e)}), 502
+
+
 @bp.get("/regime-screen/progress")
 def progress():
     """运行进度(页面 AJAX 轮询): 透传 api 内存进度"""

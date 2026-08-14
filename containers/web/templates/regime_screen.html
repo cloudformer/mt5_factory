@@ -54,6 +54,9 @@
       <span class="tag">预览</span>
       <span id="rs-plan" class="muted">…</span>
       <span class="spacer"></span>
+      {# 停止(2026-08-13 四页统一): 跑批中才出现 #}
+      <button type="button" id="rs-stop" class="small danger" hidden
+              title="删空本批队列 = 不出报告不打标签; 正在跑的把手头那块跑完即自然结束(结果幂等回流无害)">停止</button>
       <button class="go">开始筛选</button>
     </div>
   </form>
@@ -112,9 +115,22 @@
         document.title = baseTitle;
       }
     }
+    document.getElementById("rs-stop")?.addEventListener("click", async () => {
+      if (!confirm("停止本批? 队列删空 = 不出报告(在跑的把手头跑完即结束)")) return;
+      const b = document.getElementById("rs-stop");
+      b.disabled = true;
+      try {
+        const d = await fetch("{{ url_for('regime_screen.stop') }}", { method: "POST" })
+          .then((r) => r.json());
+        setPlan(d.message || d.error || "已停止");
+        b.hidden = true; go.disabled = false;
+      } catch (e) { alert("停止失败: " + e); } finally { b.disabled = false; }
+    });
     async function pollProgress() {
       try {
         const s = await fetch("{{ url_for('regime_screen.progress') }}").then((r) => r.json());
+        const stopBtn = document.getElementById("rs-stop");
+        if (stopBtn) stopBtn.hidden = !(s.running || s.phase === "judging");
         if (s.running) {
           watching = true;
           go.disabled = true;

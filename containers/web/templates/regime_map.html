@@ -50,6 +50,9 @@
       <label>或 按ID <input name="ids" size="18" placeholder="逗号分隔"></label>
       <label>单次上限 <input name="limit" value="200" size="5"></label>
       <label title="给这份分析报告起的备注, 与上面的「批次」是两回事(那个是策略的生成批次)">报告备注 <input name="task" size="14" placeholder="选填"></label>
+      {# 停止(2026-08-13 四页统一): 跑批中才出现 #}
+      <button type="button" id="rm-stop" class="small danger" hidden
+              title="删空本批队列 = 不出报告; 正在跑的块把手头算完即自然结束(纯计算零写入)">停止</button>
       <button class="go">开始</button>
     </div>
     <div class="row">
@@ -268,9 +271,22 @@
   const el = document.getElementById("rm-progress");
   if (!el) return;
   let wasRunning = false;
+  document.getElementById("rm-stop")?.addEventListener("click", async () => {
+    if (!confirm("停止本批? 队列删空 = 不出报告(在跑的把手头跑完即结束)")) return;
+    const b = document.getElementById("rm-stop");
+    b.disabled = true;
+    try {
+      const d = await fetch("{{ url_for('regime_map.stop') }}", { method: "POST" })
+        .then((r) => r.json());
+      el.textContent = d.message || d.error || "已停止";
+      b.hidden = true; wasRunning = false;
+    } catch (e) { alert("停止失败: " + e); } finally { b.disabled = false; }
+  });
   const tick = async () => {
     try {
       const s = await fetch("{{ url_for('regime_map.progress') }}").then((r) => r.json());
+      const stopBtn = document.getElementById("rm-stop");
+      if (stopBtn) stopBtn.hidden = !s.running;
       if (s.running) {
         wasRunning = true;
         el.innerHTML = '<b class="pos">计算中 ' + s.done + "/" + s.total + " 块</b>";

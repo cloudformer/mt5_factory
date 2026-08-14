@@ -232,13 +232,18 @@ async def status(request: Request):
     return await jobs.progress(request.app.state.pool)
 
 
-@router.post("/backtest/cancel")
-async def cancel(request: Request):
-    """取消当前批次: 删掉未跑完的 jobs(旧世界"重启api=取消"没有了 — 重启会续跑, 取消要显式)。
-    正在跑的那一个 job 会跑完但结果无害(幂等 upsert), 行已删不再计数。"""
+@router.post("/backtest/stop")
+async def stop(request: Request):
+    """停止当前批次: 删掉未跑完的 jobs(重启 api 会续跑, 停止必须显式点)。
+    正在跑的那一个 job 会跑完但结果无害(幂等 upsert), 行已删不再计数。
+    与别的模块的区别: 回测的产出是逐 job 落库的, 【已完成的回测结果保留】;
+    筛选/规律类的报告在 finalize 才出, 停了就不出报告。
+
+    2026-08-13 由 cancel 改名 stop: 四个批量页的停止必须同名同义(命名全系统唯一),
+    引用点仅 3 个文件 5 处, 一次改净不留兼容桩。"""
     n = await request.app.state.pool.execute(
         "DELETE FROM jobs WHERE kind='backtest' AND status IN ('PENDING','RUNNING')")
-    return {"cancelled": int(n.split()[-1])}
+    return {"deleted": int(n.split()[-1])}
 
 
 @router.get("/backtest/plan")

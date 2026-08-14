@@ -75,6 +75,16 @@ def run():
     return redirect(url_for("regime_map.index"))
 
 
+@bp.post("/regime-map/stop")
+def stop():
+    """停止当前批次(四页同款): 删空队列 = 不出报告"""
+    try:
+        r = api.post("/regime_map/stop", {})
+        return jsonify({"message": f"已停止, 删除 {r['deleted']} 个任务(不出报告)"})
+    except api.ApiError as e:
+        return jsonify({"error": str(e)}), 502
+
+
 @bp.get("/regime-map/progress")
 def progress():
     try:

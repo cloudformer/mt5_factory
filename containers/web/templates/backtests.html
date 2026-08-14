@@ -109,9 +109,10 @@
       </span>
       <button class="go" {% if bt.running %}disabled data-running="1"{% endif %}>启动回测</button>
       {% if bt.running %}
-      {# jobs 化后重启 api 会续跑批次(断点续跑), 取消必须显式点这里 #}
-      <button class="small danger" type="button" id="bt-cancel"
-          title="删掉本批未跑完的任务(已完成的结果保留)。注意: 重启 api 不再取消批次, 会接着跑">取消批次</button>
+      {# jobs 化后重启 api 会续跑批次(断点续跑), 停止必须显式点这里。
+         四个批量页的这个按钮同名同义「停止」(2026-08-13 统一改名) #}
+      <button class="small danger" type="button" id="bt-stop"
+          title="删掉本批未跑完的任务。回测的产出是逐任务落库的, 【已完成的结果保留】; 在跑的那个跑完即结束(幂等回流无害)。注意: 重启 api 不再停止批次, 会接着跑">停止</button>
       {% endif %}
     </div>
   </form>
@@ -180,11 +181,11 @@
 (function () {
   const box = document.getElementById("bt-progress");
   if (!box || !box.dataset.running) return;
-  const cancel = document.getElementById("bt-cancel");
-  if (cancel) cancel.addEventListener("click", async () => {
-    if (!confirm("取消本批回测?\n\n未跑的任务会删掉; 已完成的结果保留。")) return;
-    cancel.disabled = true;
-    try { await fetch("{{ url_for('backtests.cancel') }}", { method: "POST" }); } catch (e) {}
+  const stopBtn = document.getElementById("bt-stop");
+  if (stopBtn) stopBtn.addEventListener("click", async () => {
+    if (!confirm("停止本批回测?\n\n未跑的任务会删掉; 已完成的结果保留。")) return;
+    stopBtn.disabled = true;
+    try { await fetch("{{ url_for('backtests.stop') }}", { method: "POST" }); } catch (e) {}
     location.reload();
   });
   const tick = async () => {

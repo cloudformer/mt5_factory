@@ -51,11 +51,12 @@ def status():
         return {"running": False, "error": str(e)}
 
 
-@bp.post("/cancel")
-def cancel():
-    """取消当前批次(透传 api): jobs 化后重启 api 会续跑, 取消必须显式"""
+@bp.post("/stop")
+def stop():
+    """停止当前批次(透传 api): jobs 化后重启 api 会续跑, 停止必须显式。
+    四页同名同义(2026-08-13 由 cancel 改名, 引用全改无兼容桩)"""
     try:
-        return api.post("/backtest/cancel", {})
+        return api.post("/backtest/stop", {})
     except api.ApiError as e:
         return {"error": str(e)}, 502
 

@@ -101,7 +101,8 @@ async def generate(req: GenerateRequest, request: Request):
 
 
 @router.get("/strategy_batches")
-async def strategy_batches(request: Request, limit: int = 60, only_tested: int = 0):
+async def strategy_batches(request: Request, limit: int = 60, only_tested: int = 0,
+                           min_n: int = 2):
     """批次清单(2026-08-12): 生成时填的标签 + 各自实例数/周期/回测进度 —
     回测页与分析页的批次下拉都吃它。
 
@@ -123,7 +124,9 @@ async def strategy_batches(request: Request, limit: int = 60, only_tested: int =
         "  FROM strategies s"
         " WHERE basis IS NOT NULL AND basis <> ''"
         + (" AND owner_id = $2" if uid else "") +
-        " GROUP BY basis" + (f" HAVING {tested} > 0" if only_tested else "") +
+        " GROUP BY basis"
+        + " HAVING count(*) >= " + str(max(int(min_n), 1))
+        + (f" AND {tested} > 0" if only_tested else "") +
         " ORDER BY max(created_at) DESC LIMIT $1",
         limit, *([uid] if uid else []))
     return {"batches": [dict(r) for r in rows]}

@@ -86,6 +86,20 @@ class ScreenParams(BaseModel):
     min_pf: float = 1.0                # PF 阈值(严格大于; 默认 1 与净点>0 等价, 调高即收紧)
 
 
+@router.post("/regime_screen/stop")
+async def stop(request: Request):
+    """停止当前批次(2026-08-13 补齐, 四页同款): 删空本模块队列 = 不出报告不打标签。
+    回测任务与判定任务【两个 kind 都要删】—— 只删一个会留下另一个继续跑。
+    正在跑的把手头那块跑完, 写回时更新 0 行自然结束(回测结果幂等回流无害)。"""
+    pool = request.app.state.pool
+    n = 0
+    for kind in (jobs.SCREEN_KIND, jobs.SCREEN_JUDGE_KIND):
+        r = await pool.execute("DELETE FROM jobs WHERE kind=$1", kind)
+        n += int(r.split()[-1]) if r.split()[-1].isdigit() else 0
+    logger.info("regime_screen stopped: %d jobs deleted", n)
+    return {"deleted": n}
+
+
 @router.post("/regime_screen/params")
 async def screen_params_save(req: ScreenParams, request: Request):
     if not 1 <= req.window_years <= 30:
