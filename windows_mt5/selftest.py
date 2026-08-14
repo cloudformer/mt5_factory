@@ -27,7 +27,7 @@ import requests
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[1] / "env" / ".dev.env")
-PORT = int(os.getenv("MT5_PORT", "8020"))
+PORT = int(os.getenv("WINDOWS_BRIDGE_PORT", "8020"))
 BASE = f"http://127.0.0.1:{PORT}"
 RESULT_FILE = Path(__file__).resolve().parent / "selftest_result.json"
 WAIT_HEALTHY_S = 600   # boot: bridge must launch terminal + login, be patient

@@ -39,7 +39,7 @@ API_HEADERS = {"X-API-Key": WORKER_KEY} if WORKER_KEY else {}
 # mt5.initialize() 不给 path 时的自动定位常失效 (报 "MetaTrader 5 x64 not found" 但其实已装),
 # setup.ps1 探测到终端后会自动写入这个变量
 MT5_PATH = os.getenv("MT5_PATH", "").strip()
-BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 同机 bridge, 开机时等它先连上 MT5
+BRIDGE_PORT = int(os.getenv("WINDOWS_BRIDGE_PORT", "8020"))  # 同机 bridge, 开机时等它先连上 MT5
 STATUS_FILE = Path(__file__).resolve().parents[1] / "runner_status.json"  # bridge 状态页读它
 LOG_DIR = Path(__file__).resolve().parents[1] / "logs"   # 决策日志(JSONL, 滚动定容, 免维护)
 # worker 参数(config 表 worker_params → announce 应答 → bridge 落文件, runner 共读)

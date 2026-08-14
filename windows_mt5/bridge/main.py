@@ -1,4 +1,4 @@
-"""MT5 Bridge - Windows worker HTTP API (端口 = env 的 MT5_PORT, 默认 8020)
+"""MT5 Bridge - Windows worker HTTP API (端口 = env 的 WINDOWS_BRIDGE_PORT, 默认 8020)
 
 哑执行器: 只负责 MT5 <-> HTTP 的转换, 不含业务逻辑。
 MT5 账户三种来源(优先级由高到低):
@@ -30,7 +30,8 @@ from fastapi.responses import HTMLResponse
 # 统一配置: 与 Linux docker compose 共用 env/.dev.env (整仓 clone 到 Windows)
 load_dotenv(Path(__file__).resolve().parents[2] / "env" / ".dev.env")
 
-BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 与 api 注册 worker 的端口同源
+# WINDOWS_BRIDGE_PORT(2026-08-13 由 MT5_PORT 改名): 原名有歧义 —— MT5 终端本身跟这个端口无关, 它是 bridge 这个 HTTP 服务的端口
+BRIDGE_PORT = int(os.getenv("WINDOWS_BRIDGE_PORT", "8020"))  # 与 api 注册 worker 的端口同源
 # BRIDGE_API_KEY 已删(2026-08-13): 死代码清理, 不是安全改动。
 # 它诞生于"api 会主动连 worker"的年代; 2026-07-26 v7.2 单向化把三个远程端点
 # (/connect、远程重启、实时流水透传)全删了, Linux 侧至今零出站 HTTP 客户端 —

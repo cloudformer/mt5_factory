@@ -44,7 +44,7 @@ $repoRoot = Split-Path -Parent $root
 $envFile = Join-Path $repoRoot "env\.dev.env"   # shared config with Linux side
 $port = 8020
 if (Test-Path $envFile) {
-    $m = Select-String -Path $envFile -Pattern '^MT5_PORT=(\d+)'
+    $m = Select-String -Path $envFile -Pattern '^WINDOWS_BRIDGE_PORT=(\d+)'
     if ($m) { $port = [int]$m.Matches.Groups[1].Value }
 }
 

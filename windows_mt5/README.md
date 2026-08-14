@@ -15,7 +15,7 @@ Windows VM 上的两个进程（同机、互不依赖）：
 
 setup.ps1 结束时自检并输出结果：绿色 = 就绪（自动出现在 web Workers 页）；
 黄色 = bridge 已运行但 MT5 未登录（按提示补账户）；红色 = 哪一步失败（修复后重跑，幂等安全）。
-env 没填 `DOCKER_COMPOSE_HOST` 时会明确提示并停下。
+env 没填 `SERVER_API_URL`(或写的地址不含 http/https)时会明确提示并停下。
 
 `start_bridge.bat` / `start_runner.bat` 平时不用手动碰（开机自启 + 看门狗），只在排错时手动跑看日志。
 

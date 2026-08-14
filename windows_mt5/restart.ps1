@@ -24,7 +24,7 @@ foreach ($bat in "start_bridge.bat", "start_runner.bat") {
 
 Write-Host "=== Self-check ===" -ForegroundColor Cyan
 $port = 8020
-$m = Select-String -Path "$repo\env\.dev.env" -Pattern '^MT5_PORT=(\d+)' -ErrorAction SilentlyContinue
+$m = Select-String -Path "$repo\env\.dev.env" -Pattern '^WINDOWS_BRIDGE_PORT=(\d+)' -ErrorAction SilentlyContinue
 if ($m) { $port = [int]$m.Matches.Groups[1].Value }
 $health = $null
 foreach ($i in 1..12) {
