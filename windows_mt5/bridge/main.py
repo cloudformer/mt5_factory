@@ -91,27 +91,16 @@ _mt5_lock = threading.Lock()
 _connected = False
 _account_cache: Optional[dict] = None  # 最近一次成功读到的账户信息, 供锁被长占时应答
 _fail_streak = 0  # 连续连接失败次数, 满 6 次触发自愈(杀终端重拉)
+_connect_reason = ""  # 最近一次连接失败的人话原因; 经 /health→心跳→Workers 页外露
 
 
 def _env_creds() -> Optional[dict]:
-    """env 里的 MT5 账号三件套 → initialize 参数; 没配或配脏 = None(附着已登录的终端)。
-
-    必须扛住脏值(2026-08-14 实测事故): python-dotenv 对"空值 + 行内注释"不剥离注释 ——
-    `MT5_LOGIN=   # 说明文字` 会被解析成 login='# 说明文字', 于是 int() 抛 ValueError。
-    而本函数是在 _connect() 里被调用的, 而 _connect() 跑在 daemon 线程里没有异常保护,
-    一炸整个线程静默死透: MT5 永远连不上、runner 永远卡在 wait_bridge、日志里一个字都没有。
-    所以这里宁可"当没配"也不能抛 —— 但要留一行日志指出配错了, 别让人白排查。
-    """
+    """env 里的 MT5 账号三件套 → initialize 参数; 没配 = None。
+    【只作兜底】: 只在"终端里确实没登录账号"时才拿出来用 —— 见 _connect() 的顺序。"""
     login = os.getenv("MT5_LOGIN", "").strip()
     if not login:
         return None
-    try:
-        login_id = int(login)
-    except ValueError:
-        logger.error("MT5_LOGIN 不是数字(%r) — 按未配置处理, 将附着终端里已登录的账号。"
-                     " 常见原因: env 里该行写了行内注释(#...), dotenv 会把注释当成值", login)
-        return None
-    return {"login": login_id, "password": os.getenv("MT5_PASSWORD", ""),
+    return {"login": int(login), "password": os.getenv("MT5_PASSWORD", ""),
             "server": os.getenv("MT5_SERVER", "")}
 
 
@@ -152,53 +141,100 @@ def _explain_failure(err: tuple, procs: int, streak: int) -> str:
 
 
 def _connect() -> bool:
-    global _connected, _fail_streak
-    creds = _env_creds()   # 账户唯一来源 = 机器 env(/connect 远程下发已随 v7.2 收口删除)
-    kwargs = dict(creds) if creds else {}
-    if MT5_PATH:
-        kwargs["path"] = MT5_PATH
+    """连接 MT5, 顺序是关键(2026-08-14 与 Frank 定):
+
+      1) 不带凭据先 initialize —— 只附着
+      2) account_info() 有值 → 完事, 一个字都不碰(终端已登录的会话绝不打断)
+      3) 没登录 → 才拿 env 三件套主动登录(新机/终端 profile 丢了的自愈途径)
+      4) 两条都不行 → 记下原因(经 /health→心跳→Workers 页, 本地和 Linux 两边都能看到)
+
+    为什么 2 必须在 3 前面: 原来的写法是"env 有凭据就一定带上", 于是填错一个数字
+    就会把终端里正常的会话踹掉 —— 凭据从"总是优先"改成"兜底", 才不可能盖住好会话。
+    """
+    global _connected, _fail_streak, _connect_reason
+    if MT5_PATH and not _terminal_running():
         # 终端不在时用 Popen 显式拉起(等价于用户双击, 实测这样起的终端能连),
         # 不交给 initialize 隐式拉起(实测隐式拉起的终端 IPC 附着不上);
         # 拉起后等进程出现 + 冷启动缓冲, 再握手
-        if not _terminal_running():
-            logger.info("MT5 terminal not running, launching %s", MT5_PATH)
-            args = [MT5_PATH]
-            if TERMINAL_START_INI.exists():  # 自动开启算法交易等开关
-                args.append(f"/config:{TERMINAL_START_INI}")
-            try:
-                subprocess.Popen(args, cwd=str(Path(MT5_PATH).parent))
-            except OSError as e:
-                logger.error("launch terminal failed: %s", e)
-                return False
-            deadline = time.time() + 60
-            while time.time() < deadline and not _terminal_running():
-                time.sleep(3)
-            time.sleep(15)
-    # initialize 挂起期间持有 GIL, 整个进程(含 /health)都会冻结 -
-    # 默认 60s 超时太长, 15s 快败, 交给重连循环再试
-    kwargs["timeout"] = 15_000
+        logger.info("MT5 terminal not running, launching %s", MT5_PATH)
+        args = [MT5_PATH]
+        if TERMINAL_START_INI.exists():  # 自动开启算法交易等开关
+            args.append(f"/config:{TERMINAL_START_INI}")
+        try:
+            subprocess.Popen(args, cwd=str(Path(MT5_PATH).parent))
+        except OSError as e:
+            logger.error("launch terminal failed: %s", e)
+            _connect_reason = f"终端拉起失败: {e}"
+            return False
+        deadline = time.time() + 60
+        while time.time() < deadline and not _terminal_running():
+            time.sleep(3)
+        time.sleep(15)
+
+    base = {"timeout": 15_000}   # initialize 挂起期间持有 GIL, 整个进程(含 /health)冻结:
+    if MT5_PATH:                 # 默认 60s 太长, 15s 快败交给重连循环再试
+        base["path"] = MT5_PATH
+
     with _mt5_lock:
+        # —— 1) 先附着(不带凭据)
         mt5.shutdown()
-        ok = mt5.initialize(**kwargs)
-        if ok:
-            _fail_streak = 0  # IPC 已通, 终端是好的 - 没登录账户也不该触发杀终端自愈
-            info = mt5.account_info()
-            if info is None:
-                _connected = False
-                logger.error("MT5 IPC OK but no account logged in -> push an account from the "
-                             "web Workers page, or set MT5_LOGIN/PASSWORD/SERVER in env\\.dev.env and restart")
-                return False
-            _connected = True
-            logger.info("MT5 connected: login=%s server=%s balance=%s",
+        ok = mt5.initialize(**base)
+        info = mt5.account_info() if ok else None
+
+        # —— 2) 已登录: 什么都不做
+        if info is not None:
+            _fail_streak, _connected, _connect_reason = 0, True, ""
+            logger.info("MT5 connected(附着已登录会话): login=%s server=%s balance=%s",
                         info.login, info.server, info.balance)
+            return True
+
+        # —— 3) 没登录: 才用 env 凭据主动登录
+        creds = _env_creds()
+        if ok and creds:
+            logger.info("终端未登录, 用 env 凭据登录 login=%s server=%s",
+                        creds["login"], creds["server"])
+            mt5.shutdown()
+            ok = mt5.initialize(**base, **creds)
+            info = mt5.account_info() if ok else None
+            if info is not None:
+                _fail_streak, _connected, _connect_reason = 0, True, ""
+                logger.info("MT5 connected(env 凭据登录): login=%s server=%s balance=%s",
+                            info.login, info.server, info.balance)
+                return True
+
+        # —— 4) 都不行: 记原因, 两边都看得到
+        _connected = False
+        if ok:
+            _fail_streak = 0   # IPC 通着, 终端是好的 — 别触发杀终端自愈
+            _connect_reason = ("未登录, 请检查: 终端里没有账号, env 也没配 MT5_LOGIN 三件套 —"
+                               " 上机在 MT5 界面登录一次, 或在 env 填三件套让它自动登录"
+                               if not creds else
+                               f"未登录, 请检查: env 凭据登录失败(login={creds['login']}"
+                               f" server={creds['server']}) — 账号/密码/服务器名是否正确")
+            logger.error("MT5 %s", _connect_reason)
         else:
-            _connected = False
             _fail_streak += 1
             err = mt5.last_error()
             procs = _terminal_count()
+            _connect_reason = f"IPC 未通: {_explain_failure(err, procs, _fail_streak)}"
             logger.error("MT5 connect failed %s | %s | %s",
                          err, _explain_failure(err, procs, _fail_streak), _diag(procs))
     return _connected
+
+
+def _guarded_connect() -> bool:
+    """给 _connect 包一层异常兜底(2026-08-14): 它跑在 daemon 线程里, 任何未捕获异常
+    都会让线程静默死透 —— MT5 永远连不上、runner 永远卡在 wait_bridge、日志一个字都没有。
+    Frank 实测踩过: env 里 MT5_LOGIN 被 dotenv 解析成注释文本, int() 抛 ValueError,
+    排查了半小时。一处兜底覆盖所有失败, 比给单个 int() 打补丁更省。"""
+    global _connected, _connect_reason
+    try:
+        return _connect()
+    except Exception as e:
+        _connected = False
+        _connect_reason = f"连接过程异常: {type(e).__name__}: {e}"
+        logger.exception("MT5 connect 未捕获异常 — 已记入状态, 交给重连循环重试")
+        return False
 
 
 def _reconnect_loop():
@@ -220,7 +256,7 @@ def _reconnect_loop():
             time.sleep(5)
             _fail_streak = 0
         logger.warning("MT5 not connected, retrying...")
-        _connect()
+        _guarded_connect()
 
 
 # 本机职能(announce 应答回告): download 决定要不要轮询领下载任务; bridge 不自作主张
@@ -505,7 +541,7 @@ def startup():
     # _connect() 必须放后台线程: uvicorn 等 startup 跑完才开始监听端口,
     # 而 mt5.initialize() 在终端卡弹窗/首启慢时会挂起几十秒甚至更久,
     # 同步调用会导致 8020 整个起不来, /health 不可达, 心跳误判离线
-    threading.Thread(target=_connect, daemon=True).start()
+    threading.Thread(target=_guarded_connect, daemon=True).start()
     threading.Thread(target=_reconnect_loop, daemon=True).start()
     threading.Thread(target=_announce_loop, daemon=True).start()
     threading.Thread(target=_heartbeat_push_loop, daemon=True).start()
@@ -642,7 +678,11 @@ def health():
     }
 
     if not mt5_up:
+        # mt5_reason: 最近一次连接失败的人话原因(2026-08-14) —— 经心跳搬到 Linux 的
+        # last_health, Workers 页直接显示。以前只有"未连接"三个字, 得上机翻 bridge 日志
+        # 才知道是"没登录账号"还是"IPC 不通"还是"终端僵死"
         return {"status": "degraded", "mt5_connected": False, "runner": runner,
+                "mt5_reason": _connect_reason,
                 "selftest": _selftest(), "version": VERSION, "up_since": UP_SINCE,
                 "dl_poll": True, "dl_tf": True, "services": services, "summary": summary}
     try:   # 持仓快照(v7.2 #5 单向化): 每拍随心跳覆盖到 last_health, web 流水页读它

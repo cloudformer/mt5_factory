@@ -89,10 +89,15 @@
       <td>MT5 终端</td>
       <td><span class="badge {{ 'ok' if hb.mt5_connected else 'error' }}">{{ '已连接' if hb.mt5_connected else '未连接' }}</span></td>
       <td class="muted">交易配置-AutoTrading: {{ '是' if hb.trade_allowed else '—' }}</td></tr>
-  <tr title="做什么: 终端当前登录的 MT5 账户。&#10;未登录: 用下方『下发 MT5 账户』远程登录(密码不落库, 终端记住)。&#10;换账户后记得点『重启』让 runner 重连">
+  {# 未登录时把 bridge 报的原因显示出来(2026-08-14): 以前只有"未登录"三个字,
+     得上机翻 bridge 日志才知道是没账号、还是 env 凭据登录失败、还是 IPC 不通。
+     原因由 _connect() 生成 → /health.mt5_reason → 心跳 → last_health → 这里。
+     远程下发账户的功能已随 v7.2 单向化删除, 悬停文案同步改掉 #}
+  <tr title="做什么: 终端当前登录的 MT5 账户。&#10;未登录: 上机在 MT5 界面登录一次, 或在 worker 的 env 填 MT5_LOGIN/PASSWORD/SERVER 三件套让 bridge 自动登录。&#10;换账户后记得点『重启』让 runner 重连">
       <td>MT5 账户</td>
-      <td><span class="badge {{ 'ok' if hb.login else '' }}">{{ (hb.login ~ ' @ ' ~ hb.server) if hb.login else '未登录' }}</span></td>
-      <td class="muted">{{ hb.currency or '' }}</td></tr>
+      <td><span class="badge {{ 'ok' if hb.login else 'error' }}">{{ (hb.login ~ ' @ ' ~ hb.server) if hb.login else '未登录' }}</span></td>
+      <td class="muted clip" {% if hb.mt5_reason %}title="{{ hb.mt5_reason }}"{% endif %}>
+        {{ hb.currency or hb.mt5_reason or '' }}</td></tr>
   <tr title="做什么: 交易执行进程, 按角色(demo/live)拉策略、盯bar、下单。&#10;进程未运行: 看门狗会自动拉起; 长期不起点『重启』。&#10;角色=你指派的(空闲/demo/live); 策略数是实际加载数, 切换后约15秒追上">
       <td>runner</td>
       <td><span class="badge {{ 'ok' if rn.alive else '' }}">{{ '运行中' if rn.alive else '未运行' }}</span></td>
