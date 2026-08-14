@@ -92,7 +92,7 @@ async def oos_params_save(request: Request):
 
 
 # ---------- 范围(plan 与 run 共用; 默认 = 全部未筛过的空闲策略, ID 点名 = 只读诊断) ----------
-def _scope_conds(req_ids, uid, rescreen: bool = False):
+def _scope_conds(req_ids, uid, rescreen: bool = False, basis=None):
     if req_ids:
         conds, args = [], [req_ids]
         conds.append(f"s.id = ANY(${len(args)})")
@@ -108,6 +108,12 @@ def _scope_conds(req_ids, uid, rescreen: bool = False):
                        f"s.tags::text NOT LIKE '%{TAG}#%'",
                        f"COALESCE(s.basis, '') NOT LIKE '%{TAG}#%'"], []
         scope = {"pool": "unscreened"}
+    # 批次(2026-08-13 补, 与回测页/规律页同名同义): 加在 _scope_conds 而不是 run —
+    # plan 与 run 共用本函数保证"预估数 = 实跑数"
+    if basis:
+        args.append(basis)
+        conds.append(f"s.basis = ${len(args)}")
+        scope["basis"] = basis
     if uid:
         args.append(uid)
         conds.append(f"s.owner_id = ${len(args)}")
@@ -115,7 +121,8 @@ def _scope_conds(req_ids, uid, rescreen: bool = False):
 
 
 @router.get("/oos_v2/plan")
-async def oos_plan(request: Request, ids: Optional[str] = None, rescreen: bool = False):
+async def oos_plan(request: Request, ids: Optional[str] = None, rescreen: bool = False,
+                   basis: Optional[str] = None):
     """运行预估(页面预览行实时刷): 匹配多少策略 / 涉及哪些品种 — 纯读零动作。
     不做 M1 覆盖预检: 数据不够的段自然 0 笔(无数据不追责算过+警示), 代码不设跳开逻辑。"""
     pool = request.app.state.pool
@@ -127,7 +134,7 @@ async def oos_plan(request: Request, ids: Optional[str] = None, rescreen: bool =
             raise HTTPException(status_code=400, detail="ID 列表需为逗号分隔的整数")
     p = oos_v2.cfg_params(
         await pool.fetchval("SELECT value FROM config WHERE key='oos_v2'") or {})
-    conds, args, _ = _scope_conds(id_list, identity.scope_uid(request), rescreen)
+    conds, args, _ = _scope_conds(id_list, identity.scope_uid(request), rescreen, basis)
     row = await pool.fetchrow(
         "SELECT count(*)::int AS total,"
         f"      count(*) FILTER (WHERE s.tags::text LIKE '%{TAG}#%'"
@@ -202,6 +209,8 @@ async def oos_stop(request: Request):
 class OosRun(BaseModel):
     mode: str = "preview"              # preview=纯报告零动作(默认) / execute=第6步再开
     ids: Optional[list[int]] = None    # 按 ID 点名 = 只读诊断(强制预览, 不入库)
+    # 批次(2026-08-13, 与回测页/规律页同名同义): 策略生成时填的标签, 存 strategies.basis
+    basis: Optional[str] = None
     task: Optional[str] = None         # 任务标签(可选, 记进报告好认)
     limit: Optional[int] = None        # 单次上限(不传 = 用配置 batch_limit)
     rescreen: bool = False             # 重算: 无视履历跑全部空闲(tags 追加新履历, 历史全留)
@@ -223,7 +232,8 @@ async def oos_run(req: OosRun, request: Request):
     p = oos_v2.cfg_params(
         await pool.fetchval("SELECT value FROM config WHERE key='oos_v2'") or {})
     anchor = datetime.now(timezone.utc).date()   # 锚点 = 跑批当天(本批冻结)
-    conds, args, scope = _scope_conds(req.ids, identity.scope_uid(request), req.rescreen)
+    conds, args, scope = _scope_conds(req.ids, identity.scope_uid(request), req.rescreen,
+                                      req.basis)
     if (req.task or "").strip():
         scope["task"] = req.task.strip()
     rows = await pool.fetch(

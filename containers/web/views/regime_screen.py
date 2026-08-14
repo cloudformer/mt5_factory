@@ -16,7 +16,7 @@ bp = Blueprint("regime_screen", __name__)
 
 def _page_data():
     """页面基础数据(判据/版本/历史报告) — index 与点名诊断直渲共用"""
-    data = {"params": None, "versions": None, "reports": [], "report": None}
+    data = {"params": None, "versions": None, "reports": [], "report": None, "batches": []}
     cfg = api.get("/config")["config"]
     data["params"] = cfg.get("regime_screen") or {}
     data["versions"] = api.get("/regime/versions")
@@ -35,6 +35,8 @@ def index():
     sdir = request.args.get("dir", "desc")
     try:
         data = _page_data()
+        # 批次下拉(2026-08-13, 四页同款): 只列有回测行且≥2个策略的批次
+        data["batches"] = api.get("/strategy_batches", only_tested=1)["batches"]
         rid = request.args.get("report", type=int)
         if rid:
             data["report"] = api.get(f"/regime_screen/reports/{rid}", limit=per,
@@ -43,7 +45,7 @@ def index():
                                      **({"sort": sort, "dir": sdir} if sort else {}))
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-        data = {"params": None, "versions": None, "reports": [], "report": None}
+        data = {"params": None, "versions": None, "reports": [], "report": None, "batches": []}
     return render_template("regime_screen.html", page=page, per=per, verdict=verdict,
                            sort=sort, sdir=sdir, **data)
 
@@ -166,6 +168,8 @@ def run():
         ids_raw = (request.form.get("ids") or "").strip()
         if ids_raw:   # 点名小范围; 不填 = 全部未筛过的空闲策略(轮番清理)
             payload["ids"] = [int(x) for x in ids_raw.replace("，", ",").split(",") if x.strip()]
+        if (request.form.get("basis") or "").strip():   # 批次: 圈一次实验那一批
+            payload["basis"] = request.form["basis"].strip()
         if (request.form.get("task") or "").strip():
             payload["task"] = request.form["task"].strip()
         if request.form.get("version"):

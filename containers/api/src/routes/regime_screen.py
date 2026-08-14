@@ -124,9 +124,13 @@ async def screen_params_save(req: ScreenParams, request: Request):
 
 
 # ---------- 范围(plan 与 run 共用同一判据, 预估数 = 实跑数) ----------
-def _scope_conds(req_ids, req_symbols, uid):
+def _scope_conds(req_ids, req_symbols, uid, basis=None):
     """默认 = 全部未筛过的空闲策略(轮番清理, SQL 直接排掉已筛过); ID 点名 = 任意状态只读诊断。
-    symbols(main/all)不是范围过滤是判定数据源, 只记进 scope 供报告展示。"""
+    symbols(main/all)不是范围过滤是判定数据源, 只记进 scope 供报告展示。
+
+    basis(2026-08-13 补, 与回测页/规律页同名同义): 策略生成时填的批次标签。
+    加在这里而不是 run 里 —— plan 与 run 共用本函数保证"预估数 = 实跑数",
+    只加到 run 上预览就会撒谎。"""
     if req_ids:
         conds, args = [], [req_ids]
         conds.append(f"s.id = ANY(${len(args)})")
@@ -135,6 +139,10 @@ def _scope_conds(req_ids, req_symbols, uid):
         conds, args = ["s.status = 'CANDIDATE'",
                        f"COALESCE(s.basis, '') NOT LIKE '%{TAG}%'"], []
         scope = {"pool": "unscreened", "symbols": req_symbols}
+    if basis:                       # 批次: 一次实验圈一批
+        args.append(basis)
+        conds.append(f"s.basis = ${len(args)}")
+        scope["basis"] = basis
     if uid:
         args.append(uid)
         conds.append(f"s.owner_id = ${len(args)}")
@@ -153,7 +161,8 @@ async def _m1_span(pool, sym: str):
 
 
 @router.get("/regime_screen/plan")
-async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str = "main"):
+async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str = "main",
+                      basis: Optional[str] = None):
     """运行预估(页面预览行实时刷): 匹配多少 / 可现跑多少 / 哪些品种 M1 不足 — 纯读零动作"""
     pool = request.app.state.pool
     id_list = None
@@ -165,7 +174,7 @@ async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str 
     p = screen.cfg_params(
         await pool.fetchval("SELECT value FROM config WHERE key='regime_screen'") or {})
     need_days = int(p["window_years"] * 365.25) - 45
-    conds, args, _ = _scope_conds(id_list, symbols, identity.scope_uid(request))
+    conds, args, _ = _scope_conds(id_list, symbols, identity.scope_uid(request), basis)
     row = await pool.fetchrow(
         "SELECT count(*)::int AS total,"
         f"      count(*) FILTER (WHERE COALESCE(s.basis, '') LIKE '%{TAG}%')::int AS tagged"
@@ -197,6 +206,8 @@ async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str 
 class ScreenRun(BaseModel):
     mode: str = "preview"              # preview=纯报告零动作 / execute=打标签+归档
     ids: Optional[list[int]] = None    # 按 ID 点名 = 只读诊断(强制预览, 报告不入库)
+    # 批次(2026-08-13, 与回测页/规律页同名同义): 策略生成时填的标签, 存 strategies.basis
+    basis: Optional[str] = None
     task: Optional[str] = None         # 任务标签(可选): 给这次清理起个名, 记进报告好认
     version: Optional[int] = None      # regime 版本, 不传 = 当前默认
     symbols: str = "main"              # 判定数据源: main=只跑主品种 / all=全部下载品种都得过
@@ -232,7 +243,8 @@ async def screen_run(req: ScreenRun, request: Request):
     else:
         vid, _ = await regime.active_version(pool)
 
-    conds, args, scope = _scope_conds(req.ids, req.symbols, identity.scope_uid(request))
+    conds, args, scope = _scope_conds(req.ids, req.symbols, identity.scope_uid(request),
+                                      req.basis)
     if req.limit:
         scope["limit"] = req.limit
     if (req.task or "").strip():

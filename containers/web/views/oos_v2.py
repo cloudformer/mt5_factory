@@ -30,6 +30,8 @@ def index():
     sdir = request.args.get("dir", "desc")
     try:
         data = _page_data()
+        # 批次下拉(2026-08-13, 四页同款): 只列有回测行且≥2个策略的批次
+        data["batches"] = api.get("/strategy_batches", only_tested=1)["batches"]
         rid = request.args.get("report", type=int)
         if rid:
             data["report"] = api.get(f"/oos_v2/reports/{rid}", limit=per,
@@ -38,7 +40,7 @@ def index():
                                      **({"sort": sort, "dir": sdir} if sort else {}))
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-        data = {"params": None, "reports": [], "report": None}
+        data = {"params": None, "reports": [], "report": None, "batches": []}
     return render_template("oos_v2.html", page=page, per=per, verdict=verdict,
                            is_admin=session.get("dev_user_id") == 1,
                            sort=sort, sdir=sdir, **data)
@@ -121,6 +123,8 @@ def run():
         ids_raw = (request.form.get("ids") or "").strip()
         if ids_raw:   # 点名 = 只读诊断; 不填 = 全部未筛过的空闲策略(第4步接队列)
             payload["ids"] = [int(x) for x in ids_raw.replace("，", ",").split(",") if x.strip()]
+        if (request.form.get("basis") or "").strip():   # 批次: 圈一次实验那一批
+            payload["basis"] = request.form["basis"].strip()
         if (request.form.get("task") or "").strip():
             payload["task"] = request.form["task"].strip()
         if (request.form.get("limit") or "").strip():
