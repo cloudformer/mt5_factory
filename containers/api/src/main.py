@@ -84,16 +84,10 @@ async def lifespan(app: FastAPI):
         finally:
             await conn.execute("SELECT pg_advisory_unlock(714003)")
 
-    # env 的 MT5_HOSTS 仅作首次引导: 表为空时种入, 之后完全由 web/API 管理
-    if await app.state.pool.fetchval("SELECT count(*) FROM mt5_hosts") == 0:
-        mt5_port = int(os.getenv("MT5_PORT", "8020"))
-        for host in [h.strip() for h in os.getenv("MT5_HOSTS", "").split(",") if h.strip()]:
-            await app.state.pool.execute(
-                "INSERT INTO mt5_hosts (name, host, port, download, runner)"
-                " VALUES ($1, $2, $3, TRUE, 'demo')",
-                f"win-{host.replace('.', '-')}", host, mt5_port)
-            logger.info("MT5 worker seeded: %s:%s", host, mt5_port)
-
+    # worker 建档只有一条路(v7.2 单向化): bridge 的 announce 自己上报 —
+    # api 认钥知主、一机一钥绑定都在那条路上。原 MT5_HOSTS 首次引导种子已删(2026-08-13):
+    # 种出来的记录没 owner_id、没绑钥匙, 页面判"未认证"禁指派角色, 种了也不能用;
+    # 而且该变量从未进过 env 模板, 那段 for 循环从没执行过。
     heartbeat = asyncio.create_task(sync.heartbeat_loop(app.state.pool))
     # jobs 消费者(schema/020): 批量回测的执行体 — SKIP LOCKED 抢单, 多副本安全,
     # 启动即消费(api 重启后接着跑上次没跑完的批次)
