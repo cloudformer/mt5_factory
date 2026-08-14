@@ -113,8 +113,8 @@
       <td><span class="badge">观察期</span></td>
       <td class="muted">策略轮询: {% if h.loop_lag is defined %}<b>{{ h.loop_lag }}s</b>{% else %}—{% endif %}(每圈 10s)
         · 心跳到达间隔 {% if h.hb_gaps %}近{{ h.hb_gaps.n }}拍 avg <b>{{ h.hb_gaps.avg }}</b>s / max <b>{{ h.hb_gaps.max }}</b>s{% else %}累计中…{% endif %}(期望≈30s)</td></tr>
-  <tr title="worker license(api-key)绑定状态: 一机一钥, 克隆机复用旧钥绑不上。&#10;未认证不能指派角色(跑demo/跑live按钮禁用)">
-      <td>license</td>
+  <tr title="worker 钥匙绑定状态: 一机一钥, 克隆机复用旧钥绑不上。&#10;未认证不能指派角色(跑demo/跑live按钮禁用)">
+      <td>钥匙</td>
       <td><span class="badge {{ 'ok' if h.key_bound else 'error' }}">{{ '已认证' if h.key_bound else '未认证' }}</span></td>
       <td class="muted">{% if h.key_bound %}钥匙 <b class="mono">{{ h.key_label or '—' }}</b> · 一机一钥{% else %}<span class="neg">签发新钥匙(用户管理页) → 填 WORKER_KEY → 重启 bridge → 自动首绑</span>{% endif %}</td></tr>
   <tr><td>开机自检</td>

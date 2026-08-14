@@ -9,6 +9,8 @@ import asyncpg
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from src.services import license as lic
+
 router = APIRouter()
 logger = logging.getLogger("users")
 
@@ -31,9 +33,42 @@ async def list_users(request: Request):
         "  (SELECT count(*) FROM worker_keys w WHERE w.user_id = u.id AND w.enabled)"
         "     AS worker_slots,"
         "  (SELECT count(*) FROM mt5_hosts h WHERE h.owner_id = u.id) AS workers,"
-        "  (SELECT count(*) FROM api_keys k WHERE k.user_id = u.id AND k.enabled) AS keys"
+        "  (SELECT count(*) FROM api_keys k WHERE k.user_id = u.id AND k.enabled) AS keys,"
+        "  u.license"
         " FROM users u ORDER BY u.id")
-    return {"users": [dict(r) for r in rows]}
+    users = []
+    for r in rows:
+        d = dict(r)
+        raw = d.pop("license", None)
+        # 每次现验(纸的权威=签名, 库只是抽屉); 用户表就几行, 微秒级
+        d["license"] = lic.parse(raw, d["id"])
+        users.append(d)
+    return {"users": users}
+
+
+class LicenseRequest(BaseModel):
+    doc: Optional[str] = None      # 整份 {license:{...}, sig} 的 JSON 文本; 空/None = 清除
+
+
+@router.put("/users/{user_id}/license")
+async def put_license(user_id: int, req: LicenseRequest, request: Request):
+    """粘贴授权纸(license 第3步, 零执法): 先验签再落库 — 无效的纸根本存不进去,
+    免得页面常年挂着一张红纸。清除 = 回到"无授权限制"(opt-in 原则)。"""
+    pool = request.app.state.pool
+    if await pool.fetchval("SELECT 1 FROM users WHERE id=$1", user_id) is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    raw = (req.doc or "").strip()
+    if not raw:
+        await pool.execute("UPDATE users SET license=NULL WHERE id=$1", user_id)
+        logger.info("license cleared: user %d", user_id)
+        return {"user_id": user_id, "license": {"status": "none"}}
+    st = lic.parse(raw, user_id)
+    if st["status"] in ("invalid", "unavailable"):
+        raise HTTPException(status_code=400, detail=st.get("error") or "纸无效")
+    await pool.execute("UPDATE users SET license=$2 WHERE id=$1", user_id, raw)
+    logger.info("license saved: user %d, 到期 %s, %s台/%s个",
+                user_id, st["expires"], st["workers"], st["max_strategies"])
+    return {"user_id": user_id, "license": st}
 
 
 class UserRequest(BaseModel):

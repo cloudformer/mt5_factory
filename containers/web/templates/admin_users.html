@@ -98,14 +98,37 @@
         <td class="mono">{{ mm.today if mm else 0 }}</td>
         <td class="mono muted">{{ mm.month if mm else 0 }}</td>
         {% endfor %}
-        <td class="mono">{{ u.strategies }}</td>
+        {% set st0 = u.license or {} %}
+        <td class="mono">{{ u.strategies }}{% if st0.max_strategies %}<span class="muted">/{{ st0.max_strategies }}</span>{% endif %}</td>
         <td class="mono muted">{{ u.strategies_archived }}</td>
-        <td class="mono">{{ u.worker_slots }}{% if u.workers != u.worker_slots %} <span class="muted">(绑{{ u.workers }}机)</span>{% endif %}</td>
-        <td class="mono muted" title="license 接入后显示到期日">—</td>
+        <td class="mono">{{ u.worker_slots }}{% if st0.workers %}<span class="muted">/{{ st0.workers }}</span>{% endif %}{% if u.workers != u.worker_slots %} <span class="muted">(绑{{ u.workers }}机)</span>{% endif %}</td>
+        {% set st = u.license or {} %}
+        {# 五态: 没纸=无限制 | 有效(剩N天) | 过期红 | 无效红(改过/贴错人) | 公钥未生成黄 #}
+        <td class="mono" {% if st.error %}title="{{ st.error }}"{% endif %}>
+          {%- if st.status == 'valid' %}<span class="{{ 'neg' if st.days_left < 14 else '' }}">{{ st.expires[:10] }}</span> <span class="muted">剩{{ st.days_left }}天</span>
+          {%- elif st.status == 'expired' %}<span class="neg">已过期 {{ st.expires[:10] }}</span>
+          {%- elif st.status == 'invalid' %}<span class="neg" style="cursor:help">签名无效!</span>
+          {%- elif st.status == 'unavailable' %}<span class="badge warn" style="cursor:help">公钥未生成</span>
+          {%- else %}<span class="muted">无限制</span>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
+</section>
+
+<section>
+  <h2>授权(license)</h2>
+  <p class="muted" style="margin:0 0 8px">一用户一张纸(worker 没有自己的纸, 钥匙只证明身份, 权利全从纸继承)。
+    在你本机签发: <span class="mono">python scripts/make_license.py sign --user-id N --name xx --expires 2026-12-31 --workers 2 --max-strategies 100</span>
+    → 整份 JSON 粘贴到这里。无效的纸存不进去(先验签再落库); 清空提交 = 撤销授权回到无限制。
+    <b>目前零执法</b> — 只展示对照, 拦截在下一步逐个打开。</p>
+  <form method="post" action="#" onsubmit="this.action='/admin/users/'+this.uid.value+'/license'" class="inline">
+    <label>用户 <select name="uid">
+      {% for u in users %}<option value="{{ u.id }}">{{ u.id }} · {{ u.name }}</option>{% endfor %}
+    </select></label>
+    <textarea name="doc" rows="3" style="width:60%;vertical-align:middle" placeholder='{"license": {...}, "sig": "..."}'></textarea>
+    <button>保存</button>
+  </form>
 </section>
 
 <section>

@@ -59,6 +59,20 @@ def switch_user():
     return redirect(request.referrer or url_for("admin.users_page"))
 
 
+@bp.post("/users/<int:user_id>/license")
+def put_license(user_id):
+    """粘贴/清除授权纸(空文本 = 清除)"""
+    try:
+        r = api.put(f"/users/{user_id}/license",
+                    {"doc": (request.form.get("doc") or "").strip() or None})
+        st = r["license"]
+        flash("已清除授权(回到无限制)" if st["status"] == "none" else
+              f"授权已保存: 到期 {st['expires'][:10]} · {st['workers']}台 · {st['max_strategies']}个策略", "ok")
+    except api.ApiError as e:
+        flash(f"保存失败: {e}", "error")
+    return redirect(url_for("admin.users_page"))
+
+
 @bp.post("/users/create")
 def create_user():
     try:

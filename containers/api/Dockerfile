@@ -10,6 +10,7 @@ COPY containers/api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY strategy_core/ strategy_core/
+COPY license/ license/
 COPY containers/api/src/ src/
 # schema 不进镜像: 由 compose 挂载 ./containers/postgres/schema → /app/schema
 # (镜像只含代码, schema/src 全靠挂载+热重载, 改动无需 rebuild)
