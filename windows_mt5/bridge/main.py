@@ -23,17 +23,19 @@ import MetaTrader5 as mt5
 import requests
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
 # 统一配置: 与 Linux docker compose 共用 env/.dev.env (整仓 clone 到 Windows)
 load_dotenv(Path(__file__).resolve().parents[2] / "env" / ".dev.env")
 
 BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 与 api 注册 worker 的端口同源
-BRIDGE_API_KEY = os.getenv("BRIDGE_API_KEY", "")
+# BRIDGE_API_KEY 已删(2026-08-13): 死代码清理, 不是安全改动。
+# 它诞生于"api 会主动连 worker"的年代; 2026-07-26 v7.2 单向化把三个远程端点
+# (/connect、远程重启、实时流水透传)全删了, Linux 侧至今零出站 HTTP 客户端 —
+# 这把钥匙从此没有任何调用方带过。8020 的访问控制归 Windows 防火墙, 代码层不管。
 # worker 钥匙(schema/040): announce 带上它 → api 认钥知主(host 自动归该用户+一机一钥首绑)。
-# 未配置=照旧匿名注册(兼容期; v5.6 起强制)。与 BRIDGE_API_KEY 方向相反: 那把保护"api调我",
-# 这把证明"我是谁"。
+# 未配置=照旧匿名注册(兼容期; v5.6 起强制)。它证明"我是谁"。
 WORKER_KEY = os.getenv("WORKER_KEY", "").strip()
 DOCKER_COMPOSE_HOST = os.getenv("DOCKER_COMPOSE_HOST", "").strip()
 API_PORT = os.getenv("API_PORT", "8010")
@@ -467,11 +469,6 @@ def _run_download_task(api_base: str, headers: dict, task: dict) -> None:
     logger.info("download job #%s %s done", job_id, symbol)
 
 
-def _require_key(x_api_key: Optional[str]):
-    if BRIDGE_API_KEY and x_api_key != BRIDGE_API_KEY:
-        raise HTTPException(status_code=401, detail="invalid api key")
-
-
 def _require_connected():
     if not _connected:
         raise HTTPException(status_code=503, detail="MT5 not connected")
@@ -650,11 +647,10 @@ def health():
 
 
 @app.post("/restart")
-def remote_restart(x_api_key: Optional[str] = Header(default=None)):
+def remote_restart():
     """远程重启服务 (不更新代码 — 更新请在 Windows 上手动 update.bat)。
     机制: 写 restart.flag + 主动退出。start_bridge.bat 看门狗在两次循环之间读到标志,
     连 runner 一起重启并重跑自检。顺着看门狗而非对抗它, 无进程互杀/抢锁。"""
-    _require_key(x_api_key)
     logger.info("remote restart requested")
     RESTART_FLAG.write_text("1")
 
@@ -670,8 +666,7 @@ def remote_restart(x_api_key: Optional[str] = Header(default=None)):
 
 
 @app.get("/account")
-def account(x_api_key: Optional[str] = Header(default=None)):
-    _require_key(x_api_key)
+def account():
     _require_connected()
     with _mt5_lock:
         info = mt5.account_info()
@@ -681,8 +676,7 @@ def account(x_api_key: Optional[str] = Header(default=None)):
 
 
 @app.get("/symbols")
-def symbols(x_api_key: Optional[str] = Header(default=None)):
-    _require_key(x_api_key)
+def symbols():
     _require_connected()
     with _mt5_lock:
         result = mt5.symbols_get()
@@ -690,8 +684,7 @@ def symbols(x_api_key: Optional[str] = Header(default=None)):
 
 
 @app.get("/symbol/{symbol}")
-def symbol_info(symbol: str, x_api_key: Optional[str] = Header(default=None)):
-    _require_key(x_api_key)
+def symbol_info(symbol: str):
     _require_connected()
     with _mt5_lock:
         if not mt5.symbol_select(symbol, True):
@@ -708,10 +701,8 @@ def rates(
     timeframe: str = "M1",
     from_ts: int = Query(..., description="起始时间(epoch秒, UTC)"),
     to_ts: int = Query(..., description="结束时间(epoch秒, UTC, 不含)"),
-    x_api_key: Optional[str] = Header(default=None),
 ):
     """按时间范围取K线, 供 app 下载器分页拉取"""
-    _require_key(x_api_key)
     _require_connected()
 
     tf = TIMEFRAMES.get(timeframe.upper())
@@ -786,13 +777,10 @@ def _trades_data(days: int) -> dict:
 
 
 @app.get("/trades")
-def trades(days: int = 30, fmt: str = "json",
-           x_api_key: Optional[str] = Header(default=None)):
+def trades(days: int = 30, fmt: str = "json"):
     """交易流水(只读): 当前持仓 + 历史成交明细, 原样透传 MT5。
-    json 给 api/web /mt5 页用(带鉴权); fmt=html 本机浏览器直接看(与状态页同级, 免鉴权即免登录)。
+    json 给 api/web /mt5 页用; fmt=html 本机浏览器直接看(与状态页同级)。
     时间是 epoch 秒(券商服务器时钟); deals 按时间倒序。"""
-    if fmt != "html":
-        _require_key(x_api_key)
     _require_connected()
     data = _trades_data(days)
     if fmt != "html":

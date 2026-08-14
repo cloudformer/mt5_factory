@@ -88,14 +88,13 @@ VALUES ('win-worker-1', '192.168.x.x', 8020, TRUE, 'demo', 'DEMO');
 |------|------|------|
 | `GET /` | 无 | **本机状态页** (浏览器打开): bridge/MT5/账户/runner 一屏, 10秒自刷新 |
 | `GET /health` | 无 | 心跳: MT5 连接/交易许可/账户概要 |
-| `POST /connect` | X-API-Key | 远程下发 MT5 账户并登录 |
-| `GET /account` | X-API-Key | 账户完整信息 |
-| `GET /symbols` `GET /symbol/{s}` | X-API-Key | 品种列表/详情 |
-| `GET /rates?symbol=&timeframe=M1&from_ts=&to_ts=` | X-API-Key | 按时间范围取K线 (epoch秒) |
-| `GET /trades?days=30` | X-API-Key | **交易流水** (只读): 持仓+成交明细原样透传, web /mt5 页数据源; `fmt=html` 本机免鉴权直接看 |
+| `GET /account` | 无 | 账户完整信息 |
+| `GET /symbols` `GET /symbol/{s}` | 无 | 品种列表/详情 |
+| `GET /rates?symbol=&timeframe=M1&from_ts=&to_ts=` | 无 | 按时间范围取K线 (epoch秒) |
+| `GET /trades?days=30` | 无 | **交易流水** (只读): 持仓+成交明细原样透传, web /mt5 页数据源; `fmt=html` 浏览器直接看 |
 | `GET /recon?days=90` | 无 | **交易对账页** (只读): 成交按 magic 分组, 与 web 战绩逐行对应; `fmt=json` 出数据 |
 | `POST /ordertest?symbol=XAUUSD` | 无 | **下单冒烟测试**: 最小单开平各一次; 硬保护仅限 DEMO 账户 (状态页有按钮) |
-| `POST /restart` | X-API-Key | **远程重启** (web Workers 页按钮): 写 restart.flag 并退出, 看门狗连 runner 一起重启并重跑自检。不含更新代码(手动 update.bat) |
+| `POST /restart` | 无 | **远程重启** (web Workers 页按钮): 写 restart.flag 并退出, 看门狗连 runner 一起重启并重跑自检。不含更新代码(手动 update.bat) |
 
 ## Runner 行为（CLAUDE.md 四纪律的落地）
 

@@ -190,9 +190,6 @@ if (Select-String -Path $envFile -Pattern '^DOCKER_COMPOSE_HOST=(127\.|$)') {
         Set-Content $envFile -Encoding UTF8
     Write-Host "Saved DOCKER_COMPOSE_HOST=$ip"
 }
-if (Select-String -Path $envFile -Pattern '^BRIDGE_API_KEY=(change_me|$)') {
-    Write-Host "Note: BRIDGE_API_KEY is still the default - it must match the Linux side" -ForegroundColor Yellow
-}
 Write-Host "Using $envFile"
 
 Write-Host "=== [6/8] Firewall ===" -ForegroundColor Cyan
