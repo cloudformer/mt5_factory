@@ -94,10 +94,24 @@ _fail_streak = 0  # 连续连接失败次数, 满 6 次触发自愈(杀终端重
 
 
 def _env_creds() -> Optional[dict]:
+    """env 里的 MT5 账号三件套 → initialize 参数; 没配或配脏 = None(附着已登录的终端)。
+
+    必须扛住脏值(2026-08-14 实测事故): python-dotenv 对"空值 + 行内注释"不剥离注释 ——
+    `MT5_LOGIN=   # 说明文字` 会被解析成 login='# 说明文字', 于是 int() 抛 ValueError。
+    而本函数是在 _connect() 里被调用的, 而 _connect() 跑在 daemon 线程里没有异常保护,
+    一炸整个线程静默死透: MT5 永远连不上、runner 永远卡在 wait_bridge、日志里一个字都没有。
+    所以这里宁可"当没配"也不能抛 —— 但要留一行日志指出配错了, 别让人白排查。
+    """
     login = os.getenv("MT5_LOGIN", "").strip()
     if not login:
         return None
-    return {"login": int(login), "password": os.getenv("MT5_PASSWORD", ""),
+    try:
+        login_id = int(login)
+    except ValueError:
+        logger.error("MT5_LOGIN 不是数字(%r) — 按未配置处理, 将附着终端里已登录的账号。"
+                     " 常见原因: env 里该行写了行内注释(#...), dotenv 会把注释当成值", login)
+        return None
+    return {"login": login_id, "password": os.getenv("MT5_PASSWORD", ""),
             "server": os.getenv("MT5_SERVER", "")}
 
 

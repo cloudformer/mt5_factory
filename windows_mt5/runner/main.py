@@ -166,8 +166,14 @@ def mt5_connect() -> bool:
     login = os.getenv("MT5_LOGIN", "").strip()
     kwargs = {"path": MT5_PATH} if MT5_PATH else {}
     if login:
-        kwargs.update(login=int(login), password=os.getenv("MT5_PASSWORD", ""),
-                      server=os.getenv("MT5_SERVER", ""))
+        # 扛住脏值(2026-08-14): dotenv 对"空值+行内注释"会把注释当成值 → int() 会炸。
+        # 宁可当没配(附着已登录终端), 也不能让整个进程起不来 —— 但要留日志。
+        try:
+            kwargs.update(login=int(login), password=os.getenv("MT5_PASSWORD", ""),
+                          server=os.getenv("MT5_SERVER", ""))
+        except ValueError:
+            logger.error("MT5_LOGIN 不是数字(%r) — 按未配置处理, 附着终端已登录的账号。"
+                         " 常见原因: env 该行写了行内注释(#...), dotenv 把注释当成值", login)
     # 附着挂起(如终端未就绪)会冻结整个进程, 快败快重试
     kwargs["timeout"] = 15_000
     return mt5.initialize(**kwargs)  # 无账户时附着到已登录终端
