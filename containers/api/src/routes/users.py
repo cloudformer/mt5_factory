@@ -15,10 +15,21 @@ logger = logging.getLogger("users")
 
 @router.get("/users")
 async def list_users(request: Request):
-    """用户列表 + 名下资产计数(策略/worker/启用key)"""
+    """用户列表 + 名下资产计数。
+
+    计数口径 = 未来授权(license)的执法口径, 在这里先立起来(2026-08-14 与 Frank 定):
+      · 策略数 = 非 ARCHIVED(归档是防重复生成的尸体, 不占额度, 单列展示);
+      · 台数   = enabled 的 worker_keys 数(钥匙即容量: 换机器 = 吊旧钥匙腾位再发新的),
+                 绑定主机数只作参考展示。
+    以后三个执法点(发钥匙/建策略/领策略)全部引用这同一套口径, 不另算。"""
     rows = await request.app.state.pool.fetch(
         "SELECT u.id, u.name, u.enabled, u.created_at,"
-        "  (SELECT count(*) FROM strategies s WHERE s.owner_id = u.id) AS strategies,"
+        "  (SELECT count(*) FROM strategies s WHERE s.owner_id = u.id"
+        "     AND s.status <> 'ARCHIVED') AS strategies,"
+        "  (SELECT count(*) FROM strategies s WHERE s.owner_id = u.id"
+        "     AND s.status = 'ARCHIVED') AS strategies_archived,"
+        "  (SELECT count(*) FROM worker_keys w WHERE w.user_id = u.id AND w.enabled)"
+        "     AS worker_slots,"
         "  (SELECT count(*) FROM mt5_hosts h WHERE h.owner_id = u.id) AS workers,"
         "  (SELECT count(*) FROM api_keys k WHERE k.user_id = u.id AND k.enabled) AS keys"
         " FROM users u ORDER BY u.id")
