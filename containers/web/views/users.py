@@ -30,7 +30,7 @@ def users_page():
         hosts = api.get("/hosts")["hosts"]
         for r in api.get("/usage")["usage"]:
             usage_view.setdefault(r["user_id"], {})[r["metric"]] = {
-                "today": r["today"], "total": r["used_total"]}
+                "today": r["today"], "month": r.get("month", 0), "total": r["used_total"]}
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     # worker 钥匙状态过滤(2026-08-05 Frank 定): 默认只看启用的 — 吊销的是历史履历(轮换=吊旧发新),

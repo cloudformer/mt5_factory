@@ -12,16 +12,14 @@
     </form>
   </div>
   <table class="dense" style="margin-top:8px">
-    <thead><tr><th>ID</th><th>用户名</th><th>状态</th><th title="非归档策略数(授权额度口径); 归档不占额度">策略</th><th title="enabled 的 worker 钥匙数(授权台数口径)">worker 台数</th><th>启用key</th><th>创建</th><th data-nosort>操作</th></tr></thead>
+    <thead><tr><th>ID</th><th>用户名</th><th>状态</th><th>启用key</th><th>创建</th><th data-nosort>操作</th></tr></thead>
     <tbody>
     {% for u in users %}
       <tr>
         <td class="mono">{{ u.id }}{% if u.id == 1 %} <span class="badge ok" title="owner(平台主): 全量视角, 不可停用; v5.6 起本页只认它。其余都是 user: 管自己的策略/worker/报表">owner</span>{% endif %}</td>
         <td class="mono">{{ u.name }}</td>
         <td>{% if u.enabled %}<span class="pos">启用</span>{% else %}<span class="neg">停用</span>{% endif %}</td>
-        {# 计数口径 = 未来授权的执法口径(2026-08-14): 策略不含归档, 台数=enabled钥匙 #}
-        <td class="mono" title="非归档策略数 — 授权额度按它算; 归档不占额度">{{ u.strategies }}{% if u.strategies_archived %} <span class="muted">+归档{{ u.strategies_archived }}</span>{% endif %}</td>
-        <td class="mono" title="台数口径 = enabled 的 worker 钥匙数(换机器=吊旧钥匙腾位); 括号内为实际绑定的机器数">{{ u.worker_slots }}{% if u.workers != u.worker_slots %} <span class="muted">(绑{{ u.workers }}机)</span>{% endif %}</td>
+        {# 资产计数只在下方「用量」表展示(2026-08-14 Frank 定 8 列), 这里不重复 #}
         {# u['keys']: 必须下标取 — u.keys 会撞上字典内置方法, 渲染成 <built-in method keys> #}
         <td class="mono">{{ u['keys'] }}</td>
         <td class="mono muted">{{ u.created_at[:10] if u.created_at else '—' }}</td>
@@ -78,25 +76,32 @@
   <p class="muted" style="margin:0 0 8px">流量类(回测/AI成绩单/建策略)= usage_counters 单行计数(今日跨天自动翻篇);
     存量类(策略数/worker数)= 现查现读(COUNT 即真相, 不复制)。quota_* 上限在配置里, 目前只对照观察不拦截。</p>
   <table class="dense">
+    {# 维度定版(2026-08-14 Frank 定, 8 列): 今日/当月回测 · 今日/当月AI · 活动/归档策略
+       · worker数 · 有效期。建策略计数照记(usage_counters 单行, 零维护)只是不再展示;
+       有效期 = license(未接入前显示 —), 授权额度也将并入这几列显示 #}
     <thead><tr><th>用户</th>
-      <th title="回测 job 数(策略×品种每个算一次), 记给策略 owner">今日回测</th><th>累计回测</th>
-      <th title="AI成绩单/分析拉取次数">今日AI</th><th>累计AI</th>
-      <th title="新建策略实例数">今日建策略</th><th>累计建策略</th>
-      <th title="存量: 现查 strategies 表">策略总数</th>
-      <th title="存量: 现查 mt5_hosts 表">worker数</th></tr></thead>
+      <th title="回测 job 数(策略×品种每个算一次), 记给策略 owner">今日回测</th>
+      <th title="本月累计(schema/071 起算, 跨月自动翻篇)">当月回测</th>
+      <th title="AI成绩单/分析拉取次数">今日AI</th>
+      <th title="本月累计">当月AI</th>
+      <th title="非归档策略数(授权额度口径)">活动策略</th>
+      <th title="归档不占额度, 是防重复生成的履历">归档策略</th>
+      <th title="enabled 的 worker 钥匙数(授权台数口径); 与绑定机器数不一致时括注">worker数量</th>
+      <th title="license 有效期 — 授权功能接入后显示, 现为占位">有效期</th></tr></thead>
     <tbody>
     {% for u in users %}
       {% set uv = usage_view.get(u.id, {}) %}
       <tr>
         <td class="mono">{{ u.name }}</td>
-        {% for mkey in ['backtests', 'ai_reports', 'strategies_created'] %}
+        {% for mkey in ['backtests', 'ai_reports'] %}
         {% set mm = uv.get(mkey) %}
         <td class="mono">{{ mm.today if mm else 0 }}</td>
-        <td class="mono muted">{{ mm.total if mm else 0 }}</td>
+        <td class="mono muted">{{ mm.month if mm else 0 }}</td>
         {% endfor %}
-        {# 计数口径 = 未来授权的执法口径(2026-08-14): 策略不含归档, 台数=enabled钥匙 #}
-        <td class="mono" title="非归档策略数 — 授权额度按它算; 归档不占额度">{{ u.strategies }}{% if u.strategies_archived %} <span class="muted">+归档{{ u.strategies_archived }}</span>{% endif %}</td>
-        <td class="mono" title="台数口径 = enabled 的 worker 钥匙数(换机器=吊旧钥匙腾位); 括号内为实际绑定的机器数">{{ u.worker_slots }}{% if u.workers != u.worker_slots %} <span class="muted">(绑{{ u.workers }}机)</span>{% endif %}</td>
+        <td class="mono">{{ u.strategies }}</td>
+        <td class="mono muted">{{ u.strategies_archived }}</td>
+        <td class="mono">{{ u.worker_slots }}{% if u.workers != u.worker_slots %} <span class="muted">(绑{{ u.workers }}机)</span>{% endif %}</td>
+        <td class="mono muted" title="license 接入后显示到期日">—</td>
       </tr>
     {% endfor %}
     </tbody>

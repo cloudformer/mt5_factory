@@ -156,10 +156,13 @@ async def set_worker_key_enabled(key_id: int, req: EnabledRequest, request: Requ
 
 @router.get("/usage")
 async def usage_summary(request: Request):
-    """用量一览(usage_counters, 只记录不拦截): 每 user×指标 一行, 今日=day是今天才有效"""
+    """用量一览(usage_counters, 只记录不拦截): 每 user×指标 一行;
+    今日=day是今天才有效, 当月=month是本月才有效(schema/071, 与今日同款翻篇)"""
     rows = await request.app.state.pool.fetch(
         "SELECT c.user_id, u.name AS user, c.metric, c.used_total,"
         "       CASE WHEN c.day = CURRENT_DATE THEN c.day_used ELSE 0 END AS today,"
+        "       CASE WHEN c.month = date_trunc('month', CURRENT_DATE)"
+        "            THEN c.month_used ELSE 0 END AS month,"
         "       c.updated_at"
         "  FROM usage_counters c JOIN users u ON u.id = c.user_id"
         " ORDER BY c.user_id, c.metric")

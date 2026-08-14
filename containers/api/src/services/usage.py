@@ -5,14 +5,18 @@ import logging
 
 logger = logging.getLogger("usage")
 
-# 跨天翻篇: 同日累加, 新日覆盖(归零=被新值覆盖, 无定时任务)
+# 跨天/跨月翻篇: 同期累加, 新期覆盖(归零=被新值覆盖, 无定时任务; 月与日同款, schema/071)
 _UPSERT_TAIL = (
     " ON CONFLICT (user_id, metric) DO UPDATE SET"
     "   used_total = usage_counters.used_total + EXCLUDED.used_total,"
     "   day_used = CASE WHEN usage_counters.day = CURRENT_DATE"
     "                   THEN usage_counters.day_used + EXCLUDED.day_used"
     "                   ELSE EXCLUDED.day_used END,"
-    "   day = CURRENT_DATE, updated_at = now()"
+    "   day = CURRENT_DATE,"
+    "   month_used = CASE WHEN usage_counters.month = date_trunc('month', CURRENT_DATE)"
+    "                     THEN usage_counters.month_used + EXCLUDED.month_used"
+    "                     ELSE EXCLUDED.month_used END,"
+    "   month = date_trunc('month', CURRENT_DATE), updated_at = now()"
 )
 
 
@@ -23,8 +27,10 @@ async def bump_by_owner(pool, metric: str, strategy_ids: list) -> None:
         return
     try:
         await pool.execute(
-            "INSERT INTO usage_counters (user_id, metric, used_total, day, day_used)"
-            " SELECT s.owner_id, $2, count(*), CURRENT_DATE, count(*)"
+            "INSERT INTO usage_counters"
+            " (user_id, metric, used_total, day, day_used, month, month_used)"
+            " SELECT s.owner_id, $2, count(*), CURRENT_DATE, count(*),"
+            "        date_trunc('month', CURRENT_DATE), count(*)"
             "   FROM unnest($1::int[]) AS t(sid) JOIN strategies s ON s.id = t.sid"
             "  GROUP BY s.owner_id" + _UPSERT_TAIL,
             strategy_ids, metric)
