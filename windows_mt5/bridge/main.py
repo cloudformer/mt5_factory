@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import socket
+from urllib.parse import urlparse
 import subprocess
 import sys
 import threading
@@ -37,8 +38,13 @@ BRIDGE_PORT = int(os.getenv("MT5_PORT", "8020"))  # 与 api 注册 worker 的端
 # worker 钥匙(schema/040): announce 带上它 → api 认钥知主(host 自动归该用户+一机一钥首绑)。
 # 未配置=照旧匿名注册(兼容期; v5.6 起强制)。它证明"我是谁"。
 WORKER_KEY = os.getenv("WORKER_KEY", "").strip()
-DOCKER_COMPOSE_HOST = os.getenv("DOCKER_COMPOSE_HOST", "").strip()
-API_PORT = os.getenv("API_PORT", "8010")
+# Linux api 的完整地址(2026-08-13 取代 DOCKER_COMPOSE_HOST+API_PORT 的拼接):
+# 一个变量说清协议+主机+端口+路径, 不再有"API_PORT 指哪个 API"的歧义;
+# 跨公网的 worker 写 https:// 即可, 否则 WORKER_KEY 明文过网被抄走就能冒充本机。
+#   内网 http://192.168.4.130:8010  |  公网 https://api.demo.com/api
+SERVER_API_URL = os.getenv("SERVER_API_URL", "").strip().rstrip("/")
+# 上报本机 IP 时要"往哪个方向出去" —— 从 URL 取主机名(域名也行, connect 会走 DNS)
+_API_HOST = urlparse(SERVER_API_URL).hostname if SERVER_API_URL else None
 # mt5.initialize() 不给 path 时的自动定位常失效 (报 "MetaTrader 5 x64 not found" 但其实已装),
 # setup.ps1 探测到终端后会自动写入这个变量
 MT5_PATH = os.getenv("MT5_PATH", "").strip()
@@ -260,16 +266,18 @@ def _announce_loop():
     IP 只作"当前地址"随心跳刷新。新机器以 download 角色入册, demo/live 由人在 web 上指派。
     顺带品种校验(单向化): 应答里领任务 → 查本机 MT5 → 下轮 announce 捎回;
     发送成功即清缓存 — api 若没入库, 下轮还会派同一任务, 自愈。"""
-    if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
-        logger.warning("DOCKER_COMPOSE_HOST not set, skip auto-register (register manually on the web Workers page)")
+    if not _API_HOST or _API_HOST.startswith("127."):
+        logger.warning("SERVER_API_URL 未配置或无效, 跳过自动注册 —— 请在 env/.dev.env 填"
+                       " 如 SERVER_API_URL=http://192.168.4.130:8010 (当前值: %r)",
+                       SERVER_API_URL)
         return
-    api_base = f"http://{DOCKER_COMPOSE_HOST}:{API_PORT}"
+    api_base = SERVER_API_URL
     hostname = socket.gethostname()  # 计算机名 = worker 身份(注册主键)
     verify_results: dict = {}        # 待捎回的品种校验结果
     while True:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect((DOCKER_COMPOSE_HOST, 1))
+            s.connect((_API_HOST, 1))   # UDP 假连接: 借目标反查本机出口网卡 IP
             my_ip = s.getsockname()[0]
             s.close()
             payload = {"name": hostname, "host": my_ip, "port": BRIDGE_PORT}
@@ -306,9 +314,9 @@ def _heartbeat_push_loop():
     """v7.2 一期(2026-07-26): 主动推心跳(30s) — payload = /health 同一份数据 + name。
     api 收到即停对本机的反向探测(双栈过渡, 推送断了它自动回轮询, 两边都无需开关)。
     404 = announce 还没建档, 等下一分钟 announce 即可, 不算错。"""
-    if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
+    if not _API_HOST or _API_HOST.startswith("127."):
         return   # 没配 api 地址: announce 同样跳过, 这里安静退出
-    api_base = f"http://{DOCKER_COMPOSE_HOST}:{API_PORT}"
+    api_base = SERVER_API_URL
     hostname = socket.gethostname()
     headers = {"X-API-Key": WORKER_KEY} if WORKER_KEY else {}
     trades_days = 0   # 成交窗口由 api 应答指定(自适应); 0=本拍不捎(首拍/无角色机)
@@ -344,9 +352,9 @@ def _download_loop():
     """下载编排反转(v7.2 #3): 轮询领任务 → 本机 MT5 拉 K线 → 分批 POST 回 api 入库。
     只有 download 职能(announce 应答回告)且 MT5 已连时干活; 空闲每 20s 问一次;
     领到任务干完立刻再领(多品种连续消化, 多机 SKIP LOCKED 自动分摊)。"""
-    if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
+    if not _API_HOST or _API_HOST.startswith("127."):
         return
-    api_base = f"http://{DOCKER_COMPOSE_HOST}:{API_PORT}"
+    api_base = SERVER_API_URL
     hostname = socket.gethostname()
     headers = {"X-API-Key": WORKER_KEY} if WORKER_KEY else {}
     while True:

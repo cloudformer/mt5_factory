@@ -182,13 +182,19 @@ if ($mt5Path) {
     }
 }
 # Interactive fill for missing critical values (written to env only after you confirm)
-if (Select-String -Path $envFile -Pattern '^DOCKER_COMPOSE_HOST=(127\.|$)') {
-    $ip = Read-Host "DOCKER_COMPOSE_HOST is not set - enter the Linux VM (docker compose) IP"
-    if (-not $ip) { Write-Host "!! Linux VM IP is required" -ForegroundColor Red; Pause-Exit 1 }
+if (Select-String -Path $envFile -Pattern '^SERVER_API_URL=\s*$') {
+    Write-Host "SERVER_API_URL is not set - the full URL of the Linux api server"
+    Write-Host "  LAN     : http://192.168.4.130:8010"
+    Write-Host "  Internet: https://api.demo.com/api"
+    $u = (Read-Host "Enter SERVER_API_URL").Trim().TrimEnd('/')
+    if (-not $u) { Write-Host "!! SERVER_API_URL is required" -ForegroundColor Red; Pause-Exit 1 }
+    if ($u -notmatch '^https?://') {
+        Write-Host "!! must start with http:// or https://" -ForegroundColor Red; Pause-Exit 1
+    }
     # explicit UTF8: the env file has Chinese comments; default ANSI read would corrupt them
-    (Get-Content $envFile -Encoding UTF8) -replace '^DOCKER_COMPOSE_HOST=.*', "DOCKER_COMPOSE_HOST=$ip" |
+    (Get-Content $envFile -Encoding UTF8) -replace '^SERVER_API_URL=.*', "SERVER_API_URL=$u" |
         Set-Content $envFile -Encoding UTF8
-    Write-Host "Saved DOCKER_COMPOSE_HOST=$ip"
+    Write-Host "Saved SERVER_API_URL=$u"
 }
 Write-Host "Using $envFile"
 

@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import socket
+from urllib.parse import urlparse
 import sys
 import time
 from pathlib import Path
@@ -29,9 +30,8 @@ from strategy_core.gate import gate_mult, regime_gate   # regime 门: 与回测�
 # 统一配置: 与 Linux docker compose 共用 env/.dev.env (整仓 clone 到 Windows)
 load_dotenv(Path(__file__).resolve().parents[2] / "env" / ".dev.env")
 
-# api 地址由共享配置拼出: http://<Linux VM IP>:<API_PORT>
-DOCKER_COMPOSE_HOST = os.getenv("DOCKER_COMPOSE_HOST", "").strip()
-API_URL = f"http://{DOCKER_COMPOSE_HOST}:{os.getenv('API_PORT', '8010')}"
+# Linux api 的完整地址(2026-08-13 取代 DOCKER_COMPOSE_HOST+API_PORT 的拼接)
+API_URL = os.getenv("SERVER_API_URL", "").strip().rstrip("/")
 RUN_STATUS = os.getenv("RUN_STATUS", "DEMO")
 VOLUME = float(os.getenv("VOLUME", "0.01"))
 # worker 钥匙(v5.6-A): 请求带上它 → api 日志能看出"是哪台机器/谁的"; 目前只识别不限制
@@ -401,8 +401,10 @@ def process(inst: dict, last_bar: dict) -> None:
 
 
 def main():
-    if not DOCKER_COMPOSE_HOST or DOCKER_COMPOSE_HOST.startswith("127."):
-        logger.error("DOCKER_COMPOSE_HOST in env/.dev.env must be the Linux VM LAN IP (current: %r)", DOCKER_COMPOSE_HOST)
+    host = urlparse(API_URL).hostname if API_URL else None
+    if not host or host.startswith("127."):
+        logger.error("SERVER_API_URL 未配置或无效: 请在 env/.dev.env 填"
+                     " 如 SERVER_API_URL=http://192.168.4.130:8010 (当前值: %r)", API_URL)
         sys.exit(1)
     while True:
         wait_bridge()  # 返回即 bridge 已确认 MT5 可用
