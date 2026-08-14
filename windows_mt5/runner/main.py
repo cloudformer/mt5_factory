@@ -32,7 +32,6 @@ load_dotenv(Path(__file__).resolve().parents[2] / "env" / ".dev.env")
 
 # Linux api 的完整地址(2026-08-13 取代 DOCKER_COMPOSE_HOST+API_PORT 的拼接)
 API_URL = os.getenv("SERVER_API_URL", "").strip().rstrip("/")
-RUN_STATUS = os.getenv("RUN_STATUS", "DEMO")
 VOLUME = float(os.getenv("VOLUME", "0.01"))
 # worker 钥匙(v5.6-A): 请求带上它 → api 日志能看出"是哪台机器/谁的"; 目前只识别不限制
 WORKER_KEY = os.getenv("WORKER_KEY", "").strip()
@@ -174,19 +173,35 @@ def mt5_connect() -> bool:
     return mt5.initialize(**kwargs)  # 无账户时附着到已登录终端
 
 
+_last_role = ""   # 最近一次【从 api 确认到】的角色; "" = 从未确认过 或 确认为空闲
+
+
 def detect_run_status() -> str:
     """本机职能以 web 上的指派为准 (mt5_hosts.runner): live→LIVE, demo→DEMO, NULL→不跑;
     按计算机名(gethostname)匹配自己那行 — 与 bridge 注册的身份一致, 不受 IP 变化影响。
-    找不到本机注册记录时退回 env 的 RUN_STATUS"""
+
+    没有默认角色(2026-08-13 与 Frank 定, 原来兜底 env RUN_STATUS=DEMO):
+      · 查到了 → 以查到的为准, 记为"上次确认"; 查到 NULL(网页点了「切空闲」)→ 立刻停, 不沿用
+      · 网络抖动/api 短暂不可达 → 沿用上次确认的角色(不因一次超时就停掉在跑的策略)
+      · 从未确认过(开机就连不上 / 本机还没注册)→ 返回 "" → 不加载任何策略 = 不交易
+    要点: 角色没确认就不猜。原来的 DEMO 兜底会让一台该跑 LIVE 的机器在 api 抖动时
+    去加载 DEMO 策略下单, 也会让还没指派角色的新机器一开机就自己跑起来。"""
+    global _last_role
     try:
         hostname = socket.gethostname()
         r = requests.get(f"{API_URL}/hosts", timeout=10, headers=API_HEADERS)
         for h in r.json()["hosts"]:
             if h["name"] == hostname and h["enabled"]:
-                return {"live": "LIVE", "demo": "DEMO"}.get(h["runner"], "")
+                role = {"live": "LIVE", "demo": "DEMO"}.get(h["runner"], "")
+                if role != _last_role:
+                    logger.info("角色确认: %r → %r", _last_role or "idle", role or "idle")
+                _last_role = role          # 确认为空闲也要覆盖 — 网页切空闲必须立刻生效
+                return role
+        logger.warning("本机 %s 未在 /hosts 中(未注册或已停用), 沿用上次确认的角色 %r",
+                       hostname, _last_role or "idle")
     except Exception as e:
-        logger.warning("role detect failed (%s), fallback to env RUN_STATUS", e)
-    return RUN_STATUS
+        logger.warning("角色查询失败(%s), 沿用上次确认的角色 %r", e, _last_role or "idle")
+    return _last_role
 
 
 _vol_seen: dict = {}   # 上一轮各策略手数(仅日志比对用, 丢了无害 — 状态仍只在DB)

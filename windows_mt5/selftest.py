@@ -97,19 +97,26 @@ else:
     check("algo-trading", "FAIL", "AutoTrading OFF - terminal launched manually? "
           "click the Algo Trading toolbar button")
 
-# 4: runner alive (role may legitimately be unassigned on a download-only host)
+# 4: runner alive + strategies actually loaded
+# 等的是"策略装上了", 不是"runner 进程起来了"(2026-08-13 修): runner 一启动就报
+# strategies=0, 原条件 `strategies is not None` 第一拍就跳出, 150s 预算一秒没用上 ——
+# 而此刻它还没从 api 领到角色(按 env 兜底跑 DEMO), 于是 live 机器必然查到 0 个策略,
+# quotes/cross-check 双双 SKIP, 每台 live worker 开机自检永远 6/8。
 deadline = time.time() + WAIT_RUNNER_S
-runner = {}
+runner, waited = {}, 0
 while time.time() < deadline:
     runner = (get_health() or {}).get("runner") or {}
-    if runner.get("alive") and runner.get("strategies") is not None:
-        break
+    if runner.get("alive") and (runner.get("strategies") or 0) > 0:
+        break            # 角色到位且策略装上 → 后面几项才有东西可查
     time.sleep(10)
+    waited = int(time.time() - (deadline - WAIT_RUNNER_S))
 if not runner.get("alive"):
     check("runner", "FAIL", "not running after %ds - check start_runner.bat window" % WAIT_RUNNER_S)
 else:
-    check("runner", "PASS", "role=%s strategies=%s"
-          % (runner.get("run_status") or "-", runner.get("strategies")))
+    role = runner.get("run_status") or "-"
+    n = runner.get("strategies") or 0
+    check("runner", "PASS", "role=%s strategies=%s%s"
+          % (role, n, "" if n else " (waited %ds)" % waited))
 
 # 5: quotes for loaded strategies (skipped = symbol missing at this broker)
 skipped = runner.get("skipped") or []
@@ -118,7 +125,10 @@ if skipped:
     check("quotes", "FAIL", "no quotes for: %s (add in Market Watch / wrong symbol name)"
           % ",".join(sorted({s["symbol"] for s in skipped})))
 elif not per_strategy:
-    check("quotes", "SKIP", "no strategies loaded (role unassigned or none in this status)")
+    # 等满 WAIT_RUNNER_S 仍无策略: 分清"这台本来就没活"和"角色一直没确认下来"
+    check("quotes", "SKIP", "no strategies after %ds (role=%s) - download-only host, "
+          "or role not yet assigned on the web Workers page"
+          % (WAIT_RUNNER_S, runner.get("run_status") or "unassigned"))
 else:
     now = time.time()
     stale = sorted({s.get("symbol") or s["name"] for s in per_strategy
@@ -177,7 +187,8 @@ try:
         return bad
 
     if not ps:
-        check("cross-check", "SKIP", "no strategies loaded")
+        check("cross-check", "SKIP", "no strategies (role=%s) - same reason as quotes above"
+          % (runner.get("run_status") or "unassigned"))
     else:
         bad = _mismatches()
         if bad:  # stats has a 60s cache: a trade closing in between skews transiently -
