@@ -118,13 +118,16 @@
       <td><span class="badge {{ 'ok' if h.key_bound else 'error' }}">{{ '已认证' if h.key_bound else '未认证' }}</span></td>
       <td class="muted">{% if h.key_bound %}钥匙 <b class="mono">{{ h.key_label or '—' }}</b> · 一机一钥{% else %}<span class="neg">签发新钥匙(用户管理页) → 填 WORKER_KEY → 重启 bridge → 自动首绑</span>{% endif %}</td></tr>
   <tr><td>开机自检</td>
+      {# 详情全走悬停(2026-08-15 Frank 要): 徽标悬停=8项全清单; SKIP/WARN 悬停=各自原因。
+         数据本来就随心跳进了 last_health, 只是以前没显示 detail #}
       <td>{% if st %}
-        <span class="badge {{ 'ok' if st.ok else 'error' }}">{{ 'OK' if st.ok else 'FAIL' }}
+        <span class="badge {{ 'ok' if st.ok else 'error' }}" style="cursor:help"
+              title="{% for c in st.checks %}{{ c.status }}　{{ c.name }}: {{ c.detail }}&#10;{% endfor %}">{{ 'OK' if st.ok else 'FAIL' }}
           {{ st.checks | selectattr('status', 'equalto', 'PASS') | list | length }}/{{ st.checks | length }}</span>
       {% else %}<span class="badge">未运行</span>{% endif %}</td>
       <td class="muted">{% if st %}{{ st.updated_fmt or '' }}
         {%- for c in st.checks if c.status == 'FAIL' %} · <span class="neg">{{ c.name }}: {{ c.detail }}</span>{% endfor %}
-        {%- for c in st.checks if c.status in ('SKIP', 'WARN') %} · {{ c.name }}={{ c.status }}{% endfor %}
+        {%- for c in st.checks if c.status in ('SKIP', 'WARN') %} · <span style="cursor:help;border-bottom:1px dotted" title="{{ c.detail }}">{{ c.name }}={{ c.status }}</span>{% endfor %}
         · 重跑: 重启 worker 或 selftest.bat
       {% else %}worker 更新代码后重启一次即有{% endif %}</td></tr>
 </table>
