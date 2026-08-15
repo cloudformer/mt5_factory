@@ -191,6 +191,10 @@ def run_backtest(m1: dict, template: str, params: dict, point: float, timeframe:
         if pos is None:
             if start_ts is not None and m1["time"][j_from] < start_ts:
                 continue  # 起点对齐: 入场bar早于起点 → 空仓略过(指标窗口照常前进)
+            # bar 时间戳挂给策略(2026-08-15, 纯附加): 时段类策略(如 session_orb 的
+            # "08:00 开盘区间")需要钟点, 滑动窗近似不了。数据聚合器本来就有, 只是递过去;
+            # 不读它的模板行为逐字节不变。runner 侧同一约定(rates["time"])。
+            strat.t = tf["time"][i - w + 1:i + 1]
             sig = strat.on_bar(
                 tf["open"][i - w + 1:i + 1], tf["high"][i - w + 1:i + 1],
                 tf["low"][i - w + 1:i + 1], tf["close"][i - w + 1:i + 1],

@@ -377,6 +377,8 @@ def process(inst: dict, last_bar: dict) -> None:
         return
     last_bar[inst["id"]] = bar_time
 
+    # bar 时间戳挂给策略(2026-08-15, 与引擎同一约定): 时段类策略要钟点; 不读它的模板不受影响
+    strat.t = rates["time"]
     sig = strat.on_bar(rates["open"], rates["high"], rates["low"], rates["close"])
     pos = position_dir(inst["symbol"], inst["magic"])  # 无状态: 持仓以MT5为准
     if sig is None:

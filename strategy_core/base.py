@@ -21,7 +21,12 @@ class Strategy(ABC):
 
     on_bar 输入: 最近 warmup 根已收盘 bar 的 numpy 数组(旧→新)
     on_bar 输出: 开仓信号或 None (仅在空仓时被调用; 离场只靠 SL/TP)
+
+    self.t (2026-08-15 附加约定): 调用方(引擎/runner)在每次 on_bar 前把与 o/h/l/c 对齐的
+    bar 时间戳数组(epoch 秒, 券商服务器时间)挂在 self.t 上 — 时段类策略(开盘区间/伦敦时段)
+    用它取钟点; 不需要的模板直接无视, 行为不变。两端同一约定, 回测/实盘不分叉。
     """
+    t = None   # 由调用方在 on_bar 前注入; 模板只读
     PARAM_GRID: dict = {}    # 网格生成: 固定组合, 有限空间
     RANDOM_SPACE: dict = {}  # 随机生成: {param: (min, max, step)}, 近乎无限空间
 
