@@ -25,6 +25,15 @@ def _identity_headers() -> dict:
     return {}
 
 
+def parse_ids(raw: str) -> list[int]:
+    """全站唯一的策略ID串解析(2026-08-15 Frank 定): 规范格式 = 逗号分隔 1,2,3(所有输出统一),
+    输入宽容 — 方括号/空格/换行/分号/中文逗号一律当分隔符(旧报告复制的 [1, 2, 3] 也认);
+    真垃圾(非数字)仍抛 ValueError, 由调用方 flash 提示"""
+    import re
+    toks = re.split(r"[,\uFF0C;\s]+", (raw or "").replace("[", " ").replace("]", " "))
+    return [int(t) for t in toks if t]
+
+
 def get(path: str, timeout: int = 15, **params):
     # timeout 是保留形参(不进查询串): 长现算端点(如候选族对比)显式放宽
     try:

@@ -421,9 +421,9 @@ worker 90 秒无心跳 — Windows 侧看 bridge/runner 进程与网络; 恢复�
 <details style="margin:4px 0">
   <summary style="cursor:pointer"><span class="{{ cls }}">{{ key }}-id</span>
     <span class="muted">{{ ids | length }} 个(点开展开)</span>
-    <button class="small" type="button" title="不用展开, 直接复制整个名单"
+    <button class="small" type="button" title="不用展开, 直接复制整个名单(格式 1,2,3 — 全站按ID框直接粘)"
             onclick="event.preventDefault();navigator.clipboard.writeText(document.getElementById('{{ uid }}-{{ key }}').textContent);this.textContent='✓';setTimeout(()=>this.textContent='复制',1200)">复制</button></summary>
-  <code class="mono" id="{{ uid }}-{{ key }}" style="user-select:all;word-break:break-all">{{ ids | tojson }}</code>
+  <code class="mono" id="{{ uid }}-{{ key }}" style="user-select:all;word-break:break-all">{{ ids | join(',') }}</code>
 </details>
 {% endfor %}
 {% endif %}

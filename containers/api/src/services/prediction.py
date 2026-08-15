@@ -12,6 +12,7 @@
       成熟度 = 笔数≥min_trades 且 天数≥min_days 才出结论, 之前 = 未证实
   · 结论三档: 有效(Actual>1 且保持率≥retention_ok) / 衰减(Actual>1 但不足) / 失效(Actual≤1)
 """
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -47,26 +48,47 @@ def batch_pfs(trades: list, t0: float, t1: float, batch: int) -> dict | None:
             "below1": sum(1 for p in num if p <= 1)}
 
 
-async def board(pool, batch: int = 30, gated_only: bool = True) -> list:
+async def board(pool, batch: int = 30, gated_only: bool = True,
+                limit: int = 50, offset: int = 0, ids: list | None = None,
+                is_disconnected=None) -> dict:
     """策略预测看板(2026-08-10 Frank 定, 读时现拼零落库): 锚 = 创建时间 —
     过去 = 整个回测窗(多少年无所谓, 如实显示)按每 batch 笔一批的 PF 序列;
     之后 = 创建日 → 数据末端合并一个 PF(现在笔数少, 攒多了再分批)。
-    batch 是页面控件传参(不落库); gated_only=False 时无门策略也进(锚语义相同)。"""
+    batch 是页面控件传参(不落库); gated_only=False 时无门策略也进(锚语义相同)。
+
+    服务端分页(2026-08-15 Frank 报卡死): scope=全部时策略数以千计, 每个都要拉全量
+    trades JSONB 现算批次 PF — 一次全算 = api 算几分钟 + 响应几十 MB。
+    与全站同规矩: 只算当前页, 名单查询本身很便宜, total 从它出。
+
+    取消业务(2026-08-15 Frank 要, 起因 = api 单核 98% 卡死事故): 调用方断开(web 超时/
+    刷新/关页)后继续算是纯浪费 — 逐策略问一次 is_disconnected, 断了立刻弃算。
+    重计算(batch_pfs)扔线程池: 它原来跑在事件循环里, 算的时候整个 api(连 /health)都被
+    拖住, 心跳会误判; to_thread 后别的请求照常响应, is_disconnected 也才问得及时。"""
     where = "metadata->'regime'->>'version' IS NOT NULL" if gated_only \
         else "EXISTS (SELECT 1 FROM backtests b WHERE b.strategy_id = strategies.id)"
-    rows = await pool.fetch(
+    args = []
+    if ids:                                   # 按 ID 点名(2026-08-15): 点名即无视范围过滤
+        where, args = "id = ANY($1)", [ids]
+    all_rows = await pool.fetch(
         f"SELECT id, name, symbol, timeframe, status, metadata, created_at"
-        f"  FROM strategies WHERE {where} ORDER BY created_at DESC")
+        f"  FROM strategies WHERE {where} ORDER BY created_at DESC", *args)
+    total = len(all_rows)
+    rows = all_rows[offset:offset + limit]
     now_ts = datetime.now(timezone.utc).timestamp()
     out = []
     for s in rows:
+        if is_disconnected is not None and await is_disconnected():
+            logger.info("prediction board 取消: 调用方已断开(算到 %d/%d)",
+                        len(out), len(rows))
+            break                      # 没人收结果了, 算完是纯浪费
         bt = await pool.fetchrow(
             "SELECT from_time, to_time, trades FROM backtests"
             " WHERE strategy_id=$1 AND symbol=$2", s["id"], s["symbol"])
         trades = (bt["trades"] if bt else None) or []
         frozen_ts = s["created_at"].timestamp()
         g = (s["metadata"] or {}).get("regime") or {}
-        after = slice_metrics(trades, frozen_ts, now_ts) if bt else None
+        after = (await asyncio.to_thread(slice_metrics, trades, frozen_ts, now_ts)
+                 if bt else None)
         out.append({
             "id": s["id"], "name": s["name"], "symbol": s["symbol"],
             "timeframe": s["timeframe"], "status": s["status"],
@@ -74,11 +96,13 @@ async def board(pool, batch: int = 30, gated_only: bool = True) -> list:
             "frozen_at": s["created_at"].isoformat(),
             "window": (f"{bt['from_time']:%Y-%m-%d} ~ {bt['to_time']:%Y-%m-%d}"
                        if bt else None),     # 回测窗如实显示, 多少年无所谓
-            "before": (batch_pfs(trades, bt["from_time"].timestamp(), frozen_ts, batch)
+            "before": (await asyncio.to_thread(
+                            batch_pfs, trades, bt["from_time"].timestamp(),
+                            frozen_ts, batch)
                        if bt else None),
             "after": after,                  # {n, pf, net...} 合并一个数
         })
-    return out
+    return {"rows": out, "total": total}
 
 
 def _pf_num(m: dict):

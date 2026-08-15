@@ -124,14 +124,13 @@ def run():
     成本不再从本表单传 — api 自动取系统默认(上方"默认成本"区块是唯一修改处)。"""
     payload = {}
     if request.form.get("mode") == "ids":  # 按 ID 点名, 忽略筛选
-        ids = [s.strip() for s in request.form.get("strategy_ids", "").split(",") if s.strip()]
-        if not ids:
-            flash("按ID模式需要填策略ID(逗号分隔)", "error")
-            return redirect(url_for("backtests.index"))
         try:
-            payload["strategy_ids"] = [int(s) for s in ids]
+            payload["strategy_ids"] = api.parse_ids(request.form.get("strategy_ids", ""))
         except ValueError:
             flash("策略ID必须是数字, 逗号分隔", "error")
+            return redirect(url_for("backtests.index"))
+        if not payload["strategy_ids"]:
+            flash("按ID模式需要填策略ID(逗号分隔)", "error")
             return redirect(url_for("backtests.index"))
         if request.form.get("window_days", "").strip():   # 点名模式的时间窗(默认5年)
             payload["window_days"] = int(request.form["window_days"])

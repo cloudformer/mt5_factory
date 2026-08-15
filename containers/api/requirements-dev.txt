@@ -1,3 +1,4 @@
 # 引擎回归测试(v2.4)依赖 — 不进生产镜像; 本地/CI 装: pip install -r requirements-dev.txt
 -r requirements.txt
 pytest==8.*
+requests==2.*   # 仅测试用: test_parse_ids 要 import web 侧 api_client

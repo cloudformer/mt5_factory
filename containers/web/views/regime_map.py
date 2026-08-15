@@ -62,7 +62,7 @@ def run():
     ids = (request.form.get("ids") or "").strip()
     if ids:
         try:
-            payload["ids"] = [int(x) for x in ids.replace("，", ",").split(",") if x.strip()]
+            payload["ids"] = api.parse_ids(ids)
         except ValueError:
             flash("ID 串需为逗号分隔的数字", "error")
             return redirect(url_for("regime_map.index"))

@@ -688,14 +688,26 @@ def predictions_page():
     之后(真未来)的 PF 与批次稳定性(每N笔一批, 批间PF差不多才稳, 不许一笔大单拉均值)。"""
     batch = min(500, max(5, request.args.get("batch", 30, type=int)))
     scope = request.args.get("scope", "gated")
-    rows = []
+    page = max(1, request.args.get("page", 1, type=int))
+    ids_raw = (request.args.get("ids") or "").strip()
+    rows, meta = [], {"total": 0, "page": 1, "pages": 1, "per": 50}
     try:
-        rows = api.get("/prediction/board", batch=batch, scope=scope,
-                       timeout=120).get("rows") or []
+        try:
+            id_list = api.parse_ids(ids_raw)     # 宽容解析: 1,2,3 / [1, 2, 3] 都认
+        except ValueError:
+            flash("策略ID必须是数字, 逗号分隔", "error")
+            id_list = []
+        # 服务端分页(2026-08-15 Frank 报卡死): 只算当前页, scope=全部不再一次算几千个
+        d = api.get("/prediction/board", batch=batch, scope=scope, page=page,
+                    timeout=120,
+                    **({"ids": ",".join(map(str, id_list))} if id_list else {}))
+        rows = d.get("rows") or []
+        meta = {k: d.get(k) for k in ("total", "page", "pages", "per")}
     except api.ApiError as e:
         flash(f"取预测看板失败: {e}", "error")
     return render_template("strategy_predictions.html", rows=rows,
-                           batch=batch, scope=scope)
+                           batch=batch, scope=scope, meta=meta, page=page,
+                           ids_raw=ids_raw)
 
 
 @bp.get("/ai_regime")

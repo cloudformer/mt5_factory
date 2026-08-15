@@ -14,6 +14,8 @@
     <button type="button" class="small" title="看时代: 100 笔一批 ≈ 一两年一段, 看策略跨市场时代的成色"
             onclick="this.form.batch.value=100;this.form.requestSubmit()">100·看时代</button>
     <span class="muted" title="一批5笔全亏概率≈27%(胜率23%时), 0.0满天飞是骰子声不是规律">别低于 30(低胜率策略每批≥7个期望胜单, 再细全是噪音)</span>
+    <label style="margin-left:12px" title="点名看这几个(规范格式 1,2,3; 报告页复制的名单直接粘, 方括号也认)。填了ID则范围失效">按ID
+      <input name="ids" value="{{ ids_raw or '' }}" size="18" placeholder="逗号分隔"></label>
     <label style="margin-left:12px">范围 <select name="scope" data-autosubmit>
       <option value="gated" {% if scope != 'all' %}selected{% endif %}>带门(regime)</option>
       <option value="all" {% if scope == 'all' %}selected{% endif %}>全部(有回测行)</option>
@@ -21,6 +23,11 @@
     <button class="small">应用</button>
   </form>
 
+  {# 服务端分页(2026-08-15 Frank 报卡死): 只算当前页 — scope=全部时几千个策略一次全算,
+     api 算几分钟+响应几十MB。换范围/每批会自动回到第 1 页(表单不带 page) #}
+  <p class="muted">共 {{ meta.total }} 个 · 第 {{ meta.page }} / {{ meta.pages }} 页(每页 {{ meta.per }}, 只算当前页)
+    {% if meta.page > 1 %}<a data-ajax="section" href="?batch={{ batch }}&scope={{ scope }}&ids={{ ids_raw or '' }}&page={{ meta.page - 1 }}">‹ 上一页</a>{% endif %}
+    {% if meta.page < meta.pages %}<a data-ajax="section" href="?batch={{ batch }}&scope={{ scope }}&ids={{ ids_raw or '' }}&page={{ meta.page + 1 }}">下一页 ›</a>{% endif %}</p>
   {{ m.table_toolbar('pred-board', hint='本页即时过滤 · 点表头排序') }}
   <table id="pred-board">
     <tr>

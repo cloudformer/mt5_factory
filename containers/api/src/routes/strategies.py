@@ -369,13 +369,23 @@ async def clone_gate(strategy_id: int, req: CloneGateRequest, request: Request):
 
 
 @router.get("/prediction/board")
-async def prediction_board(request: Request, batch: int = 30, scope: str = "gated"):
+async def prediction_board(request: Request, batch: int = 30, scope: str = "gated",
+                           page: int = 1, per: int = 50,
+                           ids: Optional[str] = None):
     """策略预测看板(2026-08-10 Frank 定): 锚=创建时间 — 过去=整个回测窗按每 batch 笔
     一批的 PF 序列, 之后=创建日起合并一个 PF。batch 是页面控件传参(不落库, 钳 5~500);
     scope=gated(默认, regime 带门) / all(有回测行的全部)。读时现拼零落库。"""
     pool = request.app.state.pool
-    return {"rows": await prediction.board(pool, batch=max(5, min(500, batch)),
-                                           gated_only=(scope != "all"))}
+    # 服务端分页(2026-08-15): 只算当前页 — scope=全部时几千个策略一次全算会卡死
+    per = max(10, min(200, per))
+    page = max(1, page)
+    id_list = [int(x) for x in (ids or "").split(",") if x.strip().isdigit()] or None
+    r = await prediction.board(pool, batch=max(5, min(500, batch)),
+                               gated_only=(scope != "all"),
+                               limit=per, offset=(page - 1) * per, ids=id_list,
+                               is_disconnected=request.is_disconnected)
+    return {"rows": r["rows"], "total": r["total"], "page": page, "per": per,
+            "pages": max((r["total"] + per - 1) // per, 1)}
 
 
 # ---------- MQ5 转化流水线 ----------

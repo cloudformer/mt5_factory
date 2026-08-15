@@ -122,7 +122,7 @@ def run():
     try:
         ids_raw = (request.form.get("ids") or "").strip()
         if ids_raw:   # 点名 = 只读诊断; 不填 = 全部未筛过的空闲策略(第4步接队列)
-            payload["ids"] = [int(x) for x in ids_raw.replace("，", ",").split(",") if x.strip()]
+            payload["ids"] = api.parse_ids(ids_raw)
         if (request.form.get("basis") or "").strip():   # 批次: 圈一次实验那一批
             payload["basis"] = request.form["basis"].strip()
         if (request.form.get("task") or "").strip():
