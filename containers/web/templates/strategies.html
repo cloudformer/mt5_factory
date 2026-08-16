@@ -20,6 +20,14 @@
           <option value="">全部</option>
           {% for t in templates %}<option value="{{ t }}" {% if t == template %}selected{% endif %}>{{ t }}</option>{% endfor %}
         </select></label>
+      {# 批次(2026-08-15 Frank 要): 与回测页同源同款 — 一次实验圈一批, 精确匹配 basis #}
+      <label title="生成策略时填的批次标签。选中即只看该批次 — 一次实验圈一批, 不用拼模板/品种/周期">批次
+        <select name="basis">
+          <option value="">全部批次</option>
+          {% for b in batches %}
+          <option value="{{ b.basis }}" {% if b.basis == basis %}selected{% endif %} title="{{ b.basis }}">{{ b.basis | truncate(46, true, "…") }} · {{ b.timeframes }} · 已测 {{ b.tested }}/{{ b.n }}</option>
+          {% endfor %}
+        </select></label>
       <label>货币对
         <select name="symbol">
           <option value="">全部</option>
@@ -97,6 +105,8 @@
           <option value="{{ v }}" {% if v == q_field %}selected{% endif %}>{{ t }}</option>{% endfor %}
         </select></label>
       <input name="q_text" value="{{ q_text or '' }}" size="14" placeholder="关键词(空=不搜)">
+      <button class="small" type="button" title="清空全部筛选条件, 回到默认视图"
+              onclick="location='{{ url_for('strategies.index') }}'">复位</button>
       <button class="small live" title="按上方条件重查(服务端筛选+排名)">查询</button>
       <span class="muted">↑ 查库(分页, 空=不限); ↓ 当页即时过滤/排序/翻页</span>
     </div>

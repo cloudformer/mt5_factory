@@ -320,6 +320,7 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
               max_dd: Optional[float] = None, min_robust: Optional[float] = None,
               positive_only: bool = False, rank_template: Optional[str] = None,
               oos_pass: bool = False, template: Optional[str] = None, page: int = 1,
+              basis: Optional[str] = None,
               visibility: Optional[str] = None, market: bool = False,
               tag: Optional[str] = None, tag_status: Optional[str] = None,
               mount_host: Optional[int] = None):
@@ -345,6 +346,8 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         _and("s.symbol = ${n}", symbol)
     if template:
         _and("s.template = ${n}", template)
+    if basis:  # 批次: 生成时填的标签, 精确匹配(排名页下拉; 模糊搜走 q_field=basis)
+        _and("s.basis = ${n}", basis)
     if broker:
         _and("COALESCE(b.broker, sy.broker) = ${n}", broker)
     # 归档三态(2026-08-02 Frank 定): 默认不显示 / with=连归档一起显示 / only=只看归档

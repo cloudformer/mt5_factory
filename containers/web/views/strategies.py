@@ -21,6 +21,7 @@ def index():
     + 筛选(品种/券商/状态/多条件)/搜索/排名参数模板。数据走 /backtest/top(LEFT JOIN 版)。"""
     a = request.args
     template = a.get("template") or None
+    basis = a.get("basis") or None       # 批次(2026-08-15): 生成时填的标签, 精确圈一批
     symbol = a.get("symbol") or None
     broker = a.get("broker") or None
     status = a.get("status") or None
@@ -40,6 +41,7 @@ def index():
     mount = a.get("mount", type=int)      # 挂载 worker(host id)
     page = max(a.get("page", 1, type=int), 1)  # 服务端分页页码(1起)
     results, rank_templates, brokers, symbols, templates = [], [], [], [], []
+    batches = []         # 批次下拉(与回测页同源 /strategy_batches)
     mounts_view = {}     # 挂载列(纯显示): {sid: {rows: [启用挂载]}}
     hosts_runner = []    # 调度下拉的机器清单(有运行角色的启用主机)
     volume_presets = []  # 唯一源=config表(schema/030种子); api不可用即空, 不用写死值顶(铁律欠账4)
@@ -54,10 +56,11 @@ def index():
         volume_presets = cfg.get("volume_presets") or []
         volume_default = cfg.get("volume_default")
         templates = sorted(api.get("/strategies/templates")["templates"].keys())
+        batches = api.get("/strategy_batches")["batches"]
         params = {"min_trades": min_trades, "limit": page_size, "page": page}
         if min_actual_trades:
             params["min_actual_trades"] = min_actual_trades
-        for k, v in (("template", template), ("symbol", symbol),
+        for k, v in (("template", template), ("basis", basis), ("symbol", symbol),
                      ("broker", broker), ("status", status), ("visibility", visibility),
                      ("archived", archived)):
             if v:
@@ -113,6 +116,7 @@ def index():
                            tag=tag, tag_status=tag_status, mount=mount,
                            rank_templates=rank_templates, brokers=brokers, symbols=symbols,
                            template=template, templates=templates, oos_split=oos_split,
+                           basis=basis, batches=batches,
                            page=page, page_size=page_size, total=total,
                            total_pages=total_pages, base_args=base_args)
 
