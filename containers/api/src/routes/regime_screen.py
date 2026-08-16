@@ -9,7 +9,7 @@
   · 全池清理(不传 ids) = 投 jobs 队列(kind=regime_screen)秒回 → worker 并行现跑 →
     主节点收尾判定/落报告/执行动作(services/screen.finalize)。500 个 ~20分钟 → ~3分钟
   · 点名诊断(传 ids)   = 本请求内同步现跑现判, 报告落库但零动作(任意状态可点名, 强制预览;
-    2026-08-08 起单ID报告也进历史 — 不打标签不归档)
+    2026-08-08 起单ID报告也进历史 — 不做标记不归档)
 判定逻辑不在本文件 — 全系统一份在 services/screen.py, 两条路共用(结果必然一致)。
 执行动作只有两个系统本来就支持的写入: 通过 → basis 追加 ｜regime筛过#报告id;
 未过 → 归档(死因 regime_unstable, 可逆) — 且只在 finalize 里一次性发生。
@@ -88,7 +88,7 @@ class ScreenParams(BaseModel):
 
 @router.post("/regime_screen/stop")
 async def stop(request: Request):
-    """停止当前批次(2026-08-13 补齐, 四页同款): 删空本模块队列 = 不出报告不打标签。
+    """停止当前批次(2026-08-13 补齐, 四页同款): 删空本模块队列 = 不出报告不做标记。
     回测任务与判定任务【两个 kind 都要删】—— 只删一个会留下另一个继续跑。
     正在跑的把手头那块跑完, 写回时更新 0 行自然结束(回测结果幂等回流无害)。"""
     pool = request.app.state.pool
@@ -128,7 +128,7 @@ def _scope_conds(req_ids, req_symbols, uid, basis=None):
     """默认 = 全部未筛过的空闲策略(轮番清理, SQL 直接排掉已筛过); ID 点名 = 任意状态只读诊断。
     symbols(main/all)不是范围过滤是判定数据源, 只记进 scope 供报告展示。
 
-    basis(2026-08-13 补, 与回测页/规律页同名同义): 策略生成时填的批次标签。
+    basis(2026-08-13 补, 与回测页/规律页同名同义): 策略生成时填的批次。
     加在这里而不是 run 里 —— plan 与 run 共用本函数保证"预估数 = 实跑数",
     只加到 run 上预览就会撒谎。"""
     if req_ids:
@@ -204,11 +204,11 @@ async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str 
 
 # ---------- 运行(现跑回测 + 切片判定; 品种外层循环 = M1 单槽缓存零抖动) ----------
 class ScreenRun(BaseModel):
-    mode: str = "preview"              # preview=纯报告零动作 / execute=打标签+归档
+    mode: str = "preview"              # preview=纯报告零动作 / execute=标记+归档
     ids: Optional[list[int]] = None    # 按 ID 点名 = 只读诊断(强制预览, 报告不入库)
     # 批次(2026-08-13, 与回测页/规律页同名同义): 策略生成时填的标签, 存 strategies.basis
     basis: Optional[str] = None
-    task: Optional[str] = None         # 任务标签(可选): 给这次清理起个名, 记进报告好认
+    task: Optional[str] = None         # 任务名(可选): 给这次清理起个名, 记进报告好认
     version: Optional[int] = None      # regime 版本, 不传 = 当前默认
     symbols: str = "main"              # 判定数据源: main=只跑主品种 / all=全部下载品种都得过
     limit: Optional[int] = None        # 单次最多判多少个策略(超出的下次再跑), 不传 = 不限
@@ -218,7 +218,7 @@ class ScreenRun(BaseModel):
 async def screen_run(req: ScreenRun, request: Request):
     """两条路(2026-08-05 队列化定版, 判定逻辑共用 services/screen 一份):
       · 全池清理(不传 ids) = 投 jobs 队列(kind=regime_screen) 秒回 → worker 并行现跑回测
-        → 主节点收尾判定/落报告/打标签/归档(screen.finalize)
+        → 主节点收尾判定/落报告/标记/归档(screen.finalize)
       · 点名诊断(传 ids) = 本请求内同步现跑现判, 只读不入库(几个 ID 秒级, 走队列绕远)
     两条路的回测都是【现跑】(结果 UPSERT 回流 backtests, 假窗口旧行被真数据覆盖)。"""
     pool = request.app.state.pool
@@ -274,7 +274,7 @@ async def screen_run(req: ScreenRun, request: Request):
             "SELECT symbol FROM symbols WHERE download ORDER BY symbol")]
 
     # ===== 全池清理 = 投 jobs 队列, worker 并行跑回测(2026-08-05 步骤2) =====
-    # 判定不在这里做: 队列跑完由主节点收尾(步骤3) — 报告/打标签/归档都在那一步一次性发生。
+    # 判定不在这里做: 队列跑完由主节点收尾(步骤3) — 报告/标记/归档都在那一步一次性发生。
     # 点名诊断(req.ids)保持下面的同步路径: 几个 ID 秒级, 走队列绕远。
     if not req.ids:
         if await jobs.has_active(pool, jobs.SCREEN_KIND) \
@@ -406,7 +406,7 @@ async def screen_run(req: ScreenRun, request: Request):
 
     summary = screen.summarize(details, [], req.mode, not_run)
     # 点名诊断也落库报告(2026-08-08 Frank 改: 单ID也要有历史可溯源);
-    # 动作恒为零 — 不打标签不归档(执行只属于全池清理的收尾, 见 services/screen)
+    # 动作恒为零 — 不做标记不归档(执行只属于全池清理的收尾, 见 services/screen)
     rid = await pool.fetchval(
         "INSERT INTO regime_screens"
         " (mode, version_id, scope, params, summary, details, owner_id)"

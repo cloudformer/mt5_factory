@@ -2,7 +2,7 @@
 
   · 点名诊断: routes/regime_screen.py 内同步现跑回测 → judge_symbol/judge_one(只读不入库)
   · 全池清理: worker 并行跑完 jobs 队列(kind=regime_screen) → 本模块 finalize()
-              由 api 心跳主节点调用(sync.py) — 报告/打标签/归档在这一步一次性发生
+              由 api 心跳主节点调用(sync.py) — 报告/标记/归档在这一步一次性发生
 
 数据安全铁则(2026-08-05 与 Frank 定, 改这里前先读):
   1. 任一任务 FAILED / 缺回测行 / 窗口不足 → 该策略记"跳过(未判定)", **永不归档** — 缺数据绝不淘汰
@@ -20,7 +20,7 @@ from src.services import jobs, regime
 
 logger = logging.getLogger("screen")
 
-TAG = "regime筛过"   # basis 标签词根: 已含即幂等跳过; 列表页搜"标签/生因"可一键捞幸存者
+TAG = "regime筛过"   # basis 标记词根: 已含即幂等跳过; 列表页搜「批次·履历」可一键捞幸存者
 LOCK_KEY = 0x5C7EE41   # advisory lock: 同一时刻只有一个 api 副本在收尾
 
 
@@ -143,7 +143,7 @@ def judge_one(strat: dict, res_map: dict, p: dict, symbols_mode: str) -> tuple:
     if ok:
         d.update(verdict="pass",
                  reason="合格: " + " · ".join(f"{s} {'·'.join(c)}" for s, c in ok_list)
-                 + ("(非空闲, 只记录不打标签)" if readonly else ""))
+                 + ("(非空闲, 只记录不标记)" if readonly else ""))
         return d, (None if readonly else "tag")
     d.update(verdict="fail",
              reason=("各品种均无" if symbols_mode == "all" else "无")
@@ -184,7 +184,7 @@ async def finalize(pool: asyncpg.Pool) -> int | None:
       状态A  回测任务(kind=regime_screen)全跑完 → 按策略归拢(含失败品种原因) →
              切 judge_chunk(全局 config, 默认300) 一块投「判定任务」(kind=regime_screen_judge)
              → 删回测任务。worker 并行判块(jobs._run_screen_judge), [明细,动作] 写回 result。
-      状态B  判定任务全跑完 → 合并各块 → 单事务(报告+打标签+归档+删队列)提交 —
+      状态B  判定任务全跑完 → 合并各块 → 单事务(报告+标记+归档+删队列)提交 —
              任一步失败整体回滚, 下一拍重试从零, 不留孤儿报告。
              FAILED 的判定块 → 该块全员 skip(铁则1: 缺结果绝不淘汰)。
 

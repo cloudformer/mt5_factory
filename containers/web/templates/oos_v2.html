@@ -15,7 +15,7 @@
       <span class="op-sep">│</span>
       {# 批次(2026-08-13, 与回测页/规律页同名同义): 一次实验圈一批。
          只列有回测行、且策略数≥2 的批次 —— 单个策略不叫批次(点名用「按ID」) #}
-      <label title="策略生成时填的批次标签。选中即只跑该批次 — 一次实验圈一批, 不用拼模板/品种/周期">批次
+      <label title="策略生成时填的批次。选中即只跑该批次 — 一次实验圈一批, 不用拼模板/品种/周期">批次
         <select name="basis" data-fsel>
           <option value="">全部批次</option>
           {% for b in batches or [] %}
@@ -24,7 +24,7 @@
         </select></label>
       <label title="点名 = 诊断: 任意状态都可点名, 报告进历史可溯源, 但零动作(不追加出池履历不归档); 不填 = 默认全池">或按 ID
         <input name="ids" size="14" placeholder="逗号分隔(只读诊断)"></label>
-      <label title="可选: 给这次清理任务起个名, 记进报告好认(不参与筛选逻辑)">任务标签
+      <label title="可选: 给这次清理任务起个名, 记进报告好认(不参与筛选逻辑)">任务名
         <input name="task" size="12" placeholder="可选"></label>
     </div>
     <div class="row">
@@ -34,9 +34,9 @@
           <option value="">未筛过(默认)</option>
           <option value="1">全部空闲(重算)</option>
         </select></label>
-      <label title="两种模式都会给被判定过的策略追加出池标签 oos_v2#报告号(下次自动出池+溯源, 不改状态); 执行额外把 FAIL 归档(死因 oos_v2_fail, 可逆), 在跑/跑批期间被挂上机器的绝不动">模式
+      <label title="两种模式都会给被判定过的策略盖履历 oos_v2#报告号·结论(下次自动出池+溯源, 不改状态); 执行额外把 FAIL 归档(死因 oos_v2_fail, 可逆), 在跑/跑批期间被挂上机器的绝不动">模式
         <select name="mode">
-          <option value="preview">预览(出报告+出池标签)</option>
+          <option value="preview">预览(出报告+盖履历)</option>
           <option value="execute">执行(另把未过归档)</option>
         </select></label>
       <label title="本次最多现跑多少个策略(超出的下次再跑); 每个 ≈ 一发 20 年回测 ~10 秒">单次上限
@@ -61,7 +61,7 @@
       <span class="tag">状态</span>
       <span id="o2-plan" class="muted plan">…</span>
       <button type="button" id="o2-stop" class="small danger" hidden
-              title="删空本批队列: 不出报告不打标签; 在跑的把手头回测跑完即自然结束(结果回流无害)">停止(删队列)</button>
+              title="删空本批队列: 不出报告不盖履历; 在跑的把手头回测跑完即自然结束(结果回流无害)">停止(删队列)</button>
       <button class="go">开始筛选</button>
     </div>
   </form>
@@ -124,7 +124,7 @@
     }
     const stopBtn = document.getElementById("o2-stop");
     stopBtn.addEventListener("click", async () => {
-      if (!confirm("停止本批? 队列删空 = 不出报告不打标签(在跑的把手头跑完即结束)")) return;
+      if (!confirm("停止本批? 队列删空 = 不出报告不盖履历(在跑的把手头跑完即结束)")) return;
       stopBtn.disabled = true;
       try {
         const d = await fetch("{{ url_for('oos_v2.stop') }}", { method: "POST" }).then((r) => r.json());
@@ -268,7 +268,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="muted">还没有筛选报告 — 上方圈定范围后「开始筛选」(默认预览: 只出报告+出池标签)。</p>
+  <p class="muted">还没有筛选报告 — 上方圈定范围后「开始筛选」(默认预览: 只出报告+盖履历)。</p>
   {% endif %}
 </section>
 {% endblock %}

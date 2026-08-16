@@ -52,9 +52,9 @@
           <option value="LIVE">LIVE</option>
           <option value="CANDIDATE">CANDIDATE</option>
         </select></label>
-      {# 批次(2026-08-12 Frank 要): 一次实验 = 一个批次标签(生成页填的), 直接圈出来 —
+      {# 批次(2026-08-12 Frank 要): 一次实验 = 一个批次(生成页填的), 直接圈出来 —
          比"模板+品种+周期"拼半天靠谱, 也天然满足对比三铁律的"同批同口径" #}
-      <label title="生成策略时填的批次标签。选中即只跑该批次 — 一次实验圈一批, 不用拼模板/品种/周期">批次
+      <label title="生成策略时填的批次。选中即只跑该批次 — 一次实验圈一批, 不用拼模板/品种/周期">批次
         <select name="basis" data-fsel>
           <option value="">全部批次</option>
           {% for b in batches %}

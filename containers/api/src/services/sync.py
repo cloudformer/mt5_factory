@@ -371,7 +371,7 @@ async def heartbeat_loop(pool: asyncpg.Pool):
                         await _regime_refresh_tick(pool)
                     except Exception as e:
                         logger.warning("regime refresh tick error: %s", e)
-                    try:   # 筛选收尾(队列跑完 → 判定 → 报告 → 打标签/归档 → 清队列)
+                    try:   # 筛选收尾(队列跑完 → 判定 → 报告 → 盖履历·标记/归档 → 清队列)
                         await screen.finalize(pool)
                     except Exception as e:
                         logger.warning("regime screen finalize error: %s", e)

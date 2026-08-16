@@ -192,7 +192,7 @@ async def oos_progress(request: Request):
 
 @router.post("/oos_v2/stop")
 async def oos_stop(request: Request):
-    """停止当前全池批次(2026-08-07 Frank 要: 防误点/变更计划): 删空队列 = 不出报告不打标签。
+    """停止当前全池批次(2026-08-07 Frank 要: 防误点/变更计划): 删空队列 = 不出报告不盖履历。
     正在跑的任务把手头回测跑完(结果回流 backtests 幂等无害), 完成时更新 0 行自然结束。
     点名诊断(同步)不受此按钮管 — 它本来就秒级跑完且零写入。"""
     # 两个 kind 都要删(2026-08-13 修): 原来只删 OOS_KIND, 判定任务会留下继续跑
@@ -211,7 +211,7 @@ class OosRun(BaseModel):
     ids: Optional[list[int]] = None    # 按 ID 点名 = 只读诊断(强制预览, 不入库)
     # 批次(2026-08-13, 与回测页/规律页同名同义): 策略生成时填的标签, 存 strategies.basis
     basis: Optional[str] = None
-    task: Optional[str] = None         # 任务标签(可选, 记进报告好认)
+    task: Optional[str] = None         # 任务名(可选, 记进报告好认)
     limit: Optional[int] = None        # 单次上限(不传 = 用配置 batch_limit)
     rescreen: bool = False             # 重算: 无视履历跑全部空闲(tags 追加新履历, 历史全留)
 

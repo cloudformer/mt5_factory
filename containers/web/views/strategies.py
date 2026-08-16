@@ -27,7 +27,8 @@ def index():
     status = a.get("status") or None
     archived = a.get("archived") or ""   # 归档三态: ""=不显示(默认)/with=一起显示/only=只看归档
     visibility = a.get("visibility") or None
-    q_field = a.get("q_field") or "id"   # 默认搜索字段=策略ID(2026-08-02 Frank 定)
+    q_field = a.get("q_field") or "basis"  # 默认搜索=批次·履历模糊(2026-08-15 Frank 定:
+    # 随手敲批次名片段即捞整批; 原默认ID, 要搜ID时切字段)
     q_text = a.get("q_text") or None
     min_trades = a.get("min_trades", 0, type=int)
     min_actual_trades = a.get("min_actual_trades", 0, type=int)  # 实盘笔数≥(demo+live合计)
@@ -850,7 +851,7 @@ def generate():
             "timeframe": request.form["timeframe"],
             "mode": request.form.get("mode", "random"),
             "count": request.form.get("count", 50, type=int),
-            # 批次标签 → basis(生因): 事后排名页/Regime筛选页按标签整批圈。
+            # 批次 → basis: 出生证写一次永不改, 事后各页按批次下拉整批圈。
             # 时间戳无论如何都追加(2026-08-03 Frank 定): 有文本用文本没有用"优化策略",
             # 每批唯一 → 筛选圈批不串批
             "label": (request.form.get("label", "").strip() or "优化策略")

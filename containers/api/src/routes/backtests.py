@@ -81,7 +81,7 @@ class BacktestRequest(BaseModel):
     template: Optional[str] = None
     # 状态筛选(可选维度, 默认不限 — 回测本身与状态无关): 支持逗号多值, 如 "DEMO,LIVE"(热层每日刷新)
     status: Optional[str] = None
-    # 批次筛选(2026-08-12 Frank 要): 生成时填的批次标签, 存 strategies.basis。
+    # 批次筛选(2026-08-12 Frank 要): 生成时填的批次, 存 strategies.basis。
     # 一次实验 = 一个批次(如 grain-H4), 靠它把这批圈出来单独跑/单独读 —
     # 比"模板+品种+周期"三个下拉拼半天靠谱, 也天然满足对比三铁律的"同批同口径"
     basis: Optional[str] = None
@@ -387,7 +387,7 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
         t = q_text.strip()
         if q_field == "name":
             _and("s.name ILIKE ${n}", f"%{t}%")
-        elif q_field == "basis":   # 标签/生因模糊: 生因(basis)与筛选履历(tags)一起搜
+        elif q_field == "basis":   # 批次·履历模糊: 批次(basis)与履历(tags)一起搜
             _and("(s.basis ILIKE ${n} OR s.tags::text ILIKE ${n})", f"%{t}%")
         elif q_field == "id" and t.isdigit():
             _and("s.id = ${n}", int(t))

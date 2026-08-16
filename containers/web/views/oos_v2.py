@@ -65,7 +65,7 @@ def plan():
 
 @bp.post("/oos-v2/stop")
 def stop():
-    """停止当前全池批次: 删空队列(不出报告不打标签); 在跑的把手头回测跑完即自然结束"""
+    """停止当前全池批次: 删空队列(不出报告不盖履历); 在跑的把手头回测跑完即自然结束"""
     try:
         r = api.post("/oos_v2/stop")
         return jsonify({"message": f"已停止, 删除 {r['deleted']} 个任务(不出报告)"})

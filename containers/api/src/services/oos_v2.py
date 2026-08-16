@@ -14,7 +14,7 @@
   · 警示与判定分离: 0 笔段 / 笔数 < min_seg_trades 挂「样本不足」只提示人工, 不参与判定
 
 数据安全铁则(照 v0.5, 改这里前先读):
-  1. 任务 FAILED / 缺回测行 → 该策略记 skip, 永不归档也不打标签 — 缺数据绝不淘汰, 下次重跑
+  1. 任务 FAILED / 缺回测行 → 该策略记 skip, 永不归档也不盖履历 — 缺数据绝不淘汰, 下次重跑
   2. 归档写入时重申 status='CANDIDATE'(防跑批期间被挂上机器)
   3. 预览模式除【报告 + 出池履历(tags, schema/064)】外零写入(预览也追加履历,
      否则 6000 个永远跑不完一轮); 点名诊断恒零写入
@@ -176,7 +176,7 @@ async def apply_actions(pool, mode: str, rid: int,
     """出池履历 + 执行动作(v0.7 批次1, 2026-08-08 Frank 定: tags 独立 list, 每批追加一个元素):
       · 被判定过的往 strategies.tags(JSONB 数组, schema/064)追加
         {"report": "oos_v2#<rid>", "status": "pass|fail", "created_time": <UTC时刻>}
-        — 预览也追加(出池 + 报告溯源 + 列表一眼见结论); basis 不再写(回归生因本职);
+        — 预览也追加(出池 + 报告溯源 + 列表一眼见结论); basis 不再写(回归出生证本职);
         结构化全量数据在报告里(report 可 JOIN), 元素只是带结论的指针。
         skip 不追加, 下次重跑(铁则1)
       · 归档只在 execute: FAIL → ARCHIVED(死因 oos_v2_fail, 可逆),

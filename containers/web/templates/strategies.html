@@ -21,7 +21,7 @@
           {% for t in templates %}<option value="{{ t }}" {% if t == template %}selected{% endif %}>{{ t }}</option>{% endfor %}
         </select></label>
       {# 批次(2026-08-15 Frank 要): 与回测页同源同款 — 一次实验圈一批, 精确匹配 basis #}
-      <label title="生成策略时填的批次标签。选中即只看该批次 — 一次实验圈一批, 不用拼模板/品种/周期">批次
+      <label title="生成策略时填的批次。选中即只看该批次 — 一次实验圈一批, 不用拼模板/品种/周期">批次
         <select name="basis">
           <option value="">全部批次</option>
           {% for b in batches %}
@@ -56,11 +56,12 @@
           <option value="only" {% if archived == 'only' %}selected{% endif %}>只显示归档</option>
         </select></label>
     </div>
-    {# 履历/挂载(2026-08-08 Frank 要, 独立一行): tag+结论同给=同一条履历须同时满足 #}
+    {# 履历/挂载(2026-08-08 Frank 要, 独立一行): 履历+结论同给=同一条履历须同时满足。
+       口径(2026-08-15 Frank 定): basis 叫「批次」(出生证, 永不改), tags 叫「履历」(筛选盖章, 追加) #}
     <div class="filter-row">
-      <label title="筛选履历(tags)按报告名模糊: oos_v2#5=第5批全体 / oos_v2=所有批次筛过的。注意: 老批次(oos_v2#2~5)写在生因里, 这里抓不到, 用搜索「标签/生因」">tag
+      <label title="筛选履历按报告名模糊: oos_v2#5=第5批全体 / oos_v2=所有批次筛过的。注意: 老批次(oos_v2#2~5)写在批次里, 这里抓不到, 用搜索「批次·履历」">履历
         <input name="tag" value="{{ tag or '' }}" size="11" placeholder="如 oos_v2#5"></label>
-      <label title="履历结论: 与 tag 同给 = 同一条履历须同时满足(如「第5批的幸存者」); 单给 = 任何一批出现过该结论">结论
+      <label title="履历结论: 与履历同给 = 同一条履历须同时满足(如「第5批的幸存者」); 单给 = 任何一批出现过该结论">结论
         <select name="tag_status">
           <option value="">全部</option>
           <option value="pass" {% if tag_status == 'pass' %}selected{% endif %}>pass</option>
@@ -100,8 +101,8 @@
     </div>
     <div class="filter-row">
       <label>搜索
-        <select name="q_field" title="策略名/标签=模糊; ID/周期/状态=精准">
-          {% for v, t in [('id','ID'), ('name','策略名(模糊)'), ('basis','标签/生因(模糊)'), ('timeframe','周期'), ('status','状态')] %}
+        <select name="q_field" title="策略名/批次·履历=模糊; ID/周期/状态=精准">
+          {% for v, t in [('basis','批次·履历(模糊)'), ('id','ID'), ('name','策略名(模糊)'), ('timeframe','周期'), ('status','状态')] %}
           <option value="{{ v }}" {% if v == q_field %}selected{% endif %}>{{ t }}</option>{% endfor %}
         </select></label>
       <input name="q_text" value="{{ q_text or '' }}" size="14" placeholder="关键词(空=不搜)">
@@ -130,7 +131,7 @@
         <th title="策略在数据库的固定唯一 ID, 用于批量回测的『策略ID』框点名">ID</th>
         <th title="排名参数模板的综合分(0~100, 四维百分位加权); 默认排序下无">评分</th>
         <th>策略</th>
-        <th title="筛选履历(tags: 报告名·结论, 绿=pass 红=fail, 悬停看时间; 报告号可去对应筛选页溯源) + 批次标签/生因(basis: 生成时的批次名或AI调参依据); 搜索选「标签/生因」两者一起模糊(oos_v2# / pass 都能捞)">标签</th>
+        <th title="批次(生成时写一次永不改; AI克隆的一句话依据也是批次) + 履历(筛选盖章: 报告名·结论, 绿=pass 红=fail, 悬停看时间; 报告号可去对应筛选页溯源); 搜索选「批次·履历」两者一起模糊(oos_v2# / pass / 批次名 都能捞)">批次·履历</th>
         <th title="生成用的策略模板(逻辑代码)">策略模板</th><th>品种</th><th>券商</th><th>周期</th><th>状态</th>
         <th data-nosort title="可见性(v5.4): 私有=只有自己 / 公开=市场全可见可复制 / 共享=市场只给汇总战绩; 默认私有, 上市场是逐个主动打标; 执法在v5.6, 现在只是标签">可见性</th>
         <th>笔数</th><th title="回测的胜率(跨所有测过品种合计)">回测胜率</th><th>净点数</th><th>PF</th><th>最大回撤</th>
@@ -152,7 +153,7 @@
       <td class="mono">{{ r.strategy_id }}</td>
       <td>{% if r.score is not none %}<b>{{ r.score }}</b>{% else %}<span class="muted">—</span>{% endif %}</td>
       <td class="clip" title="{{ r.name }}">{{ r.name }}</td>
-      {# 标签列(v0.7 批次1): tags=筛选履历list(report·status, 绿pass红fail, 悬停看时间) + basis=生因 #}
+      {# 批次·履历列: tags=履历list(report·status, 绿pass红fail, 悬停看时间) + basis=批次 #}
       <td class="muted clip" title="{% for t in r.tags or [] %}{{ t.report }} {{ t.status }} {{ t.created_time }}
 {% endfor %}{{ r.basis or '' }}">
         {%- for t in r.tags or [] %}<span class="{{ 'pos' if t.status == 'pass' else 'neg' }}" style="font-weight:600">{{ t.report }}·{{ t.status }}</span> {% endfor -%}

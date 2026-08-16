@@ -43,7 +43,7 @@ class GenerateRequest(BaseModel):
     timeframe: str = "M15"
     mode: str = "random"  # grid=固定网格(有限) | random=随机采样(默认)
     count: int = 50       # random 模式下每个品种生成的数量
-    label: str | None = None  # 批次标签(2026-07-27): 写进 basis(生因), 事后按批查找/分组统计用
+    label: str | None = None  # 批次(2026-07-27): 写进 basis(出生证, 写一次永不改), 事后按批查找/分组统计用
 
 
 @router.post("/strategies/generate")
@@ -111,7 +111,7 @@ async def strategy_batches(request: Request, limit: int = 60, only_tested: int =
     Frank 就是选中一个 1 个策略且没回测的 AI 克隆"批次", 收到 400 才发现。
     回测页【不传】这个参数 —— 那边恰恰要的就是未测批次。
 
-    注: basis 这一列身兼两职 —— 生成批次标签(grid/random 填的) + AI 克隆的生因
+    注: basis 这一列身兼两职 —— 生成批次(grid/random 填的) + AI 克隆的一句话依据(也算批次)
     (一整句话, 每克隆一个算一个"批次")。后者会把下拉刷屏, only_tested 顺带滤掉大半。
     """
     uid = identity.scope_uid(request)
@@ -685,7 +685,7 @@ class BasisRequest(BaseModel):
 
 @router.post("/strategies/{strategy_id}/basis")
 async def set_basis(strategy_id: int, req: BasisRequest, request: Request):
-    """编辑备注(basis): 生成时是 AI 生因, 之后人工可就地改/补(当前版本唯一可编辑的注释)。"""
+    """编辑批次(basis): 生成时是 AI 克隆依据, 之后人工可就地改/补(当前版本唯一可编辑的注释)。"""
     val = req.basis.strip() or None
     row = await request.app.state.pool.fetchrow(
         "UPDATE strategies SET basis=$2, updated_at=now() WHERE id=$1 RETURNING id, basis",
@@ -1216,7 +1216,7 @@ async def ai_report(strategy_id: int, request: Request):
     actual = await pool.fetchrow(
         "SELECT sum(trades) AS t, sum(wins) AS w, sum(profit) AS p"
         " FROM strategy_stats WHERE strategy_id=$1", strategy_id)
-    dead = await pool.fetch(  # 同模板负样本: 已淘汰的参数 + 生因 + 死因(AI 别再生成同类)
+    dead = await pool.fetch(  # 同模板负样本: 已淘汰的参数 + 批次 + 死因(AI 别再生成同类)
         "SELECT params, basis, archive_reason FROM strategies"
         " WHERE template=$1 AND status='ARCHIVED' AND id<>$2"
         " ORDER BY updated_at DESC LIMIT 20", s["template"], strategy_id)
@@ -1291,14 +1291,14 @@ async def ai_report(strategy_id: int, request: Request):
     }
 
 
-# AI 调参的方法论标签: 追加进每个子代的生因备注(与 AI 自报的模型名一起) — 家族溯源用。
+# AI 调参的方法论标记: 追加进每个子代的批次备注(与 AI 自报的模型名一起) — 家族溯源用。
 # 方法由系统写死(提示词纪律本身就是这套打法), 不让 AI 自由发挥; 模型名 AI 自报, API 接入后改为服务端如实填。
 _AI_TUNE_METHOD = "局部搜索+证据驱动"
 
 
 class AiCandidatesRequest(BaseModel):
     combos: list                 # [{"params": {...}, "basis": "..."}] 或裸参数dict列表
-    model: Optional[str] = None  # AI 自报的模型名(协议顶层字段), 追加进生因备注
+    model: Optional[str] = None  # AI 自报的模型名(协议顶层字段), 追加进批次备注
 
 
 @router.post("/strategies/{strategy_id}/ai_candidates")
@@ -1318,7 +1318,7 @@ async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Req
         raise HTTPException(
             status_code=400,
             detail=f"品种 {parent['symbol']} 已除名 — 先在下载页重新登记再生成子代")
-    # 生因备注统一加尾标〔方法 · 模型〕: AI 依据原句 + 谁按什么方法生成的, 一并入库
+    # 批次备注统一加尾标〔方法 · 模型〕: AI 依据原句 + 谁按什么方法生成的, 一并入库
     tag = f"〔{_AI_TUNE_METHOD}" + (f" · {req.model}" if req.model else "") + "〕"
     combos = [{**c, "basis": f"{c['basis']} {tag}" if c.get("basis") else tag}
               if isinstance(c, dict) and "params" in c else {"params": c, "basis": tag}
@@ -1398,7 +1398,7 @@ computed_by 必须如实填: 用代码工具实际解析核对的填 "code", 没
 - 不要 markdown 代码围栏(```), 不要任何前言/解释/结尾文字
 - combos 恰好 {count} 项; 每组 params 的键必须恰好是 {param_keys}, 值为具体数字(不是区间/占位符)
 - template 按下面的值原样带回(系统核对用); model 填你自己的准确模型名(如 claude-opus-4-8,
-  入库记在每个实例的生因备注里); 除 template/model/data_check/combos 外不要其他顶层字段
+  入库记在每个实例的批次备注里); 除 template/model/data_check/combos 外不要其他顶层字段
 - 标准 JSON: 双引号、无尾逗号、无注释
 
 结构(params 各键取值范围): {{"template": "{template}", "model": "<你的模型名>", "data_check": {{"computed_by": "code|none", "probes": {{"<entry_time>": [points, reason]}}}}, "combos": [{{"params": {params_schema}, "basis": "一句依据"}}]}}

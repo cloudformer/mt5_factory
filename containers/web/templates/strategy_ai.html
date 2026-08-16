@@ -69,7 +69,7 @@
   const btBtn = document.getElementById("bt-ids-btn");
   const hint = document.getElementById("step3-hint");
   let lastCombos = null;   // 解析通过的参数组 — 「创建策略」提交这个
-  let lastModel = null;    // AI 自报的模型名(协议顶层字段) — 随创建入库进生因备注
+  let lastModel = null;    // AI 自报的模型名(协议顶层字段) — 随创建入库进批次备注
   let madeIds = [];        // 本次创建的新ID — 「回测这批」点名这些
 
   // 流水线点亮: 粘了内容 → 解析亮; 解析通过 → 创建亮; 创建有新建 → 回测亮(.live 类, 禁用时自动回灰)
@@ -343,7 +343,7 @@
         <th data-nosort>#</th><th>ID</th><th>参数</th><th>状态</th><th>笔数</th><th>净点</th>
         <th>PF</th><th title="样本外留出段净点 — 一票否决位">留出净点</th>
         <th title="第90分位最大浮亏(点) — 调SL依据">MAE p90</th><th>回撤</th>
-        <th data-nosort title="备注(生成时是AI生因, 可就地改/补; 失焦即存)">备注</th></tr>
+        <th data-nosort title="批次(basis, 生成时是AI克隆的一句话依据, 可就地改/补; 失焦即存)">批次</th></tr>
     {% for f in family %}
     <tr {% if f.is_parent %}class="row-marked"{% endif %}>
       {# 还在筛选中的行(候选/已归档)给勾选框: 勾=留下候选, 不勾=归档; 归档的默认不勾, 可勾回来纠错。
@@ -351,7 +351,7 @@
       <td>{% if not f.is_parent and f.status in ['CANDIDATE', 'ARCHIVED'] %}<input type="checkbox" class="fam-pick" value="{{ f.id }}" data-cur="{{ f.status }}" {% if f.status == 'CANDIDATE' %}checked{% endif %}>{% endif %}</td>
       <td class="rownum muted"></td>
       <td class="mono">{{ f.id }}{% if f.is_parent %} <span class="badge">父</span>{% endif %}</td>
-      <td class="clip" title="{{ f.params }}{% if f.basis %} · 生因: {{ f.basis }}{% endif %}{% if f.created_at %} · {{ f.created_at[:16] | replace('T', ' ') }}{% endif %}">{% for k, v in (f.params or {}).items() %}{{ k }}={{ v }} {% endfor %}</td>
+      <td class="clip" title="{{ f.params }}{% if f.basis %} · 批次: {{ f.basis }}{% endif %}{% if f.created_at %} · {{ f.created_at[:16] | replace('T', ' ') }}{% endif %}">{% for k, v in (f.params or {}).items() %}{{ k }}={{ v }} {% endfor %}</td>
       <td>{{ m.strategy_status(f.status) }}{% if f.archive_reason %} <span class="muted">({{ f.archive_reason }})</span>{% endif %}</td>
       <td>{{ f.trades if f.trades is not none else '—' }}</td>
       <td class="{{ 'pos' if f.net_points and parent.net_points and f.net_points > parent.net_points and not f.is_parent else ('neg' if (f.net_points or 0) < 0 else '') }}">{{ f.net_points if f.net_points is not none else '—' }}</td>
@@ -360,7 +360,7 @@
       <td class="muted">{{ f.mae_p90 if f.mae_p90 is not none else '—' }}</td>
       <td class="muted">{{ f.max_dd_points if f.max_dd_points is not none else '—' }}</td>
       <td><input class="small basis-edit" data-id="{{ f.id }}" value="{{ f.basis or '' }}"
-             placeholder="备注…" title="失焦即存(AI生因可就地改/补)" style="width:150px"></td>
+             placeholder="批次…" title="失焦即存(批次可就地改/补)" style="width:150px"></td>
     </tr>
     {% endfor %}
   </table>

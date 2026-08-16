@@ -7,7 +7,7 @@
     随机采样 / 网格展开 / AI调参(parent_id 谱系) / 未来DSL
         → 全部生产 combos → create_instances() 逐组校验→入库→逐组反馈
 改校验规则、改插入行为 = 只改这里一处。
-basis(生因)随实例入库, 与死因 archive_reason 对偶 — 家族溯源/成绩单负样本用。
+basis(批次)随实例入库, 与死因 archive_reason 对偶 — 家族溯源/成绩单负样本用。
 """
 import logging
 import re
