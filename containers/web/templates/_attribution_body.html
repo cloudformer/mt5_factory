@@ -25,7 +25,7 @@
 <div id="bt-sum">
 {# 资金曲线(2026-08-17 Frank 要): 全长回测累计, 初始资金+手数纯前端换算(事实只有净点) #}
 {% if ana.equity and ana.equity | length > 1 %}
-<h3>资金曲线 <span class="muted" style="font-weight:normal">全长回测 · 换算口径 1点=1USD/标准手(美元计价品种精确, 日元交叉为近似) · 事实只有净点, 钱是显示换算</span></h3>
+<h3>资金曲线 <span class="muted" style="font-weight:normal">全长回测 · 每点=一笔交易(绿赚红亏, 悬停看日期/单笔/余额; 超4000笔抽样) · 换算口径 1点=1USD/标准手(美元计价品种精确, 日元交叉为近似) · 事实只有净点, 钱是显示换算</span></h3>
 <p style="margin:4px 0">
   <label>初始资金 <input class="small mono" data-eq-init value="10000" size="7"></label>
   <label>手数 <input class="small mono" data-eq-lots value="0.01" size="5"

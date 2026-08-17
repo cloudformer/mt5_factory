@@ -1425,13 +1425,16 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
         "dir": t.get("dir"), "entry_price": t.get("entry"), "exit_price": t.get("exit"),
         "points": t.get("points"), "reason": t.get("reason"),
     } for t in st[:1000]]
-    # 资金曲线(2026-08-17 Frank 要): 全长累计净点序列(按出场时间收线), 下采样≤500点;
+    # 资金曲线(2026-08-17 Frank 要): 全长逐笔序列 [出场时间, 累计净点, 单笔净点] —
+    # 每笔一个交易点(Frank 要体现每笔), ≤4000 笔全量, 超出才抽样(极高频兜底);
     # 页面按 初始资金+手数 线性换算成钱 — 事实只有净点, 钱是显示口径
     cum, eq = 0.0, []
     for t in sorted(trades, key=lambda x: x.get("exit_time") or x["entry_time"]):
-        cum += t.get("points", 0) or 0
-        eq.append([int(t.get("exit_time") or t["entry_time"]), round(cum, 1)])
-    step = max(1, len(eq) // 500)
+        p = t.get("points", 0) or 0
+        cum += p
+        eq.append([int(t.get("exit_time") or t["entry_time"]),
+                   round(cum, 1), round(p, 1)])
+    step = max(1, len(eq) // 4000)
     sampled = eq[::step]
     if sampled and sampled[-1] != eq[-1]:
         sampled.append(eq[-1])          # 末点必留(期末读数)
