@@ -29,10 +29,20 @@
     }
     const init = parseFloat(box.querySelector("[data-eq-init]")?.value) || 10000;
     const lots = parseFloat(box.querySelector("[data-eq-lots]")?.value) || 0.01;
-    const zoomY = parseFloat(box.dataset.zoom || "0");
-    const tMax = Math.max(...all.map((s) => s.equity[s.equity.length - 1][0]));
+    const tMaxFull = Math.max(...all.map((s) => s.equity[s.equity.length - 1][0]));
     const tMinFull = Math.min(...all.map((s) => s.equity[0][0]));
-    const tMin = zoomY > 0 ? Math.max(tMinFull, tMax - zoomY * 31557600) : tMinFull;
+    let tMin, tMax;
+    if (box._eqWin) {                              // 拖拽/滚轮的自定义窗口
+      tMin = Math.max(tMinFull, box._eqWin[0]);
+      tMax = Math.min(tMaxFull, box._eqWin[1]);
+      if (tMax - tMin < 86400) { tMin = tMinFull; tMax = tMaxFull; }
+    } else {                                       // 预设档: 最近 N 年
+      const zoomY = parseFloat(box.dataset.zoom || "0");
+      tMax = tMaxFull;
+      tMin = zoomY > 0 ? Math.max(tMinFull, tMax - zoomY * 31557600) : tMinFull;
+    }
+    box._eqFull = [tMinFull, tMaxFull];            // 交互层(平移/缩放)读这两个
+    box._eqView = [tMin, tMax];
 
     // 裁窗 + 换算: 窗前最后一个余额平移到左缘(线从左边进场, 不算交易点)
     let lo = init, hi = init, total = 0;
@@ -59,17 +69,34 @@
     const yr = (ts) => new Date(ts * 1000).getUTCFullYear();
     const day = (ts) => new Date(ts * 1000).toISOString().slice(0, 10);
 
-    // 网格: 横轴逐年(>24年隔4, >12隔2), 纵轴 1/2/5×10^n 自动步长
-    const Y0 = yr(tMin), Y1 = yr(tMax), span = Y1 - Y0;
-    const ystep = span > 24 ? 4 : span > 12 ? 2 : 1;
+    // 时间刻度(2026-08-17 重做, 端点不再单独标 — 之前 2026 会和端点标签叠罗汉):
+    // 跨度≥3年按年(步长 1/2/4/5/10 自动, ≤8个标签); <3年按月(1/2/3/6月, 放大后才有细刻度)
     let grid = "", labels = "";
-    for (let Y = Y0 + 1; Y <= Y1; Y++) {
-      if (Y % ystep) continue;
-      const ts = Date.UTC(Y, 0, 1) / 1000;
-      if (ts <= tMin || ts >= tMax - (tMax - tMin) * 0.02) continue;
-      const gx = x(ts).toFixed(1);
-      grid += `<line x1="${gx}" y1="${T}" x2="${gx}" y2="${H - B}" stroke="currentColor" opacity="0.08"/>`;
-      labels += `<text x="${gx}" y="${H - 6}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.55">${Y}</text>`;
+    const spanY = (tMax - tMin) / 31557600;
+    const ticks = [];
+    if (spanY >= 3) {
+      const st = [1, 2, 4, 5, 10, 20].find((s) => s >= spanY / 8) || 20;
+      for (let Y = Math.ceil(yr(tMin) / st) * st; Y <= yr(tMax); Y += st) {
+        ticks.push([Date.UTC(Y, 0, 1) / 1000, String(Y)]);
+      }
+    } else {
+      const d0 = new Date(tMin * 1000);
+      const months = Math.max(1, Math.round(spanY * 12));
+      const st = [1, 2, 3, 6].find((s) => s >= months / 8) || 6;
+      let Y = d0.getUTCFullYear(), M = d0.getUTCMonth() + 1;   // 下一个整月起
+      for (let i = 0; i < 40; i++) {
+        if (M > 11) { Y += 1; M -= 12; }
+        const ts = Date.UTC(Y, M, 1) / 1000;
+        if (ts > tMax) break;
+        ticks.push([ts, M === 0 ? String(Y) : `${Y}-${String(M + 1).padStart(2, "0")}`]);
+        M += st;
+      }
+    }
+    for (const [ts, lbl] of ticks) {
+      const gx = x(ts);
+      if (gx < L + 16 || gx > W - R - 16) continue;   // 贴边不标, 防溢出/互叠
+      grid += `<line x1="${gx.toFixed(1)}" y1="${T}" x2="${gx.toFixed(1)}" y2="${H - B}" stroke="currentColor" opacity="0.08"/>`;
+      labels += `<text x="${gx.toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.55">${lbl}</text>`;
     }
     const rng = hi - lo || 1;
     const mag = Math.pow(10, Math.floor(Math.log10(rng / 4)));
@@ -78,7 +105,7 @@
     for (let v = Math.ceil(lo / step) * step; v < hi; v += step) {
       const gy = y(v);
       grid += `<line x1="${L}" y1="${gy.toFixed(1)}" x2="${W - R}" y2="${gy.toFixed(1)}" stroke="currentColor" opacity="0.08"/>`;
-      if (anchors.every((a) => Math.abs(a - gy) > 12))
+      if (anchors.every((a) => Math.abs(a - gy) > 14))
         labels += `<text x="${L - 6}" y="${(gy + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="currentColor" opacity="0.45">${fmt(v)}</text>`;
     }
 
@@ -104,9 +131,7 @@
       body + labels +
       `<text x="${L - 6}" y="${y(hi) + 4}" text-anchor="end" font-size="11" fill="currentColor">${fmt(hi)}</text>` +
       `<text x="${L - 6}" y="${y(init) + 4}" text-anchor="end" font-size="11" fill="currentColor" opacity="0.6">${fmt(init)}</text>` +
-      `<text x="${L - 6}" y="${y(lo) + 4}" text-anchor="end" font-size="11" fill="currentColor">${fmt(lo)}</text>` +
-      `<text x="${L}" y="${H - 6}" font-size="11" fill="currentColor" opacity="0.6">${yr(tMin)}</text>` +
-      `<text x="${W - R}" y="${H - 6}" text-anchor="end" font-size="11" fill="currentColor" opacity="0.6">${yr(tMax)}</text>`;
+      `<text x="${L - 6}" y="${y(lo) + 4}" text-anchor="end" font-size="11" fill="currentColor">${fmt(lo)}</text>`;
 
     if (endEl) {
       const e0 = S[0].pts[S[0].pts.length - 1][1];
@@ -131,10 +156,72 @@
     if (!b) return;
     const box = b.closest("[data-eq-chart]");
     if (!box) return;
+    box._eqWin = null;                             // 预设档清掉自定义窗口
     box.dataset.zoom = b.dataset.eqZoom;
     box.querySelectorAll("[data-eq-zoom]").forEach((z) => z.classList.toggle("live", z === b));
     draw(box);
   });
+
+  // 拖=平移 · 滚轮=以光标为中心缩放 · 双击=复位 — 数据已全量在内存, 纯前端重画零请求
+  const PLOT = 786;                                // 绘图区宽 = 860 - 66(左) - 8(右)
+  const vbx = (svg) => 860 / svg.getBoundingClientRect().width;   // CSS像素 → viewBox 换算
+  function clearPreset(box) {
+    box.querySelectorAll("[data-eq-zoom]").forEach((z) => z.classList.remove("live"));
+  }
+  let drag = null;
+  document.addEventListener("mousedown", (e) => {
+    const svg = e.target.closest("[data-eq-svg]");
+    if (!svg) return;
+    const box = svg.closest("[data-eq-chart]");
+    if (!box || !box._eqView) return;
+    drag = { box, svg, x0: e.clientX, view: box._eqView.slice() };
+    svg.style.cursor = "grabbing";
+    e.preventDefault();                            // 防拖动选中文本
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!drag) return;
+    const [t0, t1] = drag.view, [f0, f1] = drag.box._eqFull;
+    const w = t1 - t0;
+    if (w >= f1 - f0) return;                      // 已是全长, 无处可移
+    const dt = -(e.clientX - drag.x0) * vbx(drag.svg) / PLOT * w;
+    const n0 = Math.max(f0, Math.min(t0 + dt, f1 - w));   // 两端顶住不出界
+    drag.box._eqWin = [n0, n0 + w];
+    clearPreset(drag.box);
+    draw(drag.box);
+  });
+  document.addEventListener("mouseup", () => {
+    if (drag) drag.svg.style.cursor = "grab";
+    drag = null;
+  });
+  document.addEventListener("dblclick", (e) => {
+    const svg = e.target.closest("[data-eq-svg]");
+    if (!svg) return;
+    const box = svg.closest("[data-eq-chart]");
+    box._eqWin = null;
+    box.dataset.zoom = "0";
+    box.querySelectorAll("[data-eq-zoom]").forEach((z) =>
+      z.classList.toggle("live", z.dataset.eqZoom === "0"));
+    draw(box);
+  });
+  document.addEventListener("wheel", (e) => {
+    const svg = e.target.closest("[data-eq-svg]");
+    if (!svg) return;
+    const box = svg.closest("[data-eq-chart]");
+    if (!box || !box._eqView) return;
+    e.preventDefault();                            // 图上滚轮=缩放, 不滚页面
+    const [t0, t1] = box._eqView, [f0, f1] = box._eqFull;
+    const rect = svg.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, ((e.clientX - rect.left) * vbx(svg) - 66) / PLOT));
+    const ct = t0 + frac * (t1 - t0);              // 光标所指时刻为缩放中心
+    const k = e.deltaY > 0 ? 1.25 : 0.8;
+    let n0 = ct - (ct - t0) * k, n1 = ct + (t1 - ct) * k;
+    if (n1 - n0 < 604800) return;                  // 最小窗 7 天
+    n0 = Math.max(f0, n0); n1 = Math.min(f1, n1);
+    box._eqWin = (n0 <= f0 && n1 >= f1) ? null : [n0, n1];
+    clearPreset(box);
+    draw(box);
+  }, { passive: false });
+
   window.drawEquity = drawAll;
   if (document.readyState !== "loading") drawAll();
   else document.addEventListener("DOMContentLoaded", drawAll);

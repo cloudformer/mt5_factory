@@ -4,7 +4,8 @@
 {{ m.page_header('资金曲线对比', '按 ID 点名多个策略, 主品种回测的资金曲线画在同一张图上。库里有什么窗口显示什么(20年/1年并存不冲突); 与单策略分析页同一渲染源, 改一处两页生效') }}
 
 <section>
-  <form id="eqc-form" class="inline" style="margin-bottom:8px">
+  {# onsubmit=false 兜底: 就算脚本没挂上, 回车/点载入也绝不整页刷新(AJAX 铁律) #}
+  <form id="eqc-form" class="inline" style="margin-bottom:8px" onsubmit="return false">
     <label>按 ID <input name="ids" id="eqc-ids" size="28" value="{{ ids }}"
         placeholder="如 11806,11809,11810"
         title="逗号分隔的策略ID(方括号/空格/分号也认, 与全站按ID同款); 只画库里有回测逐笔的, 没有的列在下方"></label>
@@ -35,7 +36,8 @@
         + (d.missing && d.missing.length ? ` · 无回测逐笔: ${d.missing.join(",")}` : "");
     } catch (e) { note.textContent = "载入失败: " + e; }
   }
-  form.addEventListener("submit", (e) => { e.preventDefault(); load(); });
+  form.addEventListener("submit", (e) => { e.preventDefault(); load(); });   // 回车/载入同一条 AJAX 路
+  form.querySelector("button").addEventListener("click", (e) => { e.preventDefault(); load(); });
   if (document.getElementById("eqc-ids").value.trim()) load();
 })();
 </script>
