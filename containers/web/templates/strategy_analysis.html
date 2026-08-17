@@ -262,6 +262,42 @@
         title="让 AI 批量试: AI策略分析页第2步点「插件调优提示词(20组)」→ 建子代走漏斗(OOS裁决)">AI批量调优→</a></span>
   </div>
   <div id="trail-cmp" style="margin:6px 0 14px"></div>
+  {# 成本敏感性(2026-08-17 尺子加固): 点差/佣金/滑点同乘重放, 现算不落库。
+     预登记: ×2 成本下 PF<1 = 边际太薄不上实盘(真edge有厚度, 假edge是纸片) #}
+  <div class="flex-between">
+    <h3 style="margin:0">成本压力 <span class="muted">(现算·不影响排名成绩)</span></h3>
+    <span><span class="muted">点差(逐bar记录值)/佣金/滑点 同乘 ×1.5/×2/×3 真引擎重放 · 预登记: ×2 下 PF&lt;1 = 边际太薄不上实盘</span>
+      <button type="button" class="small" id="cost-stress-btn"
+        title="同窗重跑4版全量回测(约几秒~1分钟), 内存现算不落库">跑压力</button></span>
+  </div>
+  <div id="cost-stress" style="margin:6px 0 14px"></div>
+  <script>
+  (function () {
+    const btn = document.getElementById("cost-stress-btn");
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      const box = document.getElementById("cost-stress");
+      box.innerHTML = '<span class="muted">现算中(4 版全量回测, 约几秒~1分钟)…</span>';
+      try {
+        const d = await fetch("{{ url_for('strategies.cost_stress', strategy_id=sid) }}")
+          .then((r) => r.json());
+        if (d.error) { box.innerHTML = '<span class="neg">' + d.error + "</span>"; return; }
+        box.innerHTML = '<table class="subtable"><tr><th>成本</th><th>笔数</th><th>净点</th>'
+          + "<th>PF</th><th>胜率</th><th>最大回撤</th></tr>"
+          + d.variants.map((v) => `<tr><td>×${v.mult}${v.mult === 1 ? '<span class="muted">(基准)</span>' : ""}</td>`
+            + `<td>${v.trades}</td><td class="${v.net_points > 0 ? "pos" : "neg"}">${v.net_points}</td>`
+            + `<td>${v.profit_factor ?? "∞"}</td><td>${(v.win_rate * 100).toFixed(1)}%</td>`
+            + `<td class="muted">${v.max_dd_points}</td></tr>`).join("")
+          + "</table>"
+          + `<p style="margin:4px 0">${d.verdict.pass
+              ? '<span class="pos">✅ 抗成本: ×2 下仍 PF>1 且净点为正</span>'
+              : '<span class="neg">❌ 边际太薄: ×2 成本下不达标 — 预登记判不上实盘</span>'}</p>`;
+      } catch (e) { box.innerHTML = '<span class="neg">失败: ' + e + "</span>"; }
+      finally { btn.disabled = false; }
+    });
+  })();
+  </script>
   {% endif %}
   <div class="flex-between">
     <h2 style="margin:0">胜负归因 · <span class="badge warn">回测数据</span></h2>

@@ -651,6 +651,50 @@ async def trail_compare(strategy_id: int, request: Request, variant: Optional[st
             "probe_gap": probe_gap, "variants": rows}
 
 
+@router.get("/strategies/{strategy_id}/cost_stress")
+async def cost_stress(strategy_id: int, request: Request):
+    """成本敏感性(2026-08-17 尺子加固, 思想源自 MQL5 Execution Cost Sensitivity):
+    同一策略同窗重跑 成本×1/×1.5/×2/×3 — 点差(逐bar记录值等比放大)/佣金/滑点同乘,
+    真引擎重放(路径效应如实, 不是一阶近似), 内存现算不落库(排名成绩不受影响)。
+    判读预登记: ×2 成本下 PF<1 或净点<0 = 边际太薄不上实盘 —
+    真 edge 有厚度, 假 edge 是纸片; 点差恶化恰恰发生在行情最剧烈的时刻。"""
+    pool = request.app.state.pool
+    await identity.assert_strategy_visible(pool, request, strategy_id)
+    s = await pool.fetchrow(
+        "SELECT s.template, s.params, s.symbol, s.timeframe, sym.point FROM strategies s"
+        " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    if not s["point"] or s["timeframe"] not in backtest.TF_SECONDS:
+        raise HTTPException(status_code=400, detail="品种未登记或周期不支持")
+    w_from, w_to = await _trail_window(pool, strategy_id, s["symbol"])
+    m1 = await backtest.load_m1(pool, s["symbol"], w_from, w_to)
+    if m1 is None:
+        raise HTTPException(status_code=400, detail=f"{s['symbol']} 无 M1 数据, 先去下载")
+    cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
+    slip = cfg.get("slippage_points", backtest.DEFAULT_SLIPPAGE_POINTS)
+    comm = cfg.get("commission_points", backtest.DEFAULT_COMMISSION_POINTS)
+    sprd = cfg.get("spread_points")            # None = 用逐bar记录的真实点差
+    rows = []
+    for mult in (1.0, 1.5, 2.0, 3.0):
+        m1v = m1 if mult == 1.0 else {**m1, "spread": m1["spread"] * mult}
+        res = await asyncio.to_thread(
+            backtest.run_backtest, m1v, s["template"], dict(s["params"] or {}),
+            float(s["point"]), s["timeframe"], oos_split=None,
+            slippage_points=slip * mult, commission_points=comm * mult,
+            spread_points=(sprd * mult if sprd is not None else None))
+        mtr = res["metrics"]
+        rows.append({"mult": mult, "trades": mtr.get("trades"),
+                     "net_points": mtr.get("net_points"), "win_rate": mtr.get("win_rate"),
+                     "profit_factor": mtr.get("profit_factor"),
+                     "max_dd_points": mtr.get("max_dd_points")})
+    x2 = next(r for r in rows if r["mult"] == 2.0)
+    ok = ((x2["profit_factor"] is None or x2["profit_factor"] > 1)
+          and (x2["net_points"] or 0) > 0 and (x2["trades"] or 0) > 0)
+    return {"strategy_id": strategy_id, "window": [w_from, w_to], "variants": rows,
+            "verdict": {"pass": ok, "rule": "×2 成本下 PF>1 且净点>0"}}
+
+
 class TrailRequest(BaseModel):
     trail: Optional[dict] = None   # null = 清除(回落全局默认 trail_default)
 

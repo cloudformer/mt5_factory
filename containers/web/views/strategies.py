@@ -503,6 +503,15 @@ def trail_batch(strategy_id: int):
         return {"error": str(e)}, 502
 
 
+@bp.get("/<int:strategy_id>/cost_stress")
+def cost_stress(strategy_id: int):
+    """AJAX: 成本敏感性压力测试(api 内存现算不落库) — 透传"""
+    try:
+        return api.get(f"/strategies/{strategy_id}/cost_stress", timeout=300)
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
 @bp.get("/<int:strategy_id>/trail_compare")
 def trail_compare(strategy_id: int):
     """AJAX: 移动止损四档对比(api 内存现算, 不落库) — 透传;
