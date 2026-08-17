@@ -225,6 +225,7 @@
   <p class="muted">{{ m.lts(report.created_at) }} · {{ '预览' if report.mode == 'preview' else '执行' }}
     · 锚点 <b class="mono">{{ report.anchor }}</b>
     {% if report.scope.task %}· 任务「{{ report.scope.task }}」{% endif %}
+    {% if report.scope.basis %}· 批次「{{ report.scope.basis }}」{% endif %}
     {% if report.scope.ids %}· ID×{{ report.scope.ids | length }}{% elif report.scope.pool == 'rescreen' %}· 重算·全部空闲{% else %}· 全部未筛过{% endif %}
     · 判据: {% for s in report.params.segments %}{{ s.label }}{{ '%g' % s.train[0] }}/{{ '%g' % s.test[0] }}{{ ' · ' if not loop.last }}{% endfor %}
     · PF&gt;{{ '%g' % report.params.default_pf }} · 提示&lt;{{ report.params.min_seg_trades }}笔</p>
@@ -251,7 +252,7 @@
       <td class="mono">{{ m.lts(r.created_at) }}</td>
       <td>{{ '预览' if r.mode == 'preview' else '执行' }}</td>
       <td class="mono">{{ r.anchor }}</td>
-      <td>{% if r.scope.task %}「{{ r.scope.task }}」· {% endif %}{% if r.scope.ids %}ID×{{ r.scope.ids | length }}{% elif r.scope.pool == 'rescreen' %}重算·全部空闲{% else %}全部未筛过{% endif %}</td>
+      <td>{% if r.scope.task %}「{{ r.scope.task }}」· {% endif %}{% if r.scope.basis %}<span title="{{ r.scope.basis }}">批次「{{ r.scope.basis | truncate(28, true, "…") }}」</span> · {% endif %}{% if r.scope.ids %}ID×{{ r.scope.ids | length }}{% elif r.scope.pool == 'rescreen' %}重算·全部空闲{% else %}全部未筛过{% endif %}</td>
       <td class="mono" title="各期 训总年/测年 · 默认PF · 样本提示线(当时快照, 改判据不篡改历史)">
         {% for s in r.params.segments %}{{ '%g' % s.train[0] }}/{{ '%g' % s.test[0] }}{{ ' · ' if not loop.last }}{% endfor %}
         · PF&gt;{{ '%g' % r.params.default_pf }} · 提示&lt;{{ r.params.min_seg_trades }}笔</td>
