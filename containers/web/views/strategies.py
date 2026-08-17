@@ -643,6 +643,28 @@ def analysis_fragment():
                            regime_fills=_cells_fills((ana or {}).get("regime_cells")))
 
 
+@bp.get("/equity")
+def equity_page():
+    """多策略资金曲线对比(2026-08-17 Frank 要): 按ID点名, 库里有什么窗口显示什么
+    (20年/1年并存不冲突); 标记与渲染和单策略分析页同源(_equity_chart + equity.js)"""
+    return render_template("strategy_equity.html", ids=request.args.get("ids") or "")
+
+
+@bp.get("/equity_curves.json")
+def equity_curves_json():
+    """多策略资金曲线数据透传(对比页 AJAX 用); 输入宽容解析与全站按ID同款"""
+    try:
+        ids = api.parse_ids(request.args.get("ids", ""))
+    except ValueError as e:
+        return {"error": f"ID串不合法: {e}"}, 400
+    if not ids:
+        return {"curves": [], "missing": []}
+    try:
+        return api.get("/equity_curves", ids=",".join(map(str, ids)))
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
 @bp.get("/<int:strategy_id>/dossier.json")
 def dossier_json(strategy_id: int):
     """策略档案 JSON 透传(2026-08-17 统一原 AI成绩单/Profile 两个下载):

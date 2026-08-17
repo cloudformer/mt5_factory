@@ -1,0 +1,19 @@
+{# 资金曲线容器(2026-08-17, 唯一源标记 — 单策略分析页与多策略对比页共用, 改这里两页生效)
+   渲染器 = static/equity.js; 数据: 上下文给了 eq_data 则服务端嵌入(单策略),
+   否则由页面脚本 fetch 后赋值容器._eqSeries(多策略) #}
+<div data-eq-chart>
+  <p style="margin:4px 0">
+    <label>初始资金 <input class="small mono" data-eq-init value="10000" size="7"></label>
+    <label>手数 <input class="small mono" data-eq-lots value="0.01" size="5"
+      title="换手数/初始资金即时重画(纯显示缩放, 不重查); 回测净点与手数无关"></label>
+    <span title="区域放大: 从最新往回裁窗, 纵轴自适应可见段; 纯前端重画不重查">
+      {% for lbl, yrs in [('全部', 0), ('10年', 10), ('5年', 5), ('2年', 2), ('1年', 1)] %}
+      <button type="button" class="small{% if yrs == 0 %} live{% endif %}" data-eq-zoom="{{ yrs }}">{{ lbl }}</button>
+      {% endfor %}
+    </span>
+    <span class="muted" data-eq-end></span>
+  </p>
+  {% if eq_data %}<script type="application/json" data-eq-data>{{ eq_data | tojson }}</script>{% endif %}
+  <svg data-eq-svg viewBox="0 0 860 260" style="width:100%;max-width:860px;height:260px"></svg>
+  <p data-eq-legend style="margin:2px 0 0"></p>
+</div>

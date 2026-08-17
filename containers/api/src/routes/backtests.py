@@ -1394,6 +1394,50 @@ async def backtest_regime_matrix(request: Request, strategy_id: int,
     return out
 
 
+def _equity_series(trades: list) -> list:
+    """资金曲线序列(2026-08-17, 唯一口径 — 单策略分析页与多策略对比页共用):
+    全长逐笔 [出场时间, 累计净点, 单笔净点], 每笔一个交易点; ≤4000 笔全量,
+    超出才抽样(极高频兜底, 末点必留)。页面按 初始资金+手数 线性换算成钱 —
+    事实只有净点, 钱是显示口径。"""
+    cum, eq = 0.0, []
+    for t in sorted(trades, key=lambda x: x.get("exit_time") or x["entry_time"]):
+        p = t.get("points", 0) or 0
+        cum += p
+        eq.append([int(t.get("exit_time") or t["entry_time"]),
+                   round(cum, 1), round(p, 1)])
+    step = max(1, len(eq) // 4000)
+    sampled = eq[::step]
+    if sampled and sampled[-1] != eq[-1]:
+        sampled.append(eq[-1])
+    return sampled
+
+
+@router.get("/equity_curves")
+async def equity_curves(request: Request, ids: str):
+    """多策略资金曲线(2026-08-17 Frank 要): 按ID点名, 逐策略主品种回测的逐笔累计序列。
+    库里有什么窗口就给什么(20年/10年/1年并存不冲突, 没回测的进 missing);
+    序列口径与单策略分析页同源(_equity_series), 改一处两页都生效。"""
+    pool = request.app.state.pool
+    try:
+        id_list = sorted({int(x) for x in ids.replace(" ", "").split(",") if x})
+    except ValueError:
+        raise HTTPException(status_code=400, detail="ids 需为逗号分隔的策略ID")
+    if not id_list:
+        return {"curves": [], "missing": []}
+    uid = identity.scope_uid(request)
+    rows = await pool.fetch(
+        "SELECT s.id, s.name, s.symbol, s.timeframe, b.from_time, b.to_time, b.trades"
+        "  FROM strategies s JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol"
+        " WHERE s.id = ANY($1)" + (" AND s.owner_id = $2" if uid else "") +
+        " ORDER BY s.id", id_list, *([uid] if uid else []))
+    got = {r["id"] for r in rows}
+    return {"curves": [{"id": r["id"], "name": r["name"], "symbol": r["symbol"],
+                        "timeframe": r["timeframe"], "from": r["from_time"],
+                        "to": r["to_time"], "equity": _equity_series(r["trades"] or [])}
+                       for r in rows],
+            "missing": [i for i in id_list if i not in got]}
+
+
 @router.get("/analysis/{strategy_id}")
 async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional[str] = None):
     """单策略【回测】胜负归因(维度二期1): 读指定品种(默认主品种) backtests.trades + oos + 跨品种行。
@@ -1425,20 +1469,8 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
         "dir": t.get("dir"), "entry_price": t.get("entry"), "exit_price": t.get("exit"),
         "points": t.get("points"), "reason": t.get("reason"),
     } for t in st[:1000]]
-    # 资金曲线(2026-08-17 Frank 要): 全长逐笔序列 [出场时间, 累计净点, 单笔净点] —
-    # 每笔一个交易点(Frank 要体现每笔), ≤4000 笔全量, 超出才抽样(极高频兜底);
-    # 页面按 初始资金+手数 线性换算成钱 — 事实只有净点, 钱是显示口径
-    cum, eq = 0.0, []
-    for t in sorted(trades, key=lambda x: x.get("exit_time") or x["entry_time"]):
-        p = t.get("points", 0) or 0
-        cum += p
-        eq.append([int(t.get("exit_time") or t["entry_time"]),
-                   round(cum, 1), round(p, 1)])
-    step = max(1, len(eq) // 4000)
-    sampled = eq[::step]
-    if sampled and sampled[-1] != eq[-1]:
-        sampled.append(eq[-1])          # 末点必留(期末读数)
-    out["equity"] = sampled
+    # 资金曲线(2026-08-17 Frank 要): 单策略与多策略对比页共用同一序列口径(_equity_series)
+    out["equity"] = _equity_series(trades)
     # Regime 归因(v2.5 第五步, 2026-07-28 与 Frank 定): 交易只存事实, 格子现拼 —
     # 逐笔入场日期 JOIN regime_timeline → 每笔当天格子 + 八格汇总。
     # 改口径重建时间线后这里自动跟着变新(零垃圾); 回测引擎/存储零改动。

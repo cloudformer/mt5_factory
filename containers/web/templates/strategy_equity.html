@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block content %}
+{{ m.page_header('资金曲线对比', '按 ID 点名多个策略, 主品种回测的资金曲线画在同一张图上。库里有什么窗口显示什么(20年/1年并存不冲突); 与单策略分析页同一渲染源, 改一处两页生效') }}
+
+<section>
+  <form id="eqc-form" class="inline" style="margin-bottom:8px">
+    <label>按 ID <input name="ids" id="eqc-ids" size="28" value="{{ ids }}"
+        placeholder="如 11806,11809,11810"
+        title="逗号分隔的策略ID(方括号/空格/分号也认, 与全站按ID同款); 只画库里有回测逐笔的, 没有的列在下方"></label>
+    <button class="small live">载入</button>
+    <span class="muted" id="eqc-note">曲线 = 主品种回测逐笔累计 · 每策略同一初始资金/手数, 可直接比</span>
+  </form>
+  {% include "_equity_chart.html" %}
+</section>
+
+<script>
+(function () {
+  const form = document.getElementById("eqc-form");
+  const box = document.querySelector("[data-eq-chart]");
+  const note = document.getElementById("eqc-note");
+  async function load() {
+    const ids = document.getElementById("eqc-ids").value.trim();
+    if (!ids) return;
+    note.textContent = "载入中…";
+    try {
+      const d = await fetch("{{ url_for('strategies.equity_curves_json') }}?ids="
+        + encodeURIComponent(ids)).then((r) => r.json());
+      if (d.error) { note.textContent = d.error; return; }
+      box._eqSeries = d.curves;
+      window.drawEquity();
+      // 地址栏带上 ids(可收藏/分享), 不整页刷新
+      history.replaceState(null, "", "?ids=" + encodeURIComponent(ids));
+      note.textContent = `已载 ${d.curves.length} 条`
+        + (d.missing && d.missing.length ? ` · 无回测逐笔: ${d.missing.join(",")}` : "");
+    } catch (e) { note.textContent = "载入失败: " + e; }
+  }
+  form.addEventListener("submit", (e) => { e.preventDefault(); load(); });
+  if (document.getElementById("eqc-ids").value.trim()) load();
+})();
+</script>
+{% endblock %}

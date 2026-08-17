@@ -7,6 +7,7 @@
 <link rel="icon" type="image/jpeg" href="{{ url_for('static', filename='favicon.jpg') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <script src="{{ url_for('static', filename='tables.js') }}" defer></script>
+<script src="{{ url_for('static', filename='equity.js') }}" defer></script>
 </head>
 <body>
 <nav>
@@ -57,9 +58,10 @@
   {# 分析组: 看深度(单策略归因 / 回测体系质量) #}
   <div class="navmenu">
     <a href="{{ url_for('strategies.analysis') }}"
-       {% if ep in ('strategies.analysis', 'strategies.regime_matrix', 'strategies.ai_page', 'strategies.ai_regime_page', 'strategies.predictions_page') %}class="active"{% endif %}>分析 ▾</a>
+       {% if ep in ('strategies.analysis', 'strategies.regime_matrix', 'strategies.ai_page', 'strategies.ai_regime_page', 'strategies.predictions_page', 'strategies.equity_page') %}class="active"{% endif %}>分析 ▾</a>
     <div class="navmenu-items">
       <a href="{{ url_for('strategies.analysis') }}" {% if ep == 'strategies.analysis' %}class="active"{% endif %}>单策略回测分析</a>
+      <a href="{{ url_for('strategies.equity_page') }}" {% if ep == 'strategies.equity_page' %}class="active"{% endif %}>资金曲线对比</a>
       <a href="{{ url_for('strategies.regime_matrix') }}" {% if ep == 'strategies.regime_matrix' %}class="active"{% endif %}>单策略regime分析</a>
       <a href="{{ url_for('strategies.ai_regime_page') }}" {% if ep == 'strategies.ai_regime_page' %}class="active"{% endif %}>单策略AI调参·1-Regime(维护中)</a>
       <a href="{{ url_for('strategies.ai_page') }}" {% if ep == 'strategies.ai_page' %}class="active"{% endif %}>单策略AI调参·2-时间</a>
