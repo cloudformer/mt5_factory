@@ -301,8 +301,58 @@
         if (bt && window.initTableSort) window.initTableSort(bt);   // 重绑排序(委托的过滤/翻页自动生效)
         const flt = box.querySelector('[data-table-filter="bt-trades"]');
         if (flt) flt.dispatchEvent(new Event("input", { bubbles: true }));  // 触发分页/序号初始化
+        if (window.drawEquity) window.drawEquity();   // 换品种后重画资金曲线
       } catch (e) { /* 网络异常: 保留旧内容 */ }
     });
+  })();
+  </script>
+
+  {# 资金曲线(2026-08-17): 数据=api equity(累计净点), 钱=初始资金+手数纯前端换算。
+     全局函数+委托监听 — fragment 被 innerHTML 换掉后照常工作 #}
+  <script>
+  (function () {
+    function drawEquity() {
+      const box = document.querySelector("[data-eq-box]");
+      const svg = document.querySelector("[data-eq-svg]");
+      if (!box || !svg) return;
+      let eq = [];
+      try { eq = JSON.parse(box.dataset.eq || "[]"); } catch (e) { return; }
+      if (eq.length < 2) return;
+      const init = parseFloat(document.querySelector("[data-eq-init]")?.value) || 10000;
+      const lots = parseFloat(document.querySelector("[data-eq-lots]")?.value) || 0.01;
+      let lo = init, hi = init;
+      const pts = eq.map(([t, c]) => {
+        const v = init + c * lots;                     // 1点 = 1USD/标准手 × 手数
+        if (v < lo) lo = v; if (v > hi) hi = v;
+        return [t, v];
+      });
+      const W = 860, H = 240, L = 66, R = 8, T = 10, B = 22;
+      const t0 = eq[0][0], t1 = eq[eq.length - 1][0];
+      const x = (t) => L + (t - t0) / (t1 - t0 || 1) * (W - L - R);
+      const y = (v) => T + (hi - v) / (hi - lo || 1) * (H - T - B);
+      const line = pts.map((p) => x(p[0]).toFixed(1) + "," + y(p[1]).toFixed(1)).join(" ");
+      const end = pts[pts.length - 1][1];
+      const fmt = (v) => Math.round(v).toLocaleString();
+      const yr = (ts) => new Date(ts * 1000).getUTCFullYear();
+      svg.innerHTML =
+        `<line x1="${L}" y1="${y(init)}" x2="${W - R}" y2="${y(init)}"` +
+        ` stroke="currentColor" stroke-dasharray="4 4" opacity="0.35"/>` +
+        `<polyline points="${line}" fill="none" stroke-width="1.5"` +
+        ` stroke="${end >= init ? "#16a34a" : "#dc2626"}"/>` +
+        `<text x="${L - 6}" y="${y(hi) + 4}" text-anchor="end" font-size="11" fill="currentColor">${fmt(hi)}</text>` +
+        `<text x="${L - 6}" y="${y(init) + 4}" text-anchor="end" font-size="11" fill="currentColor" opacity="0.6">${fmt(init)}</text>` +
+        `<text x="${L - 6}" y="${y(lo) + 4}" text-anchor="end" font-size="11" fill="currentColor">${fmt(lo)}</text>` +
+        `<text x="${L}" y="${H - 6}" font-size="11" fill="currentColor" opacity="0.6">${yr(t0)}</text>` +
+        `<text x="${W - R}" y="${H - 6}" text-anchor="end" font-size="11" fill="currentColor" opacity="0.6">${yr(t1)}</text>`;
+      const endEl = document.querySelector("[data-eq-end]");
+      if (endEl) endEl.textContent =
+        `期末 ${fmt(end)}(${(end / init * 100 - 100).toFixed(1)}%) · 峰值 ${fmt(hi)} · 谷值 ${fmt(lo)}`;
+    }
+    document.addEventListener("input", (e) => {
+      if (e.target.matches("[data-eq-init],[data-eq-lots]")) drawEquity();
+    });
+    window.drawEquity = drawEquity;
+    drawEquity();
   })();
   </script>
   {% endif %}

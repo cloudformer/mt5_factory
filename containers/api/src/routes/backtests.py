@@ -1425,6 +1425,17 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
         "dir": t.get("dir"), "entry_price": t.get("entry"), "exit_price": t.get("exit"),
         "points": t.get("points"), "reason": t.get("reason"),
     } for t in st[:1000]]
+    # 资金曲线(2026-08-17 Frank 要): 全长累计净点序列(按出场时间收线), 下采样≤500点;
+    # 页面按 初始资金+手数 线性换算成钱 — 事实只有净点, 钱是显示口径
+    cum, eq = 0.0, []
+    for t in sorted(trades, key=lambda x: x.get("exit_time") or x["entry_time"]):
+        cum += t.get("points", 0) or 0
+        eq.append([int(t.get("exit_time") or t["entry_time"]), round(cum, 1)])
+    step = max(1, len(eq) // 500)
+    sampled = eq[::step]
+    if sampled and sampled[-1] != eq[-1]:
+        sampled.append(eq[-1])          # 末点必留(期末读数)
+    out["equity"] = sampled
     # Regime 归因(v2.5 第五步, 2026-07-28 与 Frank 定): 交易只存事实, 格子现拼 —
     # 逐笔入场日期 JOIN regime_timeline → 每笔当天格子 + 八格汇总。
     # 改口径重建时间线后这里自动跟着变新(零垃圾); 回测引擎/存储零改动。
