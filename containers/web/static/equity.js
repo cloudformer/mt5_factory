@@ -110,18 +110,33 @@
     }
 
     const single = S.length === 1;
+    const light = !!box._eqLight;                  // 交互中轻量模式: 只画线(平滑优先)
     let body = "";
     S.forEach((s, i) => {
       s._col = single ? (s.pts[s.pts.length - 1][1] >= init ? "#16a34a" : "#dc2626")
                       : COLORS[i % COLORS.length];
-      body += `<polyline points="${s.pts.map((p) => x(p[0]).toFixed(1) + "," + y(p[1]).toFixed(1)).join(" ")}"` +
-              ` fill="none" stroke="${s._col}" stroke-width="1" opacity="${single ? 0.7 : 0.9}"/>`;
+      // 台阶线(数字准确的画法): 两笔之间余额是常数 → 横到下一笔时刻再竖跳,
+      // 斜线插值是错的(余额不会在两笔间线性漂移)
+      let ln = "", py = "";
+      for (const p of s.pts) {
+        const X = x(p[0]).toFixed(1), Y = y(p[1]).toFixed(1);
+        ln += ln ? ` ${X},${py} ${X},${Y}` : `${X},${Y}`;
+        py = Y;
+      }
+      if (single && !light) {                      // 单曲线: 淡面积填充(厚度感)
+        const base = (H - B).toFixed(1);
+        body += `<polygon points="${ln} ${x(s.pts[s.pts.length - 1][0]).toFixed(1)},${base}` +
+                ` ${x(s.pts[0][0]).toFixed(1)},${base}" fill="${s._col}" opacity="0.07"/>`;
+      }
+      body += `<polyline points="${ln}" fill="none" stroke="${s._col}"` +
+              ` stroke-width="1.2" opacity="${single ? 0.8 : 0.9}"/>`;
     });
-    if (total <= 4000) {           // 交易点: 总量可控才画(多策略大样本自动退化为纯线)
+    box._eqS = S;                                  // 悬停读数用(十字线/气泡)
+    if (!light && total <= 600) {  // 交易点: 放大到可读密度才浮现(全景=干净的线)
       for (const s of S) for (const [t, v, p, real] of s.pts) {
         if (!real) continue;       // 左缘接入点不是交易
-        body += `<circle cx="${x(t).toFixed(1)}" cy="${y(v).toFixed(1)}" r="1.8"` +
-          ` fill="${p >= 0 ? "#16a34a" : "#dc2626"}" opacity="0.8">` +
+        body += `<circle cx="${x(t).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2"` +
+          ` fill="${p >= 0 ? "#16a34a" : "#dc2626"}" opacity="0.85">` +
           `<title>${single ? "" : "#" + (s.id ?? "") + " · "}${day(t)} · 单笔 ${p >= 0 ? "+" : ""}${p.toFixed(2)} · 余额 ${fmt(v)}</title></circle>`;
       }
     }
@@ -139,12 +154,20 @@
         ? `期末 ${fmt(e0)}(${(e0 / init * 100 - 100).toFixed(1)}%) · 峰值 ${fmt(hi)} · 谷值 ${fmt(lo)}`
         : `${S.length} 条曲线 · 同一初始资金/手数下可比`;
     }
-    if (legEl) legEl.innerHTML = single ? "" : S.map((s) => {
-      const e = s.pts[s.pts.length - 1][1];
-      return `<span style="margin-right:14px; white-space:nowrap"><span style="color:${s._col}">●</span>` +
-        ` #${s.id ?? ""} ${s.symbol || ""} 期末 <b class="${e >= init ? "pos" : "neg"}">${fmt(e)}</b>` +
-        `<span class="muted">(${(e / init * 100 - 100).toFixed(1)}%)</span></span>`;
-    }).join("");
+    if (legEl) legEl.innerHTML = single ? "" :
+      `<table class="subtable" style="margin-top:4px"><tr><th></th><th>ID</th><th>品种</th>` +
+      `<th>周期</th><th>回测窗</th><th>笔数</th><th>期末</th><th>收益</th></tr>` +
+      S.map((s) => {
+        const e = s.pts[s.pts.length - 1][1];
+        const r = (e / init * 100 - 100);
+        const win = (s.from && s.to)
+          ? `${String(s.from).slice(0, 10)} ~ ${String(s.to).slice(0, 10)}` : "—";
+        return `<tr><td style="color:${s._col}">●</td><td class="mono">${s.id ?? ""}</td>` +
+          `<td>${s.symbol || "—"}</td><td>${s.timeframe || "—"}</td>` +
+          `<td class="mono">${win}</td><td>${s.equity.length}</td>` +
+          `<td class="${e >= init ? "pos" : "neg"}">${fmt(e)}</td>` +
+          `<td class="${r >= 0 ? "pos" : "neg"}">${r >= 0 ? "+" : ""}${r.toFixed(1)}%</td></tr>`;
+      }).join("") + "</table>";
   }
 
   function drawAll() { document.querySelectorAll("[data-eq-chart]").forEach(draw); }
@@ -168,30 +191,67 @@
   function clearPreset(box) {
     box.querySelectorAll("[data-eq-zoom]").forEach((z) => z.classList.remove("live"));
   }
+  // 拖=框选放大(Frank 原始需求"选一段只放大这些"), Shift+拖=平移
   let drag = null;
   document.addEventListener("mousedown", (e) => {
     const svg = e.target.closest("[data-eq-svg]");
     if (!svg) return;
     const box = svg.closest("[data-eq-chart]");
     if (!box || !box._eqView) return;
-    drag = { box, svg, x0: e.clientX, view: box._eqView.slice() };
-    svg.style.cursor = "grabbing";
+    drag = { box, svg, x0: e.clientX, view: box._eqView.slice(),
+             pan: e.shiftKey, sel: null };
+    if (drag.pan) svg.style.cursor = "grabbing";
     e.preventDefault();                            // 防拖动选中文本
   });
   document.addEventListener("mousemove", (e) => {
     if (!drag) return;
-    const [t0, t1] = drag.view, [f0, f1] = drag.box._eqFull;
-    const w = t1 - t0;
-    if (w >= f1 - f0) return;                      // 已是全长, 无处可移
-    const dt = -(e.clientX - drag.x0) * vbx(drag.svg) / PLOT * w;
-    const n0 = Math.max(f0, Math.min(t0 + dt, f1 - w));   // 两端顶住不出界
-    drag.box._eqWin = [n0, n0 + w];
-    clearPreset(drag.box);
-    draw(drag.box);
+    if (drag.pan) {                                // Shift+拖: 平移(轻量+rAF, 跟手平滑)
+      const [t0, t1] = drag.view, [f0, f1] = drag.box._eqFull;
+      const w = t1 - t0;
+      if (w >= f1 - f0) return;                    // 已是全长, 无处可移
+      const dt = -(e.clientX - drag.x0) * vbx(drag.svg) / PLOT * w;
+      const n0 = Math.max(f0, Math.min(t0 + dt, f1 - w));   // 两端顶住不出界
+      drag.box._eqWin = [n0, n0 + w];
+      clearPreset(drag.box);
+      drag.box._eqLight = true;
+      scheduleDraw(drag.box);
+      return;
+    }
+    // 框选: 半透明选框实时跟手(松手才重画, 选框本身零开销)
+    const rect = drag.svg.getBoundingClientRect();
+    const k = vbx(drag.svg);
+    const xa = Math.max(66, Math.min(852, (Math.min(drag.x0, e.clientX) - rect.left) * k));
+    const xb = Math.max(66, Math.min(852, (Math.max(drag.x0, e.clientX) - rect.left) * k));
+    if (!drag.sel) {
+      drag.sel = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      drag.sel.setAttribute("y", 10);
+      drag.sel.setAttribute("height", 228);
+      drag.sel.setAttribute("fill", "#2563eb");
+      drag.sel.setAttribute("opacity", "0.15");
+      drag.svg.appendChild(drag.sel);
+    }
+    drag.sel.setAttribute("x", xa.toFixed(1));
+    drag.sel.setAttribute("width", Math.max(0, xb - xa).toFixed(1));
   });
-  document.addEventListener("mouseup", () => {
-    if (drag) drag.svg.style.cursor = "grab";
+  document.addEventListener("mouseup", (e) => {
+    if (!drag) return;
+    const d = drag;
     drag = null;
+    d.svg.style.cursor = "crosshair";
+    if (d.pan) { d.box._eqLight = false; draw(d.box); return; }   // 松手恢复全量(点/面积)
+    if (d.sel) d.sel.remove();
+    const rect = d.svg.getBoundingClientRect();
+    const k = vbx(d.svg);
+    const pxa = (Math.min(d.x0, e.clientX) - rect.left) * k;
+    const pxb = (Math.max(d.x0, e.clientX) - rect.left) * k;
+    if (pxb - pxa < 8) return;                     // 点一下不算选
+    const [t0, t1] = d.view;
+    const tt = (px) => t0 + Math.max(0, Math.min(1, (px - 66) / PLOT)) * (t1 - t0);
+    const n0 = tt(pxa), n1 = tt(pxb);
+    if (n1 - n0 < 604800) return;                  // 最小窗 7 天
+    d.box._eqWin = [n0, n1];
+    clearPreset(d.box);
+    draw(d.box);
   });
   document.addEventListener("dblclick", (e) => {
     const svg = e.target.closest("[data-eq-svg]");
@@ -219,8 +279,70 @@
     n0 = Math.max(f0, n0); n1 = Math.min(f1, n1);
     box._eqWin = (n0 <= f0 && n1 >= f1) ? null : [n0, n1];
     clearPreset(box);
-    draw(box);
+    box._eqLight = true;                           // 连续滚轮走轻量, 停 160ms 恢复全量
+    scheduleDraw(box);
+    clearTimeout(box._eqWT);
+    box._eqWT = setTimeout(() => { box._eqLight = false; draw(box); }, 160);
   }, { passive: false });
+
+  function scheduleDraw(box) {                     // rAF 合帧: 一帧最多画一次
+    if (box._eqRaf) return;
+    box._eqRaf = requestAnimationFrame(() => { box._eqRaf = null; draw(box); });
+  }
+
+  // 悬停十字线 + 数值气泡: 光标所在时刻, 每条曲线的当时余额(逐序列二分定位)
+  document.addEventListener("mousemove", (e) => {
+    const svg = e.target.closest && e.target.closest("[data-eq-svg]");
+    if (!svg || drag) {
+      document.querySelectorAll("[data-eq-tip]:not([hidden])").forEach((t) => (t.hidden = true));
+      document.querySelectorAll("[data-eq-hair]").forEach((l) => l.remove());
+      return;
+    }
+    const box = svg.closest("[data-eq-chart]");
+    const tip = box && box.querySelector("[data-eq-tip]");
+    if (!box || !tip || !box._eqS || !box._eqView) return;
+    const rect = svg.getBoundingClientRect();
+    const vx = (e.clientX - rect.left) * vbx(svg);
+    if (vx < 66 || vx > 852) { tip.hidden = true; return; }
+    const [v0, v1] = box._eqView;
+    const t = v0 + Math.max(0, Math.min(1, (vx - 66) / PLOT)) * (v1 - v0);
+    let hair = svg.querySelector("[data-eq-hair]");
+    if (!hair) {
+      hair = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      hair.setAttribute("data-eq-hair", "");
+      hair.setAttribute("y1", "10"); hair.setAttribute("y2", "238");
+      hair.setAttribute("stroke", "currentColor");
+      hair.setAttribute("stroke-dasharray", "3 3");
+      hair.setAttribute("opacity", "0.35");
+      svg.appendChild(hair);
+    }
+    hair.setAttribute("x1", vx.toFixed(1)); hair.setAttribute("x2", vx.toFixed(1));
+    const fmt = (v) => Math.round(v).toLocaleString();
+    const rows = [];
+    for (const s of box._eqS) {                    // 二分: 该时刻前最近一笔的余额
+      let a = 0, b = s.pts.length - 1, hit = null;
+      if (s.pts[0][0] <= t) {
+        while (a <= b) {
+          const m = (a + b) >> 1;
+          if (s.pts[m][0] <= t) { hit = s.pts[m]; a = m + 1; } else b = m - 1;
+        }
+      }
+      if (hit) rows.push([s, hit]);
+    }
+    if (!rows.length) { tip.hidden = true; return; }
+    rows.sort((p, q) => q[1][1] - p[1][1]);        // 多曲线按余额降序, 和图上高低对应
+    const single = box._eqS.length === 1;
+    tip.innerHTML = `<b>${new Date(t * 1000).toISOString().slice(0, 10)}</b><br>` +
+      rows.map(([s, h]) =>
+        `<span style="color:${s._col}">●</span> ${single ? "" : "#" + (s.id ?? "") + " "}` +
+        `${fmt(h[1])}${single && h[3] ? `<span class="muted"> · 该笔 ${h[2] >= 0 ? "+" : ""}${h[2].toFixed(2)}</span>` : ""}`
+      ).join("<br>");
+    const cx = e.clientX - rect.left;
+    if (cx > rect.width * 0.6) { tip.style.left = ""; tip.style.right = (rect.width - cx + 14) + "px"; }
+    else { tip.style.right = ""; tip.style.left = (cx + 14) + "px"; }
+    tip.style.top = "8px";
+    tip.hidden = false;
+  });
 
   window.drawEquity = drawAll;
   if (document.readyState !== "loading") drawAll();

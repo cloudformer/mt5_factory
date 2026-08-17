@@ -6,15 +6,18 @@
     <label>初始资金 <input class="small mono" data-eq-init value="10000" size="7"></label>
     <label>手数 <input class="small mono" data-eq-lots value="0.01" size="5"
       title="换手数/初始资金即时重画(纯显示缩放, 不重查); 回测净点与手数无关"></label>
-    <span title="区域放大: 预设档=最近N年; 图上 拖动=平移 · 滚轮=以光标为中心缩放 · 双击=复位。数据已全量在内存, 全部纯前端重画零请求">
+    <span title="区域放大: 预设档=最近N年; 图上 框选=放大到选段 · Shift+拖=平移 · 滚轮=以光标为中心缩放 · 双击=复位。数据已全量在内存, 全部纯前端重画零请求">
       {% for lbl, yrs in [('全部', 0), ('10年', 10), ('5年', 5), ('2年', 2), ('1年', 1)] %}
       <button type="button" class="small{% if yrs == 0 %} live{% endif %}" data-eq-zoom="{{ yrs }}">{{ lbl }}</button>
       {% endfor %}
     </span>
-    <span class="muted">拖=平移 · 滚轮=缩放 · 双击=复位</span>
+    <span class="muted">框选=放大 · Shift+拖=平移 · 滚轮=缩放 · 双击=复位</span>
     <span class="muted" data-eq-end></span>
   </p>
   {% if eq_data %}<script type="application/json" data-eq-data>{{ eq_data | tojson }}</script>{% endif %}
-  <svg data-eq-svg viewBox="0 0 860 260" style="width:100%;max-width:860px;height:260px; cursor:grab"></svg>
+  <div style="position:relative; max-width:860px">
+    <svg data-eq-svg viewBox="0 0 860 260" style="width:100%;height:260px; cursor:crosshair"></svg>
+    <div data-eq-tip class="eq-tip" hidden></div>
+  </div>
   <p data-eq-legend style="margin:2px 0 0"></p>
 </div>

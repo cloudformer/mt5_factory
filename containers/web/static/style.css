@@ -510,3 +510,12 @@ td.pf-nil { color: var(--muted);  background: #f0f2f4; }
 .ry-chart .grid { stroke: var(--border); stroke-width: 1; }
 .ry-chart .gapmark { fill: var(--muted); font-size: 9.5px; }
 .ry-chart rect:hover { opacity: 1; stroke: var(--accent); stroke-width: 1.5; }
+
+/* 资金曲线悬停提示(equity.js): 跟随光标的数值气泡 */
+.eq-tip {
+  position: absolute; pointer-events: none; z-index: 5; white-space: nowrap;
+  background: var(--card); border: 1px solid var(--border); border-radius: 5px;
+  padding: 4px 9px; font-size: 11px; line-height: 1.7;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  font-variant-numeric: tabular-nums;
+}
