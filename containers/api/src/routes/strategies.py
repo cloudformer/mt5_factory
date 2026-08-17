@@ -855,6 +855,21 @@ async def strategy_profile(strategy_id: int, request: Request):
     return prof
 
 
+@router.get("/strategies/{strategy_id}/dossier")
+async def strategy_dossier(strategy_id: int, request: Request):
+    """策略档案(2026-08-17 Frank 定, 单策略所有信息一份下载):
+    core_idea(模板 docstring — 设计思想与判读预登记随策略走) + /report 原始档案
+    (模板/参数/回测全量逐笔/对账/实盘/尸体) + profile 结论级画像(履历/稳定性/
+    OOS六段/每格战绩)。事实仍只存一份 — 本端点纯组合两个既有构建器, 零新事实。"""
+    import sys
+    report = await ai_report(strategy_id, request)   # 含可见性校验 + 用量记账(不重复计)
+    from src.services import profile as profile_svc
+    prof = await profile_svc.build(request.app.state.pool, strategy_id)
+    cls = TEMPLATES.get(report["strategy"]["template"])
+    core = (sys.modules[cls.__module__].__doc__ or "").strip() if cls else None
+    return {"core_idea": core, **report, "profile": prof}
+
+
 _REGIME_AI_PROMPT_HEAD = """\
 # 任务(两问一次做完, 报告分三块按序写): ⓪验收自证 ①Regime 口径评价+建议版本 ②八象限配置
 数据是全部 regime 版本的预聚合战绩。请**严格按 ⓪→①→② 的顺序**组织报告:

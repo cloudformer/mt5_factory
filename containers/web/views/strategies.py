@@ -643,22 +643,18 @@ def analysis_fragment():
                            regime_fills=_cells_fills((ana or {}).get("regime_cells")))
 
 
-@bp.get("/<int:strategy_id>/profile.json")
-def profile_json(strategy_id: int):
-    """策略 Profile(v0.7): 结论级画像 JSON(读时现拼) — 人看/贴给AI/未来预测模块引用"""
+@bp.get("/<int:strategy_id>/dossier.json")
+def dossier_json(strategy_id: int):
+    """策略档案 JSON 透传(2026-08-17 统一原 AI成绩单/Profile 两个下载):
+    核心思想 + 模板/参数/回测全量逐笔/对账/实盘 + 结论级画像, 单策略所有信息一份。
+    下载文件名 = {id}-dossier-{yymmdd}.json(2026-08-17 Frank 定, 存盘即自带身份和日期)"""
     try:
-        return api.get(f"/strategies/{strategy_id}/profile")
+        resp = jsonify(api.get(f"/strategies/{strategy_id}/dossier"))
     except api.ApiError as e:
         return {"error": str(e)}, 502
-
-
-@bp.get("/<int:strategy_id>/report.json")
-def ai_report(strategy_id: int):
-    """AI 成绩单 JSON 透传(浏览器/未来 AI 训练脚本直接下载; api 内网名浏览器够不到)"""
-    try:
-        return api.get(f"/strategies/{strategy_id}/report")
-    except api.ApiError as e:
-        return {"error": str(e)}, 502
+    name = f"{strategy_id}-dossier-{datetime.now().strftime('%y%m%d')}.json"
+    resp.headers["Content-Disposition"] = f'attachment; filename="{name}"'
+    return resp
 
 
 def _ai_context(sid: int, count: int):
