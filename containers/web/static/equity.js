@@ -179,7 +179,8 @@
     }
     const cut = (t, n) => (t && t.length > n ? t.slice(0, n) + "…" : (t || "—"));
     // 图例表: 与图之间留白 + 上边界线; 名称全量不截断(宽了在自己的容器里横向滚动)
-    if (legEl) legEl.innerHTML = single ? "" :
+    const hasMeta = S.some((s) => s.id != null);   // 带身份才有图例表(对比页含单条; 分析页内嵌无id不重复)
+    if (legEl) legEl.innerHTML = !hasMeta ? "" :
       `<div style="margin-top:16px; padding-top:10px; border-top:1px solid var(--border, #ddd); overflow-x:auto">` +
       `<table class="subtable eq-leg" style="width:100%"><tr><th></th><th>ID</th>` +
       `<th>名称</th><th>批次</th>` +
@@ -197,7 +198,7 @@
           `<td class="${e >= init ? "pos" : "neg"}">${fmt(e)}</td>` +
           `<td class="${r >= 0 ? "pos" : "neg"}">${r >= 0 ? "+" : ""}${r.toFixed(1)}%</td></tr>`;
       }).join("") + "</table></div>";
-    if (legEl && !single) legendResizers(box, legEl);
+    if (legEl && hasMeta) legendResizers(box, legEl);
   }
 
   // 尺寸监听: 元素隐藏→显示(如分析页切到回测页签)或任何尺寸变化都重画 —
