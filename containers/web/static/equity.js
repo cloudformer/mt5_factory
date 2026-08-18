@@ -23,8 +23,13 @@
     if (!svg) return;
     const endEl = box.querySelector("[data-eq-end]");
     const legEl = box.querySelector("[data-eq-legend]");
-    const all = seriesOf(box).filter((s) => (s.equity || []).length > 1);
-    if (!all.length) {
+    // raw=全部有效曲线(图例表永远列全, 勾选控制显隐); all=当前显示的(进图)
+    const raw = seriesOf(box).filter((s) => (s.equity || []).length > 1);
+    box._eqLegendArr = raw;                        // 勾选事件按下标找回同一对象
+    const hasMeta = raw.some((s) => s.id != null); // 带身份才有图例表(对比页含单条)
+    raw.forEach((s, i) => { s._col = hasMeta ? COLORS[i % COLORS.length] : null; });
+    const all = raw.filter((s) => !s._off);
+    if (!raw.length) {
       svg.innerHTML = "";
       if (endEl) endEl.textContent = "";
       if (legEl) legEl.textContent = "";
@@ -33,6 +38,37 @@
     // 钳成正数: 负手数=盈亏取反的算术游戏, 不是反向策略的回测(成本不翻/SL·TP互换)
     const init = Math.max(1, parseFloat(box.querySelector("[data-eq-init]")?.value) || 10000);
     const lots = Math.max(0.01, parseFloat(box.querySelector("[data-eq-lots]")?.value) || 0.01);
+    // 图例表(从 raw 出, 含隐藏行): 期末/收益=全程口径(不随缩放窗口变, 对比才稳定)
+    const fmt0 = (v) => Math.round(v).toLocaleString();
+    const cut0 = (t, n) => (t && t.length > n ? t.slice(0, n) + "…" : (t || "—"));
+    if (legEl) {
+      legEl.innerHTML = !hasMeta ? "" :
+        `<div style="margin-top:16px; padding-top:10px; border-top:1px solid var(--border, #ddd); overflow-x:auto">` +
+        `<table class="subtable eq-leg" style="width:100%"><tr><th title="勾选=显示该曲线; 取消=隐藏(纵轴按剩余曲线自适应)">显</th><th>ID</th>` +
+        `<th>名称</th><th>批次</th><th>品种</th><th>周期</th><th>回测窗</th><th>笔数</th><th>期末(全程)</th><th>收益</th></tr>` +
+        raw.map((s, i) => {
+          const e = init + (s.equity[s.equity.length - 1][1] || 0) * lots;
+          const r = (e / init * 100 - 100);
+          const win = (s.from && s.to)
+            ? `${String(s.from).slice(0, 10)} ~ ${String(s.to).slice(0, 10)}` : "—";
+          return `<tr${s._off ? ' style="opacity:.45"' : ""}>` +
+            `<td style="color:${s._col || "#999"}; white-space:nowrap"><label style="cursor:pointer">` +
+            `<input type="checkbox" data-eq-vis="${i}"${s._off ? "" : " checked"}> ●</label></td>` +
+            `<td class="mono">${s.id ?? ""}</td>` +
+            `<td class="muted" style="white-space:normal; word-break:break-all">${s.name || "—"}</td>` +
+            `<td class="muted" title="${s.basis || ""}">${cut0(s.basis, 26)}</td>` +
+            `<td>${s.symbol || "—"}</td><td>${s.timeframe || "—"}</td>` +
+            `<td class="mono">${win}</td><td>${s.equity.length}</td>` +
+            `<td class="${e >= init ? "pos" : "neg"}">${fmt0(e)}</td>` +
+            `<td class="${r >= 0 ? "pos" : "neg"}">${r >= 0 ? "+" : ""}${r.toFixed(1)}%</td></tr>`;
+        }).join("") + "</table></div>";
+      if (hasMeta) legendResizers(box, legEl);
+    }
+    if (!all.length) {                             // 全部被勾掉: 图清空但表还在, 随时勾回
+      svg.innerHTML = "";
+      if (endEl) endEl.textContent = "全部曲线已隐藏 — 勾选图例表恢复";
+      return;
+    }
     const tMaxFull = Math.max(...all.map((s) => s.equity[s.equity.length - 1][0]));
     const tMinFull = Math.min(...all.map((s) => s.equity[0][0]));
     let tMin, tMax;
@@ -132,8 +168,8 @@
     const light = !!box._eqLight;                  // 交互中轻量模式: 只画线(平滑优先)
     let body = "";
     S.forEach((s, i) => {
-      s._col = single ? (s.pts[s.pts.length - 1][1] >= init ? "#16a34a" : "#dc2626")
-                      : COLORS[i % COLORS.length];
+      if (!s._col)                                 // 无身份(分析页内嵌)才按涨跌上色
+        s._col = s.pts[s.pts.length - 1][1] >= init ? "#16a34a" : "#dc2626";
       // 台阶线(数字准确的画法): 两笔之间余额是常数 → 横到下一笔时刻再竖跳,
       // 斜线插值是错的(余额不会在两笔间线性漂移)
       let ln = "", py = "";
@@ -177,28 +213,7 @@
         ? `期末 ${fmt(e0)}(${(e0 / init * 100 - 100).toFixed(1)}%) · 峰值 ${fmt(hi)} · 谷值 ${fmt(lo)}`
         : `${S.length} 条曲线 · 同一初始资金/手数下可比`;
     }
-    const cut = (t, n) => (t && t.length > n ? t.slice(0, n) + "…" : (t || "—"));
-    // 图例表: 与图之间留白 + 上边界线; 名称全量不截断(宽了在自己的容器里横向滚动)
-    const hasMeta = S.some((s) => s.id != null);   // 带身份才有图例表(对比页含单条; 分析页内嵌无id不重复)
-    if (legEl) legEl.innerHTML = !hasMeta ? "" :
-      `<div style="margin-top:16px; padding-top:10px; border-top:1px solid var(--border, #ddd); overflow-x:auto">` +
-      `<table class="subtable eq-leg" style="width:100%"><tr><th></th><th>ID</th>` +
-      `<th>名称</th><th>批次</th>` +
-      `<th>品种</th><th>周期</th><th>回测窗</th><th>笔数</th><th>期末</th><th>收益</th></tr>` +
-      S.map((s) => {
-        const e = s.pts[s.pts.length - 1][1];
-        const r = (e / init * 100 - 100);
-        const win = (s.from && s.to)
-          ? `${String(s.from).slice(0, 10)} ~ ${String(s.to).slice(0, 10)}` : "—";
-        return `<tr><td style="color:${s._col}">●</td><td class="mono">${s.id ?? ""}</td>` +
-          `<td class="muted" style="white-space:normal; word-break:break-all">${s.name || "—"}</td>` +
-          `<td class="muted" title="${s.basis || ""}">${cut(s.basis, 26)}</td>` +
-          `<td>${s.symbol || "—"}</td><td>${s.timeframe || "—"}</td>` +
-          `<td class="mono">${win}</td><td>${s.equity.length}</td>` +
-          `<td class="${e >= init ? "pos" : "neg"}">${fmt(e)}</td>` +
-          `<td class="${r >= 0 ? "pos" : "neg"}">${r >= 0 ? "+" : ""}${r.toFixed(1)}%</td></tr>`;
-      }).join("") + "</table></div>";
-    if (legEl && hasMeta) legendResizers(box, legEl);
+
   }
 
   // 尺寸监听: 元素隐藏→显示(如分析页切到回测页签)或任何尺寸变化都重画 —
@@ -457,6 +472,15 @@
   }
   document.addEventListener("change", (e) => {
     if (e.target.matches("select[data-eq-lots]")) drawAll();   // 换档即时重画
+  });
+  document.addEventListener("change", (e) => {     // 图例勾选: 显/隐单条曲线
+    if (!e.target.matches("[data-eq-vis]")) return;
+    const box = e.target.closest("[data-eq-chart]");
+    const arr = box && box._eqLegendArr;
+    if (!arr) return;
+    const s = arr[+e.target.dataset.eqVis];
+    if (s) s._off = !e.target.checked;
+    draw(box);
   });
 
   // regime 版本下拉: 首次绘制时懒取版本清单填充; 切换时取该版本时间线连续段铺底色
