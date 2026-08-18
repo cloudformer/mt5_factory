@@ -659,6 +659,17 @@ def equity_page():
     return render_template("strategy_equity.html", ids=request.args.get("ids") or "")
 
 
+@bp.get("/volume_presets.json")
+def volume_presets_json():
+    """手数预设透传(资金曲线的手数下拉用): 与策略页同一配置源, 唯一在 config 表"""
+    try:
+        cfg = api.get("/config")["config"]
+        return {"default": cfg.get("volume_default"),
+                "presets": cfg.get("volume_presets") or []}
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
 @bp.get("/regime_versions.json")
 def regime_versions_json():
     """regime 版本清单透传(资金曲线的 regime 下拉用)"""

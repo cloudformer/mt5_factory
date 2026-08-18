@@ -4,8 +4,10 @@
 <div data-eq-chart{% if eq_symbol %} data-eq-symbol="{{ eq_symbol }}"{% endif %}>
   <p style="margin:4px 0">
     <label>初始资金 <input class="small mono" data-eq-init value="10000" size="7" type="number" min="1"></label>
-    <label>手数 <input class="small mono" data-eq-lots value="0.01" size="5" type="number" min="0.01" step="0.01"
-      title="换手数/初始资金即时重画(纯显示缩放, 不重查); 回测净点与手数无关。只收正数 — 负手数=盈亏取反的算术游戏, 不是反向策略回测(成本不翻/SL·TP互换)"></label>
+    <label>手数 <select class="small mono" data-eq-lots
+      title="策略手数预设(配置页·策略参数改, 与策略页同一套); 换档即时重画 — 纯显示缩放不重查, 回测净点与手数无关">
+      <option value="0.01">0.01</option>
+    </select></label>
     <span title="区域放大: 预设档=最近N年; 图上 框选=放大到选段 · Shift+拖=平移 · 滚轮=以光标为中心缩放 · 双击=复位。数据已全量在内存, 全部纯前端重画零请求">
       {% for lbl, yrs in [('全部', 0), ('10年', 10), ('5年', 5), ('2年', 2), ('1年', 1)] %}
       <button type="button" class="small{% if yrs == 0 %} live{% endif %}" data-eq-zoom="{{ yrs }}">{{ lbl }}</button>

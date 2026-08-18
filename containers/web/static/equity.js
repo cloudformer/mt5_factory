@@ -213,6 +213,7 @@
       draw(b);
     });
     fillRegimeSelects();
+    fillLotSelects();
   }
 
   // 图例表列宽手拉: 表头右缘 7px 拖柄; 首拖时把各列当前宽钉住(fixed布局)防跳动;
@@ -433,6 +434,28 @@
     else { tip.style.right = ""; tip.style.left = (cx + 14) + "px"; }
     tip.style.top = "8px";
     tip.hidden = false;
+  });
+
+  // 手数下拉: 懒取配置页的手数预设填充(与策略页同一套, 唯一源=config 表)
+  let lotCfg = null;
+  async function fillLotSelects() {
+    const sels = [...document.querySelectorAll("select[data-eq-lots]")].filter((s) => !s._eqFilled);
+    if (!sels.length) return;
+    if (lotCfg === null) {
+      try { lotCfg = await fetch("/strategies/volume_presets.json").then((r) => r.json()); }
+      catch (e) { lotCfg = false; }
+    }
+    if (!lotCfg || !lotCfg.presets || !lotCfg.presets.length) return;
+    const dflt = lotCfg.default || lotCfg.presets[0];
+    const vals = lotCfg.presets.includes(dflt) ? lotCfg.presets : [dflt, ...lotCfg.presets];
+    for (const sel of sels) {
+      sel._eqFilled = true;
+      sel.innerHTML = vals.map((v) =>
+        `<option value="${v}"${v === dflt ? " selected" : ""}>${v}</option>`).join("");
+    }
+  }
+  document.addEventListener("change", (e) => {
+    if (e.target.matches("select[data-eq-lots]")) drawAll();   // 换档即时重画
   });
 
   // regime 版本下拉: 首次绘制时懒取版本清单填充; 切换时取该版本时间线连续段铺底色
