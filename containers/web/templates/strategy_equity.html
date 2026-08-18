@@ -22,23 +22,29 @@
   const note = document.getElementById("eqc-note");
   async function load() {
     const ids = document.getElementById("eqc-ids").value.trim();
-    if (!ids) return;
+    if (!ids) { note.textContent = "先输入策略ID(逗号分隔, 如 11806,11809), 再点载入"; return; }
     note.textContent = "载入中…";
     try {
       const d = await fetch("{{ url_for('strategies.equity_curves_json') }}?ids="
         + encodeURIComponent(ids)).then((r) => r.json());
       if (d.error) { note.textContent = d.error; return; }
       box._eqSeries = d.curves;
-      window.drawEquity();
+      if (window.drawEquity) window.drawEquity();
       // 地址栏带上 ids(可收藏/分享), 不整页刷新
       history.replaceState(null, "", "?ids=" + encodeURIComponent(ids));
-      note.textContent = `已载 ${d.curves.length} 条`
-        + (d.missing && d.missing.length ? ` · 无回测逐笔: ${d.missing.join(",")}` : "");
+      note.textContent = d.curves.length
+        ? `已载 ${d.curves.length} 条`
+          + (d.missing && d.missing.length ? ` · 无回测逐笔: ${d.missing.join(",")}` : "")
+        : "这些ID在库里没有回测逐笔 — 先去「策略回测」跑一次";
     } catch (e) { note.textContent = "载入失败: " + e; }
   }
   form.addEventListener("submit", (e) => { e.preventDefault(); load(); });   // 回车/载入同一条 AJAX 路
   form.querySelector("button").addEventListener("click", (e) => { e.preventDefault(); load(); });
-  if (document.getElementById("eqc-ids").value.trim()) load();
+  // 自动载入等 DOM 就绪 — equity.js 是 defer, 解析期 drawEquity 还不存在(时序bug修复)
+  if (document.getElementById("eqc-ids").value.trim()) {
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", load);
+    else load();
+  }
 })();
 </script>
 {% endblock %}
