@@ -291,13 +291,22 @@ async def regime_band(request: Request, symbol: str, version: int | None = None)
     from datetime import datetime, timezone
     pool = request.app.state.pool
     tl = await regime.tl_map(pool, symbol.upper(), version)
+    days = sorted(tl)
     segs: list = []
-    for d in sorted(tl):
+    for i, d in enumerate(days):
         ts = int(datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp())
-        if segs and segs[-1][2] == tl[d] and ts - segs[-1][1] <= 86400 * 3:
-            segs[-1][1] = ts + 86400
+        # 每格顺延到下一个交易日开盘(周末/节假日不留白 — 显示口径; 门裁决仍用入场日当日格,
+        # 交易只发生在有格的日子, 执法不受影响); >4 天的长洞 = 真数据缺口, 如实留白
+        if i + 1 < len(days):
+            nxt = int(datetime(days[i + 1].year, days[i + 1].month,
+                               days[i + 1].day, tzinfo=timezone.utc).timestamp())
+            end = min(nxt, ts + 86400 * 4)
         else:
-            segs.append([ts, ts + 86400, tl[d]])
+            end = ts + 86400
+        if segs and segs[-1][2] == tl[d] and ts <= segs[-1][1]:
+            segs[-1][1] = end
+        else:
+            segs.append([ts, end, tl[d]])
     return {"symbol": symbol.upper(), "version": version, "segments": segs}
 
 
