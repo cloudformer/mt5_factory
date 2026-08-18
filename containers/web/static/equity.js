@@ -161,8 +161,10 @@
         : `${S.length} 条曲线 · 同一初始资金/手数下可比`;
     }
     const cut = (t, n) => (t && t.length > n ? t.slice(0, n) + "…" : (t || "—"));
+    // 图例表: 与图之间留白 + 上边界线; 名称全量不截断(宽了在自己的容器里横向滚动)
     if (legEl) legEl.innerHTML = single ? "" :
-      `<table class="subtable" style="margin-top:4px; width:100%"><tr><th></th><th>ID</th>` +
+      `<div style="margin-top:16px; padding-top:10px; border-top:1px solid var(--border, #ddd); overflow-x:auto">` +
+      `<table class="subtable" style="width:100%"><tr><th></th><th>ID</th>` +
       `<th>名称</th><th>批次</th>` +
       `<th>品种</th><th>周期</th><th>回测窗</th><th>笔数</th><th>期末</th><th>收益</th></tr>` +
       S.map((s) => {
@@ -171,13 +173,13 @@
         const win = (s.from && s.to)
           ? `${String(s.from).slice(0, 10)} ~ ${String(s.to).slice(0, 10)}` : "—";
         return `<tr><td style="color:${s._col}">●</td><td class="mono">${s.id ?? ""}</td>` +
-          `<td class="muted" title="${s.name || ""}">${cut(s.name, 60)}</td>` +
+          `<td class="muted" style="white-space:nowrap">${s.name || "—"}</td>` +
           `<td class="muted" title="${s.basis || ""}">${cut(s.basis, 26)}</td>` +
           `<td>${s.symbol || "—"}</td><td>${s.timeframe || "—"}</td>` +
           `<td class="mono">${win}</td><td>${s.equity.length}</td>` +
           `<td class="${e >= init ? "pos" : "neg"}">${fmt(e)}</td>` +
           `<td class="${r >= 0 ? "pos" : "neg"}">${r >= 0 ? "+" : ""}${r.toFixed(1)}%</td></tr>`;
-      }).join("") + "</table>";
+      }).join("") + "</table></div>";
   }
 
   // 尺寸监听: 元素隐藏→显示(如分析页切到回测页签)或任何尺寸变化都重画 —
