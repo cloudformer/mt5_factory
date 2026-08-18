@@ -52,8 +52,9 @@
           const win = (s.from && s.to)
             ? `${String(s.from).slice(0, 10)} ~ ${String(s.to).slice(0, 10)}` : "—";
           return `<tr${s._off ? ' style="opacity:.45"' : ""}>` +
-            `<td style="color:${s._col || "#999"}; white-space:nowrap"><label style="cursor:pointer">` +
-            `<input type="checkbox" data-eq-vis="${i}"${s._off ? "" : " checked"}> ●</label></td>` +
+            `<td style="white-space:nowrap"><label style="cursor:pointer">` +
+            `<input type="checkbox" data-eq-vis="${i}"${s._off ? "" : " checked"}>` +
+            ` <span style="color:${s._col || "#999"}">●</span></label></td>` +
             `<td class="mono">${s.id ?? ""}</td>` +
             `<td class="muted" style="white-space:normal; word-break:break-all">${s.name || "—"}</td>` +
             `<td class="muted" title="${s.basis || ""}">${cut0(s.basis, 26)}</td>` +
