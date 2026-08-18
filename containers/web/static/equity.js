@@ -62,7 +62,12 @@
     }
     if (!S.length) { svg.innerHTML = ""; if (endEl) endEl.textContent = "窗口内无交易"; return; }
 
-    const W = 860, H = 260, L = 66, R = 8, T = 10, B = 22;
+    // 画布宽 = 容器实际像素宽(1 viewBox 单位 = 1 CSS 像素, 拉满整行且文字不变形);
+    // 窗口改变尺寸时由 resize 监听重画
+    const W = Math.max(700, Math.round(svg.clientWidth || svg.getBoundingClientRect().width || 860));
+    const H = 260, L = 66, R = 8, T = 10, B = 22;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    box._eqG = { W, L, R, PLOT: W - L - R };       // 交互层(框选/平移/滚轮/悬停)读这个
     const x = (t) => L + (t - tMin) / (tMax - tMin || 1) * (W - L - R);
     const y = (v) => T + (hi - v) / (hi - lo || 1) * (H - T - B);
     const fmt = (v) => Math.round(v).toLocaleString();
@@ -185,9 +190,9 @@
     draw(box);
   });
 
-  // 拖=平移 · 滚轮=以光标为中心缩放 · 双击=复位 — 数据已全量在内存, 纯前端重画零请求
-  const PLOT = 786;                                // 绘图区宽 = 860 - 66(左) - 8(右)
-  const vbx = (svg) => 860 / svg.getBoundingClientRect().width;   // CSS像素 → viewBox 换算
+  // 框选=放大 · Shift+拖=平移 · 滚轮=光标为中心缩放 · 双击=复位 — 全量在内存, 纯前端零请求
+  const geo = (box) => box._eqG || { W: 860, L: 66, R: 8, PLOT: 786 };   // 画布几何(随容器宽动态)
+  const vbx = (box, svg) => geo(box).W / svg.getBoundingClientRect().width;  // CSS像素→viewBox
   function clearPreset(box) {
     box.querySelectorAll("[data-eq-zoom]").forEach((z) => z.classList.remove("live"));
   }
@@ -205,11 +210,12 @@
   });
   document.addEventListener("mousemove", (e) => {
     if (!drag) return;
+    const G = geo(drag.box);
     if (drag.pan) {                                // Shift+拖: 平移(轻量+rAF, 跟手平滑)
       const [t0, t1] = drag.view, [f0, f1] = drag.box._eqFull;
       const w = t1 - t0;
       if (w >= f1 - f0) return;                    // 已是全长, 无处可移
-      const dt = -(e.clientX - drag.x0) * vbx(drag.svg) / PLOT * w;
+      const dt = -(e.clientX - drag.x0) * vbx(drag.box, drag.svg) / G.PLOT * w;
       const n0 = Math.max(f0, Math.min(t0 + dt, f1 - w));   // 两端顶住不出界
       drag.box._eqWin = [n0, n0 + w];
       clearPreset(drag.box);
@@ -219,9 +225,9 @@
     }
     // 框选: 半透明选框实时跟手(松手才重画, 选框本身零开销)
     const rect = drag.svg.getBoundingClientRect();
-    const k = vbx(drag.svg);
-    const xa = Math.max(66, Math.min(852, (Math.min(drag.x0, e.clientX) - rect.left) * k));
-    const xb = Math.max(66, Math.min(852, (Math.max(drag.x0, e.clientX) - rect.left) * k));
+    const k = vbx(drag.box, drag.svg);
+    const xa = Math.max(G.L, Math.min(G.W - G.R, (Math.min(drag.x0, e.clientX) - rect.left) * k));
+    const xb = Math.max(G.L, Math.min(G.W - G.R, (Math.max(drag.x0, e.clientX) - rect.left) * k));
     if (!drag.sel) {
       drag.sel = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       drag.sel.setAttribute("y", 10);
@@ -240,13 +246,14 @@
     d.svg.style.cursor = "crosshair";
     if (d.pan) { d.box._eqLight = false; draw(d.box); return; }   // 松手恢复全量(点/面积)
     if (d.sel) d.sel.remove();
+    const G = geo(d.box);
     const rect = d.svg.getBoundingClientRect();
-    const k = vbx(d.svg);
+    const k = vbx(d.box, d.svg);
     const pxa = (Math.min(d.x0, e.clientX) - rect.left) * k;
     const pxb = (Math.max(d.x0, e.clientX) - rect.left) * k;
     if (pxb - pxa < 8) return;                     // 点一下不算选
     const [t0, t1] = d.view;
-    const tt = (px) => t0 + Math.max(0, Math.min(1, (px - 66) / PLOT)) * (t1 - t0);
+    const tt = (px) => t0 + Math.max(0, Math.min(1, (px - G.L) / G.PLOT)) * (t1 - t0);
     const n0 = tt(pxa), n1 = tt(pxb);
     if (n1 - n0 < 604800) return;                  // 最小窗 7 天
     d.box._eqWin = [n0, n1];
@@ -269,9 +276,10 @@
     const box = svg.closest("[data-eq-chart]");
     if (!box || !box._eqView) return;
     e.preventDefault();                            // 图上滚轮=缩放, 不滚页面
+    const G = geo(box);
     const [t0, t1] = box._eqView, [f0, f1] = box._eqFull;
     const rect = svg.getBoundingClientRect();
-    const frac = Math.max(0, Math.min(1, ((e.clientX - rect.left) * vbx(svg) - 66) / PLOT));
+    const frac = Math.max(0, Math.min(1, ((e.clientX - rect.left) * vbx(box, svg) - G.L) / G.PLOT));
     const ct = t0 + frac * (t1 - t0);              // 光标所指时刻为缩放中心
     const k = e.deltaY > 0 ? 1.25 : 0.8;
     let n0 = ct - (ct - t0) * k, n1 = ct + (t1 - ct) * k;
@@ -301,11 +309,12 @@
     const box = svg.closest("[data-eq-chart]");
     const tip = box && box.querySelector("[data-eq-tip]");
     if (!box || !tip || !box._eqS || !box._eqView) return;
+    const G = geo(box);
     const rect = svg.getBoundingClientRect();
-    const vx = (e.clientX - rect.left) * vbx(svg);
-    if (vx < 66 || vx > 852) { tip.hidden = true; return; }
+    const vx = (e.clientX - rect.left) * vbx(box, svg);
+    if (vx < G.L || vx > G.W - G.R) { tip.hidden = true; return; }
     const [v0, v1] = box._eqView;
-    const t = v0 + Math.max(0, Math.min(1, (vx - 66) / PLOT)) * (v1 - v0);
+    const t = v0 + Math.max(0, Math.min(1, (vx - G.L) / G.PLOT)) * (v1 - v0);
     let hair = svg.querySelector("[data-eq-hair]");
     if (!hair) {
       hair = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -343,6 +352,9 @@
     tip.style.top = "8px";
     tip.hidden = false;
   });
+
+  let rsT;                                         // 窗口改宽 → 防抖重画(画布宽随容器)
+  window.addEventListener("resize", () => { clearTimeout(rsT); rsT = setTimeout(drawAll, 150); });
 
   window.drawEquity = drawAll;
   if (document.readyState !== "loading") drawAll();

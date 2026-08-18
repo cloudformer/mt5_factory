@@ -15,8 +15,9 @@
     <span class="muted" data-eq-end></span>
   </p>
   {% if eq_data %}<script type="application/json" data-eq-data>{{ eq_data | tojson }}</script>{% endif %}
-  <div style="position:relative; max-width:860px">
-    <svg data-eq-svg viewBox="0 0 860 260" style="width:100%;height:260px; cursor:crosshair"></svg>
+  {# 宽度不设上限: 画布 viewBox 由 equity.js 每次重画按容器实际像素宽生成, 拉满整行不变形 #}
+  <div style="position:relative">
+    <svg data-eq-svg viewBox="0 0 860 260" style="width:100%;height:260px; cursor:crosshair; display:block"></svg>
     <div data-eq-tip class="eq-tip" hidden></div>
   </div>
   <p data-eq-legend style="margin:2px 0 0"></p>
