@@ -659,6 +659,27 @@ def equity_page():
     return render_template("strategy_equity.html", ids=request.args.get("ids") or "")
 
 
+@bp.get("/regime_versions.json")
+def regime_versions_json():
+    """regime 版本清单透传(资金曲线的 regime 下拉用)"""
+    try:
+        return api.get("/regime/versions")
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
+@bp.get("/regime_band.json")
+def regime_band_json():
+    """regime 时间线连续段透传(资金曲线底色, 读时现拼零落库)"""
+    params = {"symbol": request.args.get("symbol", "")}
+    if request.args.get("version"):
+        params["version"] = request.args["version"]
+    try:
+        return api.get("/regime/band", **params)
+    except api.ApiError as e:
+        return {"error": str(e)}, 502
+
+
 @bp.get("/equity_curves.json")
 def equity_curves_json():
     """多策略资金曲线数据透传(对比页 AJAX 用); 输入宽容解析与全站按ID同款"""

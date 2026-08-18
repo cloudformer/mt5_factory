@@ -27,8 +27,10 @@
 {% if ana.equity and ana.equity | length > 1 %}
 <h3>资金曲线 <span class="muted" style="font-weight:normal">全长回测 · 每点=一笔交易(绿赚红亏, 悬停看日期/单笔/余额; 超4000笔抽样) · 换算口径 1点=1USD/标准手(美元计价品种精确, 日元交叉为近似) · 事实只有净点, 钱是显示换算</span></h3>
 {% set eq_data = ana.equity %}
+{% set eq_symbol = ana.symbol %}
 {% include "_equity_chart.html" %}
 {% set eq_data = none %}
+{% set eq_symbol = none %}
 {% endif %}
 <h3>细分归因(方向 / 出场 / 时段 / 星期)</h3>
 {{ m.attr_grid(ana.direction, ana.reasons, ana.by_hour, ana.by_weekday) }}

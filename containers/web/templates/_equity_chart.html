@@ -1,16 +1,18 @@
 {# 资金曲线容器(2026-08-17, 唯一源标记 — 单策略分析页与多策略对比页共用, 改这里两页生效)
    渲染器 = static/equity.js; 数据: 上下文给了 eq_data 则服务端嵌入(单策略),
    否则由页面脚本 fetch 后赋值容器._eqSeries(多策略) #}
-<div data-eq-chart>
+<div data-eq-chart{% if eq_symbol %} data-eq-symbol="{{ eq_symbol }}"{% endif %}>
   <p style="margin:4px 0">
-    <label>初始资金 <input class="small mono" data-eq-init value="10000" size="7"></label>
-    <label>手数 <input class="small mono" data-eq-lots value="0.01" size="5"
-      title="换手数/初始资金即时重画(纯显示缩放, 不重查); 回测净点与手数无关"></label>
+    <label>初始资金 <input class="small mono" data-eq-init value="10000" size="7" type="number" min="1"></label>
+    <label>手数 <input class="small mono" data-eq-lots value="0.01" size="5" type="number" min="0.01" step="0.01"
+      title="换手数/初始资金即时重画(纯显示缩放, 不重查); 回测净点与手数无关。只收正数 — 负手数=盈亏取反的算术游戏, 不是反向策略回测(成本不翻/SL·TP互换)"></label>
     <span title="区域放大: 预设档=最近N年; 图上 框选=放大到选段 · Shift+拖=平移 · 滚轮=以光标为中心缩放 · 双击=复位。数据已全量在内存, 全部纯前端重画零请求">
       {% for lbl, yrs in [('全部', 0), ('10年', 10), ('5年', 5), ('2年', 2), ('1年', 1)] %}
       <button type="button" class="small{% if yrs == 0 %} live{% endif %}" data-eq-zoom="{{ yrs }}">{{ lbl }}</button>
       {% endfor %}
     </span>
+    <label title="资金曲线铺 regime 底色(读时现拼零落库): 看钱在哪种天气里赚/亏; 切版本=换坐标系直观对比。多品种对比时按第一条曲线的品种贴">regime
+      <select class="small" data-eq-regime><option value="">关</option></select></label>
     <span class="muted">框选=放大 · Shift+拖=平移 · 滚轮=缩放 · 双击=复位</span>
     <span class="muted" data-eq-end></span>
   </p>

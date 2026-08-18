@@ -29,6 +29,10 @@
         + encodeURIComponent(ids)).then((r) => r.json());
       if (d.error) { note.textContent = d.error; return; }
       box._eqSeries = d.curves;
+      box._eqBand = null;                    // 换一批曲线, 旧底色作废(品种可能变了)
+      if (d.curves.length) box.dataset.eqSymbol = d.curves[0].symbol;   // regime 底色按第一条的品种
+      const rsel = box.querySelector("[data-eq-regime]");
+      if (rsel) rsel.value = "";
       if (window.drawEquity) window.drawEquity();
       // 地址栏带上 ids(可收藏/分享), 不整页刷新
       history.replaceState(null, "", "?ids=" + encodeURIComponent(ids));

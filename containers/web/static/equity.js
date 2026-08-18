@@ -7,6 +7,9 @@
 (function () {
   const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea",
                   "#0891b2", "#db2777", "#65a30d", "#475569", "#b45309"];
+  // regime 八格底色(与全站格语义对齐: A/B=长短趋势与波动的两态; 深浅区分波动)
+  const CELLS = { AAA: "#15803d", AAB: "#4ade80", ABA: "#d97706", ABB: "#fcd34d",
+                  BAA: "#4f46e5", BAB: "#a5b4fc", BBA: "#b91c1c", BBB: "#f87171" };
 
   function seriesOf(box) {
     if (box._eqSeries) return box._eqSeries;
@@ -115,6 +118,16 @@
         labels += `<text x="${L - 6}" y="${(gy + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="currentColor" opacity="0.45">${fmt(v)}</text>`;
     }
 
+    // regime 底色(开了下拉才有): 时间线连续段铺满绘图区高度, 低透明度垫底
+    let band = "";
+    if (box._eqBand) {
+      for (const [s0, s1, cell] of box._eqBand) {
+        if (s1 <= tMin || s0 >= tMax) continue;
+        const xa = x(Math.max(s0, tMin)), xb = x(Math.min(s1, tMax));
+        band += `<rect x="${xa.toFixed(1)}" y="${T}" width="${(xb - xa).toFixed(1)}"` +
+                ` height="${H - T - B}" fill="${CELLS[cell] || "#999"}" opacity="0.10"/>`;
+      }
+    }
     const single = S.length === 1;
     const light = !!box._eqLight;                  // 交互中轻量模式: 只画线(平滑优先)
     let body = "";
@@ -146,7 +159,7 @@
           `<title>${single ? "" : "#" + (s.id ?? "") + " · "}${day(t)} · 单笔 ${p >= 0 ? "+" : ""}${p.toFixed(2)} · 余额 ${fmt(v)}</title></circle>`;
       }
     }
-    svg.innerHTML = grid +
+    svg.innerHTML = band + grid +
       `<line x1="${L}" y1="${y(init)}" x2="${W - R}" y2="${y(init)}"` +
       ` stroke="currentColor" stroke-dasharray="4 4" opacity="0.35"/>` +
       `<line x1="${L}" y1="${y(hi).toFixed(1)}" x2="${W - R}" y2="${y(hi).toFixed(1)}"` +
@@ -199,6 +212,7 @@
       if (ro && svg && !svg._eqRO) { svg._eqRO = true; ro.observe(svg); }
       draw(b);
     });
+    fillRegimeSelects();
   }
 
   // 图例表列宽手拉: 表头右缘 7px 拖柄; 首拖时把各列当前宽钉住(fixed布局)防跳动;
@@ -404,7 +418,12 @@
     if (!rows.length) { tip.hidden = true; return; }
     rows.sort((p, q) => q[1][1] - p[1][1]);        // 多曲线按余额降序, 和图上高低对应
     const single = box._eqS.length === 1;
-    tip.innerHTML = `<b>${new Date(t * 1000).toISOString().slice(0, 10)}</b><br>` +
+    let cellLine = "";                             // 底色开着时: 气泡带上当日格
+    if (box._eqBand) {
+      const seg = box._eqBand.find((g) => g[0] <= t && t < g[1]);
+      if (seg) cellLine = ` <span style="color:${CELLS[seg[2]] || "#999"}">■</span> ${seg[2]}`;
+    }
+    tip.innerHTML = `<b>${new Date(t * 1000).toISOString().slice(0, 10)}</b>${cellLine}<br>` +
       rows.map(([s, h]) =>
         `<span style="color:${s._col}">●</span> ${single ? "" : "#" + (s.id ?? "") + " "}` +
         `${fmt(h[1])}${single && h[3] ? `<span class="muted"> · 该笔 ${h[2] >= 0 ? "+" : ""}${h[2].toFixed(2)}</span>` : ""}`
@@ -414,6 +433,41 @@
     else { tip.style.right = ""; tip.style.left = (cx + 14) + "px"; }
     tip.style.top = "8px";
     tip.hidden = false;
+  });
+
+  // regime 版本下拉: 首次绘制时懒取版本清单填充; 切换时取该版本时间线连续段铺底色
+  let vers = null;
+  async function fillRegimeSelects() {
+    const sels = [...document.querySelectorAll("[data-eq-regime]")].filter((s) => !s._eqFilled);
+    if (!sels.length) return;
+    if (vers === null) {
+      try { vers = await fetch("/strategies/regime_versions.json").then((r) => r.json()); }
+      catch (e) { vers = false; }
+    }
+    if (!vers || !vers.versions) return;
+    for (const sel of sels) {
+      sel._eqFilled = true;
+      for (const v of vers.versions) {
+        const o = document.createElement("option");
+        o.value = v.id;
+        o.textContent = `v${v.id}${v.id === vers.current ? "·默认" : ""} ${v.label || ""}`;
+        sel.appendChild(o);
+      }
+    }
+  }
+  document.addEventListener("change", async (e) => {
+    if (!e.target.matches("[data-eq-regime]")) return;
+    const box = e.target.closest("[data-eq-chart]");
+    if (!box) return;
+    if (!e.target.value) { box._eqBand = null; draw(box); return; }
+    const sym = box.dataset.eqSymbol || "";
+    if (!sym) { box._eqBand = null; draw(box); return; }
+    try {
+      const d = await fetch("/strategies/regime_band.json?symbol=" + encodeURIComponent(sym)
+        + "&version=" + encodeURIComponent(e.target.value)).then((r) => r.json());
+      box._eqBand = (d.segments && d.segments.length) ? d.segments : null;
+    } catch (err) { box._eqBand = null; }
+    draw(box);
   });
 
   let rsT;                                         // 窗口改宽 → 防抖重画(画布宽随容器)

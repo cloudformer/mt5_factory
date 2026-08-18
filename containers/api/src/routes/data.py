@@ -283,6 +283,24 @@ async def regime_versions_list(request: Request):
                           "created_at": r["created_at"].isoformat()} for r in rows]}
 
 
+@router.get("/regime/band")
+async def regime_band(request: Request, symbol: str, version: int | None = None):
+    """时间线连续段(2026-08-18 Frank 要, 资金曲线铺 regime 底色用):
+    [起ts, 止ts, 格] 列表, 同格相邻日合并(≤3天缺口=周末照并)。
+    读时现拼零落库; version 不传=当前默认版本。"""
+    from datetime import datetime, timezone
+    pool = request.app.state.pool
+    tl = await regime.tl_map(pool, symbol.upper(), version)
+    segs: list = []
+    for d in sorted(tl):
+        ts = int(datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp())
+        if segs and segs[-1][2] == tl[d] and ts - segs[-1][1] <= 86400 * 3:
+            segs[-1][1] = ts + 86400
+        else:
+            segs.append([ts, ts + 86400, tl[d]])
+    return {"symbol": symbol.upper(), "version": version, "segments": segs}
+
+
 class RegimeVersionSave(BaseModel):
     params: dict
 
