@@ -175,7 +175,19 @@
       }).join("") + "</table>";
   }
 
-  function drawAll() { document.querySelectorAll("[data-eq-chart]").forEach(draw); }
+  // 尺寸监听: 元素隐藏→显示(如分析页切到回测页签)或任何尺寸变化都重画 —
+  // 首绘时若在 hidden 页签里量到宽=0 只能按兜底画, 露面那一刻靠它纠正
+  let roT;
+  const ro = ("ResizeObserver" in window)
+    ? new ResizeObserver(() => { clearTimeout(roT); roT = setTimeout(drawAll, 100); })
+    : null;
+  function drawAll() {
+    document.querySelectorAll("[data-eq-chart]").forEach((b) => {
+      const svg = b.querySelector("[data-eq-svg]");
+      if (ro && svg && !svg._eqRO) { svg._eqRO = true; ro.observe(svg); }
+      draw(b);
+    });
+  }
   document.addEventListener("input", (e) => {
     if (e.target.matches("[data-eq-init],[data-eq-lots]")) drawAll();
   });
