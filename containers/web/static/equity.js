@@ -27,8 +27,9 @@
       if (legEl) legEl.textContent = "";
       return;
     }
-    const init = parseFloat(box.querySelector("[data-eq-init]")?.value) || 10000;
-    const lots = parseFloat(box.querySelector("[data-eq-lots]")?.value) || 0.01;
+    // 钳成正数: 负手数=盈亏取反的算术游戏, 不是反向策略的回测(成本不翻/SL·TP互换)
+    const init = Math.max(1, parseFloat(box.querySelector("[data-eq-init]")?.value) || 10000);
+    const lots = Math.max(0.01, parseFloat(box.querySelector("[data-eq-lots]")?.value) || 0.01);
     const tMaxFull = Math.max(...all.map((s) => s.equity[s.equity.length - 1][0]));
     const tMinFull = Math.min(...all.map((s) => s.equity[0][0]));
     let tMin, tMax;
@@ -159,15 +160,19 @@
         ? `期末 ${fmt(e0)}(${(e0 / init * 100 - 100).toFixed(1)}%) · 峰值 ${fmt(hi)} · 谷值 ${fmt(lo)}`
         : `${S.length} 条曲线 · 同一初始资金/手数下可比`;
     }
+    const cut = (t, n) => (t && t.length > n ? t.slice(0, n) + "…" : (t || "—"));
     if (legEl) legEl.innerHTML = single ? "" :
-      `<table class="subtable" style="margin-top:4px"><tr><th></th><th>ID</th><th>品种</th>` +
-      `<th>周期</th><th>回测窗</th><th>笔数</th><th>期末</th><th>收益</th></tr>` +
+      `<table class="subtable" style="margin-top:4px; width:100%"><tr><th></th><th>ID</th>` +
+      `<th>名称</th><th>批次</th>` +
+      `<th>品种</th><th>周期</th><th>回测窗</th><th>笔数</th><th>期末</th><th>收益</th></tr>` +
       S.map((s) => {
         const e = s.pts[s.pts.length - 1][1];
         const r = (e / init * 100 - 100);
         const win = (s.from && s.to)
           ? `${String(s.from).slice(0, 10)} ~ ${String(s.to).slice(0, 10)}` : "—";
         return `<tr><td style="color:${s._col}">●</td><td class="mono">${s.id ?? ""}</td>` +
+          `<td class="muted" title="${s.name || ""}">${cut(s.name, 60)}</td>` +
+          `<td class="muted" title="${s.basis || ""}">${cut(s.basis, 26)}</td>` +
           `<td>${s.symbol || "—"}</td><td>${s.timeframe || "—"}</td>` +
           `<td class="mono">${win}</td><td>${s.equity.length}</td>` +
           `<td class="${e >= init ? "pos" : "neg"}">${fmt(e)}</td>` +
