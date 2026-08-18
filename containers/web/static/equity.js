@@ -463,18 +463,27 @@
     const say = (t) => { if (endEl) endEl.textContent = t; };   // 取不到就说话, 不沉默
     if (!e.target.value) { box._eqBand = null; draw(box); return; }
     const sym = box.dataset.eqSymbol || "";
-    if (!sym) { box._eqBand = null; say("先载入曲线再开 regime 底色(品种未知)"); draw(box); return; }
-    try {
-      const d = await fetch("/strategies/regime_band.json?symbol=" + encodeURIComponent(sym)
-        + "&version=" + encodeURIComponent(e.target.value),
-        { cache: "no-store" }).then((r) => r.json());
-      if (d.error) { box._eqBand = null; say("regime 底色取失败: " + d.error); }
-      else if (!d.segments || !d.segments.length) {
-        box._eqBand = null;
-        say(`v${e.target.value} 没有 ${sym} 的时间线 — 去「全局货币regime」页该版本下重建`);
-      } else { box._eqBand = d.segments; }
-    } catch (err) { box._eqBand = null; say("regime 底色取失败: " + err); }
-    draw(box);
+    let msg = "";
+    if (!sym) {
+      box._eqBand = null;
+      msg = "先载入曲线再开 regime 底色(品种未知)";
+    } else {
+      try {
+        const d = await fetch("/strategies/regime_band.json?symbol=" + encodeURIComponent(sym)
+          + "&version=" + encodeURIComponent(e.target.value),
+          { cache: "no-store" }).then((r) => r.json());
+        if (d.error) { box._eqBand = null; msg = "regime 底色取失败: " + d.error; }
+        else if (!d.segments || !d.segments.length) {
+          box._eqBand = null;
+          msg = `v${e.target.value} 没有 ${sym} 的时间线 — 去「全局货币regime」页该版本下重建`;
+        } else {
+          box._eqBand = d.segments;
+          msg = `regime v${e.target.value} · ${d.segments.length} 段已铺`;
+        }
+      } catch (err) { box._eqBand = null; msg = "regime 底色取失败: " + err; }
+    }
+    draw(box);                       // 先画后说 — draw 会重写读数行, 消息必须最后落笔
+    say(msg);
   });
 
   let rsT;                                         // 窗口改宽 → 防抖重画(画布宽随容器)

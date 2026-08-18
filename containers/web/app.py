@@ -62,6 +62,16 @@ def inject_dev_identity():
     uid = session.get("dev_user_id")
     name = next((u["name"] for u in users if u["id"] == uid), "?")
     return {"dev_users": users, "dev_user_id": uid, "dev_user_name": name}
+
+
+# 静态文件版本号 = 容器启动时刻(2026-08-18): js/css 带 ?v= 后缀, 重建容器即全端失效旧缓存 —
+# 之前每次改 equity.js 都要用户手动强刷, 漏一次就是"改了没生效"
+_STATIC_V = str(int(__import__("time").time()))
+
+
+@app.context_processor
+def inject_static_version():
+    return {"static_v": _STATIC_V}
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(workers_bp)
 app.register_blueprint(symbols_bp)
