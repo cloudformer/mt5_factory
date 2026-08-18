@@ -105,7 +105,7 @@
       const gx = x(ts);
       if (gx < L + 16 || gx > W - R - 16) continue;   // 贴边不标, 防溢出/互叠
       grid += `<line x1="${gx.toFixed(1)}" y1="${T}" x2="${gx.toFixed(1)}" y2="${H - B}" stroke="currentColor" opacity="0.08"/>`;
-      labels += `<text x="${gx.toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.55">${lbl}</text>`;
+      labels += `<text x="${gx.toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor" opacity="0.6">${lbl}</text>`;
     }
     const rng = hi - lo || 1;
     const mag = Math.pow(10, Math.floor(Math.log10(rng / 4)));
@@ -115,7 +115,7 @@
       const gy = y(v);
       grid += `<line x1="${L}" y1="${gy.toFixed(1)}" x2="${W - R}" y2="${gy.toFixed(1)}" stroke="currentColor" opacity="0.08"/>`;
       if (anchors.every((a) => Math.abs(a - gy) > 14))
-        labels += `<text x="${L - 6}" y="${(gy + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="currentColor" opacity="0.45">${fmt(v)}</text>`;
+        labels += `<text x="${L - 6}" y="${(gy + 4).toFixed(1)}" text-anchor="end" font-size="12" font-weight="600" fill="currentColor" opacity="0.5">${fmt(v)}</text>`;
     }
 
     // regime 底色(开了下拉才有): 时间线连续段铺满绘图区高度, 低透明度垫底
@@ -167,9 +167,9 @@
       `<line x1="${L}" y1="${y(lo).toFixed(1)}" x2="${W - R}" y2="${y(lo).toFixed(1)}"` +
       ` stroke="#dc2626" stroke-dasharray="4 4" opacity="0.4"/>` +
       body + labels +
-      `<text x="${L - 6}" y="${y(hi) + 4}" text-anchor="end" font-size="11" fill="currentColor">${fmt(hi)}</text>` +
-      `<text x="${L - 6}" y="${y(init) + 4}" text-anchor="end" font-size="11" fill="currentColor" opacity="0.6">${fmt(init)}</text>` +
-      `<text x="${L - 6}" y="${y(lo) + 4}" text-anchor="end" font-size="11" fill="currentColor">${fmt(lo)}</text>`;
+      `<text x="${L - 6}" y="${y(hi) + 4}" text-anchor="end" font-size="13" font-weight="700" fill="currentColor">${fmt(hi)}</text>` +
+      `<text x="${L - 6}" y="${y(init) + 4}" text-anchor="end" font-size="13" font-weight="700" fill="currentColor" opacity="0.6">${fmt(init)}</text>` +
+      `<text x="${L - 6}" y="${y(lo) + 4}" text-anchor="end" font-size="13" font-weight="700" fill="currentColor">${fmt(lo)}</text>`;
 
     if (endEl) {
       const e0 = S[0].pts[S[0].pts.length - 1][1];
