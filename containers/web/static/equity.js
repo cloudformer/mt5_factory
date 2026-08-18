@@ -459,14 +459,21 @@
     if (!e.target.matches("[data-eq-regime]")) return;
     const box = e.target.closest("[data-eq-chart]");
     if (!box) return;
+    const endEl = box.querySelector("[data-eq-end]");
+    const say = (t) => { if (endEl) endEl.textContent = t; };   // 取不到就说话, 不沉默
     if (!e.target.value) { box._eqBand = null; draw(box); return; }
     const sym = box.dataset.eqSymbol || "";
-    if (!sym) { box._eqBand = null; draw(box); return; }
+    if (!sym) { box._eqBand = null; say("先载入曲线再开 regime 底色(品种未知)"); draw(box); return; }
     try {
       const d = await fetch("/strategies/regime_band.json?symbol=" + encodeURIComponent(sym)
-        + "&version=" + encodeURIComponent(e.target.value)).then((r) => r.json());
-      box._eqBand = (d.segments && d.segments.length) ? d.segments : null;
-    } catch (err) { box._eqBand = null; }
+        + "&version=" + encodeURIComponent(e.target.value),
+        { cache: "no-store" }).then((r) => r.json());
+      if (d.error) { box._eqBand = null; say("regime 底色取失败: " + d.error); }
+      else if (!d.segments || !d.segments.length) {
+        box._eqBand = null;
+        say(`v${e.target.value} 没有 ${sym} 的时间线 — 去「全局货币regime」页该版本下重建`);
+      } else { box._eqBand = d.segments; }
+    } catch (err) { box._eqBand = null; say("regime 底色取失败: " + err); }
     draw(box);
   });
 

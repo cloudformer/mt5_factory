@@ -283,31 +283,36 @@ async def regime_versions_list(request: Request):
                           "created_at": r["created_at"].isoformat()} for r in rows]}
 
 
-@router.get("/regime/band")
-async def regime_band(request: Request, symbol: str, version: int | None = None):
-    """时间线连续段(2026-08-18 Frank 要, 资金曲线铺 regime 底色用):
-    [起ts, 止ts, 格] 列表, 同格相邻日合并(≤3天缺口=周末照并)。
-    读时现拼零落库; version 不传=当前默认版本。"""
+def band_segments(tl: dict) -> list:
+    """时间线 {date: cell} → 连续段 [[起ts, 止ts, 格], ...](纯函数, test_regime_band 有网)。
+    规则: 每格顺延到下一个交易日开盘(周末/节假日不留白 — 显示口径; 门裁决仍用
+    入场日当日格, 执法不受影响); 缺口 >4 天 = 真数据洞, 如实留白; 同格相邻段合并。
+    不变量: 段起止单调递增、段内 end>start、相邻段无重叠。"""
     from datetime import datetime, timezone
-    pool = request.app.state.pool
-    tl = await regime.tl_map(pool, symbol.upper(), version)
+
+    def _ts(d):
+        return int(datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp())
+
     days = sorted(tl)
     segs: list = []
     for i, d in enumerate(days):
-        ts = int(datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp())
-        # 每格顺延到下一个交易日开盘(周末/节假日不留白 — 显示口径; 门裁决仍用入场日当日格,
-        # 交易只发生在有格的日子, 执法不受影响); >4 天的长洞 = 真数据缺口, 如实留白
-        if i + 1 < len(days):
-            nxt = int(datetime(days[i + 1].year, days[i + 1].month,
-                               days[i + 1].day, tzinfo=timezone.utc).timestamp())
-            end = min(nxt, ts + 86400 * 4)
-        else:
-            end = ts + 86400
+        ts = _ts(d)
+        end = min(_ts(days[i + 1]), ts + 86400 * 4) if i + 1 < len(days) else ts + 86400
         if segs and segs[-1][2] == tl[d] and ts <= segs[-1][1]:
-            segs[-1][1] = end
+            segs[-1][1] = max(segs[-1][1], end)
         else:
             segs.append([ts, end, tl[d]])
-    return {"symbol": symbol.upper(), "version": version, "segments": segs}
+    return segs
+
+
+@router.get("/regime/band")
+async def regime_band(request: Request, symbol: str, version: int | None = None):
+    """时间线连续段(2026-08-18 Frank 要, 资金曲线铺 regime 底色用)。
+    读时现拼零落库; version 不传=当前默认版本; 铺段规则见 band_segments。"""
+    pool = request.app.state.pool
+    tl = await regime.tl_map(pool, symbol.upper(), version)
+    return {"symbol": symbol.upper(), "version": version, "days": len(tl),
+            "segments": band_segments(tl)}
 
 
 class RegimeVersionSave(BaseModel):
