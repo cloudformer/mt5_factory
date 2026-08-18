@@ -149,6 +149,10 @@
     svg.innerHTML = grid +
       `<line x1="${L}" y1="${y(init)}" x2="${W - R}" y2="${y(init)}"` +
       ` stroke="currentColor" stroke-dasharray="4 4" opacity="0.35"/>` +
+      `<line x1="${L}" y1="${y(hi).toFixed(1)}" x2="${W - R}" y2="${y(hi).toFixed(1)}"` +
+      ` stroke="#16a34a" stroke-dasharray="4 4" opacity="0.4"/>` +
+      `<line x1="${L}" y1="${y(lo).toFixed(1)}" x2="${W - R}" y2="${y(lo).toFixed(1)}"` +
+      ` stroke="#dc2626" stroke-dasharray="4 4" opacity="0.4"/>` +
       body + labels +
       `<text x="${L - 6}" y="${y(hi) + 4}" text-anchor="end" font-size="11" fill="currentColor">${fmt(hi)}</text>` +
       `<text x="${L - 6}" y="${y(init) + 4}" text-anchor="end" font-size="11" fill="currentColor" opacity="0.6">${fmt(init)}</text>` +
@@ -164,7 +168,7 @@
     // 图例表: 与图之间留白 + 上边界线; 名称全量不截断(宽了在自己的容器里横向滚动)
     if (legEl) legEl.innerHTML = single ? "" :
       `<div style="margin-top:16px; padding-top:10px; border-top:1px solid var(--border, #ddd); overflow-x:auto">` +
-      `<table class="subtable" style="width:100%"><tr><th></th><th>ID</th>` +
+      `<table class="subtable eq-leg" style="width:100%"><tr><th></th><th>ID</th>` +
       `<th>名称</th><th>批次</th>` +
       `<th>品种</th><th>周期</th><th>回测窗</th><th>笔数</th><th>期末</th><th>收益</th></tr>` +
       S.map((s) => {
@@ -173,13 +177,14 @@
         const win = (s.from && s.to)
           ? `${String(s.from).slice(0, 10)} ~ ${String(s.to).slice(0, 10)}` : "—";
         return `<tr><td style="color:${s._col}">●</td><td class="mono">${s.id ?? ""}</td>` +
-          `<td class="muted" style="white-space:nowrap">${s.name || "—"}</td>` +
+          `<td class="muted" title="${s.name || ""}">${s.name || "—"}</td>` +
           `<td class="muted" title="${s.basis || ""}">${cut(s.basis, 26)}</td>` +
           `<td>${s.symbol || "—"}</td><td>${s.timeframe || "—"}</td>` +
           `<td class="mono">${win}</td><td>${s.equity.length}</td>` +
           `<td class="${e >= init ? "pos" : "neg"}">${fmt(e)}</td>` +
           `<td class="${r >= 0 ? "pos" : "neg"}">${r >= 0 ? "+" : ""}${r.toFixed(1)}%</td></tr>`;
       }).join("") + "</table></div>";
+    if (legEl && !single) legendResizers(box, legEl);
   }
 
   // 尺寸监听: 元素隐藏→显示(如分析页切到回测页签)或任何尺寸变化都重画 —
@@ -193,6 +198,45 @@
       const svg = b.querySelector("[data-eq-svg]");
       if (ro && svg && !svg._eqRO) { svg._eqRO = true; ro.observe(svg); }
       draw(b);
+    });
+  }
+
+  // 图例表列宽手拉: 表头右缘 7px 拖柄; 首拖时把各列当前宽钉住(fixed布局)防跳动;
+  // 宽度记在容器上, 重画后原样恢复
+  function legendResizers(box, legEl) {
+    const table = legEl.querySelector("table");
+    if (!table) return;
+    const ths = [...table.querySelectorAll("th")];
+    if (box._eqColW && box._eqColW.length === ths.length) {
+      table.style.tableLayout = "fixed";
+      ths.forEach((th, i) => { if (box._eqColW[i]) th.style.width = box._eqColW[i] + "px"; });
+    }
+    ths.forEach((th, i) => {
+      th.style.position = "relative";
+      const h = document.createElement("span");
+      h.title = "拖动调列宽";
+      h.style.cssText = "position:absolute;right:-3px;top:0;bottom:0;width:7px;" +
+                        "cursor:col-resize;user-select:none;z-index:2";
+      th.appendChild(h);
+      h.addEventListener("mousedown", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const x0 = e.clientX, w0 = th.getBoundingClientRect().width;
+        if (!box._eqColW)
+          box._eqColW = ths.map((t) => Math.round(t.getBoundingClientRect().width));
+        table.style.tableLayout = "fixed";
+        ths.forEach((t, j) => (t.style.width = box._eqColW[j] + "px"));
+        const move = (ev) => {
+          const w = Math.max(28, Math.round(w0 + ev.clientX - x0));
+          th.style.width = w + "px";
+          box._eqColW[i] = w;
+        };
+        const up = () => {
+          document.removeEventListener("mousemove", move);
+          document.removeEventListener("mouseup", up);
+        };
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", up);
+      });
     });
   }
   document.addEventListener("input", (e) => {

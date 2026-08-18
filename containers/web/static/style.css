@@ -519,3 +519,6 @@ td.pf-nil { color: var(--muted);  background: #f0f2f4; }
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
   font-variant-numeric: tabular-nums;
 }
+
+/* 资金曲线图例表(equity.js): 单元格不折行, 收窄时省略号; 表头右缘可拖调列宽 */
+.eq-leg td, .eq-leg th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
