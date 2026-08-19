@@ -1426,12 +1426,13 @@ async def equity_curves(request: Request, ids: str):
         return {"curves": [], "missing": []}
     uid = identity.scope_uid(request)
     rows = await pool.fetch(
-        "SELECT s.id, s.name, s.symbol, s.timeframe, b.from_time, b.to_time, b.trades"
+        "SELECT s.id, s.name, s.basis, s.symbol, s.timeframe, b.from_time, b.to_time, b.trades"
         "  FROM strategies s JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol"
         " WHERE s.id = ANY($1)" + (" AND s.owner_id = $2" if uid else "") +
         " ORDER BY s.id", id_list, *([uid] if uid else []))
     got = {r["id"] for r in rows}
-    return {"curves": [{"id": r["id"], "name": r["name"], "symbol": r["symbol"],
+    return {"curves": [{"id": r["id"], "name": r["name"], "basis": r["basis"],
+                        "symbol": r["symbol"],
                         "timeframe": r["timeframe"], "from": r["from_time"],
                         "to": r["to_time"], "equity": _equity_series(r["trades"] or [])}
                        for r in rows],
