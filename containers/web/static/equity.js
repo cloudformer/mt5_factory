@@ -198,14 +198,14 @@
     }
     svg.innerHTML = band + grid +
       `<line x1="${L}" y1="${y(init)}" x2="${W - R}" y2="${y(init)}"` +
-      ` stroke="currentColor" stroke-dasharray="4 4" opacity="0.35"/>` +
+      ` stroke="currentColor" stroke-width="2.5" stroke-dasharray="8 5" opacity="0.85"/>` +
       `<line x1="${L}" y1="${y(hi).toFixed(1)}" x2="${W - R}" y2="${y(hi).toFixed(1)}"` +
       ` stroke="#16a34a" stroke-dasharray="4 4" opacity="0.4"/>` +
       `<line x1="${L}" y1="${y(lo).toFixed(1)}" x2="${W - R}" y2="${y(lo).toFixed(1)}"` +
       ` stroke="#dc2626" stroke-dasharray="4 4" opacity="0.4"/>` +
       body + labels +
       `<text x="${L - 6}" y="${y(hi) + 4}" text-anchor="end" font-size="13" font-weight="700" fill="currentColor">${fmt(hi)}</text>` +
-      `<text x="${L - 6}" y="${y(init) + 4}" text-anchor="end" font-size="13" font-weight="700" fill="currentColor" opacity="0.6">${fmt(init)}</text>` +
+      `<text x="${L - 6}" y="${y(init) + 4}" text-anchor="end" font-size="13" font-weight="700" fill="currentColor">${fmt(init)}</text>` +
       `<text x="${L - 6}" y="${y(lo) + 4}" text-anchor="end" font-size="13" font-weight="700" fill="currentColor">${fmt(lo)}</text>`;
 
     if (endEl) {
