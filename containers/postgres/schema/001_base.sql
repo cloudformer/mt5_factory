@@ -156,7 +156,10 @@ INSERT INTO symbols (symbol, digits, point) VALUES
     ('USDCAD', 5, 0.00001), ('NZDUSD', 5, 0.00001),
     ('USDJPY', 3, 0.001),   ('EURJPY', 3, 0.001),   ('GBPJPY', 3, 0.001),
     ('XAUUSD', 2, 0.01)
-ON CONFLICT (symbol) DO NOTHING;
+ON CONFLICT DO NOTHING;
+-- ↑ 2026-08-19 兼容性微调(旧文件永不改的唯一例外类型): 073 将主键改为 (symbol, broker)
+--   后, 显式冲突目标 (symbol) 不再匹配任何约束 → 去掉目标列, 撞任何唯一约束都静默跳过,
+--   空库首装与 073 之后语义完全一致(种子行 broker 走列默认值)
 
 -- ========== 数据层: 历史K线 (按年分区) ==========
 -- 字段对齐 MT5 copy_rates_* 返回结构; 只下载 M1, 高周期从 M1 聚合派生

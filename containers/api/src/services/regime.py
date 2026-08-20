@@ -186,10 +186,12 @@ async def rebuild_symbol(pool: asyncpg.Pool, symbol: str, params: dict,
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.executemany(
+                # v2.3: broker 列走默认值(单券商=MetaQuotes-Demo); 冲突目标跟四列主键。
+                # 时间线按券商分世界的读写线程化在 IC 数据入库前完成(方案阶段②)
                 "INSERT INTO regime_timeline"
                 " (version_id, symbol, date, long_trend, short_trend, vol)"
                 " VALUES ($1, $2, $3, $4, $5, $6)"
-                " ON CONFLICT (version_id, symbol, date) DO UPDATE SET"
+                " ON CONFLICT (version_id, symbol, date, broker) DO UPDATE SET"
                 "   long_trend = EXCLUDED.long_trend, short_trend = EXCLUDED.short_trend,"
                 "   vol = EXCLUDED.vol",
                 [(version_id, symbol, dates[i], dims[0][i], dims[1][i], dims[2][i])

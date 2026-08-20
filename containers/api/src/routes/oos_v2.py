@@ -330,7 +330,7 @@ async def oos_run(req: OosRun, request: Request):
             "INSERT INTO backtests"
             " (strategy_id, from_time, to_time, symbol, broker, metrics, trades)"
             " VALUES ($1, $2, $3, $4, $5, $6, $7)"
-            " ON CONFLICT (strategy_id, symbol) DO UPDATE SET"
+            " ON CONFLICT (strategy_id, symbol, broker) DO UPDATE SET"
             "   from_time=EXCLUDED.from_time, to_time=EXCLUDED.to_time,"
             "   broker=EXCLUDED.broker, metrics=EXCLUDED.metrics,"
             "   trades=EXCLUDED.trades, created_at=now()",

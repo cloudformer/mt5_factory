@@ -16,9 +16,17 @@ UPDATE backtests b SET broker = sy.broker
 -- 键: 去掉旧的 (strategy_id) 唯一, 换成 (strategy_id, symbol) 唯一(供 ON CONFLICT upsert)
 DELETE FROM backtests WHERE symbol IS NULL;   -- 兜底: 无主策略的残行(极少见), 清掉才能进唯一键
 ALTER TABLE backtests ALTER COLUMN symbol SET NOT NULL;
-ALTER TABLE backtests DROP CONSTRAINT IF EXISTS backtests_strategy_uniq;
-ALTER TABLE backtests DROP CONSTRAINT IF EXISTS backtests_strategy_symbol_uniq;
-ALTER TABLE backtests ADD CONSTRAINT backtests_strategy_symbol_uniq UNIQUE (strategy_id, symbol);
+-- 2026-08-19 兼容性守卫(与 001 同类例外): 073 将唯一键扩维为 (strategy_id, symbol, broker)
+-- 后, 本文件原来的"无条件删了重建"每次启动都会复活二列旧键(且跨券商行出现后会建不起来,
+-- 启动必死) → broker 时代已到(新键存在)则整段跳过, 空库首装路径不变
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conname = 'backtests_strategy_symbol_broker_uniq') THEN
+    ALTER TABLE backtests DROP CONSTRAINT IF EXISTS backtests_strategy_uniq;
+    ALTER TABLE backtests DROP CONSTRAINT IF EXISTS backtests_strategy_symbol_uniq;
+    ALTER TABLE backtests ADD CONSTRAINT backtests_strategy_symbol_uniq UNIQUE (strategy_id, symbol);
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_backtests_strategy_symbol
   ON backtests (strategy_id, symbol, created_at DESC);

@@ -189,11 +189,14 @@ async def announce_host(req: AnnounceRequest, request: Request):
                     " WHERE symbol=$1 AND verified_at IS NULL",
                     sym, str(info["error"])[:200])
             elif info.get("point"):
+                # v2.3 户口制: broker 是行身份的一半, 不再被校验回写覆盖 —
+                # 回写只认"同券商"的登记行(worker 报的 broker 与行不符 = 别家的行, 不碰;
+                # 老 worker 不报 broker($6=NULL)时按品种名放行, 单券商语义不变)
                 await pool.execute(
                     "UPDATE symbols SET digits=$2, point=$3, volume_min=$4, stops_level=$5,"
-                    "       broker=COALESCE($6, broker), download=TRUE,"
-                    "       verified_at=now(), verify_error=NULL"
-                    " WHERE symbol=$1 AND verified_at IS NULL",
+                    "       download=TRUE, verified_at=now(), verify_error=NULL"
+                    " WHERE symbol=$1 AND verified_at IS NULL"
+                    "   AND ($6::varchar IS NULL OR broker=$6)",
                     sym, info.get("digits"), info["point"], info.get("volume_min"),
                     info.get("stops_level"), info.get("broker"))
                 logger.info("symbol %s verified via %s (point=%s)", sym, req.name, info["point"])

@@ -16,27 +16,30 @@ async def load_download_symbols(pool: asyncpg.Pool) -> list:
     """要下载的品种及其独立起始日期 — 唯一来源 symbols 表 (download=TRUE)。
     返回 [{symbol, data_start(UTC datetime)}]; 每品种自己的起始日期(BTCUSD≠EURUSD)。"""
     rows = await pool.fetch(
-        "SELECT symbol, data_start FROM symbols WHERE download ORDER BY symbol")
-    return [{"symbol": r["symbol"],
+        "SELECT symbol, broker, data_start FROM symbols WHERE download ORDER BY symbol, broker")
+    return [{"symbol": r["symbol"], "broker": r["broker"],
              "data_start": datetime(r["data_start"].year, r["data_start"].month,
                                     r["data_start"].day, tzinfo=timezone.utc)}
             for r in rows]
 
 
 async def insert_bars(conn: asyncpg.Connection, symbol: str, bars: list,
-                      timeframe: str = "M1") -> int:
+                      timeframe: str = "M1",
+                      broker: str = "MetaQuotes-Demo") -> int:
     """K线幂等入库(主键 ON CONFLICT DO NOTHING): 旧编排拉取 与 新 jobs 上传 共用同一落库。
     timeframe: M1(唯一原始数据) / D1(例外补下, 2026-07-29 定: MetaQuotes M1 仅存~4个月
-    而 D1 有16年+, regime 长视野用原生 D1 补头; 回测/对账仍只读 M1, 尺子不换料)"""
-    return await _insert_bars(conn, symbol, bars, timeframe)
+    而 D1 有16年+, regime 长视野用原生 D1 补头; 回测/对账仍只读 M1, 尺子不换料)
+    broker(v2.3 户口制): 数据世界归属 — 来源=下载任务 payload(登记行的券商)"""
+    return await _insert_bars(conn, symbol, bars, timeframe, broker)
 
 
 async def _insert_bars(conn: asyncpg.Connection, symbol: str, bars: list,
-                       timeframe: str = "M1") -> int:
+                       timeframe: str = "M1",
+                       broker: str = "MetaQuotes-Demo") -> int:
     records = [
         (symbol, timeframe, datetime.fromtimestamp(b["time"], tz=timezone.utc),
          b["open"], b["high"], b["low"], b["close"],
-         b["tick_volume"], b["spread"], b["real_volume"])
+         b["tick_volume"], b["spread"], b["real_volume"], broker)
         for b in bars
     ]
     async with conn.transaction():
@@ -87,8 +90,8 @@ async def submit_download_jobs(pool: asyncpg.Pool, only_tfs: list | None = None)
         for tf in tfs:
             span = await pool.fetchrow(
                 "SELECT min(time) AS first, max(time) AS last"
-                "  FROM historical_bars WHERE symbol=$1 AND timeframe=$2",
-                it["symbol"], tf)
+                "  FROM historical_bars WHERE symbol=$1 AND timeframe=$2 AND broker=$3",
+                it["symbol"], tf, it["broker"])
             # 起点三分法(2026-07-28 修头部缺口盲区): 空库=data_start; 头部有缺口(最早一根晚于
             # data_start 超7天容差, 周末/假日不算) = 回到 data_start 整段重下到现在 —
             # 改 data_start 往前挖历史靠这条生效; 分段深挖(先2020再2018)会重拉已有段, 幂等无害,
@@ -97,6 +100,7 @@ async def submit_download_jobs(pool: asyncpg.Pool, only_tfs: list | None = None)
                         and span["first"] > it["data_start"] + timedelta(days=7))
             frm = it["data_start"] if (span["first"] is None or head_gap) else span["last"]
             rows.append((DOWNLOAD_KIND, {"symbol": it["symbol"], "timeframe": tf,
+                                         "broker": it["broker"],   # v2.3: 数据世界归属随任务走
                                          "written": 0, "from": frm.isoformat(),
                                          "to": now.isoformat()}))
     async with pool.acquire() as conn:

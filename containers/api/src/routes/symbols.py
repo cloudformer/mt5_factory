@@ -84,11 +84,18 @@ async def register_symbol(req: SymbolRegister, request: Request):
     ds = _parse_date(req.data_start)
     worker = await request.app.state.pool.fetchval(
         "SELECT count(*) FROM mt5_hosts WHERE enabled AND download")
+    # v2.3 户口制: 登记行 = (品种, 券商); 表单暂无券商选择 → 落默认券商(研发尺),
+    # 其它券商的登记随 UI 券商下拉一起来(方案阶段②)
+    dflt = await request.app.state.pool.fetchval(
+        "SELECT value #>> '{}' FROM config WHERE key='default_broker'")
+    if not dflt:
+        raise HTTPException(status_code=500,
+                            detail="config default_broker 缺失 — 重启 api 让 schema/073 种子落库")
     row = await request.app.state.pool.fetchrow(
-        "INSERT INTO symbols (symbol, data_start, download)"
-        " VALUES ($1, $2, FALSE)"   # 新品种校验通过才开下载
-        " ON CONFLICT (symbol) DO UPDATE SET verified_at=NULL, verify_error=NULL"
-        " RETURNING *", name, ds)
+        "INSERT INTO symbols (symbol, broker, data_start, download)"
+        " VALUES ($1, $2, $3, FALSE)"   # 新品种校验通过才开下载
+        " ON CONFLICT (symbol, broker) DO UPDATE SET verified_at=NULL, verify_error=NULL"
+        " RETURNING *", name, dflt, ds)
     logger.info("symbol %s queued for broker verify (download workers=%d)", name, worker)
     return {**dict(row), "pending": True,
             "hint": ("已登记, 等下载 worker 校验(约1~2分钟, 刷新本页看结果)" if worker

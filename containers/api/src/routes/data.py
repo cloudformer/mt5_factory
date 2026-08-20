@@ -567,7 +567,9 @@ async def download_bars(req: BarsUpload, request: Request):
             async with pool.acquire() as conn:
                 written = await sync.insert_bars(
                     conn, job["payload"]["symbol"], req.bars,
-                    job["payload"].get("timeframe", "M1"))   # D1 补头任务(2026-07-29)
+                    job["payload"].get("timeframe", "M1"),   # D1 补头任务(2026-07-29)
+                    # v2.3: broker 随任务 payload; 部署瞬间的存量旧任务无此键 → 落默认券商
+                    job["payload"].get("broker", "MetaQuotes-Demo"))
         except (KeyError, TypeError, ValueError) as e:   # 形状不合法: 400 带具体字段错误
             raise HTTPException(status_code=400,
                                 detail=f"bars 形状不合法({type(e).__name__}: {e}) — "
