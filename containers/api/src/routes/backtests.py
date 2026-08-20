@@ -128,7 +128,9 @@ async def run(req: BacktestRequest, request: Request):
     else:
         # 回测不看状态(对 demo/live 零影响, 只刷新 backtests 记录)。
         # 只回测品种仍在主档里的策略: 品种已删的孤儿策略(如旧 BTCUSD)自动跳过, 不报错。
-        q = "SELECT * FROM strategies WHERE symbol IN (SELECT symbol FROM symbols)"
+        # v2.3: 登记检查按 (品种, 户口) 对子 — 只有别家券商登记的品种不算本户口可跑
+        q = ("SELECT * FROM strategies WHERE EXISTS (SELECT 1 FROM symbols sy"
+             " WHERE sy.symbol = strategies.symbol AND sy.broker = strategies.broker)")
         args = []
         if uid:
             args.append(uid); q += f" AND owner_id=${len(args)}"
@@ -289,7 +291,8 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
             f"{sel} WHERE id = ANY($1)" + (" AND owner_id = $3" if uid else "") + " LIMIT $2",
             ids, limit, *([uid] if uid else []))
     else:
-        q = f"{sel} WHERE symbol IN (SELECT symbol FROM symbols)"
+        q = (f"{sel} WHERE EXISTS (SELECT 1 FROM symbols sy"
+             f" WHERE sy.symbol = strategies.symbol AND sy.broker = strategies.broker)")
         args = []
         if uid:
             args.append(uid); q += f" AND owner_id=${len(args)}"

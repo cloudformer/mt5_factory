@@ -26,7 +26,8 @@ def index():
         bt = api.get("/backtest/status")
         # 运行表单筛选下拉的选项从库里拉 (货币对/券商), 默认全部; 与 worker 无关
         syms = api.get("/symbols")["symbols"]
-        symbols = [s["symbol"] for s in syms if s.get("download")]
+        # v2.3: 同名品种多券商行 → 按名去重(筛选语义=品种名, 不分券商)
+        symbols = sorted({s["symbol"] for s in syms if s.get("download")})
         brokers = sorted({s["broker"] for s in syms if s.get("broker")})
         templates = sorted(api.get("/strategies/templates")["templates"].keys())
         # 孤儿策略(品种已删、跑不了): 亮出来供清理

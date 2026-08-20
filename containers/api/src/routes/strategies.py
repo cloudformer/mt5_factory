@@ -336,7 +336,7 @@ async def clone_gate(strategy_id: int, req: CloneGateRequest, request: Request):
     pool = request.app.state.pool
     await identity.assert_strategy_visible(pool, request, strategy_id)
     parent = await pool.fetchrow(
-        "SELECT id, template, symbol, timeframe, params, parent_id, metadata"
+        "SELECT id, template, symbol, timeframe, params, parent_id, metadata, broker"
         " FROM strategies WHERE id=$1", strategy_id)
     if parent is None:
         raise HTTPException(status_code=404, detail="strategy not found")
@@ -366,7 +366,8 @@ async def clone_gate(strategy_id: int, req: CloneGateRequest, request: Request):
           "basis": f"克隆带门 parent=#{root_id}{suffix}"
                    + (f" 〔{req.note.strip()[:120]}〕" if (req.note or "").strip() else "")}],
         parent_id=root_id, metadata={"regime": gate}, name_suffix=suffix,
-        trust_params=True)   # 父参数来自库内现有行, 参数空间演化不应挡克隆
+        trust_params=True,   # 父参数来自库内现有行, 参数空间演化不应挡克隆
+        broker=parent["broker"])   # v2.3: 子承父户口(家族对比三铁律同世界)
     out = r["results"][0]
     out["created"] = "id" in out
     return out
@@ -478,10 +479,15 @@ async def mq5_verify(import_id: int, req: Mq5Verify, request: Request):
         raise HTTPException(status_code=400,
                             detail="未解析到入场记录 — 请从 Strategy Tester 的 Deals 表全选复制粘贴")
 
-    point = await pool.fetchval("SELECT point FROM symbols WHERE symbol=$1", req.symbol)
+    # v2.3: 同名多券商行 → 优先默认券商(研发尺), 只在别家登记则用那家(point 与数据同世界)
+    meta = await pool.fetchrow(
+        "SELECT point, broker FROM symbols WHERE symbol=$1"
+        " ORDER BY (broker = (SELECT value #>> '{}' FROM config"
+        "                      WHERE key='default_broker')) DESC, broker LIMIT 1", req.symbol)
+    point = meta["point"] if meta else None
     if point is None:
         raise HTTPException(status_code=400, detail=f"symbol {req.symbol} not in symbols table")
-    m1 = await backtest.load_m1(pool, req.symbol, req.from_time, req.to_time)
+    m1 = await backtest.load_m1(pool, req.symbol, req.from_time, req.to_time, meta["broker"])
     if m1 is None:
         raise HTTPException(status_code=400, detail=f"no M1 data for {req.symbol}, run /syncdata first")
 
@@ -1426,8 +1432,8 @@ async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Req
     created 的做"回读核验": 从库里读回 params 与请求逐字段比对, verified=true 才算数。"""
     pool = request.app.state.pool
     parent = await pool.fetchrow(
-        "SELECT id, template, symbol, timeframe, metadata FROM strategies WHERE id=$1",
-        strategy_id)
+        "SELECT id, template, symbol, timeframe, metadata, broker"
+        "  FROM strategies WHERE id=$1", strategy_id)
     if parent is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     # 与生成入口同一守门: 品种必须仍在登记中(父创建后可能被除名, 不给孤儿品种生子代)
@@ -1452,7 +1458,8 @@ async def ai_candidates(strategy_id: int, req: AiCandidatesRequest, request: Req
     # 与生成页同一条收货管道(services.instances), 只多带 parent_id 谱系
     r = await instances.create_instances(
         pool, parent["template"], parent["symbol"], parent["timeframe"],
-        combos, parent_id=strategy_id, metadata=md, name_suffix=suffix)
+        combos, parent_id=strategy_id, metadata=md, name_suffix=suffix,
+        broker=parent["broker"])   # v2.3: 子承父户口(家族对比三铁律同世界)
     return {**r, "template": parent["template"], "symbol": parent["symbol"],
             "timeframe": parent["timeframe"],
             **({"inherited_gate": g} if g else {})}

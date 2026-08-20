@@ -149,14 +149,15 @@ def _scope_conds(req_ids, req_symbols, uid, basis=None):
     return conds, args, scope
 
 
-async def _m1_span(pool, sym: str):
-    """品种 M1 实际覆盖(首根/末根), 无数据 = None — plan 预估与 run 同一口径"""
+async def _m1_span(pool, sym: str, broker: str):
+    """(品种, 券商) 的 M1 实际覆盖(首根/末根), 无数据 = None — plan 预估与 run 同一口径。
+    v2.3: 覆盖必须看策略户口的世界 — 拿别家券商的跨度冒充覆盖会放行跑不动的策略"""
     lo = await pool.fetchval(
         "SELECT time FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
-        " AND broker=$2 ORDER BY time LIMIT 1", sym, regime.DEFAULT_BROKER)
+        " AND broker=$2 ORDER BY time LIMIT 1", sym, broker)
     hi = await pool.fetchval(
         "SELECT time FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
-        " AND broker=$2 ORDER BY time DESC LIMIT 1", sym, regime.DEFAULT_BROKER)
+        " AND broker=$2 ORDER BY time DESC LIMIT 1", sym, broker)
     return (lo, hi) if lo and hi else None
 
 
@@ -179,20 +180,26 @@ async def screen_plan(request: Request, ids: Optional[str] = None, symbols: str 
         "SELECT count(*)::int AS total,"
         f"      count(*) FILTER (WHERE COALESCE(s.basis, '') LIKE '%{TAG}%')::int AS tagged"
         f" FROM strategies s WHERE {' AND '.join(conds)}", *args)
-    # 品种 M1 覆盖检查(现跑口径): 主货币=范围内策略的品种; 全货币=另加全部下载品种
-    per_sym = {r["symbol"]: r["n"] for r in await pool.fetch(
-        f"SELECT s.symbol, count(*) FILTER (WHERE COALESCE(s.basis, '') NOT LIKE '%{TAG}%')"
-        f"::int AS n FROM strategies s WHERE {' AND '.join(conds)} GROUP BY s.symbol", *args)}
+    # 品种 M1 覆盖检查(现跑口径): 主货币=范围内策略的(品种,户口); 全货币=另加全部下载品种。
+    # v2.3: 按 (品种, 券商) 分世界查跨度 — 显示名默认券商不带后缀, 其它带 @券商
+    per_sym = {(r["symbol"], r["broker"]): r["n"] for r in await pool.fetch(
+        f"SELECT s.symbol, s.broker, count(*) FILTER"
+        f" (WHERE COALESCE(s.basis, '') NOT LIKE '%{TAG}%')"
+        f"::int AS n FROM strategies s WHERE {' AND '.join(conds)}"
+        f" GROUP BY s.symbol, s.broker", *args)}
     check_syms = set(per_sym)
     if symbols == "all":
-        check_syms |= {r["symbol"] for r in await pool.fetch(
-            "SELECT symbol FROM symbols WHERE download")}
-    ok_syms, insufficient = [], []
-    for sym in sorted(check_syms):
-        span = await _m1_span(pool, sym)
-        (ok_syms if span and (span[1] - span[0]).days >= need_days
-         else insufficient).append(sym)
-    runnable = sum(n for sym, n in per_sym.items() if sym in ok_syms)
+        check_syms |= {(r["symbol"], r["broker"]) for r in await pool.fetch(
+            "SELECT symbol, broker FROM symbols WHERE download")}
+    ok_pairs, ok_syms, insufficient = set(), [], []
+    for sym, bk in sorted(check_syms):
+        span = await _m1_span(pool, sym, bk)
+        label = sym if bk == regime.DEFAULT_BROKER else f"{sym}@{bk}"
+        if span and (span[1] - span[0]).days >= need_days:
+            ok_pairs.add((sym, bk)); ok_syms.append(label)
+        else:
+            insufficient.append(label)
+    runnable = sum(n for pair, n in per_sym.items() if pair in ok_pairs)
     return {"total": row["total"], "tagged": row["tagged"], "runnable": runnable,
             "need_days": need_days, "ok_symbols": ok_syms, "insufficient": insufficient,
             "runs_per_strategy": len(ok_syms) if symbols == "all" else 1}

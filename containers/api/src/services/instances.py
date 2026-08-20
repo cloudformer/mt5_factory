@@ -94,7 +94,8 @@ async def create_instances(pool, template: str, symbol: str, timeframe: str,
                            combos: list, parent_id: Optional[int] = None,
                            max_created: Optional[int] = None,
                            metadata: Optional[dict] = None, name_suffix: str = "",
-                           trust_params: bool = False) -> dict:
+                           trust_params: bool = False,
+                           broker: Optional[str] = None) -> dict:
     """逐组校验 → 入库(唯一约束去重, 可带 parent_id 谱系) → 逐组反馈 + 回读核验。
 
     每组结果 out:
@@ -111,6 +112,14 @@ async def create_instances(pool, template: str, symbol: str, timeframe: str,
     # 单批收货上限(防失控倾倒; 随机模式按 count*5 采样也在此之下): config 可改, 兜底 500
     limit = await pool.fetchval(
         "SELECT value FROM config WHERE key='generate_batch_limit'") or DEFAULT_BATCH_LIMIT
+    # 实例户口(v2.3): 调用方点名(子代/克隆=继承父户口, 对比三铁律同世界) > 自动解析 —
+    # 默认券商有该品种登记 → 落默认(存量行为不变); 只在别家券商登记(券商专属品种名)
+    # → 落那家 — 否则生出无数据可测的死实例
+    if broker is None:
+        broker = await pool.fetchval(
+            "SELECT broker FROM symbols WHERE symbol=$1"
+            " ORDER BY (broker = (SELECT value #>> '{}' FROM config"
+            "                      WHERE key='default_broker')) DESC, broker LIMIT 1", symbol)
     results, created_ids = [], []
     for i, item in enumerate(combos[:limit]):
         if max_created is not None and len(created_ids) >= max_created:
@@ -128,9 +137,13 @@ async def create_instances(pool, template: str, symbol: str, timeframe: str,
                "-".join(f"{k}{params[k]}" for k in sorted(params)) + name_suffix
         row = await pool.fetchrow(
             "INSERT INTO strategies"
-            " (name, template, symbol, timeframe, params, parent_id, basis, metadata)"
-            " VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING RETURNING id",
-            name, template, symbol, timeframe, params, parent_id, basis, md)
+            " (name, template, symbol, timeframe, params, parent_id, basis, metadata,"
+            "  broker)"   # $9 空(理论上不会, 入口都验过登记)→ 落配置默认券商, 不硬编码
+            " VALUES ($1, $2, $3, $4, $5, $6, $7, $8,"
+            "         COALESCE($9, (SELECT value #>> '{}' FROM config"
+            "                        WHERE key='default_broker')))"
+            " ON CONFLICT DO NOTHING RETURNING id",
+            name, template, symbol, timeframe, params, parent_id, basis, md, broker)
         if row is None:  # 撞唯一约束 = 组合已存在(可能是死过的邻居) → 查现有ID给调用方
             # 判重按 (参数, metadata) 整体 — 同参数不同门是合法兄弟, 不能互相认领
             existing = await pool.fetchrow(

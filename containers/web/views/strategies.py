@@ -86,7 +86,8 @@ def index():
         results = resp["results"]
         total = resp.get("total", len(results))
         syms = api.get("/symbols")["symbols"]
-        symbols = [s["symbol"] for s in syms if s.get("download")]
+        # v2.3: 同名品种多券商行 → 按名去重(筛选语义=品种名, 不分券商)
+        symbols = sorted({s["symbol"] for s in syms if s.get("download")})
         brokers = sorted({s["broker"] for s in syms if s.get("broker")})
         # 挂载列(v5.0-B2): 整页一次取挂载 + 可加挂的同角色主机(在 python 组好, 模板零逻辑)
         if results:
@@ -130,8 +131,8 @@ def generate_page():
         templates = api.get("/strategies/templates")["templates"]
         mq5_imports = api.get("/strategies/mq5")["imports"]
         # 品种默认值从主档取(download=✓), 不写死 — 登记/删品种自动跟着变
-        default_symbols = ",".join(
-            s["symbol"] for s in api.get("/symbols")["symbols"] if s.get("download"))
+        default_symbols = ",".join(dict.fromkeys(   # v2.3: 同名多券商行按名去重
+            s["symbol"] for s in api.get("/symbols")["symbols"] if s.get("download")))
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
     return render_template("strategy_generate.html", templates=templates,
@@ -377,7 +378,7 @@ def strategy_tree():
     templates, symbols, data = [], [], None
     try:
         templates = sorted(api.get("/strategies/templates")["templates"])
-        symbols = [s["symbol"] for s in api.get("/symbols")["symbols"]]
+        symbols = sorted({s["symbol"] for s in api.get("/symbols")["symbols"]})
         if sid:
             data = api.get("/strategies/tree", strategy_id=sid)
             template, symbol = data["template"], data["symbol"]

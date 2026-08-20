@@ -159,6 +159,9 @@ async def download_progress(pool: asyncpg.Pool):
     for r in rows:
         p = r["payload"]
         sym = p.get("symbol", "?")
+        bk = p.get("broker")
+        if bk and bk != regime.DEFAULT_BROKER:   # v2.3: 非默认券商任务带 @券商, 同名可辨
+            sym = f"{sym}@{bk}"
         tf = p.get("timeframe", "M1")
         if tf != "M1":   # D1 补头任务在进度里带周期后缀, 与 M1 区分
             sym = f"{sym}·{tf}"

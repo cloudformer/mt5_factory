@@ -144,7 +144,8 @@ def regime():
     symbols, data, view_cfg = [], None, {}
     rv = {"current": None, "versions": []}
     try:
-        symbols = [s["symbol"] for s in api.get("/symbols")["symbols"] if s.get("download")]
+        symbols = sorted({s["symbol"] for s in api.get("/symbols")["symbols"]
+                          if s.get("download")})   # v2.3: 同名多券商行按名去重
         symbol = symbol or (symbols[0] if symbols else None)
         rv = api.get("/regime/versions")   # 版本下拉(v0.2): 本页切换=改全局默认(与配置页同一开关)
         # 默认视图(config regime_view, schema/058): 全局共享, 仅 admin 在配置页改
