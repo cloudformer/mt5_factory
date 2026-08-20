@@ -141,13 +141,23 @@ async def announce_host(req: AnnounceRequest, request: Request):
     带 worker 钥匙(env WORKER_KEY)时: 认钥知主 → host 归该用户 + 钥匙与本机首绑(一机一钥);
     不带钥照旧(兼容期; 强制认钥在 v5.6)。"""
     pool = request.app.state.pool
+    # 先查后插不烧号(2026-08-20, 与 regime 版本判重 e0b27bc 同病同治): ON CONFLICT 走
+    # UPDATE 分支也烧 id 序列 — announce 每分钟一次, 曾把新机 id 烧到六位数。
+    # 常态(已注册)走纯 UPDATE 零烧号; 没命中才 INSERT, 保留 ON CONFLICT 兜同名并发竞态
     row = await pool.fetchrow(
-        "INSERT INTO mt5_hosts (name, host, port, download, last_heartbeat)"
-        " VALUES ($1, $2, $3, TRUE, now())"
-        " ON CONFLICT (name) DO UPDATE SET host = $2, port = $3, last_heartbeat = now()"
+        "UPDATE mt5_hosts SET host = $2, port = $3, last_heartbeat = now()"
+        " WHERE name = $1"
         " RETURNING id, name, download, runner, enabled, owner_id, mt5_server,"
-        "           (xmax = 0) AS inserted",
+        "           FALSE AS inserted",
         req.name, req.host, req.port)
+    if row is None:
+        row = await pool.fetchrow(
+            "INSERT INTO mt5_hosts (name, host, port, download, last_heartbeat)"
+            " VALUES ($1, $2, $3, TRUE, now())"
+            " ON CONFLICT (name) DO UPDATE SET host = $2, port = $3, last_heartbeat = now()"
+            " RETURNING id, name, download, runner, enabled, owner_id, mt5_server,"
+            "           (xmax = 0) AS inserted",
+            req.name, req.host, req.port)
     if row["inserted"]:
         await sync.log_host_event(pool, row["id"], "REGISTERED", {"source": "announce"})
     key_state = None
