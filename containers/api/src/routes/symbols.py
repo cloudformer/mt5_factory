@@ -113,10 +113,9 @@ class SymbolUpdate(BaseModel):
 
 
 @router.patch("/symbols/{symbol}")
-async def update_symbol(symbol: str, req: SymbolUpdate, request: Request,
-                        broker: str | None = None):
+async def update_symbol(symbol: str, req: SymbolUpdate, request: Request, broker: str):
     """改品种的下载开关 / 起始日期 (精度不可手改, 只能靠 POST 重新校验)。
-    broker(v2.3): 不传=同名全部券商行(单券商语义不变); 传=只动该券商的登记行"""
+    broker 必带(v2.3): 行身份 = (品种, 券商), 只动点名的那一行 — 杜绝同名横扫"""
     fields = req.model_dump(exclude_unset=True)
     if not fields:
         raise HTTPException(status_code=400, detail="nothing to update")
@@ -128,40 +127,39 @@ async def update_symbol(symbol: str, req: SymbolUpdate, request: Request,
         sets.append(f"{k} = ${len(args)}")
     row = await request.app.state.pool.fetchrow(
         f"UPDATE symbols SET {', '.join(sets)}"
-        f" WHERE symbol = $1 AND ($2::varchar IS NULL OR broker = $2) RETURNING *", *args)
+        f" WHERE symbol = $1 AND broker = $2 RETURNING *", *args)
     if row is None:
         raise HTTPException(status_code=404, detail="symbol not found")
     return dict(row)
 
 
 @router.delete("/symbols/{symbol}/data")
-async def purge_symbol_data(symbol: str, request: Request,
-                            broker: str | None = None):
-    """清空某品种的全部历史 K线 (删登记前必须先做这步; 也用于清理孤儿数据)"""
+async def purge_symbol_data(symbol: str, request: Request, broker: str):
+    """清空该 (品种, 券商) 行的全部历史 K线 (删登记前必经; 也用于清孤儿)。
+    broker 必带(v2.3): 只清点名的一家, 绝不同名横扫"""
     name = symbol.upper()
     result = await request.app.state.pool.execute(
-        "DELETE FROM historical_bars WHERE symbol=$1"
-        " AND ($2::varchar IS NULL OR broker=$2)", name, broker)
+        "DELETE FROM historical_bars WHERE symbol=$1 AND broker=$2", name, broker)
     deleted = int(result.split()[-1])
-    logger.info("purged %d bars for %s", deleted, name)
-    return {"symbol": name, "deleted_bars": deleted}
+    logger.info("purged %d bars for %s@%s", deleted, name, broker)
+    return {"symbol": name, "broker": broker, "deleted_bars": deleted}
 
 
 @router.delete("/symbols/{symbol}")
-async def delete_symbol(symbol: str, request: Request,
-                        broker: str | None = None):
-    """删除品种登记。铁律: 有历史数据时拒绝 —— 必须先清空数据, 杜绝无登记的孤儿数据"""
+async def delete_symbol(symbol: str, request: Request, broker: str):
+    """删除 (品种, 券商) 的登记行。铁律: 该行还有历史数据时拒绝 —— 先清空,
+    杜绝无登记的孤儿数据。broker 必带(v2.3): 只删点名的一行"""
     name = symbol.upper()
     bars = await request.app.state.pool.fetchval(
-        "SELECT count(*) FROM historical_bars WHERE symbol=$1"
-        " AND ($2::varchar IS NULL OR broker=$2)", name, broker)
+        "SELECT count(*) FROM historical_bars WHERE symbol=$1 AND broker=$2",
+        name, broker)
     if bars:
         raise HTTPException(
             status_code=409,
-            detail=f"{name} 还有 {bars:,} 根历史数据 — 先『清空数据』再删除(避免看不到的孤儿数据)")
+            detail=f"{name}@{broker} 还有 {bars:,} 根历史数据 — 先『清空数据』再删除(避免看不到的孤儿数据)")
     row = await request.app.state.pool.fetchrow(
-        "DELETE FROM symbols WHERE symbol=$1"
-        " AND ($2::varchar IS NULL OR broker=$2) RETURNING symbol", name, broker)
+        "DELETE FROM symbols WHERE symbol=$1 AND broker=$2 RETURNING symbol",
+        name, broker)
     if row is None:
         raise HTTPException(status_code=404, detail="symbol not found")
     return {"deleted": row["symbol"]}
