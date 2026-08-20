@@ -3,11 +3,19 @@
 品种一切信息只在 symbols 表: 登记(向券商校验)、精度、下载开关、每品种起始日期。
 下载/回测/策略生成都从这里读。本页是它唯一的管理入口。
 """
+from urllib.parse import quote
+
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
 import api_client as api
 
 bp = Blueprint("symbols", __name__, url_prefix="/symbols")
+
+
+def _bkq() -> str:
+    """表单 broker → query 串(v2.3): 同名品种多券商行时点名只动一行; 没带=api 侧同名全部"""
+    bk = (request.form.get("broker") or "").strip()
+    return f"?broker={quote(bk)}" if bk else ""
 
 
 @bp.get("/")
@@ -366,12 +374,12 @@ def add():
 
 @bp.post("/<symbol>/update")
 def update(symbol):
-    """改下载开关 / 起始日期"""
+    """改下载开关 / 起始日期。broker(v2.3): 同名多券商行必须点名, 只动一行"""
     try:
         payload = {"download": request.form.get("download") == "on"}
         if request.form.get("data_start"):
             payload["data_start"] = request.form["data_start"].strip()
-        api.post_patch(f"/symbols/{symbol}", payload)
+        api.post_patch(f"/symbols/{symbol}{_bkq()}", payload)
         flash(f"{symbol} 已更新", "ok")
     except api.ApiError as e:
         flash(f"更新失败: {e}", "error")
@@ -382,7 +390,8 @@ def update(symbol):
 def reverify(symbol):
     """重新向券商校验并刷新精度 (等价于重新登记同名品种; 异步, 1~2 分钟出结果)"""
     try:
-        result = api.post("/symbols", {"symbol": symbol})
+        result = api.post("/symbols", {"symbol": symbol,
+                                       "broker": request.form.get("broker") or None})
         flash(f"{result['symbol']} {result.get('hint', '已提交重新校验')}", "ok")
     except api.ApiError as e:
         flash(f"校验失败: {e}", "error")
@@ -393,7 +402,7 @@ def reverify(symbol):
 def purge(symbol):
     """清空该品种全部历史 K线 (删登记前的必经步骤, 也用于清孤儿)"""
     try:
-        result = api.delete(f"/symbols/{symbol}/data")
+        result = api.delete(f"/symbols/{symbol}/data{_bkq()}")
         flash(f"{symbol} 已清空 {result['deleted_bars']:,} 根历史数据", "ok")
     except api.ApiError as e:
         flash(f"清空失败: {e}", "error")
@@ -404,7 +413,7 @@ def purge(symbol):
 def delete(symbol):
     """删除登记 (api 侧: 有数据会拒绝, 需先清空)"""
     try:
-        api.delete(f"/symbols/{symbol}")
+        api.delete(f"/symbols/{symbol}{_bkq()}")
         flash(f"{symbol} 已删除", "ok")
     except api.ApiError as e:
         flash(f"删除失败: {e}", "error")
