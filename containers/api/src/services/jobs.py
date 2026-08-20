@@ -111,21 +111,24 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
         payload["strategy_id"])
     if s is None:
         raise ValueError("strategy deleted")
-    # v2.3 户口制: 数据世界跟策略户口走(跨品种验证行也用同户口券商的数据 — 对比三铁律)
+    # v2.3 户口制: 数据世界默认跟策略户口走(跨品种验证行也用同户口券商的数据 — 对比三铁律);
+    # payload.broker = 跨券商验证行的世界覆盖(同策略同品种换一家券商的数据重跑,
+    # 结论该不变 — 变了说明策略吃的是数据毛刺不是规律)
+    bk = payload.get("broker") or s["broker"]
     meta = await pool.fetchrow(
         "SELECT point, broker FROM symbols WHERE symbol=$1 AND broker=$2",
-        sym, s["broker"])
+        sym, bk)
     if meta is None:
-        raise ValueError(f"symbol {sym}@{s['broker']} not in symbols table")
+        raise ValueError(f"symbol {sym}@{bk} not in symbols table")
     # 复用守卫(2026-08-07 全局统一): 有效期内已有覆盖本窗的行 → 秒完不进引擎。
     # payload.reuse_days = 单ID点名把页面「有效期」随任务带来(默认1天档, 填0=本次实际跑);
     # 没带 = 批量/筛选档, 用全局配置。轻量版 reuse_ok 只判存在不搬 trades(2026-08-08)
     if await backtest.reuse_ok(pool, s["id"], sym, t_from, t_to,
-                               days=payload.get("reuse_days"), broker=s["broker"]):
+                               days=payload.get("reuse_days"), broker=bk):
         return
-    key = (sym, s["broker"], payload["from"], payload["to"])
+    key = (sym, bk, payload["from"], payload["to"])
     if cache.get("key") != key:
-        cache["m1"] = await backtest.load_m1(pool, sym, t_from, t_to, s["broker"])
+        cache["m1"] = await backtest.load_m1(pool, sym, t_from, t_to, bk)
         cache["key"] = key
     if cache["m1"] is None:
         raise ValueError(f"no M1 data for {sym}, run /syncdata first")
@@ -139,7 +142,7 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
         if isinstance(td, dict) and td.get("active"):
             params = {**params, "trail": td}
     # regime 门(v0.3): metadata 有门 → 引擎带门跑(该品种时间线, 版本钉死); 无门 → None 原路径
-    gate = await regime.gate_for(pool, s["metadata"], sym, s["broker"])
+    gate = await regime.gate_for(pool, s["metadata"], sym, bk)
     result = await asyncio.to_thread(
         backtest.run_backtest, cache["m1"], s["template"], params,
         meta["point"], s["timeframe"], oos_split=oos_split, gate=gate, **payload["costs"])

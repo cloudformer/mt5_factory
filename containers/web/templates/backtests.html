@@ -90,6 +90,8 @@
       <span class="tag">选项</span>
       <label class="chk" title="反过拟合(空间维度): 同参数在所有 download 货币对各回测一行, 产出『跨品种健壮性』列 + 每品种明细">
         <input type="checkbox" name="cross_symbol" value="1"> 跨品种验证</label>
+      <label class="chk" title="反过拟合(数据维度, v2.3): 同策略同品种在其它已登记券商的数据上各回测一行 — 换一家数据源结论该不变; 验证行不进排名只进健壮性明细">
+        <input type="checkbox" name="cross_broker" value="1"> 跨券商验证</label>
       <span class="muted">每策略在所有货币对各跑一行, 运行 ×品种数 · 批量窗口 {{ window_days }} 天(配置页可改)</span>
     </div>
     <div class="row">
@@ -146,6 +148,7 @@
                                                   s.name === "scope" ? "true" : s.value); });
       }
       if (form.querySelector("input[name=cross_symbol]").checked) p.set("cross_symbol", "true");
+      if (form.querySelector("input[name=cross_broker]").checked) p.set("cross_broker", "true");
       try {
         const d = await fetch("{{ url_for('backtests.plan') }}?" + p).then((r) => r.json());
         if (d.runs === 0) {
@@ -158,7 +161,9 @@
           planEl.textContent = `将回测 ${d.strategies} 个策略 = ${d.runs} 次(只跑主品种)`;
         } else {
           // 交叉模式: 本批数字全是实时精确值(够格按配置门槛真算); 只有"未测过"的用预估
-          let txt = `将回测 ${d.runs} 次 = 主品种 ${d.strategies} + 交叉 ${d.runs - d.strategies}`
+          const xb = d.cross_broker_runs || 0;
+          let txt = `将回测 ${d.runs} 次 = 主品种 ${d.strategies} + 交叉 ${d.runs - d.strategies - xb}`
+                  + (xb ? ` + 跨券商 ${xb}` : ``)
                   + `(够格 ${d.cross_qualified}/${d.strategies})`;
           if (d.cross_untested > 0)
             txt += ` · 未测过 ${d.cross_untested} 个出成绩后, 下一批预估 ~${d.est_pass_pct}% 够格`

@@ -151,6 +151,8 @@ def run():
             payload["untested_only"] = True
     if request.form.get("cross_symbol"):  # 跨品种验证(乙)
         payload["cross_symbol"] = True
+    if request.form.get("cross_broker"):  # 跨券商验证(v2.3, 数据维度)
+        payload["cross_broker"] = True
     try:
         result = api.post("/backtest/run", payload)
         flash(f"回测已启动: {result['total']} 个策略 (成本: {result['costs']})", "ok")

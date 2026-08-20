@@ -102,6 +102,9 @@ class BacktestRequest(BaseModel):
     # 跨品种验证(乙, 反过拟合空间维度): 勾了则每策略在所有 download 品种各回测一行,
     #   看是普适规律还是只在某品种巧合。不勾=只跑主品种(快)。产出健壮性列 + 每品种明细。
     cross_symbol: bool = False
+    # 跨券商验证(v2.3, 反过拟合数据维度): 勾了则每策略在其品种的其它已登记券商各回测一行,
+    #   同规律换一家券商的数据该得同结论 — 变脸说明吃的是数据毛刺。验证行不进排名只进健壮性。
+    cross_broker: bool = False
     # 范围选项: True=只跑还没有回测记录(主品种行)的策略 — 补漏不重复跑; 默认 False=全部(现状)
     untested_only: bool = False
     # 本次复用有效期(天, 2026-08-08; 仅按ID点名生效): 页面预填单ID配置(默认1), 0=本次实际跑;
@@ -183,9 +186,9 @@ async def run(req: BacktestRequest, request: Request):
                     await pool.fetch("SELECT symbol FROM symbols WHERE download"))
                 if req.cross_symbol else set())
     # 交叉门槛(config: cross_symbol_gate): 批量模式只给主品种够格的策略展开交叉;
-    # 按 ID 点名 = 点名即信任, 不走门槛随便交叉
+    # 按 ID 点名 = 点名即信任, 不走门槛随便交叉。跨券商与跨品种共用同一道门。
     qualified = None
-    if req.cross_symbol and not req.strategy_ids:
+    if (req.cross_symbol or req.cross_broker) and not req.strategy_ids:
         qualified, _ = await _cross_qualified(pool, [s["id"] for s in rows])
     # 单ID点名的复用有效期(2026-08-08): 请求值 > 单ID配置 > 全局配置, 冻结进 payload;
     # 批量不带(执行层用全局档)。0 = 本次实际跑
@@ -217,12 +220,27 @@ async def run(req: BacktestRequest, request: Request):
               "from": await _from_iso(sym, s["broker"]), "to": t_to.isoformat(),
               "costs": costs, **extra}
              for s in rows
-             for sym in ({s["symbol"]} | universe
+             for sym in ({s["symbol"]} | (universe if req.cross_symbol else set())
                          if (qualified is None or s["id"] in qualified) else {s["symbol"]})]
+    # 跨券商验证行(v2.3): 主品种 × 其它已登记券商, payload 带 broker 覆盖数据世界
+    # (不与跨品种做笛卡尔积 — 验证"换数据源结论稳不稳", 主品种一维足够)
+    if req.cross_broker:
+        bmap: dict = {}
+        for b in await pool.fetch("SELECT symbol, broker FROM symbols"):
+            bmap.setdefault(b["symbol"], set()).add(b["broker"])
+        for s in rows:
+            if qualified is not None and s["id"] not in qualified:
+                continue
+            for obk in sorted(bmap.get(s["symbol"], set()) - {s["broker"]}):
+                items.append({"strategy_id": s["id"], "name": s["name"],
+                              "symbol": s["symbol"], "broker": obk,
+                              "from": await _from_iso(s["symbol"], obk),
+                              "to": t_to.isoformat(), "costs": costs, **extra})
     await jobs.submit_batch(pool, items)
     # 用量(只记录不拦截): 每个 job(策略×品种)算一次, 记给策略 owner
     await usage.bump_by_owner(pool, "backtests", [it["strategy_id"] for it in items])
     return {"started": True, "total": len(items), "cross_symbol": req.cross_symbol,
+            "cross_broker": req.cross_broker,
             "cross_qualified": (len(qualified) if qualified is not None else None),
             "cross_gated_out": (len(rows) - len(qualified) if qualified is not None else 0),
             "costs": costs}
@@ -252,13 +270,14 @@ async def stop(request: Request):
 async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[str] = None,
                status: Optional[str] = None, template: Optional[str] = None,
                untested_only: bool = False, cross_symbol: bool = False,
+               cross_broker: bool = False,
                strategy_ids: Optional[str] = None, limit: Optional[int] = None):
     """运行预览: 按当前选择数一数会跑多少 — N 个策略 × 品种 = K 次(启动前所见即所得)。
     勾交叉且非点名时按 cross_symbol_gate 预演门槛: 够格 q 个展开交叉, 其余只跑主品种。"""
     pool = request.app.state.pool
     limit = await _batch_limit(pool, limit)
     uid = identity.scope_uid(request)   # v5.6: 预览口径与 run() 一致, 非 owner 只数自己的
-    sel = "SELECT id, symbol FROM strategies"
+    sel = "SELECT id, symbol, broker FROM strategies"
     if strategy_ids is not None:
         try:
             ids = [int(s) for s in strategy_ids.split(",") if s.strip()]
@@ -295,14 +314,25 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
     n = len(rows)
     universe = set(r["symbol"] for r in
                    await pool.fetch("SELECT symbol FROM symbols WHERE download"))
-    if not cross_symbol:
+    if not cross_symbol and not cross_broker:
         return {"strategies": n, "symbols_per": 1, "runs": n}
     qualified, untested = (({r["id"] for r in rows}, 0) if strategy_ids is not None  # 点名不设门槛
                            else await _cross_qualified(pool, [r["id"] for r in rows]))
-    runs = sum(len({r["symbol"]} | universe) if r["id"] in qualified else 1 for r in rows)
+    runs = sum(len({r["symbol"]} | universe) if (cross_symbol and r["id"] in qualified) else 1
+               for r in rows)
+    xb_runs = 0
+    if cross_broker:   # 主品种 × 其它已登记券商(与 run() 同口径, 共用交叉门槛)
+        bmap: dict = {}
+        for b in await pool.fetch("SELECT symbol, broker FROM symbols"):
+            bmap.setdefault(b["symbol"], set()).add(b["broker"])
+        xb_runs = sum(len(bmap.get(r["symbol"], set()) - {r["broker"]})
+                      for r in rows if r["id"] in qualified)
+        runs += xb_runs
     # 未测过的策略这批出成绩后, 下一批预估 ~20% 过门槛 → 预估新增交叉次数(仅显示, 不影响本批)
-    est_next = round(untested * EST_CROSS_PASS_PCT / 100) * max(len(universe) - 1, 1)
+    est_next = (round(untested * EST_CROSS_PASS_PCT / 100) * max(len(universe) - 1, 1)
+                if cross_symbol else 0)
     return {"strategies": n, "symbols_per": len(universe), "runs": runs,
+            "cross_broker_runs": xb_runs,
             "cross_qualified": len(qualified), "cross_gated_out": n - len(qualified),
             "cross_untested": untested, "est_next_cross": est_next,
             "est_pass_pct": EST_CROSS_PASS_PCT}

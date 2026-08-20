@@ -819,13 +819,14 @@ async def set_mount(strategy_id: int, req: MountRequest, request: Request):
         raise HTTPException(status_code=400, detail="volume 须在 (0, 100] 之间, 或留空=用默认")
     pool = request.app.state.pool
     s = await pool.fetchrow(
-        "SELECT id, status, owner_id FROM strategies WHERE id=$1", strategy_id)
+        "SELECT id, status, owner_id, broker FROM strategies WHERE id=$1", strategy_id)
     if s is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     if s["status"] == "ARCHIVED":
         raise HTTPException(status_code=400, detail="已归档不可挂载 — 先切回空闲(候选)复活")
     h = await pool.fetchrow(
-        "SELECT id, name, runner, enabled, owner_id FROM mt5_hosts WHERE id=$1", req.host_id)
+        "SELECT id, name, runner, enabled, owner_id, mt5_server"
+        "  FROM mt5_hosts WHERE id=$1", req.host_id)
     if h is None or not h["enabled"]:
         raise HTTPException(status_code=404, detail="host 不存在或未启用")
     if not h["runner"]:
@@ -851,8 +852,53 @@ async def set_mount(strategy_id: int, req: MountRequest, request: Request):
         "   volume = EXCLUDED.volume, enabled = true",
         strategy_id, req.host_id, req.volume)
     logger.info("mount #%d -> %s volume=%s", strategy_id, h["name"], req.volume)
-    return {"strategy_id": strategy_id, "host": h["name"], "volume": req.volume,
-            "status": new_status}
+    out = {"strategy_id": strategy_id, "host": h["name"], "volume": req.volume,
+           "status": new_status}
+    # v2.3 户口校验(先提示不拦截 — demo/live server 名与券商世界名的对应还没规范化,
+    # 硬闸会误伤存量; 命名定版后升级为 400): 回测吃 A 家数据、实盘跑 B 家账户 = 对账口径漂
+    if h["mt5_server"] and s["broker"] and h["mt5_server"] != s["broker"]:
+        out["broker_warning"] = (f"策略户口 {s['broker']} ≠ 主机账户服务器 {h['mt5_server']}"
+                                 f" — 回测与实盘不同数据世界, 对账偏离会含券商差; 考虑先迁户口")
+        logger.warning("mount #%d broker mismatch: strategy=%s host=%s",
+                       strategy_id, s["broker"], h["mt5_server"])
+    return out
+
+
+class MigrateBrokerRequest(BaseModel):
+    broker: str
+
+
+@router.post("/strategies/{strategy_id}/migrate_broker")
+async def migrate_broker(strategy_id: int, req: MigrateBrokerRequest, request: Request):
+    """迁户口(v2.3): 换策略实例的数据世界。旧户口的回测行留库自动变成跨券商验证行
+    (主行 JOIN 按新户口取数 → 排名显示未回测, 重跑一次回测即出新户口行)。
+    前提: 目标券商已登记该品种(有登记行才有数据可回测)。"""
+    pool = request.app.state.pool
+    bk = req.broker.strip()
+    if not bk:
+        raise HTTPException(status_code=400, detail="broker 不能为空")
+    uid = identity.scope_uid(request)
+    s = await pool.fetchrow(
+        "SELECT id, symbol, broker, status FROM strategies WHERE id=$1"
+        + (" AND owner_id=$2" if uid else ""), strategy_id, *([uid] if uid else []))
+    if s is None:
+        raise HTTPException(status_code=404, detail="strategy not found")
+    if s["broker"] == bk:
+        return {"strategy_id": strategy_id, "broker": bk, "changed": False}
+    reg = await pool.fetchrow(
+        "SELECT verified_at FROM symbols WHERE symbol=$1 AND broker=$2", s["symbol"], bk)
+    if reg is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{s['symbol']}@{bk} 未登记 — 先去数据页按该券商登记品种(有登记才有数据)")
+    await pool.execute("UPDATE strategies SET broker=$2 WHERE id=$1", strategy_id, bk)
+    logger.info("migrate_broker #%d: %s -> %s (%s)",
+                strategy_id, s["broker"], bk, s["symbol"])
+    return {"strategy_id": strategy_id, "broker": bk, "changed": True,
+            "old_broker": s["broker"],
+            "hint": ("户口已迁; 旧户口回测行自动转为跨券商验证行,"
+                     " 重跑一次回测生成新户口主行(排名/门/对账都按新户口取数)"
+                     + ("" if reg["verified_at"] else "; 注意: 该登记行还未通过券商校验"))}
 
 
 @router.delete("/strategies/{strategy_id}/mounts/{host_id}")

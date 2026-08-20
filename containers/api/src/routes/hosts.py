@@ -145,7 +145,8 @@ async def announce_host(req: AnnounceRequest, request: Request):
         "INSERT INTO mt5_hosts (name, host, port, download, last_heartbeat)"
         " VALUES ($1, $2, $3, TRUE, now())"
         " ON CONFLICT (name) DO UPDATE SET host = $2, port = $3, last_heartbeat = now()"
-        " RETURNING id, name, download, runner, enabled, owner_id, (xmax = 0) AS inserted",
+        " RETURNING id, name, download, runner, enabled, owner_id, mt5_server,"
+        "           (xmax = 0) AS inserted",
         req.name, req.host, req.port)
     if row["inserted"]:
         await sync.log_host_event(pool, row["id"], "REGISTERED", {"source": "announce"})
@@ -184,10 +185,13 @@ async def announce_host(req: AnnounceRequest, request: Request):
                 continue
             sym = str(sym).strip().upper()
             if info.get("error"):
+                # v2.3: 失败也只标本机券商的行(host 未知 server 时按品种名放行, 单券商语义
+                # 不变) — 否则 A 券商 worker 找不到 B 券商风格的品种名会把 B 的行标脏
                 await pool.execute(
                     "UPDATE symbols SET verify_error=$2"
-                    " WHERE symbol=$1 AND verified_at IS NULL",
-                    sym, str(info["error"])[:200])
+                    " WHERE symbol=$1 AND verified_at IS NULL"
+                    "   AND ($3::varchar IS NULL OR broker=$3)",
+                    sym, str(info["error"])[:200], row["mt5_server"])
             elif info.get("point"):
                 # v2.3 户口制: broker 是行身份的一半, 不再被校验回写覆盖 —
                 # 回写只认"同券商"的登记行(worker 报的 broker 与行不符 = 别家的行, 不碰;
@@ -205,11 +209,14 @@ async def announce_host(req: AnnounceRequest, request: Request):
     params = await pool.fetchval("SELECT value FROM config WHERE key='worker_params'")
     if params:
         out["params"] = params
-    # ②派: 待校验且未标失败的品种 → 应答里带任务, bridge 查 MT5 下轮捎回
+    # ②派: 待校验且未标失败的品种 → 应答里带任务, bridge 查 MT5 下轮捎回。
+    # v2.3: 只派本机券商世界的行(host 的 mt5_server 未知时不过滤, 单券商语义不变) —
+    # 别家券商的登记行等它自己的 worker 上线来校验, 不派错人
     if row["download"] and row["enabled"]:
         pend = await pool.fetch(
             "SELECT symbol FROM symbols"
-            " WHERE verified_at IS NULL AND verify_error IS NULL LIMIT 10")
+            " WHERE verified_at IS NULL AND verify_error IS NULL"
+            "   AND ($1::varchar IS NULL OR broker=$1) LIMIT 10", row["mt5_server"])
         if pend:
             out["verify_symbols"] = [r["symbol"] for r in pend]
     if key_state:

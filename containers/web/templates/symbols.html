@@ -7,6 +7,11 @@
   <h2>货币对</h2>
   <form method="post" action="{{ url_for('symbols.add') }}" class="inline">
     <label>品种 <input name="symbol" placeholder="如 EURUSD / BTCUSD" size="14" required></label>
+    {# v2.3 户口制: 可输入(能登记新券商的第一行), 已有券商给提示; 留空 = 默认券商(研发尺) #}
+    <label>券商 <input name="broker" list="broker-list" placeholder="留空=默认券商" size="18"></label>
+    <datalist id="broker-list">
+      {% for b in symbols | map(attribute='broker') | unique %}<option value="{{ b }}">{% endfor %}
+    </datalist>
     <button>登记</button>
     <span class="muted">向券商确认品种存在并自动读取 券商名/digits/point；券商没有会明确报错。精度不手填(手填会与券商不一致)</span>
   </form>
