@@ -29,7 +29,8 @@ def _spread_at(m1, j, point, spread_points):
 
 
 async def reuse_row(pool, strategy_id: int, symbol: str,
-                    t_from: datetime, t_to: datetime, days: int | None = None):
+                    t_from: datetime, t_to: datetime, days: int | None = None,
+                    broker: str = "MetaQuotes-Demo"):
     """回测复用守卫(2026-08-07 与 Frank 定, 全局唯一实现 — 所有走库的回测路径共用):
     有效期内跑过、且行跨度覆盖本次要求窗口(差45天容差, 吸收数据首根晚几天/周末)的
     (策略×品种) 行 → 返回该行(调用方直接用, 不重跑); 否则 None。
@@ -46,14 +47,15 @@ async def reuse_row(pool, strategy_id: int, symbol: str,
     need_days = max(int((t_to - t_from).days) - 45, 1)
     return await pool.fetchrow(
         "SELECT from_time, to_time, metrics, trades, created_at FROM backtests"
-        " WHERE strategy_id = $1 AND symbol = $2"
+        " WHERE strategy_id = $1 AND symbol = $2 AND broker = $5"
         "   AND created_at >= now() - make_interval(days => $3)"
         "   AND to_time - from_time >= make_interval(days => $4)",
-        strategy_id, symbol, rd, need_days)
+        strategy_id, symbol, rd, need_days, broker)
 
 
 async def reuse_ok(pool, strategy_id: int, symbol: str,
-                   t_from: datetime, t_to: datetime, days: int | None = None) -> bool:
+                   t_from: datetime, t_to: datetime, days: int | None = None,
+                   broker: str = "MetaQuotes-Demo") -> bool:
     """复用守卫轻量版(2026-08-08): 只判"有没有可复用的行", 不搬数据 —
     队列守卫(jobs._run_one)用这个; 全池 6100 任务时守卫若用 reuse_row 会把整份
     trades(1~2MB/行)白搬回来(实测 postgres 网络出量上百GB)。条件与 reuse_row 完全一致。"""
@@ -64,18 +66,21 @@ async def reuse_ok(pool, strategy_id: int, symbol: str,
     need_days = max(int((t_to - t_from).days) - 45, 1)
     return await pool.fetchval(
         "SELECT EXISTS (SELECT 1 FROM backtests"
-        " WHERE strategy_id = $1 AND symbol = $2"
+        " WHERE strategy_id = $1 AND symbol = $2 AND broker = $5"
         "   AND created_at >= now() - make_interval(days => $3)"
         "   AND to_time - from_time >= make_interval(days => $4))",
-        strategy_id, symbol, rd, need_days)
+        strategy_id, symbol, rd, need_days, broker)
 
 
-async def load_m1(pool, symbol: str, t_from: datetime, t_to: datetime):
-    """从 historical_bars 加载 M1 到 numpy 数组"""
-    where = "symbol=$1 AND timeframe='M1' AND time >= $2 AND time < $3"
+async def load_m1(pool, symbol: str, t_from: datetime, t_to: datetime,
+                  broker: str = "MetaQuotes-Demo"):
+    """从 historical_bars 加载 M1 到 numpy 数组。
+    broker(v2.3 户口制): 数据世界 — 调用方传策略户口/登记行券商, 缺省=研发尺"""
+    where = "symbol=$1 AND timeframe='M1' AND time >= $2 AND time < $3 AND broker=$4"
     async with pool.acquire() as conn:
         n = await conn.fetchval(
-            f"SELECT count(*) FROM historical_bars WHERE {where}", symbol, t_from, t_to)
+            f"SELECT count(*) FROM historical_bars WHERE {where}",
+            symbol, t_from, t_to, broker)
         if n == 0:
             return None
         arr = {
@@ -89,7 +94,7 @@ async def load_m1(pool, symbol: str, t_from: datetime, t_to: datetime):
             async for r in conn.cursor(
                 f"SELECT extract(epoch FROM time)::bigint, open, high, low, close, spread"
                 f"  FROM historical_bars WHERE {where} ORDER BY time",
-                symbol, t_from, t_to,
+                symbol, t_from, t_to, broker,
             ):
                 arr["time"][i], arr["open"][i], arr["high"][i] = r[0], r[1], r[2]
                 arr["low"][i], arr["close"][i], arr["spread"][i] = r[3], r[4], r[5]

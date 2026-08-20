@@ -70,7 +70,7 @@ async def board(pool, batch: int = 30, gated_only: bool = True,
     if ids:                                   # 按 ID 点名(2026-08-15): 点名即无视范围过滤
         where, args = "id = ANY($1)", [ids]
     all_rows = await pool.fetch(
-        f"SELECT id, name, symbol, timeframe, status, metadata, created_at"
+        f"SELECT id, name, symbol, broker, timeframe, status, metadata, created_at"
         f"  FROM strategies WHERE {where} ORDER BY created_at DESC", *args)
     total = len(all_rows)
     rows = all_rows[offset:offset + limit]
@@ -83,7 +83,8 @@ async def board(pool, batch: int = 30, gated_only: bool = True,
             break                      # 没人收结果了, 算完是纯浪费
         bt = await pool.fetchrow(
             "SELECT from_time, to_time, trades FROM backtests"
-            " WHERE strategy_id=$1 AND symbol=$2", s["id"], s["symbol"])
+            " WHERE strategy_id=$1 AND symbol=$2 AND broker=$3",
+            s["id"], s["symbol"], s["broker"])
         trades = (bt["trades"] if bt else None) or []
         frozen_ts = s["created_at"].timestamp()
         g = (s["metadata"] or {}).get("regime") or {}
@@ -161,7 +162,8 @@ async def ensure_snapshot(pool, strat: dict) -> dict | None:
     if row:
         return dict(row)
     bt = await pool.fetchrow(
-        "SELECT trades FROM backtests WHERE strategy_id=$1 AND symbol=$2",
+        "SELECT trades FROM backtests WHERE strategy_id=$1 AND symbol=$2"
+        " AND broker=(SELECT broker FROM strategies WHERE id=$1)",
         strat["id"], strat["symbol"])
     if bt is None:
         return None      # 没回测行: 快照下次再冻(Expected 由冻结日决定, 晚算不漂移)
@@ -195,7 +197,8 @@ async def validate(pool, strat: dict) -> dict | None:
     frozen = snap["frozen_at"]
     now_ts = datetime.now(timezone.utc).timestamp()
     bt = await pool.fetchrow(
-        "SELECT to_time, trades FROM backtests WHERE strategy_id=$1 AND symbol=$2",
+        "SELECT to_time, trades FROM backtests WHERE strategy_id=$1 AND symbol=$2"
+        " AND broker=(SELECT broker FROM strategies WHERE id=$1)",
         strat["id"], strat["symbol"])
     actual = slice_metrics(bt["trades"] or [], frozen.timestamp(), now_ts) if bt \
         else {"n": 0, "net": 0.0, "pf": None, "dd": None, "win_rate": None}
@@ -206,7 +209,8 @@ async def validate(pool, strat: dict) -> dict | None:
     if strat.get("parent_id"):
         pbt = await pool.fetchrow(
             "SELECT trades FROM backtests b JOIN strategies s ON s.id = b.strategy_id"
-            "  AND b.symbol = s.symbol WHERE b.strategy_id=$1", strat["parent_id"])
+            "  AND b.symbol = s.symbol AND b.broker = s.broker"
+            " WHERE b.strategy_id=$1", strat["parent_id"])
         if pbt:
             base = slice_metrics(pbt["trades"] or [], frozen.timestamp(), now_ts)
             baseline_pf = base["pf"] if base["n"] else None

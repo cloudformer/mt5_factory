@@ -21,6 +21,7 @@ logger = logging.getLogger("regime")
 DEFAULT_PARAMS = {"long_ma": "sma200", "short_ma": "sma20",
                   "atr_n": 14, "vol_win": 252, "vol_q": 0.5}
 CELLS = ("AAA", "AAB", "ABA", "ABB", "BAA", "BAB", "BBA", "BBB")
+DEFAULT_BROKER = "MetaQuotes-Demo"   # v2.3: 研发尺(唯一20年全量); 与 config default_broker 种子同值
 
 
 def label(p: dict) -> str:
@@ -58,15 +59,17 @@ async def active_version(pool: asyncpg.Pool) -> tuple[int, dict]:
     return vid, {**DEFAULT_PARAMS, **p}
 
 
-async def tl_map(pool: asyncpg.Pool, symbol: str, version_id: int | None = None) -> dict:
+async def tl_map(pool: asyncpg.Pool, symbol: str, version_id: int | None = None,
+                 broker: str = "MetaQuotes-Demo") -> dict:
     """{入场日: 格子} 映射 — 读时贴格唯一入口(分析/对账/矩阵/tsl 共用)。
     version_id 不传=当前默认版本; 指定=看该版本的天气(矩阵页版本下拉);
     指定版本无时间线 → 空映射(全部无标签, 如实报, 不脆弱)"""
     if version_id is None:
         version_id, _ = await active_version(pool)
     return {r["date"]: r["regime"] for r in await pool.fetch(
-        "SELECT date, regime FROM regime_timeline WHERE version_id=$1 AND symbol=$2",
-        version_id, symbol)}
+        "SELECT date, regime FROM regime_timeline"
+        " WHERE version_id=$1 AND symbol=$2 AND broker=$3",
+        version_id, symbol, broker)}
 
 
 def parse_ma(spec: str):
@@ -144,7 +147,8 @@ def compute_regimes(h: np.ndarray, low: np.ndarray, c: np.ndarray, params: dict)
     return dims, start
 
 
-async def _d1(pool: asyncpg.Pool, symbol: str, min_days: int):
+async def _d1(pool: asyncpg.Pool, symbol: str, min_days: int,
+              broker: str = "MetaQuotes-Demo"):
     """D1 双源合并(2026-07-29 与 Frank 定"M1+D1 两层"): 有 M1 的日子用 M1 现场聚合
     (与交易/回测同源, 券商时间日界); 更早的头部用原生 D1 行补
     (MetaQuotes M1 仅存~4个月而 D1 有16年+ — regime 长视野靠它)。
@@ -152,14 +156,14 @@ async def _d1(pool: asyncpg.Pool, symbol: str, min_days: int):
     rows = await pool.fetch(
         "WITH m1 AS (SELECT time::date AS d, max(high) AS h, min(low) AS l,"
         "                   (array_agg(close ORDER BY time DESC))[1] AS c"
-        "              FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
+        "              FROM historical_bars WHERE symbol=$1 AND timeframe='M1' AND broker=$2"
         "             GROUP BY 1)"
         " SELECT d, h, l, c FROM m1"
         " UNION ALL"
         " SELECT time::date, high, low, close FROM historical_bars"
-        "  WHERE symbol=$1 AND timeframe='D1'"
+        "  WHERE symbol=$1 AND timeframe='D1' AND broker=$2"
         "    AND time::date < COALESCE((SELECT min(d) FROM m1), 'infinity'::date)"
-        " ORDER BY d", symbol)
+        " ORDER BY d", symbol, broker)
     if len(rows) < min_days:
         return None
     return ([r["d"] for r in rows],
@@ -169,12 +173,13 @@ async def _d1(pool: asyncpg.Pool, symbol: str, min_days: int):
 
 
 async def rebuild_symbol(pool: asyncpg.Pool, symbol: str, params: dict,
-                         version_id: int) -> str | None:
+                         version_id: int,
+                         broker: str = "MetaQuotes-Demo") -> str | None:
     """按指定版本口径全量重算一个品种: 覆盖更新(同主键 UPSERT) + 修剪头部残留
     (换更长暖机的口径后, 新起点之前的旧行没人覆盖会留旧口径值 → 修剪, 保持数据干净)。
     只动本版本的行, 其他版本时间线不受影响。返回 None=成功 / 原因字符串(数据不足等)。"""
     need = warmup_days(params)
-    d1 = await _d1(pool, symbol, need)
+    d1 = await _d1(pool, symbol, need, broker)
     if d1 is None:
         return (f"{symbol} 交易日不足(当前口径需 ≥{need} 天暖机:"
                 f" {params['long_ma']}/{params['short_ma']}/ATR{params['atr_n']}"
@@ -186,34 +191,35 @@ async def rebuild_symbol(pool: asyncpg.Pool, symbol: str, params: dict,
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.executemany(
-                # v2.3: broker 列走默认值(单券商=MetaQuotes-Demo); 冲突目标跟四列主键。
-                # 时间线按券商分世界的读写线程化在 IC 数据入库前完成(方案阶段②)
+                # v2.3 户口制: 时间线按 (symbol, broker) 分世界, 每券商各自的天气史
                 "INSERT INTO regime_timeline"
-                " (version_id, symbol, date, long_trend, short_trend, vol)"
-                " VALUES ($1, $2, $3, $4, $5, $6)"
+                " (version_id, symbol, date, broker, long_trend, short_trend, vol)"
+                " VALUES ($1, $2, $3, $4, $5, $6, $7)"
                 " ON CONFLICT (version_id, symbol, date, broker) DO UPDATE SET"
                 "   long_trend = EXCLUDED.long_trend, short_trend = EXCLUDED.short_trend,"
                 "   vol = EXCLUDED.vol",
-                [(version_id, symbol, dates[i], dims[0][i], dims[1][i], dims[2][i])
+                [(version_id, symbol, dates[i], broker, dims[0][i], dims[1][i], dims[2][i])
                  for i in range(start, len(dates))])
             await conn.execute(   # 头部修剪: 新暖机起点之前的行是旧口径残留(只剪本版本)
                 "DELETE FROM regime_timeline"
-                " WHERE version_id=$1 AND symbol=$2 AND date < $3",
-                version_id, symbol, dates[start])
+                " WHERE version_id=$1 AND symbol=$2 AND broker=$4 AND date < $3",
+                version_id, symbol, dates[start], broker)
     logger.info("regime timeline rebuilt: v%d %s %d days (%s → %s) params=%s",
                 version_id, symbol, len(dates) - start, dates[start], dates[-1], params)
     return None
 
 
 async def ensure_timeline(pool: asyncpg.Pool, symbol: str,
-                          version_id: int | None = None) -> str | None:
+                          version_id: int | None = None,
+                          broker: str = "MetaQuotes-Demo") -> str | None:
     """读时自愈(无定时任务): timeline 落后于库内 M1 最新交易日才重算 —
     每天最多一次, 新鲜时零开销。换口径的即时重算走 POST /regime/rebuild(显式动作)。
     version_id 不传=治当前默认版本; 指定=治该版本(矩阵页切版本 → 切谁治谁,
     第一次切新版本自动建齐, 慢一次以后秒开)。"""
     last_bar = await pool.fetchval(
-        "SELECT max(time)::date FROM historical_bars WHERE symbol=$1 AND timeframe='M1'",
-        symbol)
+        "SELECT max(time)::date FROM historical_bars"
+        " WHERE symbol=$1 AND timeframe='M1' AND broker=$2",
+        symbol, broker)
     if last_bar is None:
         return f"{symbol} 库内无 M1 数据 — 先去「数据」页下载"
     if version_id is None:
@@ -225,14 +231,16 @@ async def ensure_timeline(pool: asyncpg.Pool, symbol: str,
             return f"版本 v{version_id} 不存在"
         vid, params = version_id, {**DEFAULT_PARAMS, **p}
     last_tl = await pool.fetchval(
-        "SELECT max(date) FROM regime_timeline WHERE version_id=$1 AND symbol=$2",
-        vid, symbol)
+        "SELECT max(date) FROM regime_timeline"
+        " WHERE version_id=$1 AND symbol=$2 AND broker=$3",
+        vid, symbol, broker)
     if last_tl is not None and last_tl >= last_bar:
         return None
-    return await rebuild_symbol(pool, symbol, params, vid)
+    return await rebuild_symbol(pool, symbol, params, vid, broker)
 
 
-async def gate_for(pool: asyncpg.Pool, metadata, symbol: str) -> dict | None:
+async def gate_for(pool: asyncpg.Pool, metadata, symbol: str,
+                   broker: str = "MetaQuotes-Demo") -> dict | None:
     """策略 metadata → 回测引擎的 regime 门(v0.3): {"cells": {格:倍率}, "tl": {日期:格}}。
     无门(空 metadata) → None(引擎走原路径)。版本钉死在 metadata 里(不跟全局默认);
     顺手自愈该版本该品种的时间线(job 在后台跑, 正是建时间线的好时机)。"""
@@ -241,10 +249,10 @@ async def gate_for(pool: asyncpg.Pool, metadata, symbol: str) -> dict | None:
         return None
     vid = int(g["version"])
     try:
-        await ensure_timeline(pool, symbol, vid)
+        await ensure_timeline(pool, symbol, vid, broker)
     except Exception as e:   # 时间线建不出(历史不足等): 门照常生效, 无格日=不开仓, 如实
         logger.warning("gate ensure v%d %s failed: %s", vid, symbol, e)
-    return {"cells": g["cells"], "tl": await tl_map(pool, symbol, vid)}
+    return {"cells": g["cells"], "tl": await tl_map(pool, symbol, vid, broker)}
 
 
 def _runs(seq: list) -> list:

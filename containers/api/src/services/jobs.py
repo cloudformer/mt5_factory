@@ -106,22 +106,26 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
     t_from = datetime.fromisoformat(payload["from"])
     t_to = datetime.fromisoformat(payload["to"])
     s = await pool.fetchrow(
-        "SELECT id, name, template, params, timeframe, metadata FROM strategies WHERE id=$1",
+        "SELECT id, name, template, params, timeframe, metadata, broker"
+        "  FROM strategies WHERE id=$1",
         payload["strategy_id"])
     if s is None:
         raise ValueError("strategy deleted")
-    meta = await pool.fetchrow("SELECT point, broker FROM symbols WHERE symbol=$1", sym)
+    # v2.3 户口制: 数据世界跟策略户口走(跨品种验证行也用同户口券商的数据 — 对比三铁律)
+    meta = await pool.fetchrow(
+        "SELECT point, broker FROM symbols WHERE symbol=$1 AND broker=$2",
+        sym, s["broker"])
     if meta is None:
-        raise ValueError("symbol not in symbols table")
+        raise ValueError(f"symbol {sym}@{s['broker']} not in symbols table")
     # 复用守卫(2026-08-07 全局统一): 有效期内已有覆盖本窗的行 → 秒完不进引擎。
     # payload.reuse_days = 单ID点名把页面「有效期」随任务带来(默认1天档, 填0=本次实际跑);
     # 没带 = 批量/筛选档, 用全局配置。轻量版 reuse_ok 只判存在不搬 trades(2026-08-08)
     if await backtest.reuse_ok(pool, s["id"], sym, t_from, t_to,
-                               days=payload.get("reuse_days")):
+                               days=payload.get("reuse_days"), broker=s["broker"]):
         return
-    key = (sym, payload["from"], payload["to"])
+    key = (sym, s["broker"], payload["from"], payload["to"])
     if cache.get("key") != key:
-        cache["m1"] = await backtest.load_m1(pool, sym, t_from, t_to)
+        cache["m1"] = await backtest.load_m1(pool, sym, t_from, t_to, s["broker"])
         cache["key"] = key
     if cache["m1"] is None:
         raise ValueError(f"no M1 data for {sym}, run /syncdata first")
@@ -135,7 +139,7 @@ async def _run_one(pool: asyncpg.Pool, payload: dict, cache: dict):
         if isinstance(td, dict) and td.get("active"):
             params = {**params, "trail": td}
     # regime 门(v0.3): metadata 有门 → 引擎带门跑(该品种时间线, 版本钉死); 无门 → None 原路径
-    gate = await regime.gate_for(pool, s["metadata"], sym)
+    gate = await regime.gate_for(pool, s["metadata"], sym, s["broker"])
     result = await asyncio.to_thread(
         backtest.run_backtest, cache["m1"], s["template"], params,
         meta["point"], s["timeframe"], oos_split=oos_split, gate=gate, **payload["costs"])
@@ -172,6 +176,7 @@ async def _run_judge(pool: asyncpg.Pool, job_id: int, payload: dict):
     bt_rows = {r["strategy_id"]: dict(r) for r in await pool.fetch(
         "SELECT b.strategy_id, b.trades FROM backtests b"
         " JOIN strategies s ON s.id = b.strategy_id AND s.symbol = b.symbol"
+        "   AND b.broker = s.broker"
         " WHERE b.strategy_id = ANY($1)", ids)}
 
     def _judge_all() -> list:
@@ -200,14 +205,17 @@ async def _run_map(pool, job_id: int, payload: dict) -> None:
     out = []
     for sid in payload["ids"]:
         s = await pool.fetchrow(
-            "SELECT s.id, s.name, s.template, s.symbol, s.timeframe, s.status, s.params,"
-            "       sy.point FROM strategies s LEFT JOIN symbols sy ON sy.symbol = s.symbol"
+            "SELECT s.id, s.name, s.template, s.symbol, s.broker, s.timeframe,"
+            "       s.status, s.params, sy.point"
+            "  FROM strategies s"
+            " LEFT JOIN symbols sy ON sy.symbol = s.symbol AND sy.broker = s.broker"
             " WHERE s.id=$1", sid)
         if s is None:
             continue
         bt = await pool.fetchrow(
             "SELECT from_time, to_time, trades FROM backtests"
-            " WHERE strategy_id=$1 AND symbol=$2", sid, s["symbol"])
+            " WHERE strategy_id=$1 AND symbol=$2 AND broker=$3",
+            sid, s["symbol"], s["broker"])
         base = {"id": sid, "name": s["name"], "template": s["template"],
                 "symbol": s["symbol"], "timeframe": s["timeframe"], "status": s["status"],
                 # slow = 池化分档用(持仓长短的代理: 持仓 ≈ 0.8×slow 根)
@@ -227,8 +235,10 @@ async def _run_map(pool, job_id: int, payload: dict) -> None:
         vers = {}
         for v in payload["versions"]:
             tl = {r["date"]: r["regime"] for r in await pool.fetch(
-                "SELECT date, regime FROM regime_timeline WHERE version_id=$1 AND symbol=$2",
-                v, s["symbol"])}
+                "SELECT date, regime FROM regime_timeline"
+                " WHERE version_id=$1 AND symbol=$2"
+                "   AND broker=(SELECT broker FROM strategies WHERE id=$3)",
+                v, s["symbol"], sid)}
             # 独立评估: seed 用 策略id*100+版本, 结果可复现且各版本互不影响
             vers[str(v)] = await asyncio.to_thread(
                 rmap.analyze_version, rows, tl, p, sid * 100 + v)
@@ -259,8 +269,10 @@ async def _run_screen_judge(pool: asyncpg.Pool, job_id: int, payload: dict):
         "SELECT id, name, symbol, status FROM strategies WHERE id = ANY($1)", ids)}
     bt_by_sid: dict = {}
     for r in await pool.fetch(
-            "SELECT strategy_id, symbol, from_time, to_time, trades FROM backtests"
-            " WHERE strategy_id = ANY($1)", ids):
+            "SELECT b.strategy_id, b.symbol, b.from_time, b.to_time, b.trades"
+            "  FROM backtests b JOIN strategies s ON s.id = b.strategy_id"
+            "   AND b.broker = s.broker"      # v2.3: 只判户口券商的行(含跨品种)
+            " WHERE b.strategy_id = ANY($1)", ids):
         bt_by_sid.setdefault(r["strategy_id"], []).append(dict(r))
     tls: dict = {}
     out = []

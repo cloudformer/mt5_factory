@@ -153,10 +153,10 @@ async def _m1_span(pool, sym: str):
     """品种 M1 实际覆盖(首根/末根), 无数据 = None — plan 预估与 run 同一口径"""
     lo = await pool.fetchval(
         "SELECT time FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
-        " ORDER BY time LIMIT 1", sym)
+        " AND broker=$2 ORDER BY time LIMIT 1", sym, regime.DEFAULT_BROKER)
     hi = await pool.fetchval(
         "SELECT time FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
-        " ORDER BY time DESC LIMIT 1", sym)
+        " AND broker=$2 ORDER BY time DESC LIMIT 1", sym, regime.DEFAULT_BROKER)
     return (lo, hi) if lo and hi else None
 
 
@@ -250,7 +250,7 @@ async def screen_run(req: ScreenRun, request: Request):
     if (req.task or "").strip():
         scope["task"] = req.task.strip()
     rows = await pool.fetch(
-        "SELECT s.id, s.name, s.symbol, s.basis, s.status, s.template, s.params,"
+        "SELECT s.id, s.name, s.symbol, s.broker, s.basis, s.status, s.template, s.params,"
         "       s.timeframe, s.metadata"
         f" FROM strategies s WHERE {' AND '.join(conds)} ORDER BY s.symbol, s.id", *args)
     if not rows:
@@ -316,8 +316,11 @@ async def screen_run(req: ScreenRun, request: Request):
     oos_split = await pool.fetchval(
         "SELECT value FROM config WHERE key='backtest_oos_split'") or 0.7
     trail_default = await pool.fetchval("SELECT value FROM config WHERE key='trail_default'")
-    syms_meta = {r["symbol"]: dict(r) for r in await pool.fetch(
-        "SELECT symbol, point, broker FROM symbols")}
+    # v2.3: 同名品种可有多券商行 — 双层索引 {symbol: {broker: row}};
+    # 外层循环仍按品种名, 取数按 (品种, 策略户口)
+    syms_meta: dict = {}
+    for r in await pool.fetch("SELECT symbol, point, broker FROM symbols"):
+        syms_meta.setdefault(r["symbol"], {})[r["broker"]] = dict(r)
     t_to = datetime.now(timezone.utc)
     t_from = t_to - timedelta(days=p["window_years"] * 365.25)
 
@@ -326,14 +329,17 @@ async def screen_run(req: ScreenRun, request: Request):
     async def _fresh_bt(strat, sym):
         """现跑一发总计年回测(与 jobs._run_one 同一配方) → bt 行 dict;
         None = 该品种 M1 覆盖不足总计年。结果 UPSERT 回流(from/to = 实际首末根, 标签不撒谎)"""
+        bk = strat["broker"]                     # v2.3: 数据世界=策略户口(跨品种行同户口)
+        if bk not in syms_meta.get(sym, {}):
+            return None                          # 该券商没登记这个品种 = 无数据可跑
         # 复用守卫(2026-08-07 全局统一, 唯一实现在 backtest.reuse_row): 命中即不重跑
-        row = await backtest.reuse_row(pool, strat["id"], sym, t_from, t_to)
+        row = await backtest.reuse_row(pool, strat["id"], sym, t_from, t_to, broker=bk)
         if row:
-            return {"symbol": sym, "from_time": row["from_time"],
+            return {"symbol": sym, "broker": bk, "from_time": row["from_time"],
                     "to_time": row["to_time"], "trades": row["trades"]}
-        if m1_cache["sym"] != sym:
-            m1_cache["m1"] = await backtest.load_m1(pool, sym, t_from, t_to)
-            m1_cache["sym"] = sym
+        if m1_cache["sym"] != (sym, bk):
+            m1_cache["m1"] = await backtest.load_m1(pool, sym, t_from, t_to, bk)
+            m1_cache["sym"] = (sym, bk)
         m1 = m1_cache["m1"]
         if m1 is None:
             return None
@@ -345,10 +351,10 @@ async def screen_run(req: ScreenRun, request: Request):
         if isinstance(params, dict) and not params.get("trail") \
                 and isinstance(trail_default, dict) and trail_default.get("active"):
             params = {**params, "trail": trail_default}
-        gate = await regime.gate_for(pool, strat["metadata"], sym)
+        gate = await regime.gate_for(pool, strat["metadata"], sym, bk)
         result = await asyncio.to_thread(
             backtest.run_backtest, m1, strat["template"], params,
-            syms_meta[sym]["point"], strat["timeframe"], oos_split=oos_split,
+            syms_meta[sym][bk]["point"], strat["timeframe"], oos_split=oos_split,
             gate=gate, **costs)
         await pool.execute(
             "INSERT INTO backtests"
@@ -358,9 +364,9 @@ async def screen_run(req: ScreenRun, request: Request):
             "   from_time=EXCLUDED.from_time, to_time=EXCLUDED.to_time,"
             "   broker=EXCLUDED.broker, metrics=EXCLUDED.metrics,"
             "   trades=EXCLUDED.trades, created_at=now()",
-            strat["id"], cov_from, cov_to, sym, syms_meta[sym]["broker"],
+            strat["id"], cov_from, cov_to, sym, bk,
             result["metrics"], result["trades"])
-        return {"symbol": sym, "from_time": cov_from, "to_time": cov_to,
+        return {"symbol": sym, "broker": bk, "from_time": cov_from, "to_time": cov_to,
                 "trades": result["trades"]}
 
     tls: dict = {}                      # 品种时间线缓存(同一 vid)

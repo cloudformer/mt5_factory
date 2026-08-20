@@ -55,7 +55,7 @@ async def run(req: RunRequest, request: Request):
     p = regime_map.cfg_params(req.model_dump())     # 判据规范化(带默认), 随报告存快照
     uid = identity.scope_uid(request)
     conds, args = ["EXISTS (SELECT 1 FROM backtests b WHERE b.strategy_id = s.id"
-                   "         AND b.symbol = s.symbol)"], []
+                   "         AND b.symbol = s.symbol AND b.broker = s.broker)"], []
     if req.ids:
         args.append(req.ids)
         conds.append(f"s.id = ANY(${len(args)})")

@@ -57,6 +57,7 @@ async def _cross_qualified(pool, strategy_ids: list[int]) -> tuple[set[int], int
     mains = {r["strategy_id"]: r["metrics"] for r in await pool.fetch(
         "SELECT b.strategy_id, b.metrics FROM backtests b"
         " JOIN strategies s ON s.id = b.strategy_id AND s.symbol = b.symbol"
+        "   AND b.broker = s.broker"
         " WHERE b.strategy_id = ANY($1)", strategy_ids)}
     qualified = {sid for sid in strategy_ids if _passes_gate(mains.get(sid), gate)}
     untested = sum(1 for sid in strategy_ids if sid not in mains)
@@ -144,7 +145,8 @@ async def run(req: BacktestRequest, request: Request):
             args.append(req.basis); q += f" AND basis = ${len(args)}"
         if req.untested_only:  # 范围=未测试: 主品种还没有回测记录的才跑(补漏)
             q += (" AND NOT EXISTS (SELECT 1 FROM backtests b"
-                  "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol)")
+                  "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol"
+                  "    AND b.broker = strategies.broker)")
         args.append(await _batch_limit(pool, req.limit))
         q += f" ORDER BY symbol, id LIMIT ${len(args)}"
         rows = await pool.fetch(q, *args)
@@ -199,20 +201,20 @@ async def run(req: BacktestRequest, request: Request):
             extra["reuse_days"] = int(single) if single is not None else int(
                 await pool.fetchval(
                     "SELECT value FROM config WHERE key='backtest_reuse_days'") or 0)
-    data_start: dict = {}    # 全部窗口: 每品种 M1 首根时间(缓存, 每品种只查一次)
+    data_start: dict = {}    # 全部窗口: 每(品种,户口) M1 首根时间(缓存, 只查一次)
 
-    async def _from_iso(sym: str) -> str:
+    async def _from_iso(sym: str, bk: str) -> str:
         if t_from is not None:
             return t_from.isoformat()
-        if sym not in data_start:
-            data_start[sym] = await pool.fetchval(
+        if (sym, bk) not in data_start:
+            data_start[(sym, bk)] = await pool.fetchval(
                 "SELECT min(time) FROM historical_bars"
-                " WHERE symbol=$1 AND timeframe='M1'", sym) \
+                " WHERE symbol=$1 AND timeframe='M1' AND broker=$2", sym, bk) \
                 or t_to - timedelta(days=7400)  # 无数据: 落回上限窗, 执行时照常报缺数据
-        return data_start[sym].isoformat()
+        return data_start[(sym, bk)].isoformat()
 
     items = [{"strategy_id": s["id"], "name": s["name"], "symbol": sym,
-              "from": await _from_iso(sym), "to": t_to.isoformat(),
+              "from": await _from_iso(sym, s["broker"]), "to": t_to.isoformat(),
               "costs": costs, **extra}
              for s in rows
              for sym in ({s["symbol"]} | universe
@@ -286,7 +288,8 @@ async def plan(request: Request, symbol: Optional[str] = None, broker: Optional[
             q += " AND status <> 'ARCHIVED'"
         if untested_only:
             q += (" AND NOT EXISTS (SELECT 1 FROM backtests b"
-                  "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol)")
+                  "  WHERE b.strategy_id = strategies.id AND b.symbol = strategies.symbol"
+                  "    AND b.broker = strategies.broker)")
         args.append(limit)
         rows = await pool.fetch(f"{q} LIMIT ${len(args)}", *args)
     n = len(rows)
@@ -430,7 +433,8 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
             " COALESCE(b.broker, sy.broker) AS broker, b.metrics, b.created_at")
     joins = (" FROM strategies s"
              " LEFT JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol"
-             " LEFT JOIN symbols sy ON sy.symbol = s.symbol")
+             " AND b.broker = s.broker"
+             " LEFT JOIN symbols sy ON sy.symbol = s.symbol AND sy.broker = s.broker")
     lo = max(page - 1, 0) * limit
 
     # ---- v1.3: 排序/分页/评分全下推 SQL, 只搬回当页行; total 用窗口 count(*) ----
@@ -558,8 +562,9 @@ async def top(request: Request, symbol: Optional[str] = None, broker: Optional[s
             "       sum((t->>'points')::float) AS net"
             "  FROM backtests b"
             "  JOIN strategies s2 ON s2.id = b.strategy_id AND b.symbol = s2.symbol"
+            "   AND b.broker = s2.broker"
             " CROSS JOIN LATERAL jsonb_array_elements(b.trades) t"
-            "  JOIN regime_timeline rt ON rt.symbol = b.symbol"
+            "  JOIN regime_timeline rt ON rt.symbol = b.symbol AND rt.broker = b.broker"
             "   AND rt.version_id = COALESCE((SELECT (value #>> '{}')::int FROM config"
             "                                  WHERE key='regime_version'), 1)"
             "   AND rt.date = (to_timestamp((t->>'entry_time')::bigint)"
@@ -798,10 +803,11 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all",
     (该策略×scope 整组删旧插新); 返回指定账户(缺省主账户)的完整详情 + accounts 汇总列表。
     单账户时与旧口径逐字节等价。"""
     strat = await pool.fetchrow(
-        "SELECT s.symbol, s.timeframe, s.template, s.params, s.metadata,"
+        "SELECT s.symbol, s.broker, s.timeframe, s.template, s.params, s.metadata,"
         "       sym.point, sym.stops_level"
         "  FROM strategies s"
-        " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
+        " LEFT JOIN symbols sym ON sym.symbol = s.symbol AND sym.broker = s.broker"
+        " WHERE s.id=$1", strategy_id)
     if strat is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     q = ("SELECT direction, entry_time, exit_time, profit, entry_price, exit_price,"
@@ -827,10 +833,10 @@ async def compute_reconcile(pool, strategy_id: int, scope: str = "all",
             params_eff = {**params_eff, "trail": td}
     # Regime 时间线(v2.5): 逐笔对照行贴入场日格子, 现拼不落库(reconciliations 只存 metrics)
     try:
-        await regime.ensure_timeline(pool, strat["symbol"])
+        await regime.ensure_timeline(pool, strat["symbol"], broker=strat["broker"])
     except Exception as e:
         logger.warning("regime ensure %s failed: %s", strat["symbol"], e)
-    tl = await regime.tl_map(pool, strat["symbol"])   # 当前默认版本(v0.2 版本化)
+    tl = await regime.tl_map(pool, strat["symbol"], broker=strat["broker"])
     by_acct: dict = {}
     for a in actual:
         by_acct.setdefault(a["account"], []).append(a)
@@ -940,10 +946,12 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
             m1 = await backtest.load_m1(
                 pool, strat["symbol"],
                 datetime.fromtimestamp(wf_ts - tol - lead, tz=timezone.utc),
-                datetime.fromtimestamp(wt_ts, tz=timezone.utc) + timedelta(days=5))
+                datetime.fromtimestamp(wt_ts, tz=timezone.utc) + timedelta(days=5),
+                strat["broker"])
             if m1 is not None and len(m1["time"]):
                 # regime 门(v0.3): 带门实例重放同门 — 实盘按门交易, 重放不带门会满屏假差异
-                g = await regime.gate_for(pool, strat["metadata"], strat["symbol"])
+                g = await regime.gate_for(pool, strat["metadata"], strat["symbol"],
+                                           strat["broker"])
                 res = await asyncio.to_thread(
                     backtest.run_backtest, m1, strat["template"], params_eff,
                     strat["point"], strat["timeframe"], oos_split=None,
@@ -966,9 +974,10 @@ async def _reconcile_account(pool, strat, strategy_id: int, scope: str, account:
     bt_from = datetime.fromtimestamp(wf_ts - tol, tz=timezone.utc) if replay_to_ts else None
     bt_to = datetime.fromtimestamp(replay_to_ts, tz=timezone.utc) if replay_to_ts else None
     data_to = await pool.fetchval(   # 该品种库内原始 M1 的最新时间(唯一原始数据, 回测的原料)
-        "SELECT max(time) FROM historical_bars WHERE symbol=$1 AND timeframe='M1'", strat["symbol"])
-    out["broker"] = await pool.fetchval(  # 品种主档的券商 — 补数据提示里点名"下哪家的哪个品种"
-        "SELECT broker FROM symbols WHERE symbol=$1", strat["symbol"])
+        "SELECT max(time) FROM historical_bars"
+        " WHERE symbol=$1 AND timeframe='M1' AND broker=$2",
+        strat["symbol"], strat["broker"])
+    out["broker"] = strat["broker"]   # v2.3: 户口即券商(提示里点名"下哪家的哪个品种")
     data_to_ts = data_to.timestamp() if data_to else None
     for p in pairs:  # 配对行补每笔差值(页面详情显示): 入场/出场价差(点+%), 净点差(点+%)
         if p["actual"] is not None and p["bt"] is not None:
@@ -1093,7 +1102,10 @@ async def heal_points(req: HealPointsRequest, request: Request):
     """point 漂移治愈(v0.7): 按原始价格 × 当前 point 批量重算该品种全部 net_points。
     net_points 只是缓存的换算结果, 原始价格才是账本(永不改动); 重算幂等, 重复执行结果相同。"""
     pool = request.app.state.pool
-    pt = await pool.fetchval("SELECT point FROM symbols WHERE symbol=$1", req.symbol)
+    # v2.3: point 钉在研发尺行(确定性); 各券商 point 各归各的逐行治愈随迁户口阶段补
+    pt = await pool.fetchval(
+        "SELECT point FROM symbols WHERE symbol=$1 AND broker=$2",
+        req.symbol, regime.DEFAULT_BROKER)
     if not pt:
         raise HTTPException(status_code=404, detail=f"{req.symbol} 未登记或 point 缺失")
     n = await pool.execute(
@@ -1252,16 +1264,18 @@ async def regime_matrix_years(request: Request, strategy_id: int, symbol: str,
     cell 不传 = 默认笔数最多的格。回答: 这个格的优势是贯穿20年还是某几年的运气。"""
     pool = request.app.state.pool
     await identity.assert_strategy_visible(pool, request, strategy_id)
+    s_bk = await pool.fetchval(
+        "SELECT broker FROM strategies WHERE id=$1", strategy_id) or "MetaQuotes-Demo"
     bt = await pool.fetchrow(
         "SELECT from_time, to_time, trades FROM backtests"
-        " WHERE strategy_id=$1 AND symbol=$2", strategy_id, symbol)
+        " WHERE strategy_id=$1 AND symbol=$2 AND broker=$3", strategy_id, symbol, s_bk)
     if bt is None:
         raise HTTPException(status_code=404, detail="该品种没有回测行")
     try:
-        await regime.ensure_timeline(pool, symbol, regime_version)
+        await regime.ensure_timeline(pool, symbol, regime_version, s_bk)
     except Exception as e:
         logger.warning("regime ensure %s failed: %s", symbol, e)
-    tl = await regime.tl_map(pool, symbol, regime_version)
+    tl = await regime.tl_map(pool, symbol, regime_version, s_bk)
     # 逐笔贴格 → (格, 年) 累加: n/毛利/毛损
     agg: dict = {}
     counts: dict = {}
@@ -1323,7 +1337,7 @@ async def backtest_regime_matrix(request: Request, strategy_id: int,
     if strat is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     rows = await pool.fetch(
-        "SELECT symbol, from_time, to_time, trades FROM backtests"
+        "SELECT symbol, broker, from_time, to_time, trades FROM backtests"
         " WHERE strategy_id=$1 ORDER BY symbol", strategy_id)
     total_raw: dict = {}
     total_sweep: dict = {}   # sweep 模式: {窗口标签: 累加器} 全品种同格相加
@@ -1332,11 +1346,11 @@ async def backtest_regime_matrix(request: Request, strategy_id: int,
         sym = r["symbol"]
         try:
             # 切谁治谁(v0.2): 看哪个版本就自愈哪个版本的时间线 — 第一次切新版本自动建齐
-            await regime.ensure_timeline(pool, sym, regime_version)
+            await regime.ensure_timeline(pool, sym, regime_version, r["broker"])
         except Exception as e:
             logger.warning("regime ensure %s failed: %s", sym, e)
         # 版本下拉(v0.2): 不传=当前默认; 指定=同一批trades换个版本的天气看归因(读时JOIN零重跑)
-        tl = await regime.tl_map(pool, sym, regime_version)
+        tl = await regime.tl_map(pool, sym, regime_version, r["broker"])
 
         def _bucket(ts):
             """逐笔按入场日贴格 → (累加器, 无标签笔数)"""
@@ -1428,6 +1442,7 @@ async def equity_curves(request: Request, ids: str):
     rows = await pool.fetch(
         "SELECT s.id, s.name, s.basis, s.symbol, s.timeframe, b.from_time, b.to_time, b.trades"
         "  FROM strategies s JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol"
+        " AND b.broker = s.broker"
         " WHERE s.id = ANY($1)" + (" AND s.owner_id = $2" if uid else "") +
         " ORDER BY s.id", id_list, *([uid] if uid else []))
     got = {r["id"] for r in rows}
@@ -1446,15 +1461,16 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
     pool = request.app.state.pool
     await identity.assert_strategy_visible(pool, request, strategy_id)
     strat = await pool.fetchrow(
-        "SELECT name, symbol, timeframe FROM strategies WHERE id=$1", strategy_id)
+        "SELECT name, symbol, broker, timeframe FROM strategies WHERE id=$1", strategy_id)
     if strat is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     sym = symbol or strat["symbol"]        # 分析哪个品种的回测(默认主品种)
     all_syms = [r["symbol"] for r in await pool.fetch(   # 该策略回测过的品种(下拉用)
         "SELECT symbol FROM backtests WHERE strategy_id=$1 ORDER BY symbol", strategy_id)]
     main = await pool.fetchrow(
-        "SELECT trades, metrics FROM backtests WHERE strategy_id=$1 AND symbol=$2",
-        strategy_id, sym)
+        "SELECT trades, metrics FROM backtests"
+        " WHERE strategy_id=$1 AND symbol=$2 AND broker=$3",   # 户口行(v2.3)
+        strategy_id, sym, strat["broker"])
     breakdown = await pool.fetch(
         "SELECT symbol, metrics FROM backtests WHERE strategy_id=$1 ORDER BY symbol", strategy_id)
     trades = (main["trades"] if main else []) or []
@@ -1476,10 +1492,10 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
     # 逐笔入场日期 JOIN regime_timeline → 每笔当天格子 + 八格汇总。
     # 改口径重建时间线后这里自动跟着变新(零垃圾); 回测引擎/存储零改动。
     try:
-        await regime.ensure_timeline(pool, sym)   # 读时自愈; 历史不足等原因不挡归因页
+        await regime.ensure_timeline(pool, sym, broker=strat["broker"])   # 读时自愈
     except Exception as e:
         logger.warning("regime ensure %s failed: %s", sym, e)
-    tl = await regime.tl_map(pool, sym)   # 当前默认版本(v0.2 版本化)
+    tl = await regime.tl_map(pool, sym, broker=strat["broker"])
     def _cell(t):
         return tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
     for t, view in zip(st[:1000], out["trades"]):   # 明细行带当天格子(顺序一致)
@@ -1500,7 +1516,8 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
     # (sym 是归因下拉选的品种, 可能不是主品种, 不能混用)
     act = out["actual"]
     if act.get("has_data") and act.get("trades"):
-        tl_m = tl if sym == strat["symbol"] else await regime.tl_map(pool, strat["symbol"])
+        tl_m = tl if sym == strat["symbol"] else await regime.tl_map(
+            pool, strat["symbol"], broker=strat["broker"])
         a_cells: dict = {}
         a_unlabeled = 0
         for view in act["trades"]:   # entry = "YYYY-MM-DD HH:MM"(券商时间, 与时间线同口径)

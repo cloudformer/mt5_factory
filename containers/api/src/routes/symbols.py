@@ -46,14 +46,15 @@ async def list_symbols(request: Request, coverage: bool = False):
     cov: dict = {}
     if coverage:
         for c in await pool.fetch(
-                "SELECT symbol, timeframe, min(time) AS first_bar, max(time) AS last_bar,"
-                "       count(*) AS bars FROM historical_bars GROUP BY 1, 2"):
-            cov.setdefault(c["symbol"], {})[c["timeframe"]] = {
+                "SELECT symbol, broker, timeframe, min(time) AS first_bar,"
+                "       max(time) AS last_bar,"
+                "       count(*) AS bars FROM historical_bars GROUP BY 1, 2, 3"):
+            cov.setdefault((c["symbol"], c["broker"]), {})[c["timeframe"]] = {
                 "first_bar": c["first_bar"], "last_bar": c["last_bar"], "bars": c["bars"]}
     out = []
     for r in rows:
         d = dict(r)
-        d["cov"] = cov.get(r["symbol"], {})
+        d["cov"] = cov.get((r["symbol"], r["broker"]), {})
         m1 = d["cov"].get("M1", {})   # 老字段保留(消费者零改动); 无 coverage 时为 None
         d["first_bar"], d["last_bar"], d["bars"] = (
             m1.get("first_bar"), m1.get("last_bar"), m1.get("bars"))
@@ -61,10 +62,12 @@ async def list_symbols(request: Request, coverage: bool = False):
     orphans = []
     if coverage:   # 孤儿检查同样是全表聚合, 只有下载页显示它 — 同门控(2026-07-29 性能修复)
         orphans = await pool.fetch(
-            "SELECT symbol, min(time) AS first_bar, max(time) AS last_bar, count(*) AS bars"
-            "  FROM historical_bars"
-            " WHERE symbol NOT IN (SELECT symbol FROM symbols)"
-            " GROUP BY symbol ORDER BY symbol")
+            "SELECT symbol, broker, min(time) AS first_bar, max(time) AS last_bar,"
+            "       count(*) AS bars"
+            "  FROM historical_bars h"
+            " WHERE NOT EXISTS (SELECT 1 FROM symbols s"
+            "         WHERE s.symbol = h.symbol AND s.broker = h.broker)"
+            " GROUP BY symbol, broker ORDER BY symbol, broker")
     return {"symbols": out, "orphans": [dict(r) for r in orphans]}
 
 
@@ -108,47 +111,55 @@ class SymbolUpdate(BaseModel):
 
 
 @router.patch("/symbols/{symbol}")
-async def update_symbol(symbol: str, req: SymbolUpdate, request: Request):
-    """改品种的下载开关 / 起始日期 (精度不可手改, 只能靠 POST 重新校验)"""
+async def update_symbol(symbol: str, req: SymbolUpdate, request: Request,
+                        broker: str | None = None):
+    """改品种的下载开关 / 起始日期 (精度不可手改, 只能靠 POST 重新校验)。
+    broker(v2.3): 不传=同名全部券商行(单券商语义不变); 传=只动该券商的登记行"""
     fields = req.model_dump(exclude_unset=True)
     if not fields:
         raise HTTPException(status_code=400, detail="nothing to update")
     if "data_start" in fields:  # asyncpg 的 date 参数只吃 date 对象, 字符串会报错
         fields["data_start"] = _parse_date(fields["data_start"])
-    sets, args = [], [symbol.upper()]
+    sets, args = [], [symbol.upper(), broker]
     for k, v in fields.items():
         args.append(v)
         sets.append(f"{k} = ${len(args)}")
     row = await request.app.state.pool.fetchrow(
-        f"UPDATE symbols SET {', '.join(sets)} WHERE symbol = $1 RETURNING *", *args)
+        f"UPDATE symbols SET {', '.join(sets)}"
+        f" WHERE symbol = $1 AND ($2::varchar IS NULL OR broker = $2) RETURNING *", *args)
     if row is None:
         raise HTTPException(status_code=404, detail="symbol not found")
     return dict(row)
 
 
 @router.delete("/symbols/{symbol}/data")
-async def purge_symbol_data(symbol: str, request: Request):
+async def purge_symbol_data(symbol: str, request: Request,
+                            broker: str | None = None):
     """清空某品种的全部历史 K线 (删登记前必须先做这步; 也用于清理孤儿数据)"""
     name = symbol.upper()
     result = await request.app.state.pool.execute(
-        "DELETE FROM historical_bars WHERE symbol=$1", name)
+        "DELETE FROM historical_bars WHERE symbol=$1"
+        " AND ($2::varchar IS NULL OR broker=$2)", name, broker)
     deleted = int(result.split()[-1])
     logger.info("purged %d bars for %s", deleted, name)
     return {"symbol": name, "deleted_bars": deleted}
 
 
 @router.delete("/symbols/{symbol}")
-async def delete_symbol(symbol: str, request: Request):
+async def delete_symbol(symbol: str, request: Request,
+                        broker: str | None = None):
     """删除品种登记。铁律: 有历史数据时拒绝 —— 必须先清空数据, 杜绝无登记的孤儿数据"""
     name = symbol.upper()
     bars = await request.app.state.pool.fetchval(
-        "SELECT count(*) FROM historical_bars WHERE symbol=$1", name)
+        "SELECT count(*) FROM historical_bars WHERE symbol=$1"
+        " AND ($2::varchar IS NULL OR broker=$2)", name, broker)
     if bars:
         raise HTTPException(
             status_code=409,
             detail=f"{name} 还有 {bars:,} 根历史数据 — 先『清空数据』再删除(避免看不到的孤儿数据)")
     row = await request.app.state.pool.fetchrow(
-        "DELETE FROM symbols WHERE symbol=$1 RETURNING symbol", name)
+        "DELETE FROM symbols WHERE symbol=$1"
+        " AND ($2::varchar IS NULL OR broker=$2) RETURNING symbol", name, broker)
     if row is None:
         raise HTTPException(status_code=404, detail="symbol not found")
     return {"deleted": row["symbol"]}

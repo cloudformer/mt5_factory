@@ -116,7 +116,8 @@ async def strategy_batches(request: Request, limit: int = 60, only_tested: int =
     """
     uid = identity.scope_uid(request)
     tested = ("count(*) FILTER (WHERE EXISTS (SELECT 1 FROM backtests b"
-              "   WHERE b.strategy_id = s.id AND b.symbol = s.symbol))")
+              "   WHERE b.strategy_id = s.id AND b.symbol = s.symbol"
+              "     AND b.broker = s.broker))")
     rows = await request.app.state.pool.fetch(
         "SELECT basis, count(*)::int AS n,"
         "       string_agg(DISTINCT timeframe, ',' ORDER BY timeframe) AS timeframes,"
@@ -167,14 +168,15 @@ async def list_strategies(request: Request, status: Optional[str] = None,
                            f" AND m.enabled AND m.host_id = ${len(args)}")
             vol_expr = "COALESCE(m.volume, s.volume)"
     q = (f"SELECT s.id, s.name, s.template, s.symbol, s.timeframe, s.params, s.status,"
-         f"       s.metadata, s.magic_number, {vol_expr} AS volume, sy.broker,"
+         f"       s.metadata, s.magic_number, {vol_expr} AS volume, s.broker,"
          f"       b.metrics AS backtest, st.stats"
          "  FROM strategies s"
          f"{join_mounts}"
-         "  LEFT JOIN symbols sy ON sy.symbol = s.symbol"  # 券商(来自品种主档)
+         "  LEFT JOIN symbols sy ON sy.symbol = s.symbol AND sy.broker = s.broker"
          # 只取主品种回测 (symbol=s.symbol): 跨品种验证会写多品种行, 不能串到别品种成绩
          "  LEFT JOIN LATERAL (SELECT metrics FROM backtests"
          "                      WHERE strategy_id = s.id AND symbol = s.symbol"
+         "                        AND broker = s.broker"   # 户口行(v2.3)
          "                      ORDER BY id DESC LIMIT 1) b ON true"
          "  LEFT JOIN LATERAL (SELECT jsonb_object_agg(env, v) AS stats FROM ("
          "                       SELECT lower(env) AS env, jsonb_build_object("
@@ -205,13 +207,15 @@ async def list_strategies(request: Request, status: Optional[str] = None,
             continue
         vid = int(g["version"])
         try:
-            await regime.ensure_timeline(pool, r["symbol"], vid)
+            await regime.ensure_timeline(pool, r["symbol"], vid,
+                                          r.get("broker") or "MetaQuotes-Demo")
         except Exception as e:
             logger.warning("status gate ensure v%d %s failed: %s", vid, r["symbol"], e)
         tl_last = await pool.fetchrow(
             "SELECT date, regime FROM regime_timeline"
-            " WHERE version_id=$1 AND symbol=$2 ORDER BY date DESC LIMIT 1",
-            vid, r["symbol"])
+            " WHERE version_id=$1 AND symbol=$2 AND broker=$3"
+            " ORDER BY date DESC LIMIT 1",
+            vid, r["symbol"], r.get("broker") or "MetaQuotes-Demo")
         r["regime_cell"] = tl_last["regime"] if tl_last else None
         r["regime_cell_date"] = tl_last["date"].isoformat() if tl_last else None
     # 默认手数(config 唯一源): runner 对 volume 为空的策略用它; web 下拉显示「X(默认)」
@@ -268,7 +272,7 @@ async def strategy_tree(request: Request, template: Optional[str] = None,
         f"       s.timeframe, b.metrics, b.from_time, b.to_time"
         f"  FROM strategies s"
         f"  LEFT JOIN LATERAL (SELECT metrics, from_time, to_time FROM backtests"
-        f"        WHERE strategy_id = s.id AND symbol = s.symbol"
+        f"        WHERE strategy_id = s.id AND symbol = s.symbol AND broker = s.broker"
         f"        ORDER BY id DESC LIMIT 1) b ON true"
         f" WHERE {where} AND s.status <> 'ARCHIVED'"
         f" ORDER BY s.id", *args)
@@ -544,13 +548,15 @@ async def set_status(strategy_id: int, req: StatusRequest, request: Request):
 
 
 
-async def _trail_window(pool, strategy_id: int, symbol: str):
+async def _trail_window(pool, strategy_id: int, symbol: str,
+                        broker: str = "MetaQuotes-Demo"):
     """移动止损对比/调优批跑的数据窗口(2026-07-29 时间窗保护): 优先用该策略主品种
     成绩单(backtests)存的 from/to — 对比三铁律: 和被比较的排名成绩同窗才可比;
     没跑过回测则回落 config 批量默认窗口(从现在往回数)。"""
     row = await pool.fetchrow(
-        "SELECT from_time, to_time FROM backtests WHERE strategy_id=$1 AND symbol=$2",
-        strategy_id, symbol)
+        "SELECT from_time, to_time FROM backtests"
+        " WHERE strategy_id=$1 AND symbol=$2 AND broker=$3",
+        strategy_id, symbol, broker)
     if row:
         return row["from_time"], row["to_time"]
     win = int(await pool.fetchval(
@@ -570,14 +576,16 @@ async def trail_compare(strategy_id: int, request: Request, variant: Optional[st
     pool = request.app.state.pool
     await identity.assert_strategy_visible(pool, request, strategy_id)
     s = await pool.fetchrow(
-        "SELECT s.template, s.params, s.symbol, s.timeframe, sym.point FROM strategies s"
-        " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
+        "SELECT s.template, s.params, s.symbol, s.broker, s.timeframe, sym.point"
+        "  FROM strategies s"
+        " LEFT JOIN symbols sym ON sym.symbol = s.symbol AND sym.broker = s.broker"
+        " WHERE s.id=$1", strategy_id)
     if s is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     if not s["point"] or s["timeframe"] not in backtest.TF_SECONDS:
         raise HTTPException(status_code=400, detail="品种未登记或周期不支持")
-    w_from, w_to = await _trail_window(pool, strategy_id, s["symbol"])
-    m1 = await backtest.load_m1(pool, s["symbol"], w_from, w_to)
+    w_from, w_to = await _trail_window(pool, strategy_id, s["symbol"], s["broker"])
+    m1 = await backtest.load_m1(pool, s["symbol"], w_from, w_to, s["broker"])
     if m1 is None:
         raise HTTPException(status_code=400, detail=f"{s['symbol']} 无 M1 数据, 先去下载")
     cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
@@ -616,10 +624,10 @@ async def trail_compare(strategy_id: int, request: Request, variant: Optional[st
     tl = {}
     if variant:  # 明细模式附每笔入场日格子(v2.5, 现拼不落库); 时间线缺失不挡明细
         try:
-            await regime.ensure_timeline(pool, s["symbol"])
+            await regime.ensure_timeline(pool, s["symbol"], broker=s["broker"])
         except Exception as e:
             logger.warning("regime ensure %s failed: %s", s["symbol"], e)
-        tl = await regime.tl_map(pool, s["symbol"])   # 当前默认版本(v0.2 版本化)
+        tl = await regime.tl_map(pool, s["symbol"], broker=s["broker"])   # 当前默认版本
     rows = []
     for t in types:
         p = dict(s["params"] or {})
@@ -661,14 +669,16 @@ async def cost_stress(strategy_id: int, request: Request):
     pool = request.app.state.pool
     await identity.assert_strategy_visible(pool, request, strategy_id)
     s = await pool.fetchrow(
-        "SELECT s.template, s.params, s.symbol, s.timeframe, sym.point FROM strategies s"
-        " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
+        "SELECT s.template, s.params, s.symbol, s.broker, s.timeframe, sym.point"
+        "  FROM strategies s"
+        " LEFT JOIN symbols sym ON sym.symbol = s.symbol AND sym.broker = s.broker"
+        " WHERE s.id=$1", strategy_id)
     if s is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     if not s["point"] or s["timeframe"] not in backtest.TF_SECONDS:
         raise HTTPException(status_code=400, detail="品种未登记或周期不支持")
-    w_from, w_to = await _trail_window(pool, strategy_id, s["symbol"])
-    m1 = await backtest.load_m1(pool, s["symbol"], w_from, w_to)
+    w_from, w_to = await _trail_window(pool, strategy_id, s["symbol"], s["broker"])
+    m1 = await backtest.load_m1(pool, s["symbol"], w_from, w_to, s["broker"])
     if m1 is None:
         raise HTTPException(status_code=400, detail=f"{s['symbol']} 无 M1 数据, 先去下载")
     cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}
@@ -1158,7 +1168,8 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
                    f"无门实例并回测, 再载入那个新 ID")
     bt = await pool.fetchrow(
         "SELECT from_time, to_time, trades FROM backtests"
-        " WHERE strategy_id=$1 AND symbol=$2", s["id"], s["symbol"])
+        " WHERE strategy_id=$1 AND symbol=$2 AND broker=$3",
+        s["id"], s["symbol"], s["broker"])
     if bt is None:
         raise HTTPException(status_code=400, detail=(
             f"无门根 #{s['id']} 的主品种没有回测行 — 先给它跑一发回测(建议20年)"
@@ -1182,12 +1193,13 @@ async def regime_ai_prompt(strategy_id: int, request: Request):
     for v in await pool.fetch("SELECT id, params FROM regime_versions ORDER BY id"):
         vid = v["id"]
         try:   # 切谁治谁: 自愈该版本时间线(与矩阵页同规矩)
-            await regime.ensure_timeline(pool, s["symbol"], vid)
+            await regime.ensure_timeline(pool, s["symbol"], vid, s["broker"])
         except Exception as e:
             logger.warning("regime ensure v%s %s failed: %s", vid, s["symbol"], e)
         tl_rows = await pool.fetch(
             "SELECT date, regime FROM regime_timeline"
-            " WHERE version_id=$1 AND symbol=$2 ORDER BY date", vid, s["symbol"])
+            " WHERE version_id=$1 AND symbol=$2 AND broker=$3 ORDER BY date",
+            vid, s["symbol"], s["broker"])
         tl = {r["date"]: r["regime"] for r in tl_rows}
         ycells: dict = {}   # (年, 格) → [笔, 赢, 毛利, 毛损]
         mcells: dict = {}   # (YYMM, 格) → 同上
@@ -1409,6 +1421,7 @@ async def family(strategy_id: int, request: Request):
         "       s.basis, s.created_at, b.metrics"
         " FROM strategies s"
         " LEFT JOIN backtests b ON b.strategy_id = s.id AND b.symbol = s.symbol"
+        " AND b.broker = s.broker"
         " WHERE s.id = $1 OR s.parent_id = $1"
         " ORDER BY (s.id = $1) DESC, s.id", strategy_id)
     out = []
@@ -1596,14 +1609,16 @@ async def trail_batch(strategy_id: int, req: TrailBatchRequest, request: Request
     pool = request.app.state.pool
     await identity.assert_strategy_visible(pool, request, strategy_id)
     s = await pool.fetchrow(
-        "SELECT s.template, s.params, s.symbol, s.timeframe, sym.point FROM strategies s"
-        " LEFT JOIN symbols sym ON sym.symbol = s.symbol WHERE s.id=$1", strategy_id)
+        "SELECT s.template, s.params, s.symbol, s.broker, s.timeframe, sym.point"
+        "  FROM strategies s"
+        " LEFT JOIN symbols sym ON sym.symbol = s.symbol AND sym.broker = s.broker"
+        " WHERE s.id=$1", strategy_id)
     if s is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     if not s["point"] or s["timeframe"] not in backtest.TF_SECONDS:
         raise HTTPException(status_code=400, detail="品种未登记或周期不支持")
-    w_from, w_to = await _trail_window(pool, strategy_id, s["symbol"])
-    m1 = await backtest.load_m1(pool, s["symbol"], w_from, w_to)
+    w_from, w_to = await _trail_window(pool, strategy_id, s["symbol"], s["broker"])
+    m1 = await backtest.load_m1(pool, s["symbol"], w_from, w_to, s["broker"])
     if m1 is None:
         raise HTTPException(status_code=400, detail=f"{s['symbol']} 无 M1 数据, 先去下载")
     cfg = await pool.fetchval("SELECT value FROM config WHERE key='backtest_costs'") or {}

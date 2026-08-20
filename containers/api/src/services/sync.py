@@ -133,6 +133,7 @@ async def claim_download_job(pool: asyncpg.Pool, worker: str, server: str | None
         "UPDATE jobs SET status='RUNNING', worker=$2, started_at=now()"
         " WHERE id = (SELECT j.id FROM jobs j"
         "             LEFT JOIN symbols s ON s.symbol = j.payload->>'symbol'"
+        "               AND s.broker = COALESCE(j.payload->>'broker', s.broker)"
         "             WHERE j.kind=$1 AND j.status='PENDING'"
         "               AND (s.broker IS NULL OR s.broker = $3)"   # 券商匹配
         # 防污染保险①: 非 M1 任务只给带 dl_tf 能力标记的 worker(老 worker 拉不了高周期)
@@ -320,19 +321,21 @@ async def _regime_refresh_tick(pool: asyncpg.Pool) -> None:
         return
     # 一条聚合查询找出"第一个落后的 版本×品种"(时间线最新日 < 库内 M1 最新日, 或还没建)
     stale = await pool.fetchrow(
-        "WITH m1 AS (SELECT symbol, max(time)::date AS d FROM historical_bars"
-        "             WHERE timeframe='M1' GROUP BY symbol)"
-        " SELECT v.id AS vid, s.symbol"
+        "WITH m1 AS (SELECT symbol, broker, max(time)::date AS d FROM historical_bars"
+        "             WHERE timeframe='M1' GROUP BY symbol, broker)"
+        " SELECT v.id AS vid, s.symbol, s.broker"
         "   FROM regime_versions v"
         "  CROSS JOIN symbols s"
-        "   JOIN m1 ON m1.symbol = s.symbol"
+        "   JOIN m1 ON m1.symbol = s.symbol AND m1.broker = s.broker"
         "   LEFT JOIN LATERAL (SELECT max(date) AS d FROM regime_timeline rt"
-        "         WHERE rt.version_id = v.id AND rt.symbol = s.symbol) tl ON true"
+        "         WHERE rt.version_id = v.id AND rt.symbol = s.symbol"
+        "           AND rt.broker = s.broker) tl ON true"
         "  WHERE s.download AND (tl.d IS NULL OR tl.d < m1.d)"
-        "  ORDER BY v.id, s.symbol LIMIT 1")
+        "  ORDER BY v.id, s.symbol, s.broker LIMIT 1")
     if stale is None:
         return   # 全新鲜: 本拍只花了一条轻查询
-    err = await regime.ensure_timeline(pool, stale["symbol"], stale["vid"])
+    err = await regime.ensure_timeline(pool, stale["symbol"], stale["vid"],
+                                       stale["broker"])
     logger.info("regime refresh v%d %s: %s", stale["vid"], stale["symbol"], err or "ok")
 
 

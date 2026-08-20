@@ -84,7 +84,7 @@ async def regime_evaluate(request: Request):
     if to_compute:
         need = max(regime.warmup_days(c) for c in cand_all) + 260
         for sym in symbols:
-            d1 = await regime._d1(pool, sym, need)
+            d1 = await regime._d1(pool, sym, need, regime.DEFAULT_BROKER)
             if d1 is None:
                 skipped.append(sym)
             else:
@@ -171,8 +171,9 @@ async def market_overview(request: Request):
         for s in syms:
             rows = await pool.fetch(
                 "SELECT date, regime FROM regime_timeline"
-                " WHERE version_id=$1 AND symbol=$2 ORDER BY date DESC LIMIT 90",
-                v["id"], s)
+                " WHERE version_id=$1 AND symbol=$2 AND broker=$3"
+                " ORDER BY date DESC LIMIT 90",
+                v["id"], s, regime.DEFAULT_BROKER)
             if not rows:
                 no_timeline.append(s)
                 continue
@@ -355,10 +356,11 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
     if not await pool.fetchval("SELECT 1 FROM symbols WHERE symbol=$1", name):
         raise HTTPException(status_code=404, detail=f"品种 {name} 未登记")
     vid, params = await regime.active_version(pool)
-    err = await regime.ensure_timeline(pool, name)
+    err = await regime.ensure_timeline(pool, name, broker=regime.DEFAULT_BROKER)
     rows = await pool.fetch(
         "SELECT date, regime FROM regime_timeline"
-        " WHERE version_id=$1 AND symbol=$2 ORDER BY date", vid, name)
+        " WHERE version_id=$1 AND symbol=$2 AND broker=$3 ORDER BY date",
+        vid, name, regime.DEFAULT_BROKER)
     if not rows:
         return {"symbol": name, "error": err or "无数据", "rows": [],
                 "stats": {}, "params": params, "version": vid}
@@ -367,18 +369,19 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
     # 与 regime 判定用的数据同源(services.regime._d1 也是这套), 不引入第二种价格口径
     closes = {r["d"]: float(r["c"]) for r in await pool.fetch(
         "SELECT time::date AS d, close AS c FROM historical_bars"
-        "  WHERE symbol=$1 AND timeframe='D1'", name)}
+        "  WHERE symbol=$1 AND timeframe='D1' AND broker=$2",
+        name, regime.DEFAULT_BROKER)}
     if not closes:   # 没下原生 D1 的品种: 用 M1 每日最后一根收盘补
         closes = {r["d"]: float(r["c"]) for r in await pool.fetch(
             "SELECT DISTINCT ON (time::date) time::date AS d, close AS c"
-            "  FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
-            "  ORDER BY time::date, time DESC", name)}
+            "  FROM historical_bars WHERE symbol=$1 AND timeframe='M1' AND broker=$2"
+            "  ORDER BY time::date, time DESC", name, regime.DEFAULT_BROKER)}
     out = {"symbol": name, "error": err, "params": params, "version": vid,
            "stats": regime.stats(regs),
            # 最新价(库内最后一根 M1 收盘, 券商时间口径) — 页面当前状态条显示"今日 xxx"
            "last_close": await pool.fetchval(
                "SELECT close FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"
-               " ORDER BY time DESC LIMIT 1", name),
+               " AND broker=$2 ORDER BY time DESC LIMIT 1", name, regime.DEFAULT_BROKER),
            "current": {"date": rows[-1]["date"].isoformat(), "regime": rows[-1]["regime"]},
            # 色带与演变表同源, 全量返回(2026-07-29: 色带跨度可选1~20年, 前端切片; 20年≈5200行)
            # 带每日收盘价(2026-08-06 Frank 要: 色带悬停能看到当天价) — 从 D1 现取一遍

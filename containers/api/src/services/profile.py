@@ -26,7 +26,7 @@ def _win_stat(trades: list, a, years: float) -> dict:
 async def build(pool, strategy_id: int) -> dict | None:
     """现拼 Profile。None = 策略不存在。"""
     s = await pool.fetchrow(
-        "SELECT id, name, template, symbol, timeframe, params, status, magic_number,"
+        "SELECT id, name, template, symbol, broker, timeframe, params, status, magic_number,"
         "       basis, tags, archive_reason, parent_id, origin_id, owner_id, volume,"
         "       metadata, created_at, updated_at"
         " FROM strategies WHERE id=$1", strategy_id)
@@ -38,7 +38,8 @@ async def build(pool, strategy_id: int) -> dict | None:
     # ---- stability: 主品种回测行按 20/5/2 年窗现切(窗口是读数口径, 数据够多少算多少) ----
     bt = await pool.fetchrow(
         "SELECT from_time, to_time, created_at, trades FROM backtests"
-        " WHERE strategy_id=$1 AND symbol=$2", strategy_id, s["symbol"])
+        " WHERE strategy_id=$1 AND symbol=$2 AND broker=$3",   # 户口行(v2.3)
+        strategy_id, s["symbol"], s["broker"])
     stability = None
     if bt:
         trades = bt["trades"] or []
@@ -68,7 +69,7 @@ async def build(pool, strategy_id: int) -> dict | None:
     states = None
     if bt:
         vid, _ = await regime.active_version(pool)
-        tl = await regime.tl_map(pool, s["symbol"], vid)
+        tl = await regime.tl_map(pool, s["symbol"], vid, s["broker"])
         per_cell: dict = {}
         for t in (bt["trades"] or []):
             cell = tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())

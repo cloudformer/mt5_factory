@@ -48,13 +48,14 @@ async def judge_symbol(pool, tls: dict, bt: dict, vid: int, p: dict) -> dict:
     段内合格 = 笔数≥地板 且 净点>阈值 且 PF>阈值(无亏损段 PF=∞ 恒过)。
     返回三层读数: 整窗 total / 每格 cells_stat / 每切分前后段 splits_stat + 合格格。"""
     sym = bt["symbol"]
-    tl = tls.get(sym)
+    bk = bt.get("broker", "MetaQuotes-Demo")   # v2.3: 时间线跟策略户口的数据世界
+    tl = tls.get((sym, bk))
     if tl is None:      # 切谁治谁: 先自愈指定版本的时间线
         try:
-            await regime.ensure_timeline(pool, sym, vid)
+            await regime.ensure_timeline(pool, sym, vid, bk)
         except Exception as e:
             logger.warning("regime ensure %s v%s failed: %s", sym, vid, e)
-        tl = tls[sym] = await regime.tl_map(pool, sym, vid)
+        tl = tls[(sym, bk)] = await regime.tl_map(pool, sym, vid, bk)
     win_start = bt["to_time"] - timedelta(days=p["window_years"] * 365.25)
     tagged, unlabeled, cnt = [], 0, 0
     for t in (bt["trades"] or []):
