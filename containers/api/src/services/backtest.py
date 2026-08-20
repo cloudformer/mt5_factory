@@ -48,9 +48,22 @@ async def reuse_row(pool, strategy_id: int, symbol: str,
     return await pool.fetchrow(
         "SELECT from_time, to_time, metrics, trades, created_at FROM backtests"
         " WHERE strategy_id = $1 AND symbol = $2 AND broker = $5"
+        "   AND trades IS NOT NULL"   # 归档瘦身后的空壳行不算可复用
         "   AND created_at >= now() - make_interval(days => $3)"
         "   AND to_time - from_time >= make_interval(days => $4)",
         strategy_id, symbol, rd, need_days, broker)
+
+
+async def trim_archived_trades(pool, ids: list) -> int:
+    """归档瘦身(2026-08-20 Frank 定): 尸体的逐笔 trades(行内字节 95%+)置 NULL,
+    metrics 留着 — 排名「含归档」视图/负样本教材要数字。逐笔=可再生读数(原料 M1 在,
+    复活重跑即回); 参数/basis/死因=资产在 strategies 行。pool 或事务 conn 均可。"""
+    if not ids:
+        return 0
+    r = await pool.execute(
+        "UPDATE backtests SET trades = NULL"
+        " WHERE strategy_id = ANY($1) AND trades IS NOT NULL", ids)
+    return int(r.split()[-1])
 
 
 async def reuse_ok(pool, strategy_id: int, symbol: str,
@@ -67,6 +80,7 @@ async def reuse_ok(pool, strategy_id: int, symbol: str,
     return await pool.fetchval(
         "SELECT EXISTS (SELECT 1 FROM backtests"
         " WHERE strategy_id = $1 AND symbol = $2 AND broker = $5"
+        "   AND trades IS NOT NULL"   # 归档瘦身后的空壳行不算可复用
         "   AND created_at >= now() - make_interval(days => $3)"
         "   AND to_time - from_time >= make_interval(days => $4))",
         strategy_id, symbol, rd, need_days, broker)

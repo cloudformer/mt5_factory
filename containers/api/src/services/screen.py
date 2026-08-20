@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 import asyncpg
 
-from src.services import jobs, regime
+from src.services import backtest, jobs, regime
 
 logger = logging.getLogger("screen")
 
@@ -173,9 +173,12 @@ async def apply_actions(pool, mode: str, rid: int, tag_ids: list, archive_ids: l
             " THEN $2 ELSE basis || '｜' || $2 END, updated_at = now()"
             " WHERE id = ANY($1)", tag_ids, f"{TAG}#{rid}")
     if archive_ids:
-        await pool.execute(
+        done = await pool.fetch(
             "UPDATE strategies SET status='ARCHIVED', archive_reason='regime_unstable',"
-            " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'", archive_ids)
+            " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'"
+            " RETURNING id", archive_ids)
+        # 归档瘦身(2026-08-20): 逐笔置NULL留metrics, 复活重跑即再生
+        await backtest.trim_archived_trades(pool, [r["id"] for r in done])
 
 
 async def finalize(pool: asyncpg.Pool) -> int | None:

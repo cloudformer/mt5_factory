@@ -189,9 +189,12 @@ async def apply_actions(pool, mode: str, rid: int,
                 " WHERE id = ANY($1)", ids,
                 [{"report": f"{TAG}#{rid}", "status": verdict, "created_time": at}])
     if mode == "execute" and fail_ids:
-        await pool.execute(
+        done = await pool.fetch(
             "UPDATE strategies SET status='ARCHIVED', archive_reason='oos_v2_fail',"
-            " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'", fail_ids)
+            " updated_at = now() WHERE id = ANY($1) AND status = 'CANDIDATE'"
+            " RETURNING id", fail_ids)
+        # 归档瘦身(2026-08-20): 逐笔置NULL留metrics, 复活重跑即再生
+        await backtest.trim_archived_trades(pool, [r["id"] for r in done])
 
 
 async def finish_report(db, cfg: dict, details: list) -> tuple[int, dict]:

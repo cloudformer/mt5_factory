@@ -248,6 +248,20 @@ async def run(req: BacktestRequest, request: Request):
             "costs": costs}
 
 
+@router.post("/trim_archived_trades")
+async def trim_archived_trades(request: Request):
+    """归档瘦身-存量治理(幂等, 2026-08-20 Frank 定): 全部已归档策略的回测逐笔置 NULL,
+    metrics 留着(排名含归档视图/负样本要数字)。归档动作已顺手瘦身, 本端点治历史存量;
+    随时可重跑, 已瘦的行零操作。逐笔=可再生读数, 复活后重跑回测即回来。"""
+    pool = request.app.state.pool
+    uid = identity.scope_uid(request)   # 非 owner 只瘦自己的尸体
+    ids = [r["id"] for r in await pool.fetch(
+        "SELECT id FROM strategies WHERE status='ARCHIVED'"
+        + (" AND owner_id=$1" if uid else ""), *([uid] if uid else []))]
+    n = await backtest.trim_archived_trades(pool, ids)
+    return {"archived_strategies": len(ids), "trimmed_rows": n}
+
+
 @router.get("/backtest/status")
 async def status(request: Request):
     """批量回测进度(查 jobs 表聚合; 结构与旧内存版一致, web 零改动)"""

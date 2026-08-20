@@ -944,6 +944,9 @@ async def archive_orphans(request: Request):
     rows = await request.app.state.pool.fetch(
         f"UPDATE strategies SET status='ARCHIVED', archive_reason='orphan_symbol'"
         f" WHERE {_ORPHAN_WHERE} RETURNING id")
+    # 归档瘦身(2026-08-20): 逐笔置NULL留metrics, 复活重跑即再生
+    await backtest.trim_archived_trades(
+        request.app.state.pool, [r["id"] for r in rows])
     return {"archived": len(rows)}
 
 
@@ -1733,4 +1736,7 @@ async def archive_batch(req: ArchiveRequest, request: Request):
         "UPDATE strategies SET status='ARCHIVED', archive_reason=$2, updated_at=now()"
         " WHERE id = ANY($1) AND status NOT IN ('ARCHIVED', 'LIVE') RETURNING id",
         req.strategy_ids, req.reason)
+    # 归档瘦身(2026-08-20): 逐笔置NULL留metrics, 复活重跑即再生
+    await backtest.trim_archived_trades(
+        request.app.state.pool, [r["id"] for r in rows])
     return {"archived": len(rows), "requested": len(req.strategy_ids)}
