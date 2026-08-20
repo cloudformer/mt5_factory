@@ -7,11 +7,13 @@
   <h2>货币对</h2>
   <form method="post" action="{{ url_for('symbols.add') }}" class="inline">
     <label>品种 <input name="symbol" placeholder="如 EURUSD / BTCUSD" size="14" required></label>
-    {# v2.3 户口制: 可输入(能登记新券商的第一行), 已有券商给提示; 留空 = 默认券商(研发尺) #}
-    <label>券商 <input name="broker" list="broker-list" placeholder="留空=默认券商" size="18"></label>
-    <datalist id="broker-list">
-      {% for b in symbols | map(attribute='broker') | unique %}<option value="{{ b }}">{% endfor %}
-    </datalist>
+    {# v2.3 户口制: 选项 = 已登记券商 ∪ worker 账户服务器名; 不手输防错字 —
+       新券商先让它的 worker 上线(mt5_server 上报后自动出现在这里) #}
+    <label>券商 <select name="broker"
+        title="数据世界按 (品种, 券商) 分开。选项来自已登记券商和各 worker 的账户服务器名; 要登记新券商, 先让挂该券商账户的 worker 上线">
+      <option value="">{{ default_broker or '默认券商' }}（默认）</option>
+      {% for b in brokers %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+    </select></label>
     <button>登记</button>
     <span class="muted">向券商确认品种存在并自动读取 券商名/digits/point；券商没有会明确报错。精度不手填(手填会与券商不一致)</span>
   </form>

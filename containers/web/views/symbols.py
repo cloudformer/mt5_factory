@@ -13,12 +13,20 @@ bp = Blueprint("symbols", __name__, url_prefix="/symbols")
 @bp.get("/")
 def index():
     """配置·货币对: 品种主档(登记/列表) — 精度/下载/清空都在「下载」页"""
-    symbols = []
+    symbols, brokers, default_broker = [], [], None
     try:
         symbols = api.get("/symbols")["symbols"]
+        default_broker = api.get("/config")["config"].get("default_broker")
+        # 券商下拉选项 = 已登记券商 ∪ 各 worker 的账户服务器名(v2.3):
+        # 新券商的正路是先让它的 worker 上线, mt5_server 一上报选项自动出现 — 不手输防错字
+        hosts = api.get("/hosts")["hosts"]
+        known = ({s["broker"] for s in symbols if s.get("broker")}
+                 | {h["mt5_server"] for h in hosts if h.get("mt5_server")})
+        brokers = sorted(b for b in known if b != default_broker)
     except api.ApiError as e:
         flash(f"api 不可用: {e}", "error")
-    return render_template("symbols.html", symbols=symbols)
+    return render_template("symbols.html", symbols=symbols,
+                           brokers=brokers, default_broker=default_broker)
 
 
 @bp.get("/backtest")
