@@ -1,5 +1,7 @@
 {% import "_macros.html" as m %}
 {% if not ana or not ana.has_data %}
+{% if ana and ana.align %}<p><span class="badge warn">同窗对比</span>
+<span class="muted">只统计各券商行时间交集 {{ ana.align.from }} → {{ ana.align.to }} 内的逐笔(纯展示对齐, 数据不动); OOS 训练/留出拆分在截窗下不适用, 已隐藏</span></p>{% endif %}
 <p class="muted">{{ ana.symbol if ana else '' }} 无回测逐笔明细。</p>
 {% else %}
 {% set s = ana.summary %}

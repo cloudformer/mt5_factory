@@ -317,6 +317,10 @@
         {% for o in ana.options %}<option value="{{ o.symbol }}|{{ o.broker }}"
           {% if o.symbol == ana.symbol and o.broker == ana.broker %}selected{% endif %}>{{ o.label }}{% if o.main %}(主){% endif %}</option>{% endfor %}
       </select></label>
+    {% if ana.can_align %}
+    <label class="chk" title="同品种多券商行年限不齐时(如 20年 vs 8年), 只统计各行时间交集内的逐笔 — 纯展示对齐, 数据与回测行都不动">
+      <input type="checkbox" id="ana-align" {% if ana.align %}checked{% endif %}> 同窗对比</label>
+    {% endif %}
     <span class="muted">该品种的【回测】数据(非实盘;实盘对账见「对账」页签)· 切换不刷新</span>
   </form>
   <div id="attribution">{% include "_attribution_body.html" %}</div>
@@ -325,15 +329,19 @@
     const sel = document.getElementById("ana-symbol");
     const box = document.getElementById("attribution");
     if (!sel || !box) return;
+    const alignBox0 = document.getElementById("ana-align");
+    if (alignBox0) alignBox0.addEventListener("change", () => sel.dispatchEvent(new Event("change")));
     sel.addEventListener("change", async () => {
       // 当前视图(收起/汇总/详细): 按钮在父层, 不随 innerHTML 重置 — 换品种后保留同一视图
       const cur = document.querySelector('[data-vgroup="bt"].live');
       const view = cur ? cur.dataset.view : "sum";
       try {
         const [vsym, vbk] = sel.value.split("|");   // 行身份 = 品种|券商(v2.3)
+        const alignBox = document.getElementById("ana-align");
         const url = "{{ url_for('strategies.analysis_fragment') }}?strategy_id="
           + sel.dataset.sid + "&symbol=" + encodeURIComponent(vsym)
-          + "&broker=" + encodeURIComponent(vbk || "");
+          + "&broker=" + encodeURIComponent(vbk || "")
+          + (alignBox && alignBox.checked ? "&align=1" : "");
         box.innerHTML = await fetch(url).then((r) => r.text());
         const sum = box.querySelector("#bt-sum"), det = box.querySelector("#bt-det");
         if (sum) sum.hidden = view !== "sum";             // 还原三态显隐

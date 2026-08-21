@@ -1503,7 +1503,8 @@ async def equity_curves(request: Request, ids: str):
 
 @router.get("/analysis/{strategy_id}")
 async def strategy_analysis(strategy_id: int, request: Request,
-                            symbol: Optional[str] = None, broker: Optional[str] = None):
+                            symbol: Optional[str] = None, broker: Optional[str] = None,
+                            align: int = 0):
     """单策略【回测】胜负归因(维度二期1): 读指定行(默认户口主行) backtests.trades + oos + 跨品种行。
     分析的是【整段回测】(不切窗口)。行身份 = (symbol, broker): symbol 切品种,
     broker 切数据世界(v2.3 跨券商验证行) — 库里有几行下拉就有几项, 整套分析随行继承。"""
@@ -1516,10 +1517,10 @@ async def strategy_analysis(strategy_id: int, request: Request,
     sym = symbol or strat["symbol"]        # 分析哪个品种的回测(默认主品种)
     bk = broker or strat["broker"]         # 分析哪个数据世界(默认户口)
     # 下拉选项 = 该策略的全部回测行(v2.3: 同品种多券商各一项), 标签带券商与年限
-    opts = []
-    for r in await pool.fetch(
-            "SELECT symbol, broker, from_time, to_time FROM backtests"
-            " WHERE strategy_id=$1 ORDER BY symbol, broker", strategy_id):
+    opts, opt_rows = [], await pool.fetch(
+        "SELECT symbol, broker, from_time, to_time FROM backtests"
+        " WHERE strategy_id=$1 ORDER BY symbol, broker", strategy_id)
+    for r in opt_rows:
         label = r["symbol"] + (f"@{r['broker']}" if r["broker"] != strat["broker"] else "")
         if r["from_time"] and r["to_time"]:
             label += f" · {round((r['to_time'] - r['from_time']).days / 365.25, 1):g}年"
@@ -1536,6 +1537,22 @@ async def strategy_analysis(strategy_id: int, request: Request,
     out = {"strategy_id": strategy_id, "name": strat["name"], "symbol": sym,
            "broker": bk, "main_broker": strat["broker"], "options": opts,
            "main_symbol": strat["symbol"], "timeframe": strat["timeframe"]}
+    # 同窗对比(v2.3, 2026-08-21 Frank 要): 同品种多券商行年限不齐(20年 vs 8年)时,
+    # 勾选后只统计各行时间交集内的逐笔 — 截逐笔不重跑(读数现拼), 边界持仓/暖机有
+    # 细微出入, 判"数据源差异"方向足够; 要逐笔精确用点名重跑同窗。截窗后原 OOS
+    # 拆分口径失效, 不显示训练/留出块
+    win_rows = [r for r in opt_rows if r["symbol"] == sym
+                and r["from_time"] and r["to_time"]]
+    out["can_align"] = len(win_rows) >= 2
+    if align and len(win_rows) >= 2:
+        a_from = max(r["from_time"] for r in win_rows)
+        a_to = min(r["to_time"] for r in win_rows)
+        if a_from < a_to:
+            lo, hi = a_from.timestamp(), a_to.timestamp()
+            trades = [t for t in trades if lo <= t["entry_time"] <= hi]
+            oos = {}
+            out["align"] = {"from": a_from.strftime("%Y-%m-%d"),
+                            "to": a_to.strftime("%Y-%m-%d")}
     out.update(_analyze_trades(trades, oos, [dict(b) for b in breakdown]))
     # 逐笔明细(每笔下单 + 胜负): 按时间排。全量下发(表格自带每页/翻页/过滤,
     # DOM 只渲染当页不会撑爆; 2026-08-21 Frank 要全显示); 2万硬上限只防极端载荷
