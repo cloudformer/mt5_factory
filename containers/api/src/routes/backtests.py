@@ -1502,9 +1502,11 @@ async def equity_curves(request: Request, ids: str):
 
 
 @router.get("/analysis/{strategy_id}")
-async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional[str] = None):
-    """单策略【回测】胜负归因(维度二期1): 读指定品种(默认主品种) backtests.trades + oos + 跨品种行。
-    分析的是【整段回测】(不切窗口)。symbol 可选 → 看该策略在不同货币对上的回测归因。"""
+async def strategy_analysis(strategy_id: int, request: Request,
+                            symbol: Optional[str] = None, broker: Optional[str] = None):
+    """单策略【回测】胜负归因(维度二期1): 读指定行(默认户口主行) backtests.trades + oos + 跨品种行。
+    分析的是【整段回测】(不切窗口)。行身份 = (symbol, broker): symbol 切品种,
+    broker 切数据世界(v2.3 跨券商验证行) — 库里有几行下拉就有几项, 整套分析随行继承。"""
     pool = request.app.state.pool
     await identity.assert_strategy_visible(pool, request, strategy_id)
     strat = await pool.fetchrow(
@@ -1512,18 +1514,28 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
     if strat is None:
         raise HTTPException(status_code=404, detail="strategy not found")
     sym = symbol or strat["symbol"]        # 分析哪个品种的回测(默认主品种)
-    all_syms = [r["symbol"] for r in await pool.fetch(   # 该策略回测过的品种(下拉用)
-        "SELECT symbol FROM backtests WHERE strategy_id=$1 ORDER BY symbol", strategy_id)]
+    bk = broker or strat["broker"]         # 分析哪个数据世界(默认户口)
+    # 下拉选项 = 该策略的全部回测行(v2.3: 同品种多券商各一项), 标签带券商与年限
+    opts = []
+    for r in await pool.fetch(
+            "SELECT symbol, broker, from_time, to_time FROM backtests"
+            " WHERE strategy_id=$1 ORDER BY symbol, broker", strategy_id):
+        label = r["symbol"] + (f"@{r['broker']}" if r["broker"] != strat["broker"] else "")
+        if r["from_time"] and r["to_time"]:
+            label += f" · {round((r['to_time'] - r['from_time']).days / 365.25, 1):g}年"
+        opts.append({"symbol": r["symbol"], "broker": r["broker"], "label": label,
+                     "main": r["symbol"] == strat["symbol"] and r["broker"] == strat["broker"]})
     main = await pool.fetchrow(
         "SELECT trades, metrics FROM backtests"
-        " WHERE strategy_id=$1 AND symbol=$2 AND broker=$3",   # 户口行(v2.3)
-        strategy_id, sym, strat["broker"])
+        " WHERE strategy_id=$1 AND symbol=$2 AND broker=$3",   # 所选行(默认=户口行)
+        strategy_id, sym, bk)
     breakdown = await pool.fetch(
         "SELECT symbol, metrics FROM backtests WHERE strategy_id=$1 ORDER BY symbol", strategy_id)
     trades = (main["trades"] if main else []) or []
     oos = ((main["metrics"] or {}).get("oos") if main and main["metrics"] else {}) or {}
     out = {"strategy_id": strategy_id, "name": strat["name"], "symbol": sym,
-           "main_symbol": strat["symbol"], "symbols": all_syms, "timeframe": strat["timeframe"]}
+           "broker": bk, "main_broker": strat["broker"], "options": opts,
+           "main_symbol": strat["symbol"], "timeframe": strat["timeframe"]}
     out.update(_analyze_trades(trades, oos, [dict(b) for b in breakdown]))
     # 逐笔明细(每笔下单 + 胜负): 按时间排。全量下发(表格自带每页/翻页/过滤,
     # DOM 只渲染当页不会撑爆; 2026-08-21 Frank 要全显示); 2万硬上限只防极端载荷
@@ -1540,10 +1552,10 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
     # 逐笔入场日期 JOIN regime_timeline → 每笔当天格子 + 八格汇总。
     # 改口径重建时间线后这里自动跟着变新(零垃圾); 回测引擎/存储零改动。
     try:
-        await regime.ensure_timeline(pool, sym, broker=strat["broker"])   # 读时自愈
+        await regime.ensure_timeline(pool, sym, broker=bk)   # 读时自愈(所选行的世界)
     except Exception as e:
         logger.warning("regime ensure %s failed: %s", sym, e)
-    tl = await regime.tl_map(pool, sym, broker=strat["broker"])
+    tl = await regime.tl_map(pool, sym, broker=bk)
     def _cell(t):
         return tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
     for t, view in zip(st[:20000], out["trades"]):  # 明细行带当天格子(顺序一致)
@@ -1564,7 +1576,7 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
     # (sym 是归因下拉选的品种, 可能不是主品种, 不能混用)
     act = out["actual"]
     if act.get("has_data") and act.get("trades"):
-        tl_m = tl if sym == strat["symbol"] else await regime.tl_map(
+        tl_m = tl if (sym, bk) == (strat["symbol"], strat["broker"]) else await regime.tl_map(
             pool, strat["symbol"], broker=strat["broker"])
         a_cells: dict = {}
         a_unlabeled = 0

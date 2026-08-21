@@ -215,7 +215,9 @@ def analysis():
         except api.ApiError as e:
             flash(f"对账失败: {e}", "error")
         try:
-            ana = api.get(f"/analysis/{sid}", **({"symbol": a_symbol} if a_symbol else {}))
+            ana = api.get(f"/analysis/{sid}", **{
+                k: x for k, x in (("symbol", a_symbol),
+                                  ("broker", request.args.get("broker"))) if x})
         except api.ApiError as e:
             flash(f"分析失败: {e}", "error")
     return render_template("strategy_analysis.html", recon=recon, ana=ana, sid=sid,
@@ -645,7 +647,9 @@ def analysis_fragment():
     ana = None
     if sid:
         try:
-            ana = api.get(f"/analysis/{sid}", **({"symbol": a_symbol} if a_symbol else {}))
+            ana = api.get(f"/analysis/{sid}", **{
+                k: x for k, x in (("symbol", a_symbol),
+                                  ("broker", request.args.get("broker"))) if x})
         except api.ApiError:
             ana = None
     return render_template("_attribution_body.html", ana=ana,

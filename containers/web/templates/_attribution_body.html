@@ -74,7 +74,7 @@
 
 </div>
 <div id="bt-det" hidden>
-<h3>逐笔明细 · <span class="badge warn">回测</span> · {{ ana.symbol }}(每笔下单/胜负){% if ana.trades_capped %} <span class="muted">— 仅显示前 2 万笔</span>{% endif %}</h3>
+<h3>逐笔明细 · <span class="badge warn">回测</span> · {{ ana.symbol }}{% if ana.broker and ana.broker != ana.main_broker %}@{{ ana.broker }}{% endif %}(每笔下单/胜负){% if ana.trades_capped %} <span class="muted">— 仅显示前 2 万笔</span>{% endif %}</h3>
 {{ m.trade_table(ana.trades, 'bt-trades') }}
 </div>
 {% endif %}

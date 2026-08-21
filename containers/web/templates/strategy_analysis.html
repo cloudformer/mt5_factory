@@ -311,8 +311,11 @@
   <form method="get" class="inline" style="margin-bottom:8px">
     <input type="hidden" name="strategy_id" value="{{ sid }}">
     <label>回测品种
+      {# v2.3: 选项=该策略的全部回测行(同品种多券商各一项, 标签带券商与年限);
+         value 编码 品种|券商, 选谁整套分析(汇总/详单/曲线/regime)就归谁 #}
       <select name="symbol" id="ana-symbol" data-sid="{{ sid }}">
-        {% for sy in ana.symbols %}<option value="{{ sy }}" {% if sy == ana.symbol %}selected{% endif %}>{{ sy }}{% if sy == ana.main_symbol %}(主){% endif %}</option>{% endfor %}
+        {% for o in ana.options %}<option value="{{ o.symbol }}|{{ o.broker }}"
+          {% if o.symbol == ana.symbol and o.broker == ana.broker %}selected{% endif %}>{{ o.label }}{% if o.main %}(主){% endif %}</option>{% endfor %}
       </select></label>
     <span class="muted">该品种的【回测】数据(非实盘;实盘对账见「对账」页签)· 切换不刷新</span>
   </form>
@@ -327,8 +330,10 @@
       const cur = document.querySelector('[data-vgroup="bt"].live');
       const view = cur ? cur.dataset.view : "sum";
       try {
+        const [vsym, vbk] = sel.value.split("|");   // 行身份 = 品种|券商(v2.3)
         const url = "{{ url_for('strategies.analysis_fragment') }}?strategy_id="
-          + sel.dataset.sid + "&symbol=" + encodeURIComponent(sel.value);
+          + sel.dataset.sid + "&symbol=" + encodeURIComponent(vsym)
+          + "&broker=" + encodeURIComponent(vbk || "");
         box.innerHTML = await fetch(url).then((r) => r.text());
         const sum = box.querySelector("#bt-sum"), det = box.querySelector("#bt-det");
         if (sum) sum.hidden = view !== "sum";             // 还原三态显隐
