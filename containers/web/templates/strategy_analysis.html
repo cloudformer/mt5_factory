@@ -301,11 +301,11 @@
   {% endif %}
   <div class="flex-between">
     <h2 style="margin:0">胜负归因 · <span class="badge warn">回测数据</span></h2>
-    {% if sid and ana and ana.symbols %}{{ m.view_toggle('bt') }}{% endif %}
+    {% if sid and ana and ana.options %}{{ m.view_toggle('bt') }}{% endif %}
   </div>
   {% if not sid %}
   <p class="muted">输入上方策略ID → 看它在<b>回测</b>里为什么赢/输:时段/方向/出场/连亏/拟合判别。先分析、再优化。</p>
-  {% elif not ana or not ana.symbols %}
+  {% elif not ana or not ana.options %}
   <p class="muted">策略 #{{ sid }} 还没回测过 — 先去「策略回测」跑一次(逐笔存进 backtests.trades 后这里才有)。</p>
   {% else %}
   <form method="get" class="inline" style="margin-bottom:8px">
