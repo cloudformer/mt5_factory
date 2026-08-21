@@ -1525,14 +1525,15 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
     out = {"strategy_id": strategy_id, "name": strat["name"], "symbol": sym,
            "main_symbol": strat["symbol"], "symbols": all_syms, "timeframe": strat["timeframe"]}
     out.update(_analyze_trades(trades, oos, [dict(b) for b in breakdown]))
-    # 逐笔明细(每笔下单 + 胜负): 按时间排, 上限 1000 防超大回测撑爆前端
+    # 逐笔明细(每笔下单 + 胜负): 按时间排。全量下发(表格自带每页/翻页/过滤,
+    # DOM 只渲染当页不会撑爆; 2026-08-21 Frank 要全显示); 2万硬上限只防极端载荷
     st = sorted(trades, key=lambda t: t["entry_time"])
     out["trades"] = [{
         "entry": datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M"),
         "exit": datetime.fromtimestamp(t["exit_time"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M"),
         "dir": t.get("dir"), "entry_price": t.get("entry"), "exit_price": t.get("exit"),
         "points": t.get("points"), "reason": t.get("reason"),
-    } for t in st[:1000]]
+    } for t in st[:20000]]
     # 资金曲线(2026-08-17 Frank 要): 单策略与多策略对比页共用同一序列口径(_equity_series)
     out["equity"] = _equity_series(trades)
     # Regime 归因(v2.5 第五步, 2026-07-28 与 Frank 定): 交易只存事实, 格子现拼 —
@@ -1545,9 +1546,9 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
     tl = await regime.tl_map(pool, sym, broker=strat["broker"])
     def _cell(t):
         return tl.get(datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).date())
-    for t, view in zip(st[:1000], out["trades"]):   # 明细行带当天格子(顺序一致)
+    for t, view in zip(st[:20000], out["trades"]):  # 明细行带当天格子(顺序一致)
         view["regime"] = _cell(t)
-    cells, unlabeled = {}, 0                        # 汇总用全部逐笔(不止显示的前1000)
+    cells, unlabeled = {}, 0                        # 汇总用全部逐笔(与明细截断无关)
     for t in st:
         cell = _cell(t)
         if cell is None:
@@ -1556,7 +1557,7 @@ async def strategy_analysis(strategy_id: int, request: Request, symbol: Optional
         _acc_cell(cells, cell, float(t.get("points") or 0))
     out["regime_cells"] = _fmt_cells(cells)
     out["regime_unlabeled"] = unlabeled   # 时间线覆盖不到的笔数(暖机期/历史缺口), 如实报
-    out["trades_capped"] = len(st) > 1000
+    out["trades_capped"] = len(st) > 20000
     # 实盘同款归因: 与回测归因对照看"回测的赢法实盘还成立吗"(共用函数, AI成绩单也用它)
     out["actual"] = await actual_attribution(pool, strategy_id)
     # 实盘逐笔也贴格子 + 八格汇总(v2.5): 实盘只交易主品种 → 用主品种时间线
