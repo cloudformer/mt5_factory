@@ -134,17 +134,27 @@
     <span title="长趋势: D1 收盘 vs {{ data.params.long_ma | upper }}">长 <b class="{{ 'pos' if data.current.regime[0] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[0] == 'A' else '↓' }}</b></span>
     <span title="短趋势: D1 收盘 vs {{ data.params.short_ma | upper }}">短 <b class="{{ 'pos' if data.current.regime[1] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[1] == 'A' else '↓' }}</b></span>
     <span title="波动: ATR{{ data.params.atr_n }} vs {{ data.params.vol_win }}日{{ (data.params.vol_q * 100) | round | int }}分位">波 <b class="{{ 'pos' if data.current.regime[2] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[2] == 'A' else '↓' }}</b></span>
-    {# 数值全高亮(2026-08-21 Frank 要): b 提亮色+加粗, 说明文字保持 muted #}
-    <span class="muted">已持续 <b class="hlv">{{ st.current_run_days }}</b> 交易日{% if data.character.avg_days %}(该格历史 <b class="hlv">{{ data.character.runs }}</b> 段 · 平均 <b class="hlv">{{ data.character.avg_days }}</b> 天 · 最长 <b class="hlv">{{ data.character.max_days }}</b>){% endif %} · <b class="hlv">{{ data.current.date }}</b> · 由前一日收盘判定</span>
-    {% if data.character.next %}
-    <br><span class="muted" title="天气统计: 只描述历史频率, 不构成预测/信号 — regime 铁律是描述当天不预测明天">历史上本货币 <b class="hlv">{{ data.character.cell }}</b> 结束后 →
-      {% for x in data.character.next[:3] %}<b class="hlv">{{ x.cell }} {{ x.pct }}%</b>{{ " · " if not loop.last }}{% endfor %}
-      <span style="opacity:.7">(共 <b class="hlv">{{ data.character.runs }}</b> 段 · 描述历史, 非预测)</span></span>
-    {% endif %}
-    {% if data.character_all.next %}
-    <br><span class="muted" title="同口径版本下全部品种合并(不跨版本混算 — 版本=坐标系); 只统计已完结段">全库同口径(<b class="hlv">{{ data.character_all.symbols }}</b> 品种) {{ data.character_all.cell }} 平均 <b class="hlv">{{ data.character_all.avg_days }}</b> 天 · 结束后 →
-      {% for x in data.character_all.next[:3] %}<b class="hlv">{{ x.cell }} {{ x.pct }}%</b>{{ " · " if not loop.last }}{% endfor %}
-      <span style="opacity:.7">(共 <b class="hlv">{{ data.character_all.runs }}</b> 段)</span></span>
+    {# 今日格性格表(2026-08-22 Frank 定样式A): 本货币/全库两行, 去向按名次拆列上下对位 —
+       同列同名同概率 = 格子性格普适; 数值 hlv 高亮, 纪律说明收在表头行 #}
+    <span class="muted">已持续 <b class="hlv">{{ st.current_run_days }}</b> 交易日 · <b class="hlv">{{ data.current.date }}</b> · 由前一日收盘判定{% if data.character.next or data.character_all.next %} · 天气统计: 描述历史, 非预测{% endif %}</span>
+    {% if data.character.next or data.character_all.next %}
+    {% set rows_ch = [("本货币 " ~ data.symbol, data.character), ("全库(" ~ data.character_all.symbols ~ " 品种)", data.character_all)] %}
+    <table class="dense" style="margin-top:6px; width:auto"
+           title="只统计已完结段(当前段未完不进分母, 无未来函数); 全库=同口径版本全部品种合并, 不跨版本混算(版本=坐标系)">
+      <tr><th>{{ data.character.cell }} 性格</th><th>段数</th><th>平均持续</th><th>最长</th>
+        <th colspan="3">历史下一格概率</th></tr>
+      {% for label, c in rows_ch if c.next %}
+      <tr>
+        <td class="muted">{{ label }}</td>
+        <td><b class="hlv">{{ c.runs }}</b></td>
+        <td><b class="hlv">{{ c.avg_days }}</b> 天</td>
+        <td><b class="hlv">{{ c.max_days }}</b> 天</td>
+        {% for i in range(3) %}
+        <td>{% if c.next | length > i %}<b class="hlv">{{ c.next[i].cell }} {{ c.next[i].pct }}%</b>{% else %}<span class="muted">—</span>{% endif %}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
     {% endif %}
   </div>
 </section>
