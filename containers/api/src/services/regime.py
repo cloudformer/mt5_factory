@@ -310,6 +310,33 @@ def stats(regimes: list[str]) -> dict:
     }
 
 
+def cell_character(regimes: list[str]) -> dict:
+    """今日格性格卡(2026-08-21 Frank 要): 当前格的历史段数/平均·最长持续(交易日),
+    与该格历史上结束后转去各格的频率。纯描述历史(与 distinct 同一收口纪律):
+    频率是天气统计, 不构成预测/信号 — 只用已收盘时间线, 当前未完段不进统计。"""
+    if not regimes:
+        return {}
+    segs: list[list] = []          # 压段: [[cell, days], ...]
+    for r in regimes:
+        if segs and segs[-1][0] == r:
+            segs[-1][1] += 1
+        else:
+            segs.append([r, 1])
+    cur, cur_days = segs[-1]
+    hist = [d for c0, d in segs[:-1] if c0 == cur]   # 当前段还没结束, 不算历史
+    trans: dict = {}
+    for (a, _), (b, _) in zip(segs[:-1], segs[1:]):
+        if a == cur:
+            trans[b] = trans.get(b, 0) + 1
+    total = sum(trans.values())
+    return {"cell": cur, "run_days": cur_days, "runs": len(hist),
+            "avg_days": round(sum(hist) / len(hist), 1) if hist else None,
+            "max_days": max(hist) if hist else None,
+            "next": [{"cell": k, "n": v, "pct": round(v / total * 100)}
+                     for k, v in sorted(trans.items(), key=lambda x: (-x[1], x[0]))]
+                    if total else []}
+
+
 def distinct(h, l, c, dims, start) -> dict | None:
     """标准③ 描述性区分度(同期性格, 非预测 — 2026-07-29 与 Frank 定的收口):
     regime 只描述"今天什么天气", 不预测明天赚不赚(那是策略的事, 且有效市场测不出)。

@@ -378,6 +378,8 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
             "  ORDER BY time::date, time DESC", name, regime.DEFAULT_BROKER)}
     out = {"symbol": name, "error": err, "params": params, "version": vid,
            "stats": regime.stats(regs),
+           # 今日格性格卡(纯描述历史非预测): 平均持续/第几天/结束后转去哪的频率
+           "character": regime.cell_character(regs),
            # 最新价(库内最后一根 M1 收盘, 券商时间口径) — 页面当前状态条显示"今日 xxx"
            "last_close": await pool.fetchval(
                "SELECT close FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"

@@ -132,7 +132,12 @@
     <span title="长趋势: D1 收盘 vs {{ data.params.long_ma | upper }}">长 <b class="{{ 'pos' if data.current.regime[0] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[0] == 'A' else '↓' }}</b></span>
     <span title="短趋势: D1 收盘 vs {{ data.params.short_ma | upper }}">短 <b class="{{ 'pos' if data.current.regime[1] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[1] == 'A' else '↓' }}</b></span>
     <span title="波动: ATR{{ data.params.atr_n }} vs {{ data.params.vol_win }}日{{ (data.params.vol_q * 100) | round | int }}分位">波 <b class="{{ 'pos' if data.current.regime[2] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[2] == 'A' else '↓' }}</b></span>
-    <span class="muted">已持续 <b>{{ st.current_run_days }}</b> 交易日 · {{ data.current.date }} · 由前一日收盘判定</span>
+    <span class="muted">已持续 <b>{{ st.current_run_days }}</b> 交易日{% if data.character.avg_days %}(该格历史 {{ data.character.runs }} 段 · 平均 {{ data.character.avg_days }} 天 · 最长 {{ data.character.max_days }}){% endif %} · {{ data.current.date }} · 由前一日收盘判定</span>
+    {% if data.character.next %}
+    <br><span class="muted" title="天气统计: 只描述历史频率, 不构成预测/信号 — regime 铁律是描述当天不预测明天">历史上 {{ data.character.cell }} 结束后 →
+      {% for x in data.character.next[:3] %}<b>{{ x.cell }}</b> {{ x.pct }}%{{ " · " if not loop.last }}{% endfor %}
+      <span style="opacity:.7">(共 {{ data.character.runs }} 段 · 描述历史, 非预测)</span></span>
+    {% endif %}
   </div>
 </section>
 
