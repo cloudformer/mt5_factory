@@ -138,7 +138,7 @@
        同列同名同概率 = 格子性格普适; 数值 hlv 高亮, 纪律说明收在表头行 #}
     <span class="muted">已持续 <b class="hlv">{{ st.current_run_days }}</b> 交易日 · <b class="hlv">{{ data.current.date }}</b>{% if data.character.next or data.character_all.next %}<span style="float:right">纯属历史数据统计</span>{% endif %}</span>
     {% if data.character.next or data.character_all.next %}
-    {% set rows_ch = [("本货币 " ~ data.symbol, data.character), ("全库(" ~ data.character_all.symbols ~ " 品种)", data.character_all)] %}
+    {% set rows_ch = [("本货币 " ~ data.symbol, data.character), ("全库(" ~ data.character_all.symbols ~ " 品种) · v" ~ data.version, data.character_all)] %}
     <table class="dense" style="margin:6px auto 0; width:auto; text-align:center"
            title="由前一日收盘判定; 只统计已完结段(当前段未完不进分母, 无未来函数); 全库=同口径版本全部品种合并, 不跨版本混算(版本=坐标系)">
       <tr><th>{{ data.character.cell }} 性格</th><th>段数</th><th>平均持续</th><th>最长</th>
