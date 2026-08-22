@@ -4,6 +4,7 @@ from .daily_zone import DailyZone
 from .fable import Fable
 from .ma_cross import MaCross
 from .pullback import Pullback
+from .regime_flip import RegimeFlip
 from .reversion import Reversion
 from .session_orb import SessionOrb
 from .squeeze import Squeeze
@@ -20,4 +21,5 @@ TEMPLATES = {
     "reversion": Reversion,
     "pullback": Pullback,
     "squeeze": Squeeze,
+    "regime_flip": RegimeFlip,
 }
