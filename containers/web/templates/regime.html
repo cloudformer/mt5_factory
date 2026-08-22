@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block content %}
+<style>.hlv { color: var(--fg, #111); font-weight: 700; font-variant-numeric: tabular-nums; }
+@media (prefers-color-scheme: dark) { .hlv { color: var(--fg, #eee); } }</style>
 {{ m.page_header('全局货币regime', 'v2.5 · 尺子先行只看不选: 三维八格(长趋势/短趋势/波动), 每日一格, 用前一日收盘判定(无未来函数)。口径已版本化(v0.2): 配置页存新口径=新版本 → 本页切版本+点重建 → 每版本一套时间线并存') }}
 
 {# 配色/中文名唯一定义在 _macros(m.regime_color / m.regime_cn): AAA绿→BBB红 八级渐变。
@@ -132,11 +134,12 @@
     <span title="长趋势: D1 收盘 vs {{ data.params.long_ma | upper }}">长 <b class="{{ 'pos' if data.current.regime[0] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[0] == 'A' else '↓' }}</b></span>
     <span title="短趋势: D1 收盘 vs {{ data.params.short_ma | upper }}">短 <b class="{{ 'pos' if data.current.regime[1] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[1] == 'A' else '↓' }}</b></span>
     <span title="波动: ATR{{ data.params.atr_n }} vs {{ data.params.vol_win }}日{{ (data.params.vol_q * 100) | round | int }}分位">波 <b class="{{ 'pos' if data.current.regime[2] == 'A' else 'neg' }}">{{ '↑' if data.current.regime[2] == 'A' else '↓' }}</b></span>
-    <span class="muted">已持续 <b>{{ st.current_run_days }}</b> 交易日{% if data.character.avg_days %}(该格历史 {{ data.character.runs }} 段 · 平均 {{ data.character.avg_days }} 天 · 最长 {{ data.character.max_days }}){% endif %} · {{ data.current.date }} · 由前一日收盘判定</span>
+    {# 数值全高亮(2026-08-21 Frank 要): b 提亮色+加粗, 说明文字保持 muted #}
+    <span class="muted">已持续 <b class="hlv">{{ st.current_run_days }}</b> 交易日{% if data.character.avg_days %}(该格历史 <b class="hlv">{{ data.character.runs }}</b> 段 · 平均 <b class="hlv">{{ data.character.avg_days }}</b> 天 · 最长 <b class="hlv">{{ data.character.max_days }}</b>){% endif %} · <b class="hlv">{{ data.current.date }}</b> · 由前一日收盘判定</span>
     {% if data.character.next %}
-    <br><span class="muted" title="天气统计: 只描述历史频率, 不构成预测/信号 — regime 铁律是描述当天不预测明天">历史上 {{ data.character.cell }} 结束后 →
-      {% for x in data.character.next[:3] %}<b>{{ x.cell }}</b> {{ x.pct }}%{{ " · " if not loop.last }}{% endfor %}
-      <span style="opacity:.7">(共 {{ data.character.runs }} 段 · 描述历史, 非预测)</span></span>
+    <br><span class="muted" title="天气统计: 只描述历史频率, 不构成预测/信号 — regime 铁律是描述当天不预测明天">历史上 <b class="hlv">{{ data.character.cell }}</b> 结束后 →
+      {% for x in data.character.next[:3] %}<b class="hlv">{{ x.cell }} {{ x.pct }}%</b>{{ " · " if not loop.last }}{% endfor %}
+      <span style="opacity:.7">(共 <b class="hlv">{{ data.character.runs }}</b> 段 · 描述历史, 非预测)</span></span>
     {% endif %}
   </div>
 </section>
