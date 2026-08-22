@@ -346,6 +346,40 @@ async def regime_version_select(req: RegimeVersionSelect, request: Request):
     return {"current": req.id, "params": p}
 
 
+async def _cell_character_all(pool, vid: int, broker: str, cell: str) -> dict:
+    """全库同口径的格子性格(今日格卡片第二行): 本版本全部品种的时间线压段后,
+    汇总该格的 段数/平均·最长持续 与 结束后去向频率。窗口函数库内聚合(约5万行, 毫秒级);
+    只统计已完结段(next 非空天然排除各品种当前未完段 — 与 cell_character 同纪律)。"""
+    rows = await pool.fetch(
+        "WITH tl AS (SELECT symbol, date, regime,"
+        "        lag(regime) OVER (PARTITION BY symbol ORDER BY date) AS prev"
+        "   FROM regime_timeline WHERE version_id=$1 AND broker=$2),"
+        " runs AS (SELECT symbol, date, regime,"
+        "        count(*) FILTER (WHERE regime IS DISTINCT FROM prev)"
+        "          OVER (PARTITION BY symbol ORDER BY date) AS run_id FROM tl),"
+        " seg AS (SELECT symbol, run_id, regime, count(*) AS days"
+        "   FROM runs GROUP BY 1, 2, 3),"
+        " tr AS (SELECT symbol, regime, days,"
+        "        lead(regime) OVER (PARTITION BY symbol ORDER BY run_id) AS next FROM seg)"
+        " SELECT next, count(*) AS n, round(avg(days), 1) AS avg_days,"
+        "        max(days) AS max_days, count(DISTINCT symbol) AS syms"
+        "   FROM tr WHERE regime = $3 AND next IS NOT NULL GROUP BY next ORDER BY n DESC",
+        vid, broker, cell)
+    if not rows:
+        return {}
+    total = sum(r["n"] for r in rows)
+    all_days_avg = round(sum(float(r["avg_days"]) * r["n"] for r in rows) / total, 1)
+    n_syms = await pool.fetchval(
+        "SELECT count(DISTINCT symbol) FROM regime_timeline"
+        " WHERE version_id=$1 AND broker=$2", vid, broker)
+    return {"cell": cell, "runs": total,
+            "symbols": n_syms,
+            "avg_days": all_days_avg,
+            "max_days": max(r["max_days"] for r in rows),
+            "next": [{"cell": r["next"], "n": r["n"],
+                      "pct": round(r["n"] / total * 100)} for r in rows]}
+
+
 @router.get("/regime/{symbol}")
 async def regime_timeline(symbol: str, request: Request, days: int = 90, full: int = 0):
     """品种的 regime 时间线 + 四标准统计(页面即记分卡)。读时自愈补算(无定时任务)。
@@ -380,6 +414,10 @@ async def regime_timeline(symbol: str, request: Request, days: int = 90, full: i
            "stats": regime.stats(regs),
            # 今日格性格卡(纯描述历史非预测): 平均持续/第几天/结束后转去哪的频率
            "character": regime.cell_character(regs),
+           # 全库同口径版(2026-08-22 Frank 要): 本版本全部品种合并统计同一格 —
+           # 不跨版本合并(转移结构随口径变, 版本=坐标系, 混算即脏)。SQL 端聚合, 载荷极小
+           "character_all": await _cell_character_all(
+               pool, vid, regime.DEFAULT_BROKER, regs[-1]),
            # 最新价(库内最后一根 M1 收盘, 券商时间口径) — 页面当前状态条显示"今日 xxx"
            "last_close": await pool.fetchval(
                "SELECT close FROM historical_bars WHERE symbol=$1 AND timeframe='M1'"

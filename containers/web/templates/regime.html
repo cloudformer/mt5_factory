@@ -137,9 +137,14 @@
     {# 数值全高亮(2026-08-21 Frank 要): b 提亮色+加粗, 说明文字保持 muted #}
     <span class="muted">已持续 <b class="hlv">{{ st.current_run_days }}</b> 交易日{% if data.character.avg_days %}(该格历史 <b class="hlv">{{ data.character.runs }}</b> 段 · 平均 <b class="hlv">{{ data.character.avg_days }}</b> 天 · 最长 <b class="hlv">{{ data.character.max_days }}</b>){% endif %} · <b class="hlv">{{ data.current.date }}</b> · 由前一日收盘判定</span>
     {% if data.character.next %}
-    <br><span class="muted" title="天气统计: 只描述历史频率, 不构成预测/信号 — regime 铁律是描述当天不预测明天">历史上 <b class="hlv">{{ data.character.cell }}</b> 结束后 →
+    <br><span class="muted" title="天气统计: 只描述历史频率, 不构成预测/信号 — regime 铁律是描述当天不预测明天">历史上本货币 <b class="hlv">{{ data.character.cell }}</b> 结束后 →
       {% for x in data.character.next[:3] %}<b class="hlv">{{ x.cell }} {{ x.pct }}%</b>{{ " · " if not loop.last }}{% endfor %}
       <span style="opacity:.7">(共 <b class="hlv">{{ data.character.runs }}</b> 段 · 描述历史, 非预测)</span></span>
+    {% endif %}
+    {% if data.character_all.next %}
+    <br><span class="muted" title="同口径版本下全部品种合并(不跨版本混算 — 版本=坐标系); 只统计已完结段">全库同口径(<b class="hlv">{{ data.character_all.symbols }}</b> 品种) {{ data.character_all.cell }} 平均 <b class="hlv">{{ data.character_all.avg_days }}</b> 天 · 结束后 →
+      {% for x in data.character_all.next[:3] %}<b class="hlv">{{ x.cell }} {{ x.pct }}%</b>{{ " · " if not loop.last }}{% endfor %}
+      <span style="opacity:.7">(共 <b class="hlv">{{ data.character_all.runs }}</b> 段)</span></span>
     {% endif %}
   </div>
 </section>
