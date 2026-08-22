@@ -196,9 +196,19 @@
           `<title>${single ? "" : "#" + (s.id ?? "") + " · "}${day(t)} · 单笔 ${p >= 0 ? "+" : ""}${p.toFixed(2)} · 余额 ${fmt(v)}</title></circle>`;
       }
     }
-    svg.innerHTML = band + grid +
+    // 匀速基准弦(2026-08-22 Frank 定): 每条曲线 起点→终点 的轻虚线 —
+    // 曲线贴弦=台阶稳定爬(本事), 趴弦下尾部猛拉=全靠一波(蒙的)。单曲线才画, 多线太乱
+    let chord = "";
+    if (single) {
+      const s0 = S[0], pA = s0.pts[0], pZ = s0.pts[s0.pts.length - 1];
+      chord = `<line x1="${x(pA[0]).toFixed(1)}" y1="${y(pA[1]).toFixed(1)}"` +
+        ` x2="${x(pZ[0]).toFixed(1)}" y2="${y(pZ[1]).toFixed(1)}"` +
+        ` stroke="currentColor" stroke-width="1" stroke-dasharray="5 5" opacity="0.35">` +
+        `<title>匀速基准: 起点→终点直线 — 贴弦=稳定爬, 尾部才拉起=靠一波</title></line>`;
+    }
+    svg.innerHTML = band + grid + chord +
       `<line x1="${L}" y1="${y(init)}" x2="${W - R}" y2="${y(init)}"` +
-      ` stroke="currentColor" stroke-width="2.5" stroke-dasharray="8 5" opacity="0.85"/>` +
+      ` stroke="currentColor" stroke-width="3.5" opacity="0.9"/>` +
       `<line x1="${L}" y1="${y(hi).toFixed(1)}" x2="${W - R}" y2="${y(hi).toFixed(1)}"` +
       ` stroke="#16a34a" stroke-dasharray="4 4" opacity="0.4"/>` +
       `<line x1="${L}" y1="${y(lo).toFixed(1)}" x2="${W - R}" y2="${y(lo).toFixed(1)}"` +
