@@ -147,7 +147,7 @@
     {% for r in results %}
     {# 收起行的笔数/胜率 = 跨所有测过品种合计(纯前端累加 breakdown); 净点/PF/回撤仍主品种 #}
     {% set ns = namespace(t=0, w=0) %}
-    {% for b in r.breakdown %}{% set ns.t = ns.t + (b.metrics.trades or 0) %}{% set ns.w = ns.w + (b.metrics.wins or 0) %}{% endfor %}
+    {% for b in r.breakdown if not (b.symbol == r.symbol and b.broker != r.broker) %}{% set ns.t = ns.t + (b.metrics.trades or 0) %}{% set ns.w = ns.w + (b.metrics.wins or 0) %}{% endfor %}
     <tr>
       <td class="rownum muted"></td>
       <td class="mono">{{ r.strategy_id }}</td>
@@ -253,12 +253,25 @@
             <td class="muted">—</td><td class="muted">—</td>
           </tr>
           {% endif %}
-          {% for b in r.breakdown if b.symbol == r.symbol %}{# 第二: 主品种回测 #}
+          {% for b in r.breakdown if b.symbol == r.symbol and b.broker == r.broker %}{# 第二: 主品种回测(户口行) #}
           {% set bw = (b.metrics.trades * b.metrics.win_rate) | round | int if b.metrics.trades else 0 %}
           <tr>
             <td>回测</td>
             <td>{{ b.symbol }} <span class="badge">主</span></td>
             <td class="muted">{{ b.broker or '—' }}</td>
+            <td>{{ b.metrics.trades }} ({{ bw }}胜/{{ b.metrics.trades - bw }}负)</td>
+            <td>{{ m.pct(b.metrics.win_rate * 100) if b.metrics.trades else '—' }}</td>
+            <td class="{{ 'pos' if b.metrics.net_points > 0 else 'neg' }}">{{ b.metrics.net_points }}</td>
+            <td>{{ b.metrics.profit_factor or '—' }}</td>
+            <td class="muted">{{ b.metrics.max_dd_points or 0 }}</td>
+          </tr>
+          {% endfor %}
+          {% for b in r.breakdown if b.symbol == r.symbol and b.broker != r.broker %}{# 第2.5: 跨券商验证(同品种·别家数据源, v2.3) #}
+          {% set bw = (b.metrics.trades * b.metrics.win_rate) | round | int if b.metrics.trades else 0 %}
+          <tr>
+            <td class="muted" title="同品种在别家券商数据上的验证行 — 换数据源结论该不变; 不进排名只进健壮性">回测·跨券商</td>
+            <td>{{ b.symbol }}</td>
+            <td class="muted">{{ b.broker }}</td>
             <td>{{ b.metrics.trades }} ({{ bw }}胜/{{ b.metrics.trades - bw }}负)</td>
             <td>{{ m.pct(b.metrics.win_rate * 100) if b.metrics.trades else '—' }}</td>
             <td class="{{ 'pos' if b.metrics.net_points > 0 else 'neg' }}">{{ b.metrics.net_points }}</td>
